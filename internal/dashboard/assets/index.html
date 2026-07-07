@@ -21,8 +21,7 @@
     <main>
       <h2>Queue</h2>
       <form class="inline" id="add-form">
-        <input id="add-input" placeholder="https://github.com/owner/repo/pull/123  ·  or owner/repo" required size="40" />
-        <input id="add-number" placeholder="PR #" type="number" min="1" style="width:90px" />
+        <input id="add-input" placeholder="https://github.com/owner/repo/pull/123 — or owner/repo/pull/123" required size="48" />
         <button type="submit">Add to queue</button>
         <span class="err" id="add-err"></span>
       </form>
@@ -111,15 +110,9 @@
         e.preventDefault();
         const err = document.getElementById('add-err');
         err.textContent = '';
-        const value = document.getElementById('add-input').value.trim();
-        const body = value.startsWith('http')
-          ? { url: value }
-          : { repo: value, number: parseInt(document.getElementById('add-number').value, 10) };
-        if (!body.url && !(body.number > 0)) { err.textContent = 'PR # required (or paste a full PR URL)'; return; }
         try {
-          await post('/api/queue', body);
+          await post('/api/queue', { url: document.getElementById('add-input').value.trim() });
           document.getElementById('add-input').value = '';
-          document.getElementById('add-number').value = '';
           refresh();
         } catch (ex) { err.textContent = ex.message; }
       });

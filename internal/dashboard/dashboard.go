@@ -79,14 +79,17 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 }
 
 var (
-	repoPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	prURLPattern = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)`)
+	repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	// prRefPattern matches a PR reference in URL syntax, with or without the
+	// https://github.com/ prefix: "owner/repo/pull/123" works bare.
+	prRefPattern = regexp.MustCompile(`^(?:https://github\.com/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)`)
 )
 
-// addToQueue accepts either {"url": "https://github.com/owner/repo/pull/N"} or
-// {"repo": "owner/name", "number": N}. Either way the repo must be one of the
-// configured watched repos — the dashboard is the surface other people use, so
-// it only takes PRs this tool is actually set up to review.
+// addToQueue accepts {"url": "<PR reference>"} — a full GitHub PR URL or the
+// bare "owner/repo/pull/N" form — or {"repo": "owner/name", "number": N}.
+// Either way the repo must be one of the configured watched repos — the
+// dashboard is the surface other people use, so it only takes PRs this tool is
+// actually set up to review.
 func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Repo   string `json:"repo"`
@@ -98,16 +101,16 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.URL != "" {
-		m := prURLPattern.FindStringSubmatch(strings.TrimSpace(req.URL))
+		m := prRefPattern.FindStringSubmatch(strings.TrimSpace(req.URL))
 		if m == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a GitHub PR URL — expected https://github.com/owner/repo/pull/N"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a PR reference — expected https://github.com/owner/repo/pull/N or owner/repo/pull/N"})
 			return
 		}
 		req.Repo = m[1]
 		req.Number, _ = strconv.Atoi(m[2])
 	}
 	if !repoPattern.MatchString(req.Repo) || req.Number <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need {"url": "https://github.com/owner/repo/pull/N"} or {"repo": "owner/name", "number": N}`})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need {"url": "owner/repo/pull/N"} or {"repo": "owner/name", "number": N}`})
 		return
 	}
 	if !s.repoWatched(req.Repo) {

@@ -14,17 +14,22 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// Verdict is the engine's outcome for one PR.
+// Verdict is the agent's report of what it actually did for one PR. The agent
+// performs the approve/comment on GitHub itself; this is the read-back so the
+// store can record history and update status.
 type Verdict struct {
-	Decision string `json:"decision"` // APPROVE | COMMENT | ERROR
-	Raw      string `json:"raw,omitempty"`
+	Decision string `json:"decision"` // APPROVED | COMMENTED | SKIPPED | ERROR
+	Summary  string `json:"summary,omitempty"`
+	Raw      string `json:"raw,omitempty"` // full engine transcript, for debugging
 }
 
-// Verdict decisions.
+// Verdict decisions. The first three are reported by the agent; ERROR is the
+// driver's own value for "the invocation failed / no usable report".
 const (
-	DecisionApprove = "APPROVE"
-	DecisionComment = "COMMENT"
-	DecisionError   = "ERROR"
+	DecisionApproved  = "APPROVED"
+	DecisionCommented = "COMMENTED"
+	DecisionSkipped   = "SKIPPED"
+	DecisionError     = "ERROR"
 )
 
 // Request is one PR review job.

@@ -89,14 +89,22 @@ func TestApprovalDirectiveDefaultsToCommentOnly(t *testing.T) {
 	}
 }
 
-func TestParseDecision(t *testing.T) {
-	if got := parseDecision("… the review APPROVEs this change"); got != DecisionApprove {
-		t.Errorf("expected APPROVE, got %s", got)
+func TestParseVerdict(t *testing.T) {
+	v, err := parseVerdict([]byte(`{"decision":"APPROVED","summary":"looks good, approved on GitHub"}`))
+	if err != nil || v.Decision != DecisionApproved || v.Summary == "" {
+		t.Errorf("expected APPROVED verdict, got %+v err=%v", v, err)
 	}
-	if got := parseDecision("I will DO NOT APPROVE, leaving comments"); got != DecisionComment {
-		t.Errorf("expected COMMENT for 'do not approve', got %s", got)
+	if _, err := parseVerdict([]byte(`{"decision":"MAYBE","summary":"?"}`)); err == nil {
+		t.Error("invalid decision must be rejected")
 	}
-	if got := parseDecision("left some comments"); got != DecisionComment {
-		t.Errorf("expected COMMENT default, got %s", got)
+	if _, err := parseVerdict([]byte(``)); err == nil {
+		t.Error("empty report must be rejected")
+	}
+	if _, err := parseVerdict([]byte(`not json`)); err == nil {
+		t.Error("non-JSON report must be rejected")
+	}
+	// ERROR is the driver's value, never a valid agent report.
+	if _, err := parseVerdict([]byte(`{"decision":"ERROR","summary":"x"}`)); err == nil {
+		t.Error("agent must not be able to report ERROR")
 	}
 }

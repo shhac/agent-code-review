@@ -139,23 +139,43 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 	prompt := review.BuildPrompt(s.cfg, c, facts)
 
 	verdict, reviewErr := s.engine.Review(ctx, review.Request{Candidate: c, Prompt: prompt, WorkDir: workDir})
+	if verdict.Summary != "" {
+		s.logf("review %s#%d: %s — %s", c.Repo, c.Number, verdict.Decision, verdict.Summary)
+	}
 
-	if err := s.store.RecordReview(ctx, store.Review{
-		Repo:       c.Repo,
-		Number:     c.Number,
-		HeadSHA:    c.HeadSHA,
-		Verdict:    verdict.Decision,
-		Engine:     s.engine.Name(),
-		ReviewedAt: time.Now(),
-	}); err != nil {
+	// Record history only when the agent actually reviewed (approved or
+	// commented). A skip or failure must NOT count as "reviewed at this SHA",
+	// or Refreshed detection would never re-surface the PR.
+	if verdict.Decision == review.DecisionApproved || verdict.Decision == review.DecisionCommented {
+		if err := s.store.RecordReview(ctx, store.Review{
+			Repo:       c.Repo,
+			Number:     c.Number,
+			HeadSHA:    c.HeadSHA,
+			Verdict:    verdict.Decision,
+			Engine:     s.engine.Name(),
+			ReviewedAt: time.Now(),
+		}); err != nil {
+			return err
+		}
+	}
+
+	status := statusFor(verdict.Decision)
+	if err := s.store.SetStatus(ctx, c.Repo, c.Number, status); err != nil {
 		return err
 	}
+	return reviewErr
+}
 
-	if reviewErr != nil {
-		_ = s.store.SetStatus(ctx, c.Repo, c.Number, store.StatusError)
-		return reviewErr
+// statusFor maps the agent's reported decision onto a queue status.
+func statusFor(decision string) string {
+	switch decision {
+	case review.DecisionApproved, review.DecisionCommented:
+		return store.StatusReviewed
+	case review.DecisionSkipped:
+		return store.StatusSkipped
+	default:
+		return store.StatusError
 	}
-	return s.store.SetStatus(ctx, c.Repo, c.Number, store.StatusReviewed)
 }
 
 func newRunID() string { return fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid()) }

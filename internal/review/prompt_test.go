@@ -12,22 +12,22 @@ func TestDeriveFacts(t *testing.T) {
 	cases := []struct {
 		name           string
 		author, ghUser string
-		approvable     bool
+		allowed        bool
 		wantIsGH       bool
 	}{
 		{"self-review", "bob", "bob", false, true},
-		{"approvable", "alice", "bob", true, false},
+		{"allowed author", "alice", "bob", true, false},
 		{"stranger", "carol", "bob", false, false},
 		{"no gh user", "bob", "", false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := DeriveFacts(store.Candidate{Author: tc.author}, tc.ghUser, tc.approvable)
+			f := DeriveFacts(store.Candidate{Author: tc.author}, tc.ghUser, tc.allowed)
 			if f.AuthorIsGHUser != tc.wantIsGH {
 				t.Errorf("AuthorIsGHUser = %v, want %v", f.AuthorIsGHUser, tc.wantIsGH)
 			}
-			if f.AuthorApprovable != tc.approvable {
-				t.Errorf("AuthorApprovable = %v, want %v", f.AuthorApprovable, tc.approvable)
+			if f.AuthorAllowed != tc.allowed {
+				t.Errorf("AuthorAllowed = %v, want %v", f.AuthorAllowed, tc.allowed)
 			}
 		})
 	}
@@ -39,7 +39,7 @@ func TestBuildPromptAppendsMatchingRules(t *testing.T) {
 			MainPrompt: "MAIN",
 			Rules: []config.Rule{
 				{Name: "self", When: config.Condition{AuthorIsGHUser: true}, Prompt: "SELF-ONLY"},
-				{Name: "stranger", When: config.Condition{AuthorNotInAllowlist: true}, Prompt: "STRANGER-ONLY"},
+				{Name: "stranger", When: config.Condition{AuthorNotAllowed: true}, Prompt: "STRANGER-ONLY"},
 				{Name: "refreshed", When: config.Condition{CandidateType: "refreshed"}, Prompt: "REFRESHED-ONLY"},
 			},
 		},
@@ -47,7 +47,7 @@ func TestBuildPromptAppendsMatchingRules(t *testing.T) {
 	c := store.Candidate{Repo: "o/r", Number: 7, Type: "new", Author: "bob"}
 
 	// Self-review: only the self rule fires.
-	got := BuildPrompt(cfg, c, Facts{AuthorIsGHUser: true, AuthorApprovable: false})
+	got := BuildPrompt(cfg, c, Facts{AuthorIsGHUser: true, AuthorAllowed: false})
 	if !strings.Contains(got, "MAIN") || !strings.Contains(got, "SELF-ONLY") {
 		t.Errorf("expected MAIN and SELF-ONLY, got:\n%s", got)
 	}
@@ -55,10 +55,10 @@ func TestBuildPromptAppendsMatchingRules(t *testing.T) {
 		t.Errorf("refreshed rule should not fire for a new PR")
 	}
 
-	// Approvable author on a new PR: no stranger, no self, no refreshed rule.
-	got = BuildPrompt(cfg, c, Facts{AuthorApprovable: true})
+	// Allowed author on a new PR: no stranger, no self, no refreshed rule.
+	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
 	if strings.Contains(got, "SELF-ONLY") || strings.Contains(got, "STRANGER-ONLY") {
-		t.Errorf("no author rule should fire for allowlisted author, got:\n%s", got)
+		t.Errorf("no author rule should fire for allowed author, got:\n%s", got)
 	}
 }
 
@@ -66,26 +66,26 @@ func TestApprovalDirectiveDefaultsToCommentOnly(t *testing.T) {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
 	c := store.Candidate{Repo: "o/r", Number: 5, Author: "carol"}
 
-	// Not approvable → hard "do not approve", no reason leaked.
-	got := BuildPrompt(cfg, c, Facts{AuthorApprovable: false})
+	// Author not allowed → hard "do not approve", no reason leaked.
+	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: false})
 	if !strings.Contains(got, "DO NOT approve") {
 		t.Errorf("expected a hard do-not-approve directive, got:\n%s", got)
 	}
 
-	// Self-review, even if approvable → still comment-only, and must not reveal
+	// Self-review, even for an allowed author → still comment-only, and must not reveal
 	// that it's self-authored (would leak the gh user).
-	got = BuildPrompt(cfg, c, Facts{AuthorApprovable: true, AuthorIsGHUser: true})
+	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true, AuthorIsGHUser: true})
 	if !strings.Contains(got, "DO NOT approve") {
-		t.Errorf("self-review must be comment-only even when approvable, got:\n%s", got)
+		t.Errorf("self-review must be comment-only even for an allowed author, got:\n%s", got)
 	}
 	if strings.Contains(got, "self") || strings.Contains(got, "your own") {
 		t.Errorf("directive must not reveal self-authorship, got:\n%s", got)
 	}
 
-	// Approvable and not self → approval permitted.
-	got = BuildPrompt(cfg, c, Facts{AuthorApprovable: true})
+	// Allowed author and not self → approval permitted.
+	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
 	if strings.Contains(got, "DO NOT approve") || !strings.Contains(got, "MAY approve") {
-		t.Errorf("approvable author should be allowed to be approved, got:\n%s", got)
+		t.Errorf("allowed author should be approvable, got:\n%s", got)
 	}
 }
 

@@ -12,17 +12,17 @@ import (
 // Facts are the deterministic things the Go side knows about a candidate before
 // the engine runs. Rules match on these.
 type Facts struct {
-	AuthorIsGHUser   bool
-	AuthorApprovable bool // author is on the approver allow-list for this repo
+	AuthorIsGHUser bool
+	AuthorAllowed  bool // author is on the allowed-authors list for this repo
 }
 
 // DeriveFacts computes the rule inputs for a candidate. ghUser is the resolved
-// current gh login; authorApprovable comes from the store's per-repo approver
-// list (see store.IsApprover) — the caller looks it up, keeping this pure.
-func DeriveFacts(c store.Candidate, ghUser string, authorApprovable bool) Facts {
+// current gh login; authorAllowed comes from the store's per-repo allowed-authors
+// list (see store.IsAuthorAllowed) — the caller looks it up, keeping this pure.
+func DeriveFacts(c store.Candidate, ghUser string, authorAllowed bool) Facts {
 	return Facts{
-		AuthorIsGHUser:   ghUser != "" && strings.EqualFold(c.Author, ghUser),
-		AuthorApprovable: authorApprovable,
+		AuthorIsGHUser: ghUser != "" && strings.EqualFold(c.Author, ghUser),
+		AuthorAllowed:  authorAllowed,
 	}
 }
 
@@ -58,16 +58,17 @@ func mainPrompt(r config.ReviewSettings) string {
 // approvalDirective states the approval policy for THIS PR as a hard
 // instruction, so comment-only is the default and an APPROVE is only ever
 // permitted when explicitly allowed — never as a fallback when a rule is
-// missing. Approval is allowed only when the author is approvable for this repo
-// AND it isn't a self-authored PR (you can't approve your own PR).
+// missing. Approval is allowed only when the author is on the allowed-authors
+// list for this repo AND it isn't a self-authored PR (you can't approve your
+// own PR).
 //
 // The negative case gives no reason: revealing "this is self-authored" would
 // leak the current gh user's identity, which the spec forbids. Only the single
-// author↔approvable pair for this PR is ever exposed, never the whole list.
+// author↔allowed pair for this PR is ever exposed, never the whole list.
 func approvalDirective(c store.Candidate, f Facts) string {
-	if f.AuthorApprovable && !f.AuthorIsGHUser {
+	if f.AuthorAllowed && !f.AuthorIsGHUser {
 		return "Approval policy: you MAY approve this PR if the review warrants it, " +
-			"or leave comments. @" + c.Author + " is an approved engineer for " + c.Repo + "."
+			"or leave comments. @" + c.Author + " is an allowed author for " + c.Repo + "."
 	}
 	return "Approval policy: DO NOT approve this PR under any circumstances — only leave comments."
 }
@@ -89,7 +90,7 @@ func matches(w config.Condition, c store.Candidate, f Facts) bool {
 	if w.AuthorIsGHUser && !f.AuthorIsGHUser {
 		return false
 	}
-	if w.AuthorNotInAllowlist && f.AuthorApprovable {
+	if w.AuthorNotAllowed && f.AuthorAllowed {
 		return false
 	}
 	if w.CandidateType != "" && !strings.EqualFold(w.CandidateType, c.Type) {

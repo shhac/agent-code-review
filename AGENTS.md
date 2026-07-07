@@ -14,6 +14,7 @@ internal/
 │   ├── serve.go                # `serve` daemon: scheduler + dashboard + tailscale.Wire
 │   ├── run.go                  # `run --once`: single review cycle
 │   ├── queue.go                # `queue ls/add/rm/promote/skip`
+│   ├── authors.go              # `authors allow/deny/ls` — whose PRs we may approve
 │   ├── configcmd.go            # `config path/show`
 │   └── usage.go                # top-level LLM reference card
 ├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults
@@ -39,9 +40,9 @@ internal/
   family release pipeline. Mirrors `agent-sql`'s driver. Requires the `duckdb`
   CLI at runtime.
 - **Nothing environment-specific in code.** Repos, prompts, and cadence are
-  config; the approver allow-list is per-repo runtime data in the store (managed
-  via `approvers`). Never hardcode a GitHub handle or repo — not in code, docs,
-  or the example config.
+  config; the allowed-authors list (whose PRs we may approve) is per-repo
+  runtime data in the store (managed via `authors`). Never hardcode a GitHub
+  handle or repo — not in code, docs, or the example config.
 
 ## Conventions
 

@@ -131,11 +131,11 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 	}
 	// Leave the tmp dir in place — a future run may reuse it (per the spec).
 
-	approvable, err := s.store.IsApprover(ctx, c.Repo, c.Author)
+	allowed, err := s.store.IsAuthorAllowed(ctx, c.Repo, c.Author)
 	if err != nil {
 		return err
 	}
-	facts := review.DeriveFacts(c, s.ghUser, approvable)
+	facts := review.DeriveFacts(c, s.ghUser, allowed)
 	prompt := review.BuildPrompt(s.cfg, c, facts)
 
 	verdict, reviewErr := s.engine.Review(ctx, review.Request{Candidate: c, Prompt: prompt, WorkDir: workDir})

@@ -4,7 +4,7 @@
     "your-org/another-repo"
   ],
   "gh_user": "",
-  "//approvers": "The approver allow-list lives in the DuckDB store, per repo. Manage it with: agent-code-review approvers add <owner/repo|*> <github-handle> [--name ... --email ... --slack-id ...]",
+  "//authors": "Allowed authors (whose PRs we may approve) live in the DuckDB store, per repo. Manage with: agent-code-review authors allow <owner/repo|*> <github-handle> [--name ... --email ... --slack-id ...]",
   "candidates": {
     "new_max_age_days": 14,
     "refreshed_max_age_days": 21
@@ -17,7 +17,7 @@
   "review": {
     "engine": "codex",
     "main_prompt": "Act as a friendly PR unblocker. Review this pull request using the pr-issue-review skill and let the skill choose its own review profile. Complete every action the skill asks for (tmp workspace, GitHub review/comments). You have access to gh, agent-slack, and a tmp workspace.",
-    "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is approvable for this repo and it isn't self-authored) — you do not need a rule for it. Rules add EXTRA instructions when their condition matches.",
+    "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is on the allowed-authors list for this repo and it isn't self-authored) — you do not need a rule for it. Rules add EXTRA instructions when their condition matches.",
     "rules": [
       {
         "name": "slack-on-approve",

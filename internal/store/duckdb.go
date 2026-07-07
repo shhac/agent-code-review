@@ -233,10 +233,10 @@ func (d *duckDB) ListRuns(ctx context.Context, limit int) ([]Run, error) {
 	return runs, nil
 }
 
-// --- approvers ---
+// --- allowed authors ---
 
-func (d *duckDB) AddApprover(ctx context.Context, a Approver) error {
-	sql := fmt.Sprintf(`INSERT INTO approvers (repo, github_handle, name, email, slack_id)
+func (d *duckDB) AllowAuthor(ctx context.Context, a AllowedAuthor) error {
+	sql := fmt.Sprintf(`INSERT INTO allowed_authors (repo, github_handle, name, email, slack_id)
 	VALUES (%s, %s, %s, %s, %s)
 	ON CONFLICT (repo, github_handle) DO UPDATE SET
 	  name = excluded.name, email = excluded.email, slack_id = excluded.slack_id`,
@@ -245,14 +245,14 @@ func (d *duckDB) AddApprover(ctx context.Context, a Approver) error {
 	return err
 }
 
-func (d *duckDB) RemoveApprover(ctx context.Context, repo, handle string) error {
+func (d *duckDB) DenyAuthor(ctx context.Context, repo, handle string) error {
 	_, err := d.query(ctx, fmt.Sprintf(
-		"DELETE FROM approvers WHERE repo = %s AND lower(github_handle) = lower(%s)", q(repo), q(handle)))
+		"DELETE FROM allowed_authors WHERE repo = %s AND lower(github_handle) = lower(%s)", q(repo), q(handle)))
 	return err
 }
 
-func (d *duckDB) ListApprovers(ctx context.Context, repo string) ([]Approver, error) {
-	sql := "SELECT * FROM approvers"
+func (d *duckDB) ListAllowedAuthors(ctx context.Context, repo string) ([]AllowedAuthor, error) {
+	sql := "SELECT * FROM allowed_authors"
 	if repo != "" {
 		sql += " WHERE repo = " + q(repo)
 	}
@@ -261,9 +261,9 @@ func (d *duckDB) ListApprovers(ctx context.Context, repo string) ([]Approver, er
 	if err != nil {
 		return nil, err
 	}
-	approvers := make([]Approver, 0, len(rows))
+	authors := make([]AllowedAuthor, 0, len(rows))
 	for _, r := range rows {
-		approvers = append(approvers, Approver{
+		authors = append(authors, AllowedAuthor{
 			Repo:         getString(r, "repo"),
 			GitHubHandle: getString(r, "github_handle"),
 			Name:         getString(r, "name"),
@@ -271,15 +271,15 @@ func (d *duckDB) ListApprovers(ctx context.Context, repo string) ([]Approver, er
 			SlackID:      getString(r, "slack_id"),
 		})
 	}
-	return approvers, nil
+	return authors, nil
 }
 
-func (d *duckDB) IsApprover(ctx context.Context, repo, handle string) (bool, error) {
+func (d *duckDB) IsAuthorAllowed(ctx context.Context, repo, handle string) (bool, error) {
 	if handle == "" {
 		return false, nil
 	}
 	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT 1 FROM approvers WHERE (repo = %s OR repo = %s) AND lower(github_handle) = lower(%s) LIMIT 1",
+		"SELECT 1 FROM allowed_authors WHERE (repo = %s OR repo = %s) AND lower(github_handle) = lower(%s) LIMIT 1",
 		q(repo), q(WildcardRepo), q(handle)))
 	if err != nil {
 		return false, err

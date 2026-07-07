@@ -37,11 +37,12 @@ type Review struct {
 	ReviewedAt time.Time `json:"reviewed_at"`
 }
 
-// Approver is one entry in a repo's approval allow-list. Approval is decided
-// per repo: a PR author may be approved only if listed for that PR's repo (or
-// for the wildcard repo "*"). The list lives in the store, not config, so it
-// can be managed at runtime and vary per repo.
-type Approver struct {
+// AllowedAuthor is one entry in a repo's allowed-authors list: an author whose
+// PRs WE may approve (we are the reviewer — this is not about who can approve).
+// Decided per repo: a PR may be approved only if its author is listed for that
+// PR's repo (or for the wildcard repo "*"). The list lives in the store, not
+// config, so it can be managed at runtime and vary per repo.
+type AllowedAuthor struct {
 	Repo         string `json:"repo"`
 	GitHubHandle string `json:"github_handle"`
 	Name         string `json:"name,omitempty"`
@@ -49,7 +50,7 @@ type Approver struct {
 	SlackID      string `json:"slack_id,omitempty"`
 }
 
-// WildcardRepo, when used as an Approver.Repo, applies to every repo.
+// WildcardRepo, when used as an AllowedAuthor.Repo, applies to every repo.
 const WildcardRepo = "*"
 
 // Run is one review cycle, used as the advisory run-lock.
@@ -101,13 +102,13 @@ type Store interface {
 	// ListReviews returns review history, most recent first, capped at limit.
 	ListReviews(ctx context.Context, limit int) ([]Review, error)
 
-	// Approver allow-list (per repo, "*" = all repos).
-	AddApprover(ctx context.Context, a Approver) error
-	RemoveApprover(ctx context.Context, repo, handle string) error
-	ListApprovers(ctx context.Context, repo string) ([]Approver, error)
-	// IsApprover reports whether handle may be approved for repo, matching the
-	// repo exactly or the wildcard "*".
-	IsApprover(ctx context.Context, repo, handle string) (bool, error)
+	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.
+	AllowAuthor(ctx context.Context, a AllowedAuthor) error
+	DenyAuthor(ctx context.Context, repo, handle string) error
+	ListAllowedAuthors(ctx context.Context, repo string) ([]AllowedAuthor, error)
+	// IsAuthorAllowed reports whether handle's PRs may be approved for repo,
+	// matching the repo exactly or the wildcard "*".
+	IsAuthorAllowed(ctx context.Context, repo, handle string) (bool, error)
 
 	// ActiveRun returns an unfinished run more recent than staleAfter, if any.
 	ActiveRun(ctx context.Context, staleAfter time.Duration) (Run, bool, error)

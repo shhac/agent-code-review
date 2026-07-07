@@ -29,11 +29,11 @@ CREATE TABLE IF NOT EXISTS reviews (
   reviewed_at TIMESTAMP NOT NULL
 );
 
--- Per-repo approver allow-list. A PR may receive an APPROVE only when its
--- author's handle is listed for that PR's repo (or for the wildcard repo '*').
--- Anyone not listed is comment-only. This is the source of truth for approval,
--- managed via `agent-code-review approvers`.
-CREATE TABLE IF NOT EXISTS approvers (
+-- Per-repo allowed authors: whose PRs WE (the reviewer) may approve — not who
+-- can approve. A PR may receive an APPROVE only when its author's handle is
+-- listed for that PR's repo (or for the wildcard repo '*'). Anyone not listed
+-- is comment-only. Managed via `agent-code-review authors allow|deny|ls`.
+CREATE TABLE IF NOT EXISTS allowed_authors (
   repo          TEXT NOT NULL,               -- 'owner/name' or '*' (all repos)
   github_handle TEXT NOT NULL,
   name          TEXT,

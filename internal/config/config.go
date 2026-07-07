@@ -30,10 +30,10 @@ var starterJSON []byte
 // the deterministic facts the CLI knows about a candidate before invoking the
 // engine.
 type Condition struct {
-	AuthorIsGHUser       bool     `json:"author_is_gh_user,omitempty"`
-	AuthorNotInAllowlist bool     `json:"author_not_in_allowlist,omitempty"`
-	CandidateType        string   `json:"candidate_type,omitempty"` // "new" | "refreshed" | ""
-	Repos                []string `json:"repos,omitempty"`          // "owner/name" match, any-of
+	AuthorIsGHUser   bool     `json:"author_is_gh_user,omitempty"`
+	AuthorNotAllowed bool     `json:"author_not_allowed,omitempty"` // author not on the allowed-authors list for this repo
+	CandidateType    string   `json:"candidate_type,omitempty"`     // "new" | "refreshed" | ""
+	Repos            []string `json:"repos,omitempty"`              // "owner/name" match, any-of
 }
 
 // Rule is a conditional prompt fragment: "when <condition>, add <prompt> to
@@ -99,8 +99,8 @@ type DashboardSettings struct {
 type Config struct {
 	Repos  []string `json:"repos,omitempty"`
 	GHUser string   `json:"gh_user,omitempty"` // optional; else derived via `gh api user`
-	// The approver allow-list lives in the store (per repo), not here — manage
-	// it with `agent-code-review approvers`.
+	// The allowed-authors list (whose PRs we may approve) lives in the store,
+	// per repo, not here — manage it with `agent-code-review authors`.
 	Candidates CandidateSettings `json:"candidates,omitempty"`
 	Schedule   ScheduleSettings  `json:"schedule,omitempty"`
 	Review     ReviewSettings    `json:"review,omitempty"`

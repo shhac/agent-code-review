@@ -33,13 +33,15 @@ func (f *fakeStore) RecordReview(context.Context, store.Review) error { return n
 func (f *fakeStore) ListReviews(context.Context, int) ([]store.Review, error) {
 	return nil, nil
 }
-func (f *fakeStore) ListRuns(context.Context, int) ([]store.Run, error)   { return nil, nil }
-func (f *fakeStore) AddApprover(context.Context, store.Approver) error    { return nil }
-func (f *fakeStore) RemoveApprover(context.Context, string, string) error { return nil }
-func (f *fakeStore) ListApprovers(context.Context, string) ([]store.Approver, error) {
+func (f *fakeStore) ListRuns(context.Context, int) ([]store.Run, error)     { return nil, nil }
+func (f *fakeStore) AllowAuthor(context.Context, store.AllowedAuthor) error { return nil }
+func (f *fakeStore) DenyAuthor(context.Context, string, string) error       { return nil }
+func (f *fakeStore) ListAllowedAuthors(context.Context, string) ([]store.AllowedAuthor, error) {
 	return nil, nil
 }
-func (f *fakeStore) IsApprover(context.Context, string, string) (bool, error) { return false, nil }
+func (f *fakeStore) IsAuthorAllowed(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 func (f *fakeStore) ActiveRun(context.Context, time.Duration) (store.Run, bool, error) {
 	return store.Run{}, false, nil
 }

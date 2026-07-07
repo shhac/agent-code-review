@@ -47,10 +47,10 @@ make build      # -> ./agent-code-review
    ```bash
    agent-code-review config init
    ```
-2. Add the engineers whose PRs may be approved (per repo, or `*` for all):
+2. Allow the authors whose PRs may be approved (per repo, or `*` for all):
 
    ```bash
-   agent-code-review approvers add '*' some-handle --name "Some Engineer"
+   agent-code-review authors allow '*' some-handle --name "Some Engineer"
    ```
 3. Kick a single cycle:
 
@@ -77,9 +77,9 @@ queue skip    <owner/repo> <number>
 
 config init | path | show
 
-approvers ls  [--repo R]
-approvers add <owner/repo|*> <handle> [--name N --email E --slack-id ID]
-approvers rm  <owner/repo|*> <handle>
+authors ls    [--repo R]
+authors allow <owner/repo|*> <handle> [--name N --email E --slack-id ID]
+authors deny  <owner/repo|*> <handle>
 
 usage
 ```
@@ -98,19 +98,21 @@ Global flags come from `lib-agent-cli`: `-f/--format`, `-t/--timeout`,
 Candidates are processed New-before-Refreshed, oldest PR first, up to
 `schedule.max_parallel` (default 4) at a time.
 
-## Approval allow-list
+## Allowed authors
 
-Who may be **approved** is decided per repo, and the list lives in the DuckDB
-store (not config) so it can vary per repo and change at runtime:
+We are the reviewer — this list controls **whose PRs we will approve** (not who
+can approve). Decided per repo, and stored in DuckDB (not config) so it can vary
+per repo and change at runtime:
 
 ```bash
-agent-code-review approvers add owner/name alice --name "Alice" --slack-id U01
-agent-code-review approvers add '*' bob            # bob is approvable on every repo
-agent-code-review approvers ls --repo owner/name
+agent-code-review authors allow owner/name alice --name "Alice" --slack-id U01
+agent-code-review authors allow '*' bob            # bob's PRs approvable on every repo
+agent-code-review authors ls --repo owner/name
+agent-code-review authors deny owner/name alice    # back to comment-only
 ```
 
-At review time the CLI looks up whether the PR's author is approvable for that
-PR's repo and passes **only that one author↔approvable pair** into the engine's
+At review time the CLI looks up whether the PR's author is allowed for that
+PR's repo and passes **only that one author↔allowed pair** into the engine's
 prompt — never the whole list.
 
 ## How review works
@@ -121,19 +123,20 @@ and hands it to the engine along with a tmp workspace. The engine (Codex)
 performs the review itself and takes all the GitHub/Slack actions.
 
 The approval directive is always present and **defaults to comment-only**. An
-`APPROVE` is only ever permitted when the author is approvable for this repo
-**and** it isn't a self-authored PR — never as a fallback when a rule happens to
-be missing. In the comment-only case the directive gives no reason, so it can't
-leak who the gh user is. `review.rules` are for *extra* instructions (e.g. the
-post-approve Slack flow), not for the approve/comment decision.
+`APPROVE` is only ever permitted when the author is on the allowed-authors list
+for this repo **and** it isn't a self-authored PR — never as a fallback when a
+rule happens to be missing. In the comment-only case the directive gives no
+reason, so it can't leak who the gh user is. `review.rules` are for *extra*
+instructions (e.g. the post-approve Slack flow), not for the approve/comment
+decision.
 
 ## Configuration
 
 `~/.config/agent-code-review/config.json` (respects `XDG_CONFIG_HOME`). See
 `config.example.json` for the full shape: `repos`, `gh_user`, `candidates`,
 `schedule`, `review` (engine + prompt + rules + codex), `store`, and `dashboard`
-(addr + tailscale). The approver allow-list is **not** in config — it lives in
-the store; manage it with `approvers`.
+(addr + tailscale). The allowed-authors list is **not** in config — it lives in
+the store; manage it with `authors`.
 
 ## Output
 

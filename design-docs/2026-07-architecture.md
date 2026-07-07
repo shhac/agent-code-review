@@ -126,3 +126,7 @@ example config.
   `config init` wrote the embedded starter (kept in lockstep with
   `config.example.json` by a test); `serve` warned that `--tailscale funnel`
   exposes the unauthenticated dashboard publicly.
+- **`approvers` was renamed to `authors`** (`authors allow|deny|ls`, table
+  `allowed_authors`, `IsAuthorAllowed`): the original name misread as "who can
+  approve", when the list controls whose PRs *we* — the reviewer — will approve.
+  The entity-named command group also left room for future author-scoped verbs.

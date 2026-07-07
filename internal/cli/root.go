@@ -34,7 +34,7 @@ func newRootCmd(version string) *cobra.Command {
 	registerServe(root)
 	registerRun(root)
 	registerQueue(root)
-	registerApprovers(root)
+	registerAuthors(root)
 	registerConfig(root)
 	registerUsage(root)
 

@@ -22,7 +22,7 @@ func registerConfig(root *cobra.Command) {
 				if err != nil {
 					return err
 				}
-				return emit(map[string]string{"created": path, "next": "edit repos, review.main_prompt, and schedule; then add approvers via 'approvers add'"})
+				return emit(map[string]string{"created": path, "next": "edit repos, review.main_prompt, and schedule; then allow authors via 'authors allow'"})
 			},
 		},
 		&cobra.Command{

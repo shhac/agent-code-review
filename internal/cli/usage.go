@@ -24,9 +24,9 @@ COMMANDS:
   queue promote <owner/repo> <number>                Float a PR to the top
   queue skip <owner/repo> <number>                   Mark a PR skipped
 
-  approvers ls [--repo R]                             List the approver allow-list
-  approvers add <owner/repo|*> <handle> [--name ...] Add/update an approver for a repo
-  approvers rm <owner/repo|*> <handle>               Remove an approver
+  authors ls [--repo R]                              List allowed authors
+  authors allow <owner/repo|*> <handle> [--name ...] Allow an author's PRs to be approved
+  authors deny <owner/repo|*> <handle>               Make an author's PRs comment-only again
 
   config init                                        Write an annotated starter config
   config path | show                                 Config file location / current config
@@ -43,11 +43,12 @@ CANDIDATES:
   REFRESHED — open, not draft, re-review requested, head SHA differs from our last
               recorded review, ≤ refreshed_max_age_days
 
-APPROVAL: the approver allow-list is stored in DuckDB, per repo (manage it with
-  'approvers'). The assembled prompt always carries a built-in approval directive
-  that DEFAULTS to comment-only; an APPROVE is permitted only when the author is
-  approvable for this repo and it isn't a self-authored PR. Only this PR's
-  author↔approvable pair is passed to the engine — never the whole list.
+APPROVAL: allowed authors (whose PRs WE may approve — we are the reviewer) are
+  stored in DuckDB, per repo (manage with 'authors'). The assembled prompt always
+  carries a built-in approval directive that DEFAULTS to comment-only; an APPROVE
+  is permitted only when the author is allowed for this repo and it isn't a
+  self-authored PR. Only this PR's author↔allowed pair is passed to the engine —
+  never the whole list.
 
 REVIEW: the engine (codex) receives the main prompt + approval directive + any
   matching rule fragments and performs the review itself (typically via the

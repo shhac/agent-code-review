@@ -32,10 +32,14 @@ deterministic, testable work:
 The **review engine** (`internal/review`, default `codex`) is handed the
 assembled prompt and left to do everything fuzzy: the review itself (typically
 via the `pr-issue-review` skill), posting to GitHub, and any post-approve Slack
-step. The comment-only rules for self-authored / non-approvable PRs, and the
-Slack reaction flow, are expressed as **prompt fragments** (config `review.rules`),
-not Go control flow. This was an explicit call: keep behaviour that needs
-judgement in the prompt, where it's easy to tune, and out of compiled code.
+step. The approve/comment decision is a **built-in approval directive** in the
+assembled prompt (`approvalDirective`) that defaults to comment-only — an
+APPROVE is only ever permitted when the author is approvable for this repo AND
+it isn't self-authored, so a missing/misconfigured rule can never accidentally
+allow an approval. The comment-only case states no reason, avoiding a leak of
+the gh user's identity. Other judgement-based behaviour (the Slack reaction
+flow) is expressed as **prompt fragments** (config `review.rules`), not Go
+control flow — keep tunable behaviour in the prompt, out of compiled code.
 
 **Approval is data, per repo.** Who may be approved lives in the DuckDB
 `approvers` table keyed by `(repo, github_handle)` (with `*` as a wildcard repo),

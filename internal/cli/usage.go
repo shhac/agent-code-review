@@ -43,14 +43,15 @@ CANDIDATES:
               recorded review, ≤ refreshed_max_age_days
 
 APPROVAL: the approver allow-list is stored in DuckDB, per repo (manage it with
-  'approvers'). A PR author listed for its repo (or the wildcard "*") may be
-  approved; anyone else is comment-only. Only this PR's author↔approvable pair is
-  passed to the engine — never the whole list.
+  'approvers'). The assembled prompt always carries a built-in approval directive
+  that DEFAULTS to comment-only; an APPROVE is permitted only when the author is
+  approvable for this repo and it isn't a self-authored PR. Only this PR's
+  author↔approvable pair is passed to the engine — never the whole list.
 
-REVIEW: the engine (codex) receives the main prompt + rule-derived fragments and
-  performs the review itself (typically via the pr-issue-review skill), posting to
-  GitHub and running any post-approve Slack step. Comment-only enforcement for
-  self-authored / non-approvable PRs is expressed as prompt rules, not Go code.
+REVIEW: the engine (codex) receives the main prompt + approval directive + any
+  matching rule fragments and performs the review itself (typically via the
+  pr-issue-review skill), posting to GitHub and running any post-approve Slack
+  step. Rules add extra instructions; the approve/comment decision is built in.
 
 STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
   binary on PATH (brew install duckdb); override with AGENT_CODE_REVIEW_DUCKDB_PATH.

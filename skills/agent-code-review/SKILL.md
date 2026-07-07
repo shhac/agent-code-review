@@ -75,5 +75,6 @@ hardcodes repos or GitHub handles — everything is config.
 - Candidate rules: **NEW** (never reviewed, ≤14d) and **REFRESHED** (head SHA
   changed since our last review, ≤21d). Processed New-first, oldest-first, up to
   4 in parallel.
-- The engine does the actual review and any GitHub/Slack actions; comment-only
-  behaviour for self-authored / non-approvable PRs is enforced via prompt rules.
+- The engine does the actual review and any GitHub/Slack actions. The assembled
+  prompt carries a built-in approval directive that defaults to comment-only;
+  approval is permitted only for an approvable, non-self-authored PR.

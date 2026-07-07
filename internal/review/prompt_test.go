@@ -62,6 +62,33 @@ func TestBuildPromptAppendsMatchingRules(t *testing.T) {
 	}
 }
 
+func TestApprovalDirectiveDefaultsToCommentOnly(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
+	c := store.Candidate{Repo: "o/r", Number: 5, Author: "carol"}
+
+	// Not approvable → hard "do not approve", no reason leaked.
+	got := BuildPrompt(cfg, c, Facts{AuthorApprovable: false})
+	if !strings.Contains(got, "DO NOT approve") {
+		t.Errorf("expected a hard do-not-approve directive, got:\n%s", got)
+	}
+
+	// Self-review, even if approvable → still comment-only, and must not reveal
+	// that it's self-authored (would leak the gh user).
+	got = BuildPrompt(cfg, c, Facts{AuthorApprovable: true, AuthorIsGHUser: true})
+	if !strings.Contains(got, "DO NOT approve") {
+		t.Errorf("self-review must be comment-only even when approvable, got:\n%s", got)
+	}
+	if strings.Contains(got, "self") || strings.Contains(got, "your own") {
+		t.Errorf("directive must not reveal self-authorship, got:\n%s", got)
+	}
+
+	// Approvable and not self → approval permitted.
+	got = BuildPrompt(cfg, c, Facts{AuthorApprovable: true})
+	if strings.Contains(got, "DO NOT approve") || !strings.Contains(got, "MAY approve") {
+		t.Errorf("approvable author should be allowed to be approved, got:\n%s", got)
+	}
+}
+
 func TestParseDecision(t *testing.T) {
 	if got := parseDecision("… the review APPROVEs this change"); got != DecisionApprove {
 		t.Errorf("expected APPROVE, got %s", got)

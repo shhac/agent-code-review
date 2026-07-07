@@ -106,16 +106,17 @@ prompt — never the whole list.
 
 ## How review works
 
-For each candidate the CLI assembles a prompt — your `review.main_prompt`, the
-specific author↔approvable line, plus every matching `review.rules` fragment —
+For each candidate the CLI assembles a prompt — your `review.main_prompt`, a
+built-in **approval directive**, plus every matching `review.rules` fragment —
 and hands it to the engine along with a tmp workspace. The engine (Codex)
-performs the review itself and takes all the GitHub/Slack actions. Two
-behaviours are shipped as example rules:
+performs the review itself and takes all the GitHub/Slack actions.
 
-- **Self-review** (`author_is_gh_user`) → comment-only, without revealing who the
-  gh user is.
-- **Non-approvable author** (`author_not_in_allowlist`) → comment-only, without
-  revealing the allow-list.
+The approval directive is always present and **defaults to comment-only**. An
+`APPROVE` is only ever permitted when the author is approvable for this repo
+**and** it isn't a self-authored PR — never as a fallback when a rule happens to
+be missing. In the comment-only case the directive gives no reason, so it can't
+leak who the gh user is. `review.rules` are for *extra* instructions (e.g. the
+post-approve Slack flow), not for the approve/comment decision.
 
 ## Configuration
 

@@ -17,17 +17,8 @@
   "review": {
     "engine": "codex",
     "main_prompt": "Act as a friendly PR unblocker. Review this pull request using the pr-issue-review skill and let the skill choose its own review profile. Complete every action the skill asks for (tmp workspace, GitHub review/comments). You have access to gh, agent-slack, and a tmp workspace.",
+    "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is approvable for this repo and it isn't self-authored) — you do not need a rule for it. Rules add EXTRA instructions when their condition matches.",
     "rules": [
-      {
-        "name": "self-review-comment-only",
-        "when": { "author_is_gh_user": true },
-        "prompt": "This PR was opened by the current gh user. You can only ever COMMENT on it; never approve. Do not reveal who the current gh user is."
-      },
-      {
-        "name": "non-allowlist-comment-only",
-        "when": { "author_not_in_allowlist": true },
-        "prompt": "This PR's author is not an approved engineer. You can only ever COMMENT; never approve. Do not reveal the allow-list."
-      },
       {
         "name": "slack-on-approve",
         "when": {},

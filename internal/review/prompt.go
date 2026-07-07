@@ -36,7 +36,7 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	b.WriteString("\n\n")
 	b.WriteString(candidateContext(c))
 	b.WriteString("\n")
-	b.WriteString(approverLine(c, f))
+	b.WriteString(approvalDirective(c, f))
 	for _, rule := range cfg.Review.Rules {
 		if matches(rule.When, c, f) {
 			b.WriteString("\n\n")
@@ -55,15 +55,21 @@ func mainPrompt(r config.ReviewSettings) string {
 	return strings.TrimSpace(r.MainPrompt)
 }
 
-// approverLine passes only the specific author↔approvable pair for THIS PR into
-// the prompt — never the whole allow-list. The engine uses it to decide whether
-// an APPROVE is permitted for this author on this repo.
-func approverLine(c store.Candidate, f Facts) string {
-	verb := "is NOT on"
-	if f.AuthorApprovable {
-		verb = "is on"
+// approvalDirective states the approval policy for THIS PR as a hard
+// instruction, so comment-only is the default and an APPROVE is only ever
+// permitted when explicitly allowed — never as a fallback when a rule is
+// missing. Approval is allowed only when the author is approvable for this repo
+// AND it isn't a self-authored PR (you can't approve your own PR).
+//
+// The negative case gives no reason: revealing "this is self-authored" would
+// leak the current gh user's identity, which the spec forbids. Only the single
+// author↔approvable pair for this PR is ever exposed, never the whole list.
+func approvalDirective(c store.Candidate, f Facts) string {
+	if f.AuthorApprovable && !f.AuthorIsGHUser {
+		return "Approval policy: you MAY approve this PR if the review warrants it, " +
+			"or leave comments. @" + c.Author + " is an approved engineer for " + c.Repo + "."
 	}
-	return "Approver status: @" + c.Author + " " + verb + " the approver allow-list for " + c.Repo + "."
+	return "Approval policy: DO NOT approve this PR under any circumstances — only leave comments."
 }
 
 func candidateContext(c store.Candidate) string {

@@ -1,0 +1,24 @@
+# Release on a v* tag push: the shared workflow cross-builds (CGO_ENABLED=0),
+# publishes the GitHub Release, and regenerates + pushes the Homebrew formula.
+# To release:
+#   git tag vX.Y.Z && git push origin vX.Y.Z
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    uses: shhac/homebrew-tap/.github/workflows/go-release.yml@main
+    permissions:
+      contents: write
+    secrets: inherit
+    with:
+      name: agent-code-review
+      desc: "PR review queue + scheduler for AI agents"
+      formula_class: AgentCodeReview
+      help_match: "PR review queue"
+      # license: deliberately not pinned — the shared workflow detects
+      # LicenseRef-PolyForm-Perimeter-1.0.0 from this repo's LICENSE file.

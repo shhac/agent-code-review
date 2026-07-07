@@ -1,0 +1,24 @@
+.DS_Store
+.env
+.env.*
+
+# build
+dist
+release
+/agent-code-review
+
+# local
+.cache
+.tmp
+.ai-cache
+
+# runtime data (local DuckDB store)
+*.duckdb
+*.duckdb.wal
+
+# claude
+.claude/*.local.json
+CLAUDE.local.md
+
+# design docs — tracked, except the archive of stale/internal notes
+design-docs/archive/

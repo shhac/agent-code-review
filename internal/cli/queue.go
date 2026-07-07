@@ -59,27 +59,20 @@ func queueAddCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				// An existing candidate keeps its discovered metadata — just
-				// requeue it rather than upserting empty fields over it.
-				if _, exists, err := s.GetCandidate(cmd.Context(), repo, number); err != nil {
-					return err
-				} else if exists {
-					if err := s.SetStatus(cmd.Context(), repo, number, store.StatusQueued); err != nil {
-						return err
-					}
-					return emit(map[string]any{"requeued": repo + "#" + strconv.Itoa(number)})
-				}
+				// Requeue inserts new or flips an existing candidate back to
+				// queued, preserving discovered metadata either way.
 				c := store.Candidate{
 					Repo:         repo,
 					Number:       number,
 					Type:         store.TypeNew,
+					URL:          "https://github.com/" + repo + "/pull/" + strconv.Itoa(number),
 					Status:       store.StatusQueued,
 					DiscoveredAt: time.Now(),
 				}
-				if err := s.UpsertCandidate(cmd.Context(), c); err != nil {
+				if err := s.Requeue(cmd.Context(), c); err != nil {
 					return err
 				}
-				return emit(map[string]any{"added": repo + "#" + strconv.Itoa(number)})
+				return emit(map[string]any{"queued": repo + "#" + strconv.Itoa(number)})
 			})
 		},
 	}

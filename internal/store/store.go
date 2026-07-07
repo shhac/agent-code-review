@@ -90,6 +90,11 @@ type Store interface {
 	Init(ctx context.Context) error
 
 	UpsertCandidate(ctx context.Context, c Candidate) error
+	// Requeue inserts c as a queued candidate, or — when it already exists —
+	// just flips its status back to queued, preserving discovered metadata.
+	// This is the manual-add primitive; discovery uses UpsertCandidate, which
+	// deliberately never touches status.
+	Requeue(ctx context.Context, c Candidate) error
 	ListCandidates(ctx context.Context, f Filter) ([]Candidate, error)
 	GetCandidate(ctx context.Context, repo string, number int) (Candidate, bool, error)
 	SetStatus(ctx context.Context, repo string, number int, status string) error

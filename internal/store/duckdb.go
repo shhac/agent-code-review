@@ -109,6 +109,17 @@ func (d *duckDB) UpsertCandidate(ctx context.Context, c Candidate) error {
 	return err
 }
 
+func (d *duckDB) Requeue(ctx context.Context, c Candidate) error {
+	sql := fmt.Sprintf(`INSERT INTO candidates
+	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, status, discovered_at)
+	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, 'queued', %s)
+	ON CONFLICT (repo, number) DO UPDATE SET status = 'queued'`,
+		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
+		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt))
+	_, err := d.query(ctx, sql)
+	return err
+}
+
 func (d *duckDB) ListCandidates(ctx context.Context, f Filter) ([]Candidate, error) {
 	var where []string
 	if f.Status != "" {
@@ -166,15 +177,7 @@ func (d *duckDB) LastReview(ctx context.Context, repo string, number int) (Revie
 	if err != nil || len(rows) == 0 {
 		return Review{}, false, err
 	}
-	r := rows[0]
-	return Review{
-		Repo:       getString(r, "repo"),
-		Number:     getInt(r, "number"),
-		HeadSHA:    getString(r, "head_sha"),
-		Verdict:    getString(r, "verdict"),
-		Engine:     getString(r, "engine"),
-		ReviewedAt: getTime(r, "reviewed_at"),
-	}, true, nil
+	return scanReview(rows[0]), true, nil
 }
 
 func (d *duckDB) RecordReview(ctx context.Context, r Review) error {
@@ -196,14 +199,7 @@ func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
 	}
 	reviews := make([]Review, 0, len(rows))
 	for _, r := range rows {
-		reviews = append(reviews, Review{
-			Repo:       getString(r, "repo"),
-			Number:     getInt(r, "number"),
-			HeadSHA:    getString(r, "head_sha"),
-			Verdict:    getString(r, "verdict"),
-			Engine:     getString(r, "engine"),
-			ReviewedAt: getTime(r, "reviewed_at"),
-		})
+		reviews = append(reviews, scanReview(r))
 	}
 	return reviews, nil
 }
@@ -216,14 +212,7 @@ func (d *duckDB) ListReviewsSince(ctx context.Context, since time.Time) ([]Revie
 	}
 	reviews := make([]Review, 0, len(rows))
 	for _, r := range rows {
-		reviews = append(reviews, Review{
-			Repo:       getString(r, "repo"),
-			Number:     getInt(r, "number"),
-			HeadSHA:    getString(r, "head_sha"),
-			Verdict:    getString(r, "verdict"),
-			Engine:     getString(r, "engine"),
-			ReviewedAt: getTime(r, "reviewed_at"),
-		})
+		reviews = append(reviews, scanReview(r))
 	}
 	return reviews, nil
 }
@@ -239,17 +228,7 @@ func (d *duckDB) ListRuns(ctx context.Context, limit int) ([]Run, error) {
 	}
 	runs := make([]Run, 0, len(rows))
 	for _, r := range rows {
-		run := Run{
-			ID:        getString(r, "id"),
-			StartedAt: getTime(r, "started_at"),
-			Status:    getString(r, "status"),
-			Host:      getString(r, "host"),
-			PID:       getInt(r, "pid"),
-		}
-		if t := getTime(r, "finished_at"); !t.IsZero() {
-			run.FinishedAt = &t
-		}
-		runs = append(runs, run)
+		runs = append(runs, scanRun(r))
 	}
 	return runs, nil
 }
@@ -317,14 +296,7 @@ func (d *duckDB) ActiveRun(ctx context.Context, staleAfter time.Duration) (Run, 
 	if err != nil || len(rows) == 0 {
 		return Run{}, false, err
 	}
-	r := rows[0]
-	return Run{
-		ID:        getString(r, "id"),
-		StartedAt: getTime(r, "started_at"),
-		Status:    getString(r, "status"),
-		Host:      getString(r, "host"),
-		PID:       getInt(r, "pid"),
-	}, true, nil
+	return scanRun(rows[0]), true, nil
 }
 
 func (d *duckDB) StartRun(ctx context.Context, r Run) error {
@@ -342,6 +314,31 @@ func (d *duckDB) FinishRun(ctx context.Context, id string, status string) error 
 }
 
 // --- scan/format helpers ---
+
+func scanReview(r map[string]any) Review {
+	return Review{
+		Repo:       getString(r, "repo"),
+		Number:     getInt(r, "number"),
+		HeadSHA:    getString(r, "head_sha"),
+		Verdict:    getString(r, "verdict"),
+		Engine:     getString(r, "engine"),
+		ReviewedAt: getTime(r, "reviewed_at"),
+	}
+}
+
+func scanRun(r map[string]any) Run {
+	run := Run{
+		ID:        getString(r, "id"),
+		StartedAt: getTime(r, "started_at"),
+		Status:    getString(r, "status"),
+		Host:      getString(r, "host"),
+		PID:       getInt(r, "pid"),
+	}
+	if t := getTime(r, "finished_at"); !t.IsZero() {
+		run.FinishedAt = &t
+	}
+	return run
+}
 
 func scanCandidate(r map[string]any) Candidate {
 	return Candidate{

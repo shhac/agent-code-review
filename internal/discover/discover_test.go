@@ -17,6 +17,7 @@ type fakeStore struct {
 
 func (f *fakeStore) Init(context.Context) error                             { return nil }
 func (f *fakeStore) UpsertCandidate(context.Context, store.Candidate) error { return nil }
+func (f *fakeStore) Requeue(context.Context, store.Candidate) error         { return nil }
 func (f *fakeStore) ListCandidates(context.Context, store.Filter) ([]store.Candidate, error) {
 	return nil, nil
 }

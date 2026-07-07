@@ -149,19 +149,9 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// An existing candidate keeps its discovered metadata — just requeue it.
-	if _, exists, err := s.store.GetCandidate(ctx, req.Repo, req.Number); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	} else if exists {
-		if err := s.store.SetStatus(ctx, req.Repo, req.Number, store.StatusQueued); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"requeued": true})
-		return
-	}
-	err := s.store.UpsertCandidate(ctx, store.Candidate{
+	// Requeue inserts new or flips an existing candidate back to queued,
+	// preserving discovered metadata either way.
+	err := s.store.Requeue(ctx, store.Candidate{
 		Repo:         req.Repo,
 		Number:       req.Number,
 		Type:         store.TypeNew,
@@ -173,7 +163,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"added": true})
+	writeJSON(w, http.StatusOK, map[string]any{"queued": true})
 }
 
 // repoWatched reports whether repo is in the configured watch list

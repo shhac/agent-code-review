@@ -1,0 +1,47 @@
+{
+  "repos": [
+    "your-org/your-repo",
+    "your-org/another-repo"
+  ],
+  "gh_user": "",
+  "//approvers": "The approver allow-list lives in the DuckDB store, per repo. Manage it with: agent-code-review approvers add <owner/repo|*> <github-handle> [--name ... --email ... --slack-id ...]",
+  "candidates": {
+    "new_max_age_days": 14,
+    "refreshed_max_age_days": 21
+  },
+  "schedule": {
+    "enabled": true,
+    "interval": "30m",
+    "max_parallel": 4
+  },
+  "review": {
+    "engine": "codex",
+    "main_prompt": "Act as a friendly PR unblocker. Review this pull request using the pr-issue-review skill and let the skill choose its own review profile. Complete every action the skill asks for (tmp workspace, GitHub review/comments). You have access to gh, agent-slack, and a tmp workspace.",
+    "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is approvable for this repo and it isn't self-authored) — you do not need a rule for it. Rules add EXTRA instructions when their condition matches.",
+    "rules": [
+      {
+        "name": "slack-on-approve",
+        "when": {},
+        "prompt": "If (and only if) you APPROVE, check the configured Slack review channels for a recent message about this PR and react/reply per the team convention: react with :git-approved: and :lizard: when the message covers only this PR (or all its PRs are now approved/merged); otherwise reply in-thread with the PR number, a :lizard: prefix and a :git-approved: suffix. Run agent-slack outside the sandbox so it can load credentials."
+      }
+    ],
+    "codex": {
+      "bin": "codex",
+      "model": "gpt-5.5-codex",
+      "sandbox": "workspace-write",
+      "args": []
+    }
+  },
+  "store": {
+    "engine": "duckdb",
+    "path": ""
+  },
+  "dashboard": {
+    "addr": ":8330",
+    "public_url": "",
+    "tailscale": {
+      "mode": "",
+      "port": 443
+    }
+  }
+}

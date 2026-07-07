@@ -64,6 +64,9 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	if tsDown != nil {
 		stderrLogf("tailscale %s: %s -> http://%s (will shut down on exit)", opts.tailscaleMode, publicURL, opts.addr)
+		if opts.tailscaleMode == "funnel" {
+			stderrLogf("warning: the dashboard has no auth — funnel exposes it (and your queue) to the public internet; prefer --tailscale serve unless that's intended")
+		}
 		defer func() { _ = tsDown() }()
 	}
 

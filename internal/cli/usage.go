@@ -28,6 +28,7 @@ COMMANDS:
   approvers add <owner/repo|*> <handle> [--name ...] Add/update an approver for a repo
   approvers rm <owner/repo|*> <handle>               Remove an approver
 
+  config init                                        Write an annotated starter config
   config path | show                                 Config file location / current config
   usage                                              This help
 

@@ -1,6 +1,9 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +55,27 @@ func TestIntervalFallsBackOnGarbage(t *testing.T) {
 	c := Config{Schedule: ScheduleSettings{Interval: "not-a-duration"}}
 	if got := c.Interval(); got != 30*time.Minute {
 		t.Errorf("Interval on garbage = %v, want 30m fallback", got)
+	}
+}
+
+// TestStarterMatchesExample keeps the embedded starter (written by `config
+// init`) in lockstep with the repo's documented config.example.json.
+func TestStarterMatchesExample(t *testing.T) {
+	example, err := os.ReadFile("../../config.example.json")
+	if err != nil {
+		t.Fatalf("read config.example.json: %v", err)
+	}
+	if !bytes.Equal(bytes.TrimSpace(example), bytes.TrimSpace(StarterJSON())) {
+		t.Error("internal/config/starter.json and config.example.json have drifted — keep them identical")
+	}
+	// The starter must also parse as a Config (annotation keys like //rules_note
+	// are ignored by encoding/json, but the structure must be valid).
+	var cfg Config
+	if err := json.Unmarshal(StarterJSON(), &cfg); err != nil {
+		t.Fatalf("starter.json does not parse as Config: %v", err)
+	}
+	if len(cfg.Repos) == 0 || cfg.Review.MainPrompt == "" {
+		t.Error("starter should ship example repos and a main prompt")
 	}
 }
 

@@ -42,14 +42,22 @@ make build      # -> ./agent-code-review
 
 ## Quick start
 
-1. Create `~/.config/agent-code-review/config.json` (see `config.example.json`).
-   Set your `repos`, the `allowlist`, your `review.main_prompt`, and the schedule.
-2. Kick a single cycle:
+1. Write the starter config and edit it (`repos`, `review.main_prompt`, schedule):
+
+   ```bash
+   agent-code-review config init
+   ```
+2. Add the engineers whose PRs may be approved (per repo, or `*` for all):
+
+   ```bash
+   agent-code-review approvers add '*' some-handle --name "Some Engineer"
+   ```
+3. Kick a single cycle:
 
    ```bash
    agent-code-review run --once
    ```
-3. Or run the daemon with the dashboard on your tailnet:
+4. Or run the daemon with the dashboard on your tailnet:
 
    ```bash
    agent-code-review serve --http :8330 --tailscale serve
@@ -67,11 +75,12 @@ queue rm      <owner/repo> <number>
 queue promote <owner/repo> <number>
 queue skip    <owner/repo> <number>
 
+config init | path | show
+
 approvers ls  [--repo R]
 approvers add <owner/repo|*> <handle> [--name N --email E --slack-id ID]
 approvers rm  <owner/repo|*> <handle>
 
-config path | show
 usage
 ```
 

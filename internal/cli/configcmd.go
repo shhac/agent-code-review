@@ -14,6 +14,18 @@ func registerConfig(root *cobra.Command) {
 	}
 	cmd.AddCommand(
 		&cobra.Command{
+			Use:   "init",
+			Short: "Write an annotated starter config (refuses to overwrite)",
+			Args:  cobra.NoArgs,
+			RunE: func(_ *cobra.Command, _ []string) error {
+				path, err := config.Init()
+				if err != nil {
+					return err
+				}
+				return emit(map[string]string{"created": path, "next": "edit repos, review.main_prompt, and schedule; then add approvers via 'approvers add'"})
+			},
+		},
+		&cobra.Command{
 			Use:   "path",
 			Short: "Print the config file path",
 			Args:  cobra.NoArgs,

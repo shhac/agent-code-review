@@ -6,6 +6,9 @@
 package config
 
 import (
+	_ "embed"
+	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -14,6 +17,13 @@ import (
 )
 
 const appName = "agent-code-review"
+
+// starterJSON is the annotated starter config written by `config init`. It is
+// the same content as the repo's config.example.json (a test keeps them in
+// lockstep).
+//
+//go:embed starter.json
+var starterJSON []byte
 
 // Condition gates a Rule. An empty field means "don't care"; all set fields
 // must match for the rule's prompt fragment to be appended. These map onto
@@ -121,6 +131,25 @@ func Write(cfg Config) error { return store().Save(cfg) }
 
 // Path exposes the config file location for the `config path` command.
 func Path() string { return filePath() }
+
+// Init writes the annotated starter config, refusing to overwrite an existing
+// file — `config init` must never clobber a live setup.
+func Init() (string, error) {
+	path := filePath()
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("Config already exists at %s — edit it directly, or remove it first", path)
+	}
+	if err := os.MkdirAll(Dir(), 0o700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, starterJSON, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// StarterJSON exposes the embedded starter for the lockstep test.
+func StarterJSON() []byte { return starterJSON }
 
 // --- resolved getters: apply defaults so callers never special-case zero ---
 

@@ -21,15 +21,23 @@ type Clock func() time.Time
 // Logf is a minimal logging sink (fmt.Printf-shaped).
 type Logf func(format string, args ...any)
 
+// candidateStore is the narrow slice of the store discovery actually uses:
+// upserting classified candidates and reading our last review for Refreshed
+// detection. Consumer-defined so tests fake two methods, not twenty.
+type candidateStore interface {
+	UpsertCandidate(ctx context.Context, c store.Candidate) error
+	LastReview(ctx context.Context, repo string, number int) (store.Review, bool, error)
+}
+
 // Discoverer turns config + gh + store into fresh queue entries.
 type Discoverer struct {
 	cfg   config.Config
-	store store.Store
+	store candidateStore
 	now   Clock
 	logf  Logf
 }
 
-func New(cfg config.Config, s store.Store, logf Logf) *Discoverer {
+func New(cfg config.Config, s candidateStore, logf Logf) *Discoverer {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}

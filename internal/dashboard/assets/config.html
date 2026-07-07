@@ -40,14 +40,13 @@
       </div>
       <div class="empty" id="authors-empty" hidden>No allowed authors — every PR is comment-only. Add with: agent-code-review authors allow &lt;owner/repo|*&gt; &lt;handle&gt;</div>
     </main>
+    <script src="/app.js"></script>
     <script>
-      const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
-        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 
       async function load() {
         const [cfg, au] = await Promise.all([
-          fetch('/api/config').then(r => r.json()),
-          fetch('/api/authors').then(r => r.json()),
+          fetchJSON('/api/config'),
+          fetchJSON('/api/authors'),
         ]);
 
         const repos = cfg.repos || [];

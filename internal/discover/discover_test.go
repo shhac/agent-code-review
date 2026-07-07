@@ -9,49 +9,17 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// fakeStore stubs the Store interface; only LastReview carries test state.
+// fakeStore stubs the candidateStore consumer interface; only LastReview
+// carries test state.
 type fakeStore struct {
 	last    store.Review
 	hasLast bool
 }
 
-func (f *fakeStore) Init(context.Context) error                             { return nil }
 func (f *fakeStore) UpsertCandidate(context.Context, store.Candidate) error { return nil }
-func (f *fakeStore) Requeue(context.Context, store.Candidate) error         { return nil }
-func (f *fakeStore) ListCandidates(context.Context, store.Filter) ([]store.Candidate, error) {
-	return nil, nil
-}
-func (f *fakeStore) GetCandidate(context.Context, string, int) (store.Candidate, bool, error) {
-	return store.Candidate{}, false, nil
-}
-func (f *fakeStore) SetStatus(context.Context, string, int, string) error { return nil }
-func (f *fakeStore) SetQueuePos(context.Context, string, int, int) error  { return nil }
-func (f *fakeStore) RemoveCandidate(context.Context, string, int) error   { return nil }
 func (f *fakeStore) LastReview(context.Context, string, int) (store.Review, bool, error) {
 	return f.last, f.hasLast, nil
 }
-func (f *fakeStore) RecordReview(context.Context, store.Review) error { return nil }
-func (f *fakeStore) ListReviews(context.Context, int) ([]store.Review, error) {
-	return nil, nil
-}
-func (f *fakeStore) ListReviewsSince(context.Context, time.Time) ([]store.Review, error) {
-	return nil, nil
-}
-func (f *fakeStore) ListRuns(context.Context, int) ([]store.Run, error)     { return nil, nil }
-func (f *fakeStore) AllowAuthor(context.Context, store.AllowedAuthor) error { return nil }
-func (f *fakeStore) DenyAuthor(context.Context, string, string) error       { return nil }
-func (f *fakeStore) ListAllowedAuthors(context.Context, string) ([]store.AllowedAuthor, error) {
-	return nil, nil
-}
-func (f *fakeStore) IsAuthorAllowed(context.Context, string, string) (bool, error) {
-	return false, nil
-}
-func (f *fakeStore) ActiveRun(context.Context, time.Duration) (store.Run, bool, error) {
-	return store.Run{}, false, nil
-}
-func (f *fakeStore) StartRun(context.Context, store.Run) error       { return nil }
-func (f *fakeStore) FinishRun(context.Context, string, string) error { return nil }
-func (f *fakeStore) Close() error                                    { return nil }
 
 func fixedNow() time.Time { return time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC) }
 

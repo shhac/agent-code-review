@@ -83,20 +83,7 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 	}
 	lastMsgPath := filepath.Join(workDir, "verdict.json")
 
-	args := []string{"exec"}
-	if e.model != "" {
-		args = append(args, "--model", e.model)
-	}
-	args = append(args,
-		"--sandbox", e.sandbox,
-		"--cd", workDir,
-		"--skip-git-repo-check", // the per-PR workdir is scratch space, not a repo
-		"--output-schema", schemaPath,
-		"--output-last-message", lastMsgPath,
-	)
-	args = append(args, e.args...)
-	args = append(args, req.Prompt+reportingInstruction)
-
+	args := e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt)
 	cmd := exec.CommandContext(ctx, e.bin, args...)
 	out, runErr := cmd.CombinedOutput()
 	raw := string(out)
@@ -112,6 +99,25 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 		return Verdict{Decision: DecisionError, Raw: raw}, fmt.Errorf("codex exec: %w", runErr)
 	}
 	return Verdict{Decision: DecisionError, Raw: raw}, fmt.Errorf("codex exec succeeded but no verdict report: %w", parseErr)
+}
+
+// buildArgs assembles the codex exec invocation. Pure — the CLI contract
+// (flag set, extra args, reporting instruction appended to the prompt) is
+// pinned by table tests instead of live codex runs.
+func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string) []string {
+	args := []string{"exec"}
+	if e.model != "" {
+		args = append(args, "--model", e.model)
+	}
+	args = append(args,
+		"--sandbox", e.sandbox,
+		"--cd", workDir,
+		"--skip-git-repo-check", // the per-PR workdir is scratch space, not a repo
+		"--output-schema", schemaPath,
+		"--output-last-message", lastMsgPath,
+	)
+	args = append(args, e.args...)
+	return append(args, prompt+reportingInstruction)
 }
 
 // parseVerdictFile reads and validates the agent's final-message report.

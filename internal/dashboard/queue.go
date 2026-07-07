@@ -1,7 +1,9 @@
-// Queue write surface: add (URL or repo/number, gated to watched repos) and
-// reorder. Kept apart from the thin read handlers — this is the one part of
-// the dashboard that validates untrusted input and mutates state.
 package dashboard
+
+// This file is the queue write surface: add (URL or repo/number, gated to
+// watched repos) and reorder. Kept apart from the thin read handlers — this
+// is the one part of the dashboard that validates untrusted input and
+// mutates state.
 
 import (
 	"context"

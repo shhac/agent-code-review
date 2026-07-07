@@ -69,10 +69,8 @@
       </div>
       <div class="empty" id="runs-empty" hidden>No runs yet.</div>
     </main>
+    <script src="/app.js"></script>
     <script>
-      const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
-        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-      const when = (t) => t ? new Date(t).toLocaleString() : '';
 
       function fill(tableId, rows, render) {
         const table = document.getElementById(tableId);
@@ -106,8 +104,12 @@
         if (!u.available) { el.innerHTML = '<span class="muted">not available yet</span>'; return; }
         const s = u.usage || {};
         if (s.error) { el.innerHTML = `<span class="muted">unavailable: ${esc(s.error)}</span>`; return; }
-        const windowName = (w, fallback) => !w ? fallback
-          : w.window_mins >= 10080 ? 'Weekly' : w.window_mins >= 60 ? `${Math.round(w.window_mins / 60)}h window` : `${w.window_mins}m window`;
+        function windowName(w, fallback) {
+          if (!w) return fallback;
+          if (w.window_mins >= 10080) return 'Weekly';
+          if (w.window_mins >= 60) return `${Math.round(w.window_mins / 60)}h window`;
+          return `${w.window_mins}m window`;
+        }
         el.innerHTML =
           meter(windowName(s.primary, 'Primary'), s.primary) +
           meter(windowName(s.secondary, 'Secondary'), s.secondary) +
@@ -142,11 +144,11 @@
       async function refresh() {
         try {
           const [q, rv, rn, us, st] = await Promise.all([
-            fetch('/api/queue').then(r => r.json()),
-            fetch('/api/reviews').then(r => r.json()),
-            fetch('/api/runs').then(r => r.json()),
-            fetch('/api/usage').then(r => r.json()),
-            fetch('/api/stats').then(r => r.json()),
+            fetchJSON('/api/queue'),
+            fetchJSON('/api/reviews'),
+            fetchJSON('/api/runs'),
+            fetchJSON('/api/usage'),
+            fetchJSON('/api/stats'),
           ]);
           const queue = q.candidates || [];
           fill('queue', queue, c => {

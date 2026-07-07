@@ -7,7 +7,6 @@ import (
 )
 
 func registerRun(root *cobra.Command) {
-	var once bool
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run a single review cycle (discover → review → record), then exit",
@@ -30,8 +29,9 @@ func registerRun(root *cobra.Command) {
 			return sched.RunCycle(ctx)
 		},
 	}
-	// --once is the default and only mode today; the flag documents intent and
-	// leaves room for a future --watch.
-	cmd.Flags().BoolVar(&once, "once", true, "Run exactly one cycle (default)")
+	// --once is accepted for CLI-surface stability but is a no-op: run always
+	// performs exactly one cycle. (Registered without a bound variable so it
+	// can't read as if it gates behavior.)
+	cmd.Flags().Bool("once", true, "Run exactly one cycle (default; currently the only mode)")
 	root.AddCommand(cmd)
 }

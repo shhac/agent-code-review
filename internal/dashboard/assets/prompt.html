@@ -37,9 +37,8 @@
       </form>
       <pre id="preview"></pre>
     </main>
+    <script src="/app.js"></script>
     <script>
-      const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
-        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 
       let previews = {};
       function showPreview() {
@@ -48,7 +47,7 @@
       }
 
       async function load() {
-        const p = await fetch('/api/prompt').then(r => r.json());
+        const p = await fetchJSON('/api/prompt');
         document.getElementById('main-prompt').textContent = p.main_prompt || '(no main prompt configured)';
 
         const outcomes = Object.entries(p.outcomes || {}).filter(([, v]) => v);

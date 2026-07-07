@@ -37,7 +37,7 @@ func TestCandidateFromMetadataGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Status != "queued" || c.Type != "new" || c.Author != "alice" || c.HeadSHA != "s" {
+	if c.Type != "new" || c.Author != "alice" || c.HeadSHA != "s" {
 		t.Errorf("candidate wrong: %+v", c)
 	}
 	if c.DiscoveredAt.IsZero() {

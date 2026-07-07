@@ -83,7 +83,7 @@ serve [--http :8330] [--tailscale serve|funnel] [--public-url URL]
       [--no-discovery] [--no-reviews] [--no-schedule]
 run   [--once]
 
-queue ls [--status S] [--repo R]
+queue ls [--repo R]
 queue add     <owner/repo> <number>
 queue rm      <owner/repo> <number>
 queue promote <owner/repo> <number>

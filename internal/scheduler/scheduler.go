@@ -97,7 +97,7 @@ func (s *Scheduler) Discover(ctx context.Context) error {
 func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 	s.logf("cycle: started at %s", time.Now().Format(time.RFC3339))
 
-	staleAfter := s.cfg.Interval() * 4
+	staleAfter := s.cfg.LeaseWindow()
 	if _, active, err := s.store.ActiveRun(ctx, staleAfter); err != nil {
 		return err
 	} else if active {
@@ -117,18 +117,34 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 		s.logf("cycle: finished at %s (%s)", time.Now().Format(time.RFC3339), status)
 	}()
 
-	queued, err := s.store.ListCandidates(ctx, store.Filter{Status: store.StatusQueued})
+	queue, err := s.store.ListQueue(ctx, "")
 	if err != nil {
 		status = "failed"
 		return err
 	}
-	if len(queued) == 0 {
+	// A fresh claim is another worker (or a previous cycle) mid-review; a
+	// stale one is a crashed daemon's abandoned lease — reclaim it.
+	available := availableCandidates(queue, time.Now(), staleAfter)
+	if len(available) == 0 {
 		s.logf("cycle: no candidates")
 		return nil
 	}
-	s.logf("cycle: %d candidate(s) to review", len(queued))
-	s.processQueue(ctx, queued)
+	s.logf("cycle: %d candidate(s) to review", len(available))
+	s.processQueue(ctx, available)
 	return nil
+}
+
+// availableCandidates filters the queue to rows without a live lease (see
+// store.Candidate.ClaimActive): unclaimed rows plus stale claims abandoned by
+// a crashed daemon. Pure — the boundary is unit-tested directly.
+func availableCandidates(queue []store.Candidate, now time.Time, staleAfter time.Duration) []store.Candidate {
+	out := make([]store.Candidate, 0, len(queue))
+	for _, c := range queue {
+		if !c.ClaimActive(now, staleAfter) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // RunCycle is the one-shot flow (`run --once`): a discovery sweep followed by
@@ -159,9 +175,11 @@ func (s *Scheduler) processQueue(ctx context.Context, candidates []store.Candida
 	wg.Wait()
 }
 
-// reviewOne runs the engine against a single candidate and records the verdict.
+// reviewOne claims a candidate, runs the engine against it, and completes it:
+// every outcome — including SKIPPED and ERROR — is recorded in history as the
+// queue row is removed (atomically, SHA-gated; see Store.Complete).
 func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
-	if err := s.store.SetStatus(ctx, c.Repo, c.Number, store.StatusReviewing); err != nil {
+	if err := s.store.Claim(ctx, c.Repo, c.Number, time.Now()); err != nil {
 		return err
 	}
 
@@ -188,50 +206,21 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 		s.logf("review %s#%d: engine output tail: %s", c.Repo, c.Number, tail(verdict.Raw, 500))
 	}
 
-	// Record history only when the agent actually reviewed (approved, commented,
-	// or requested changes). A skip or failure must NOT count as "reviewed at
-	// this SHA", or Refreshed detection would never re-surface the PR.
-	if isActualReview(verdict.Decision) {
-		if err := s.store.RecordReview(ctx, store.Review{
-			Repo:       c.Repo,
-			Number:     c.Number,
-			HeadSHA:    c.HeadSHA,
-			Verdict:    verdict.Decision,
-			Engine:     s.engine.Name(),
-			ReviewedAt: time.Now(),
-		}); err != nil {
-			return err
-		}
-	}
-
-	status := statusFor(verdict.Decision)
-	if err := s.store.SetStatus(ctx, c.Repo, c.Number, status); err != nil {
+	// Every outcome goes to history — SKIPPED/ERROR included. They don't
+	// block a future re-review: store.LastReview filters them out of
+	// Refreshed detection, and new commits change the SHA that discovery's
+	// same-SHA suppression keys on.
+	if err := s.store.Complete(ctx, store.Review{
+		Repo:       c.Repo,
+		Number:     c.Number,
+		HeadSHA:    c.HeadSHA,
+		Verdict:    verdict.Decision,
+		Engine:     s.engine.Name(),
+		ReviewedAt: time.Now(),
+	}); err != nil {
 		return err
 	}
 	return reviewErr
-}
-
-// isActualReview reports whether the decision represents a submitted GitHub
-// review (as opposed to a skip or a failed invocation).
-func isActualReview(decision string) bool {
-	switch decision {
-	case review.DecisionApproved, review.DecisionCommented, review.DecisionRequestedChanges:
-		return true
-	default:
-		return false
-	}
-}
-
-// statusFor maps the agent's reported decision onto a queue status.
-func statusFor(decision string) string {
-	switch {
-	case isActualReview(decision):
-		return store.StatusReviewed
-	case decision == review.DecisionSkipped:
-		return store.StatusSkipped
-	default:
-		return store.StatusError
-	}
 }
 
 // tail returns the last n bytes of s, whitespace-trimmed, newlines flattened.

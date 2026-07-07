@@ -73,6 +73,16 @@ func (d *duckDB) query(ctx context.Context, sql string) ([]map[string]any, error
 	return parseNDJSON(string(out))
 }
 
+// mapRows scans every result row through one scanner — the shared tail of all
+// List* methods, so none can forget the preallocation or empty-slice contract.
+func mapRows[T any](rows []map[string]any, scan func(map[string]any) T) []T {
+	out := make([]T, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, scan(r))
+	}
+	return out
+}
+
 func parseNDJSON(stdout string) ([]map[string]any, error) {
 	var rows []map[string]any
 	for _, line := range strings.Split(stdout, "\n") {
@@ -89,20 +99,12 @@ func parseNDJSON(stdout string) ([]map[string]any, error) {
 	return rows, nil
 }
 
-// --- candidates ---
+// --- queue ---
 
-// candidateInsert renders the shared INSERT head for the candidates table;
-// UpsertCandidate and Requeue differ only in their ON CONFLICT tails.
-func candidateInsert(c Candidate, status string) string {
-	return fmt.Sprintf(`INSERT INTO candidates
-	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, status, discovered_at)
-	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s)`,
-		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
-		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, q(status), ts(c.DiscoveredAt))
-}
-
-func (d *duckDB) UpsertCandidate(ctx context.Context, c Candidate) error {
-	sql := candidateInsert(c, orDefault(c.Status, StatusQueued)) + `
+func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
+	sql := fmt.Sprintf(`INSERT INTO queue
+	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at)
+	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s)
 	ON CONFLICT (repo, number) DO UPDATE SET
 	  type = excluded.type,
 	  title = excluded.title,
@@ -110,29 +112,17 @@ func (d *duckDB) UpsertCandidate(ctx context.Context, c Candidate) error {
 	  url = excluded.url,
 	  head_sha = excluded.head_sha,
 	  updated_at = excluded.updated_at,
-	  discovered_at = excluded.discovered_at`
+	  discovered_at = excluded.discovered_at`,
+		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
+		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt))
 	_, err := d.query(ctx, sql)
 	return err
 }
 
-func (d *duckDB) Requeue(ctx context.Context, c Candidate) error {
-	sql := candidateInsert(c, StatusQueued) + `
-	ON CONFLICT (repo, number) DO UPDATE SET status = 'queued'`
-	_, err := d.query(ctx, sql)
-	return err
-}
-
-func (d *duckDB) ListCandidates(ctx context.Context, f Filter) ([]Candidate, error) {
-	var where []string
-	if f.Status != "" {
-		where = append(where, "status = "+q(f.Status))
-	}
-	if f.Repo != "" {
-		where = append(where, "repo = "+q(f.Repo))
-	}
-	sql := "SELECT * FROM candidates"
-	if len(where) > 0 {
-		sql += " WHERE " + strings.Join(where, " AND ")
+func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error) {
+	sql := "SELECT * FROM queue"
+	if repo != "" {
+		sql += " WHERE repo = " + q(repo)
 	}
 	// Manual queue positions win outright; among the default 0s the schedule
 	// spec's order holds: New before Refreshed, then oldest PR first.
@@ -141,45 +131,73 @@ func (d *duckDB) ListCandidates(ctx context.Context, f Filter) ([]Candidate, err
 	if err != nil {
 		return nil, err
 	}
-	cands := make([]Candidate, 0, len(rows))
-	for _, r := range rows {
-		cands = append(cands, scanCandidate(r))
-	}
-	return cands, nil
+	return mapRows(rows, scanCandidate), nil
 }
 
-func (d *duckDB) SetStatus(ctx context.Context, repo string, number int, status string) error {
-	_, err := d.query(ctx, fmt.Sprintf("UPDATE candidates SET status = %s WHERE repo = %s AND number = %d", q(status), q(repo), number))
+func (d *duckDB) Claim(ctx context.Context, repo string, number int, at time.Time) error {
+	_, err := d.query(ctx, fmt.Sprintf(
+		"UPDATE queue SET claimed_at = %s WHERE repo = %s AND number = %d", ts(at), q(repo), number))
+	return err
+}
+
+// Complete runs as one multi-statement batch — a single duckdb invocation is
+// one connection, so BEGIN/COMMIT is a real transaction and a crash cannot
+// leave the outcome recorded but the row still queued. The DELETE is gated on
+// the reviewed head SHA: if new commits arrived mid-review (discovery updates
+// head_sha on the claimed row), the row survives with its claim cleared so
+// the next cycle reviews the newer commits.
+func (d *duckDB) Complete(ctx context.Context, r Review) error {
+	sql := fmt.Sprintf(`BEGIN;
+	INSERT INTO history (repo, number, head_sha, verdict, engine, reviewed_at) VALUES (%s, %d, %s, %s, %s, %s);
+	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha = %s;
+	UPDATE queue SET claimed_at = NULL WHERE repo = %s AND number = %d;
+	COMMIT;`,
+		q(r.Repo), r.Number, q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt),
+		q(r.Repo), r.Number, q(r.HeadSHA),
+		q(r.Repo), r.Number)
+	_, err := d.query(ctx, sql)
+	return err
+}
+
+func (d *duckDB) Dequeue(ctx context.Context, repo string, number int) error {
+	_, err := d.query(ctx, fmt.Sprintf("DELETE FROM queue WHERE repo = %s AND number = %d", q(repo), number))
 	return err
 }
 
 func (d *duckDB) SetQueuePos(ctx context.Context, repo string, number int, pos int) error {
-	_, err := d.query(ctx, fmt.Sprintf("UPDATE candidates SET queue_pos = %d WHERE repo = %s AND number = %d", pos, q(repo), number))
+	_, err := d.query(ctx, fmt.Sprintf("UPDATE queue SET queue_pos = %d WHERE repo = %s AND number = %d", pos, q(repo), number))
 	return err
 }
 
-func (d *duckDB) RemoveCandidate(ctx context.Context, repo string, number int) error {
-	_, err := d.query(ctx, fmt.Sprintf("DELETE FROM candidates WHERE repo = %s AND number = %d", q(repo), number))
-	return err
-}
+// --- history ---
 
-// --- reviews ---
+// realVerdictsSQL is IsRealVerdict as a SQL predicate operand, built from the
+// same realVerdicts list so the Go and SQL filters cannot drift.
+var realVerdictsSQL = func() string {
+	quoted := make([]string, len(realVerdicts))
+	for i, v := range realVerdicts {
+		quoted[i] = q(v)
+	}
+	return "(" + strings.Join(quoted, ", ") + ")"
+}()
 
 func (d *duckDB) LastReview(ctx context.Context, repo string, number int) (Review, bool, error) {
 	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT * FROM reviews WHERE repo = %s AND number = %d ORDER BY reviewed_at DESC LIMIT 1", q(repo), number))
+		"SELECT * FROM history WHERE repo = %s AND number = %d AND verdict IN %s ORDER BY reviewed_at DESC LIMIT 1",
+		q(repo), number, realVerdictsSQL))
 	if err != nil || len(rows) == 0 {
 		return Review{}, false, err
 	}
 	return scanReview(rows[0]), true, nil
 }
 
-func (d *duckDB) RecordReview(ctx context.Context, r Review) error {
-	sql := fmt.Sprintf(
-		"INSERT INTO reviews (repo, number, head_sha, verdict, engine, reviewed_at) VALUES (%s, %d, %s, %s, %s, %s)",
-		q(r.Repo), r.Number, q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt))
-	_, err := d.query(ctx, sql)
-	return err
+func (d *duckDB) LastOutcome(ctx context.Context, repo string, number int) (Review, bool, error) {
+	rows, err := d.query(ctx, fmt.Sprintf(
+		"SELECT * FROM history WHERE repo = %s AND number = %d ORDER BY reviewed_at DESC LIMIT 1", q(repo), number))
+	if err != nil || len(rows) == 0 {
+		return Review{}, false, err
+	}
+	return scanReview(rows[0]), true, nil
 }
 
 func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
@@ -187,28 +205,20 @@ func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
 		limit = 50
 	}
 	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT * FROM reviews ORDER BY reviewed_at DESC LIMIT %d", limit))
+		"SELECT * FROM history ORDER BY reviewed_at DESC LIMIT %d", limit))
 	if err != nil {
 		return nil, err
 	}
-	reviews := make([]Review, 0, len(rows))
-	for _, r := range rows {
-		reviews = append(reviews, scanReview(r))
-	}
-	return reviews, nil
+	return mapRows(rows, scanReview), nil
 }
 
 func (d *duckDB) ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error) {
 	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT * FROM reviews WHERE reviewed_at >= %s ORDER BY reviewed_at", ts(since)))
+		"SELECT * FROM history WHERE reviewed_at >= %s ORDER BY reviewed_at", ts(since)))
 	if err != nil {
 		return nil, err
 	}
-	reviews := make([]Review, 0, len(rows))
-	for _, r := range rows {
-		reviews = append(reviews, scanReview(r))
-	}
-	return reviews, nil
+	return mapRows(rows, scanReview), nil
 }
 
 func (d *duckDB) ListRuns(ctx context.Context, limit int) ([]Run, error) {
@@ -220,11 +230,7 @@ func (d *duckDB) ListRuns(ctx context.Context, limit int) ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	runs := make([]Run, 0, len(rows))
-	for _, r := range rows {
-		runs = append(runs, scanRun(r))
-	}
-	return runs, nil
+	return mapRows(rows, scanRun), nil
 }
 
 // --- allowed authors ---
@@ -255,17 +261,7 @@ func (d *duckDB) ListAllowedAuthors(ctx context.Context, repo string) ([]Allowed
 	if err != nil {
 		return nil, err
 	}
-	authors := make([]AllowedAuthor, 0, len(rows))
-	for _, r := range rows {
-		authors = append(authors, AllowedAuthor{
-			Repo:         getString(r, "repo"),
-			GitHubHandle: getString(r, "github_handle"),
-			Name:         getString(r, "name"),
-			Email:        getString(r, "email"),
-			SlackID:      getString(r, "slack_id"),
-		})
-	}
-	return authors, nil
+	return mapRows(rows, scanAuthor), nil
 }
 
 func (d *duckDB) IsAuthorAllowed(ctx context.Context, repo, handle string) (bool, error) {
@@ -320,6 +316,16 @@ func scanReview(r map[string]any) Review {
 	}
 }
 
+func scanAuthor(r map[string]any) AllowedAuthor {
+	return AllowedAuthor{
+		Repo:         getString(r, "repo"),
+		GitHubHandle: getString(r, "github_handle"),
+		Name:         getString(r, "name"),
+		Email:        getString(r, "email"),
+		SlackID:      getString(r, "slack_id"),
+	}
+}
+
 func scanRun(r map[string]any) Run {
 	run := Run{
 		ID:        getString(r, "id"),
@@ -335,7 +341,7 @@ func scanRun(r map[string]any) Run {
 }
 
 func scanCandidate(r map[string]any) Candidate {
-	return Candidate{
+	c := Candidate{
 		Repo:         getString(r, "repo"),
 		Number:       getInt(r, "number"),
 		Type:         getString(r, "type"),
@@ -346,9 +352,12 @@ func scanCandidate(r map[string]any) Candidate {
 		CreatedAt:    getTime(r, "created_at"),
 		UpdatedAt:    getTime(r, "updated_at"),
 		QueuePos:     getInt(r, "queue_pos"),
-		Status:       getString(r, "status"),
 		DiscoveredAt: getTime(r, "discovered_at"),
 	}
+	if t := getTime(r, "claimed_at"); !t.IsZero() {
+		c.ClaimedAt = &t
+	}
+	return c
 }
 
 // q renders a SQL string literal (single quotes doubled). NULL for empty.

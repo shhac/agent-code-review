@@ -46,36 +46,46 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
-	if err := s.store.RemoveCandidate(ctx, req.Repo, req.Number); err != nil {
+	if err := s.store.Dequeue(ctx, req.Repo, req.Number); err != nil {
 		s.fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"removed": true})
 }
 
+// queueView is a Candidate plus the display status the frontend keys its
+// badges on. The store has no status column anymore — "reviewing" is derived
+// from a live claim; everything else in the queue is "queued".
+type queueView struct {
+	store.Candidate
+	Status string `json:"status"` // queued|reviewing
+}
+
+// viewQueue derives display statuses from the shared lease predicate
+// (store.Candidate.ClaimActive): a live claim renders "reviewing"; anything
+// else — including a stale claim the next cycle will reclaim — is "queued".
+// Pure — unit-tested.
+func viewQueue(candidates []store.Candidate, now time.Time, staleAfter time.Duration) []queueView {
+	out := make([]queueView, 0, len(candidates))
+	for _, c := range candidates {
+		status := "queued"
+		if c.ClaimActive(now, staleAfter) {
+			status = "reviewing"
+		}
+		out = append(out, queueView{Candidate: c, Status: status})
+	}
+	return out
+}
+
 func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
-	candidates, err := s.store.ListCandidates(ctx, store.Filter{})
+	candidates, err := s.store.ListQueue(ctx, "")
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"candidates": pendingOnly(candidates)})
-}
-
-// pendingOnly drops reviewed candidates from the queue view: a reviewed PR
-// graduates to Recent reviews, and its candidate row stays in the store only
-// as the dedupe/refresh ledger. Skipped and error rows stay visible — they
-// have no review row, so the queue is the only place they can be seen.
-func pendingOnly(candidates []store.Candidate) []store.Candidate {
-	out := make([]store.Candidate, 0, len(candidates))
-	for _, c := range candidates {
-		if c.Status != store.StatusReviewed {
-			out = append(out, c)
-		}
-	}
-	return out
+	writeJSON(w, http.StatusOK, map[string]any{"candidates": viewQueue(candidates, time.Now(), s.config().LeaseWindow())})
 }
 
 // prRefPattern matches a PR reference in URL syntax, with or without the
@@ -127,9 +137,9 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	// Requeue inserts new or flips an existing candidate back to queued,
-	// preserving discovered metadata either way.
-	if err := s.store.Requeue(ctx, c); err != nil {
+	// Completed/skipped PRs are absent from the queue, so a manual re-add is
+	// a plain enqueue; if it's already queued this just refreshes metadata.
+	if err := s.store.Enqueue(ctx, c); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -162,7 +172,7 @@ func (s *Server) handleQueueMove(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 30*time.Second)
 	defer cancel()
 
-	queued, err := s.store.ListCandidates(ctx, store.Filter{Status: store.StatusQueued})
+	queued, err := s.store.ListQueue(ctx, "")
 	if err != nil {
 		s.fail(w, err)
 		return

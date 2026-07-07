@@ -212,6 +212,15 @@ func (c Config) Interval() time.Duration {
 	return durationOr(c.Schedule.Interval, 30*time.Minute)
 }
 
+// LeaseWindow is how long a claim (or an unfinished run) stays authoritative
+// before it is treated as abandoned by a crashed daemon. One definition
+// serves the scheduler's reclaim logic, the run-lock staleness check, and
+// the dashboard's "reviewing" badge — they must agree or the UI and the
+// scheduler drift.
+func (c Config) LeaseWindow() time.Duration {
+	return c.Interval() * 4
+}
+
 // Engine is the review engine id (default "codex").
 func (c Config) Engine() string {
 	if c.Review.Engine != "" {

@@ -11,30 +11,61 @@ import (
 	"time"
 )
 
-// Candidate is a PR in the review queue.
+// Candidate is a PR in the review queue. A candidate exists exactly while
+// review work is pending — completion moves it into history.
 type Candidate struct {
-	Repo         string    `json:"repo"`
-	Number       int       `json:"number"`
-	Type         string    `json:"type"` // "new" | "refreshed"
-	Title        string    `json:"title"`
-	Author       string    `json:"author"`
-	URL          string    `json:"url"`
-	HeadSHA      string    `json:"head_sha"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	QueuePos     int       `json:"queue_pos"`
-	Status       string    `json:"status"` // queued|reviewing|reviewed|skipped|error
-	DiscoveredAt time.Time `json:"discovered_at"`
+	Repo         string     `json:"repo"`
+	Number       int        `json:"number"`
+	Type         string     `json:"type"` // "new" | "refreshed"
+	Title        string     `json:"title"`
+	Author       string     `json:"author"`
+	URL          string     `json:"url"`
+	HeadSHA      string     `json:"head_sha"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	QueuePos     int        `json:"queue_pos"`
+	DiscoveredAt time.Time  `json:"discovered_at"`
+	ClaimedAt    *time.Time `json:"claimed_at,omitempty"` // set while an engine reviews it; stale claims are reclaimable
 }
 
-// Review records one completed engine review of a PR at a specific head SHA.
+// ClaimActive reports whether c's claim is a live lease: an engine claimed it
+// within the window. False for unclaimed rows and for stale claims (a crashed
+// daemon's leftovers — eligible for reclaim). This is THE lease predicate:
+// the scheduler's reclaim filter and the dashboard's "reviewing" badge are
+// both defined in terms of it, so they cannot disagree.
+func (c Candidate) ClaimActive(now time.Time, window time.Duration) bool {
+	return c.ClaimedAt != nil && now.Sub(*c.ClaimedAt) <= window
+}
+
+// Review records one completed outcome for a PR at a specific head SHA —
+// including SKIPPED and ERROR, which live in history like everything else.
 type Review struct {
 	Repo       string    `json:"repo"`
 	Number     int       `json:"number"`
 	HeadSHA    string    `json:"head_sha"`
-	Verdict    string    `json:"verdict"` // APPROVED|COMMENTED|REQUESTED_CHANGES (real reviews only)
+	Verdict    string    `json:"verdict"` // APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
 	Engine     string    `json:"engine"`
 	ReviewedAt time.Time `json:"reviewed_at"`
+}
+
+// realVerdicts is the single source of the "actual posted review" set — the
+// outcomes that count as "reviewed at this SHA" for Refreshed detection.
+// SKIPPED and ERROR deliberately aren't in it: new commits (or a manual
+// re-add) must be able to re-surface those PRs. Both IsRealVerdict and the
+// driver's SQL filter derive from this list. (The engine's Decision*
+// constants in the review package mirror these strings; review imports
+// store, so the vocabulary can't reference them from here.)
+var realVerdicts = []string{"APPROVED", "COMMENTED", "REQUESTED_CHANGES"}
+
+// IsRealVerdict reports whether v is an actual posted review — the predicate
+// behind LastReview's history filter.
+func IsRealVerdict(v string) bool {
+	for _, rv := range realVerdicts {
+		if v == rv {
+			return true
+		}
+	}
+	return false
 }
 
 // AllowedAuthor is one entry in a repo's allowed-authors list: an author whose
@@ -63,21 +94,6 @@ type Run struct {
 	PID        int        `json:"pid"`
 }
 
-// Filter narrows ListCandidates. Zero-value fields are ignored.
-type Filter struct {
-	Status string
-	Repo   string
-}
-
-// Statuses.
-const (
-	StatusQueued    = "queued"
-	StatusReviewing = "reviewing"
-	StatusReviewed  = "reviewed"
-	StatusSkipped   = "skipped"
-	StatusError     = "error"
-)
-
 // Candidate types.
 const (
 	TypeNew       = "new"
@@ -89,25 +105,38 @@ type Store interface {
 	// Init applies the schema (idempotent).
 	Init(ctx context.Context) error
 
-	UpsertCandidate(ctx context.Context, c Candidate) error
-	// Requeue inserts c as a queued candidate, or — when it already exists —
-	// just flips its status back to queued, preserving discovered metadata.
-	// This is the manual-add primitive; discovery uses UpsertCandidate, which
-	// deliberately never touches status.
-	Requeue(ctx context.Context, c Candidate) error
-	// (No single-candidate getter: ListCandidates with a filter covers reads;
-	// a GetCandidate was removed once Requeue absorbed its only callers.)
-	ListCandidates(ctx context.Context, f Filter) ([]Candidate, error)
-	SetStatus(ctx context.Context, repo string, number int, status string) error
+	// Enqueue inserts c, or — when the PR is already queued — refreshes its
+	// discovered metadata (type, title, author, url, head_sha, updated_at,
+	// discovered_at). It never touches claimed_at or queue_pos, so it cannot
+	// stomp an in-flight review or a manual reorder.
+	Enqueue(ctx context.Context, c Candidate) error
+	// ListQueue returns the whole queue in scheduler order (queue_pos, new
+	// before refreshed, number). repo narrows to one repo; "" means all.
+	ListQueue(ctx context.Context, repo string) ([]Candidate, error)
+	// Claim marks a candidate as being reviewed right now. Claims are
+	// advisory leases: a claim older than the caller's staleness window is
+	// treated as abandoned (crashed daemon) and reclaimed.
+	Claim(ctx context.Context, repo string, number int, at time.Time) error
+	// Complete records r in history and removes the queue row — atomically,
+	// in one store round-trip. The delete is gated on r.HeadSHA: if the row's
+	// head has advanced while the review ran, the row survives (its claim is
+	// cleared instead) so the newer commits get reviewed next cycle.
+	Complete(ctx context.Context, r Review) error
+	// Dequeue drops a candidate without recording an outcome — the "changed
+	// our mind" path.
+	Dequeue(ctx context.Context, repo string, number int) error
 	SetQueuePos(ctx context.Context, repo string, number int, pos int) error
-	RemoveCandidate(ctx context.Context, repo string, number int) error
 
-	// LastReview returns the most recent review for a PR, if any.
+	// LastReview returns the most recent REAL review (per IsRealVerdict) for
+	// a PR, if any. SKIPPED/ERROR rows never count as "reviewed at this SHA",
+	// or Refreshed detection could never re-surface those PRs.
 	LastReview(ctx context.Context, repo string, number int) (Review, bool, error)
-	RecordReview(ctx context.Context, r Review) error
-	// ListReviews returns review history, most recent first, capped at limit.
+	// LastOutcome returns the most recent history row of ANY verdict for a
+	// PR, if any — the input to same-SHA re-enqueue suppression.
+	LastOutcome(ctx context.Context, repo string, number int) (Review, bool, error)
+	// ListReviews returns outcome history, most recent first, capped at limit.
 	ListReviews(ctx context.Context, limit int) ([]Review, error)
-	// ListReviewsSince returns all reviews at or after since, oldest first.
+	// ListReviewsSince returns all outcomes at or after since, oldest first.
 	ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error)
 
 	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.

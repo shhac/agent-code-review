@@ -22,12 +22,14 @@ type Clock func() time.Time
 type Logf func(format string, args ...any)
 
 // candidateStore is the narrow slice of the store discovery actually uses:
-// upserting classified candidates, reading our last review for Refreshed
-// detection, and the allowed-authors check for author-scoped repos.
-// Consumer-defined so tests fake three methods, not twenty.
+// enqueueing classified candidates, reading history for Refreshed detection
+// (last real review) and same-SHA suppression (last outcome of any verdict),
+// and the allowed-authors check for author-scoped repos. Consumer-defined so
+// tests fake four methods, not twenty.
 type candidateStore interface {
-	UpsertCandidate(ctx context.Context, c store.Candidate) error
+	Enqueue(ctx context.Context, c store.Candidate) error
 	LastReview(ctx context.Context, repo string, number int) (store.Review, bool, error)
+	LastOutcome(ctx context.Context, repo string, number int) (store.Review, bool, error)
 	IsAuthorAllowed(ctx context.Context, repo, handle string) (bool, error)
 }
 
@@ -71,7 +73,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 			if !ok {
 				continue
 			}
-			if err := d.store.UpsertCandidate(ctx, cand); err != nil {
+			if err := d.store.Enqueue(ctx, cand); err != nil {
 				return nil, err
 			}
 			found = append(found, cand)
@@ -124,13 +126,29 @@ func (d *Discoverer) classify(ctx context.Context, repo string, pr ghPR) (store.
 	}
 	now := d.now()
 
+	// Suppression: any recorded outcome — real review, skip, or error — at
+	// the PR's CURRENT head SHA means there is nothing new to do; without
+	// this every sweep would re-enqueue skipped PRs (and re-enqueue reviewed
+	// ones whenever the engine's posted review hasn't landed on gh yet).
+	// New commits change the SHA and re-enqueue naturally.
+	if outcome, ok, err := d.store.LastOutcome(ctx, repo, pr.Number); err != nil {
+		return store.Candidate{}, false, err
+	} else if ok && outcome.HeadSHA == pr.HeadRefOID {
+		return store.Candidate{}, false, nil
+	}
+
 	// NEW: never reviewed by anyone, within the New window.
 	if !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= d.cfg.NewMaxAge() {
 		return d.toCandidate(repo, pr, store.TypeNew, now), true, nil
 	}
 
 	// REFRESHED: we reviewed it before, at a different head SHA, within the
-	// Refreshed window. "Reviewed by us" comes from our own store, not gh.
+	// Refreshed window. "Reviewed by us" means a real verdict in our own
+	// history (LastReview filters out SKIPPED/ERROR), not gh state. The SHA
+	// inequality is redundant while every real review also lands in history
+	// (suppression above already returned for a current-SHA outcome) — kept
+	// as cheap insurance so Refreshed stays correct even if that invariant
+	// ever breaks.
 	last, ok, err := d.store.LastReview(ctx, repo, pr.Number)
 	if err != nil {
 		return store.Candidate{}, false, err
@@ -153,7 +171,6 @@ func (d *Discoverer) toCandidate(repo string, pr ghPR, typ string, now time.Time
 		HeadSHA:      pr.HeadRefOID,
 		CreatedAt:    pr.CreatedAt,
 		UpdatedAt:    pr.UpdatedAt,
-		Status:       store.StatusQueued,
 		DiscoveredAt: now,
 	}
 }

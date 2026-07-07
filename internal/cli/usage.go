@@ -21,11 +21,11 @@ COMMANDS:
                                                      (discovery.enabled/schedule.enabled) sets defaults
   run  [--once]                                      Run a single review cycle, then exit
 
-  queue ls [--status S] [--repo R]                   List candidates (NDJSON)
+  queue ls [--repo R]                                List pending candidates (NDJSON)
   queue add <owner/repo> <number>                    Add a PR to the queue
   queue rm <owner/repo> <number>                     Remove a PR
   queue promote <owner/repo> <number>                Float a PR to the top
-  queue skip <owner/repo> <number>                   Mark a PR skipped
+  queue skip <owner/repo> <number>                   Record a SKIPPED outcome (re-eligible on new commits)
 
   repos ls | add <owner/repo> [--allowed-authors-only] | rm <owner/repo>
                                                      Manage the watched repos (config)
@@ -81,31 +81,34 @@ DETAIL: Run "<command> usage" for per-command docs and examples
 const queueUsageText = `queue — The review queue (stored in DuckDB)
 
 COMMANDS:
-  queue ls [--status queued|reviewing|reviewed|skipped|error] [--repo owner/name]
-    List candidates in review order: explicit queue positions first, then New
-    before Refreshed, then lowest PR number. One NDJSON record per candidate.
+  queue ls [--repo owner/name]
+    List pending candidates in review order: explicit queue positions first,
+    then New before Refreshed, then lowest PR number. One NDJSON record per
+    candidate. A row with claimed_at set is being reviewed right now.
 
   queue add <owner/repo> <number>
     Add a PR by hand: live metadata (title/author/SHA) is fetched via gh, and
-    closed/merged PRs are rejected. An already-known PR is requeued, keeping
-    its metadata. (The scheduler also adds candidates via discovery.)
+    closed/merged PRs are rejected. An already-queued PR just refreshes its
+    metadata. (The scheduler also adds candidates via discovery.)
 
   queue promote <owner/repo> <number>
     Float a PR to the very top of the queue (across types).
 
   queue skip <owner/repo> <number>
-    Mark a PR skipped so the next cycle ignores it. Re-add with queue add.
+    Record a SKIPPED outcome and drop the PR from the queue. It becomes
+    eligible again when new commits arrive, or re-add with queue add.
 
   queue rm <owner/repo> <number>
-    Remove a PR from the queue entirely.
+    Remove a PR from the queue entirely, recording nothing.
 
 EXAMPLES:
-  agent-code-review queue ls --status queued
+  agent-code-review queue ls --repo example-org/example-repo
   agent-code-review queue add example-org/example-repo 123
   agent-code-review queue promote example-org/example-repo 123
 
-NOTES: statuses move queued -> reviewing -> reviewed|skipped|error as cycles
-run. The dashboard offers the same add/reorder operations.`
+NOTES: the queue holds only pending work — completed reviews (including
+skips and errors) live in the outcome history shown by the dashboard's
+Recent reviews. The dashboard offers the same add/reorder operations.`
 
 const reposUsageText = `repos — The watched repos (stored in config.json)
 

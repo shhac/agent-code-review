@@ -9,15 +9,26 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// fakeStore stubs the candidateStore consumer interface.
+// fakeStore stubs the candidateStore consumer interface. `last` is the most
+// recent REAL review; `outcome` the most recent row of any verdict — when
+// unset it falls back to `last`, mirroring the real store (a real review is
+// also the latest outcome unless a skip/error came after it).
 type fakeStore struct {
 	last           store.Review
 	hasLast        bool
+	outcome        store.Review
+	hasOutcome     bool
 	allowedAuthors map[string]bool // handle → allowed (for author-scoped repos)
 }
 
-func (f *fakeStore) UpsertCandidate(context.Context, store.Candidate) error { return nil }
+func (f *fakeStore) Enqueue(context.Context, store.Candidate) error { return nil }
 func (f *fakeStore) LastReview(context.Context, string, int) (store.Review, bool, error) {
+	return f.last, f.hasLast, nil
+}
+func (f *fakeStore) LastOutcome(context.Context, string, int) (store.Review, bool, error) {
+	if f.hasOutcome {
+		return f.outcome, true, nil
+	}
 	return f.last, f.hasLast, nil
 }
 func (f *fakeStore) IsAuthorAllowed(_ context.Context, _ string, handle string) (bool, error) {
@@ -168,5 +179,63 @@ func TestClassifyRefreshedSameSHARejected(t *testing.T) {
 	}
 	if _, ok, _ := d.classify(context.Background(), "o/r", pr); ok {
 		t.Error("PR with unchanged head SHA should not be Refreshed")
+	}
+}
+
+// Same-SHA suppression: any outcome at the PR's current head means nothing to
+// do — skips and errors don't thrash, and an engine-reported review that gh
+// hasn't surfaced yet can't re-enqueue in a loop. New commits re-enqueue.
+func TestClassifySameSHASuppression(t *testing.T) {
+	pr := func(sha string) ghPR {
+		return ghPR{
+			Number:         3,
+			HeadRefOID:     sha,
+			ReviewRequests: openReq(),
+			CreatedAt:      fixedNow().Add(-2 * 24 * time.Hour),
+		}
+	}
+	for _, verdict := range []string{"SKIPPED", "ERROR", "APPROVED"} {
+		fs := &fakeStore{hasOutcome: true, outcome: store.Review{HeadSHA: "sha1", Verdict: verdict}}
+		d := newDiscoverer(fs)
+		if _, ok, _ := d.classify(context.Background(), "o/r", pr("sha1")); ok {
+			t.Errorf("%s outcome at the current SHA must suppress re-enqueue", verdict)
+		}
+	}
+	// New commits after a skip: outcome SHA differs → eligible again (as New;
+	// no real review exists and the PR has no gh reviews).
+	fs := &fakeStore{hasOutcome: true, outcome: store.Review{HeadSHA: "sha1", Verdict: "SKIPPED"}}
+	d := newDiscoverer(fs)
+	c, ok, err := d.classify(context.Background(), "o/r", pr("sha2"))
+	if err != nil || !ok {
+		t.Fatalf("skipped PR with new commits must re-enqueue, ok=%v err=%v", ok, err)
+	}
+	if c.Type != store.TypeNew {
+		t.Errorf("type = %q, want new (no real review recorded)", c.Type)
+	}
+}
+
+// The bug that motivated the queue/history split: a PR we reviewed at an old
+// SHA gets new commits — it must come back as a Refreshed candidate.
+func TestClassifyRefreshedAfterNewCommits(t *testing.T) {
+	fs := &fakeStore{
+		hasLast:    true,
+		last:       store.Review{HeadSHA: "old-sha", Verdict: "COMMENTED"},
+		hasOutcome: true,
+		outcome:    store.Review{HeadSHA: "old-sha", Verdict: "COMMENTED"},
+	}
+	d := newDiscoverer(fs)
+	pr := ghPR{
+		Number:         6,
+		HeadRefOID:     "new-sha",
+		ReviewRequests: openReq(),
+		Reviews:        []ghReview{{State: "COMMENTED"}},
+		CreatedAt:      fixedNow().Add(-5 * 24 * time.Hour),
+	}
+	c, ok, err := d.classify(context.Background(), "o/r", pr)
+	if err != nil || !ok {
+		t.Fatalf("expected Refreshed candidate after new commits, ok=%v err=%v", ok, err)
+	}
+	if c.Type != store.TypeRefreshed {
+		t.Errorf("type = %q, want refreshed", c.Type)
 	}
 }

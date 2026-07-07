@@ -165,28 +165,29 @@ func TestRepoWatched(t *testing.T) {
 	}
 }
 
-func TestPendingOnly(t *testing.T) {
+func TestViewQueue(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	staleAfter := 2 * time.Hour
+	fresh := now.Add(-time.Hour)
+	boundary := now.Add(-staleAfter) // exactly one window old — still reviewing
+	stale := now.Add(-3 * time.Hour)
 	in := []store.Candidate{
-		{Number: 1, Status: store.StatusQueued},
-		{Number: 2, Status: store.StatusReviewed},
-		{Number: 3, Status: store.StatusReviewing},
-		{Number: 4, Status: store.StatusSkipped},
-		{Number: 5, Status: store.StatusError},
+		{Number: 1},                       // unclaimed
+		{Number: 2, ClaimedAt: &fresh},    // engine on it right now
+		{Number: 3, ClaimedAt: &stale},    // abandoned lease — next cycle reclaims
+		{Number: 4, ClaimedAt: &boundary}, // boundary — must agree with the scheduler
 	}
-	got := pendingOnly(in)
-	want := []int{1, 3, 4, 5} // reviewed graduates to Recent reviews; the rest stay visible
+	got := viewQueue(in, now, staleAfter)
+	want := []string{"queued", "reviewing", "queued", "reviewing"}
 	if len(got) != len(want) {
-		t.Fatalf("got %d candidates, want %d", len(got), len(want))
+		t.Fatalf("got %d rows, want %d", len(got), len(want))
 	}
-	for i, n := range want {
-		if got[i].Number != n {
-			t.Errorf("pos %d = #%d, want #%d (order must be preserved)", i, got[i].Number, n)
+	for i, status := range want {
+		if got[i].Status != status {
+			t.Errorf("row %d (#%d) status = %q, want %q", i, got[i].Number, got[i].Status, status)
 		}
 	}
-	if all := pendingOnly([]store.Candidate{{Status: store.StatusReviewed}}); all == nil || len(all) != 0 {
-		t.Errorf("all-reviewed input must return a non-nil empty slice, got %#v", all)
-	}
-	if empty := pendingOnly(nil); empty == nil || len(empty) != 0 {
+	if empty := viewQueue(nil, now, staleAfter); empty == nil || len(empty) != 0 {
 		t.Errorf("nil input must return a non-nil empty slice, got %#v", empty)
 	}
 }

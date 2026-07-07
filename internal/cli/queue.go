@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"strconv"
+	"time"
 
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
@@ -23,14 +25,14 @@ func registerQueue(root *cobra.Command) {
 }
 
 func queueLsCmd() *cobra.Command {
-	var status, repo string
+	var repo string
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List queued candidates (NDJSON)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withStore(func(s store.Store) error {
-				cands, err := s.ListCandidates(cmd.Context(), store.Filter{Status: status, Repo: repo})
+				cands, err := s.ListQueue(cmd.Context(), repo)
 				if err != nil {
 					return err
 				}
@@ -43,7 +45,6 @@ func queueLsCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&status, "status", "", "Filter by status (queued|reviewing|reviewed|skipped|error)")
 	cmd.Flags().StringVar(&repo, "repo", "", "Filter by repo (owner/name)")
 	return cmd
 }
@@ -65,7 +66,7 @@ func queueAddCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := s.Requeue(cmd.Context(), c); err != nil {
+				if err := s.Enqueue(cmd.Context(), c); err != nil {
 					return err
 				}
 				return emit(map[string]any{"queued": repo + "#" + strconv.Itoa(number), "title": c.Title, "author": c.Author})
@@ -85,7 +86,7 @@ func queueRmCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				if err := s.RemoveCandidate(cmd.Context(), repo, number); err != nil {
+				if err := s.Dequeue(cmd.Context(), repo, number); err != nil {
 					return err
 				}
 				return emit(map[string]any{"removed": repo + "#" + strconv.Itoa(number)})
@@ -118,7 +119,7 @@ func queuePromoteCmd() *cobra.Command {
 func queueSkipCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "skip <owner/repo> <number>",
-		Short: "Mark a PR as skipped (won't be reviewed this cycle)",
+		Short: "Skip a queued PR: record a SKIPPED outcome (re-eligible on new commits)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, number, err := parseRepoNumber(args)
@@ -126,13 +127,42 @@ func queueSkipCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				if err := s.SetStatus(cmd.Context(), repo, number, store.StatusSkipped); err != nil {
+				// The history row needs the queued head SHA — and a skip of a
+				// PR that isn't queued would leave a dangling outcome, so
+				// missing is an error rather than a silent no-op.
+				c, found, err := findQueued(cmd.Context(), s, repo, number)
+				if err != nil {
+					return err
+				}
+				if !found {
+					return output.New(repo+"#"+strconv.Itoa(number)+" is not in the queue", output.FixableByAgent)
+				}
+				skip := store.Review{
+					Repo: repo, Number: number, HeadSHA: c.HeadSHA,
+					Verdict: "SKIPPED", Engine: "manual", ReviewedAt: time.Now(),
+				}
+				if err := s.Complete(cmd.Context(), skip); err != nil {
 					return err
 				}
 				return emit(map[string]any{"skipped": repo + "#" + strconv.Itoa(number)})
 			})
 		},
 	}
+}
+
+// findQueued locates one queue row by number within an already repo-scoped
+// ListQueue result.
+func findQueued(ctx context.Context, s store.Store, repo string, number int) (store.Candidate, bool, error) {
+	cands, err := s.ListQueue(ctx, repo)
+	if err != nil {
+		return store.Candidate{}, false, err
+	}
+	for _, c := range cands {
+		if c.Number == number {
+			return c, true, nil
+		}
+	}
+	return store.Candidate{}, false, nil
 }
 
 // withStore opens the store, runs fn, and closes it.

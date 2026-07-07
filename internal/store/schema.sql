@@ -1,7 +1,11 @@
--- Persistent queue + review history for agent-code-review.
+-- Persistent work queue + outcome history for agent-code-review.
 -- Applied idempotently on every Store.Init.
 
-CREATE TABLE IF NOT EXISTS candidates (
+-- The work queue: a row exists if and only if the PR has pending review work.
+-- The primary key IS the "same PR queued once" guarantee, and completion
+-- removes the row (atomically with its history insert) — there is no status
+-- column to go stale.
+CREATE TABLE IF NOT EXISTS queue (
   repo          TEXT    NOT NULL,
   number        INTEGER NOT NULL,
   type          TEXT    NOT NULL,               -- 'new' | 'refreshed'
@@ -12,19 +16,22 @@ CREATE TABLE IF NOT EXISTS candidates (
   created_at    TIMESTAMP,
   updated_at    TIMESTAMP,
   queue_pos     INTEGER,
-  status        TEXT    NOT NULL DEFAULT 'queued', -- queued|reviewing|reviewed|skipped|error
   discovered_at TIMESTAMP,
+  claimed_at    TIMESTAMP,                      -- set while an engine reviews it; NULL = unclaimed. Stale claims (crashed daemon) are reclaimed by the next cycle.
   PRIMARY KEY (repo, number)
 );
 
--- One row per review the engine has completed. The most recent row per
--- (repo, number) drives Refreshed detection: a candidate is REFRESHED when its
--- current head_sha differs from the head_sha we last reviewed.
-CREATE TABLE IF NOT EXISTS reviews (
+-- Append-only outcome history: one row per completed queue item, including
+-- SKIPPED and ERROR outcomes. Duplicates per (repo, number) are expected —
+-- the same PR can be reviewed many times. The most recent REAL verdict
+-- (APPROVED|COMMENTED|REQUESTED_CHANGES) per PR drives Refreshed detection;
+-- the most recent row of ANY verdict at the PR's current head SHA suppresses
+-- re-enqueue.
+CREATE TABLE IF NOT EXISTS history (
   repo        TEXT      NOT NULL,
   number      INTEGER   NOT NULL,
   head_sha    TEXT      NOT NULL,
-  verdict     TEXT      NOT NULL,               -- APPROVE|COMMENT|ERROR
+  verdict     TEXT      NOT NULL,               -- APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
   engine      TEXT,
   reviewed_at TIMESTAMP NOT NULL
 );

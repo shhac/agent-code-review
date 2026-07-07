@@ -108,7 +108,6 @@ func candidateFromMetadata(repo string, number int, meta PRMetadata) (store.Cand
 		HeadSHA:      meta.HeadSHA,
 		CreatedAt:    meta.CreatedAt,
 		UpdatedAt:    meta.UpdatedAt,
-		Status:       store.StatusQueued,
 		DiscoveredAt: time.Now(),
 	}, nil
 }

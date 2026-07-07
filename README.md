@@ -10,9 +10,10 @@ you can expose over Tailscale.
 - **Durable queue** — candidates, positions, and review history in DuckDB, so
   "we already reviewed this at SHA X" survives restarts (that's what powers
   Refreshed detection).
-- **Pluggable review engine** — `codex` today; the engine does the actual
-  review (typically via the `pr-issue-review` skill), posts to GitHub, and runs
-  any post-approve Slack step. Comment-only rules live in the prompt, not code.
+- **Pluggable review engine** — `codex` today; the agent does the actual
+  review, posts to GitHub, and reports back what it did. The tool assumes only
+  the `gh` and `codex` CLIs — your prompts may direct the agent to use anything
+  else you have set up (skills, extra CLIs), but the tool never assumes it.
 - **Serve + dashboard** — an always-on daemon with a web UI, optionally exposed
   via `--tailscale serve|funnel`.
 - **Everything is config** — repos, allow-list, thresholds, cadence, prompt, and
@@ -40,19 +41,25 @@ make build      # -> ./agent-code-review
 - **`codex`** — the default review engine (configurable).
 - Optional: **`tailscale`** for `--tailscale serve|funnel`.
 
+These are the tool's ONLY assumptions. Anything your prompts reference beyond
+them — skills, `agent-*` CLIs, team tooling — is your prompts' business; the
+tool neither requires nor mentions it.
+
 ## Quick start
 
-1. Write the starter config and edit it (`repos`, `review.main_prompt`, schedule):
+1. Write the starter config:
 
    ```bash
    agent-code-review config init
    ```
-2. Allow the authors whose PRs may be approved (per repo, or `*` for all):
+2. Add the repos to watch and the authors whose PRs may be approved:
 
    ```bash
+   agent-code-review repos add your-org/your-repo
    agent-code-review authors allow '*' some-handle --name "Some Engineer"
    ```
-3. Kick a single cycle:
+3. Tune `review.main_prompt` and the `on_approve`/`on_comment`/`on_reject`
+   instructions in the config file, then kick a single cycle:
 
    ```bash
    agent-code-review run --once
@@ -74,6 +81,8 @@ queue add     <owner/repo> <number>
 queue rm      <owner/repo> <number>
 queue promote <owner/repo> <number>
 queue skip    <owner/repo> <number>
+
+repos ls | add <owner/repo> | rm <owner/repo>
 
 config init | path | show
 
@@ -118,17 +127,24 @@ prompt — never the whole list.
 ## How review works
 
 For each candidate the CLI assembles a prompt — your `review.main_prompt`, a
-built-in **approval directive**, plus every matching `review.rules` fragment —
-and hands it to the engine along with a tmp workspace. The engine (Codex)
-performs the review itself and takes all the GitHub/Slack actions.
+built-in **approval directive**, your post-outcome instructions, plus every
+matching `review.rules` fragment — and hands it to the engine along with a tmp
+workspace. The agent performs the review itself, takes all the GitHub actions,
+and reports back what it did (`APPROVED`, `COMMENTED`, `REQUESTED_CHANGES`, or
+`SKIPPED`) so the queue and history stay accurate.
 
 The approval directive is always present and **defaults to comment-only**. An
 `APPROVE` is only ever permitted when the author is on the allowed-authors list
 for this repo **and** it isn't a self-authored PR — never as a fallback when a
 rule happens to be missing. In the comment-only case the directive gives no
-reason, so it can't leak who the gh user is. `review.rules` are for *extra*
-instructions (e.g. the post-approve Slack flow), not for the approve/comment
-decision.
+reason, so it can't leak who the gh user is.
+
+**Post-outcome instructions** (`review.on_approve`, `review.on_comment`,
+`review.on_reject`) tell the agent what to do after landing on each outcome
+(reject = requested changes). This is where workspace-specific conventions
+live — team channels, emoji rituals, notification tooling — the tool ships
+none of that. `review.rules` add further conditional instructions (per repo,
+per candidate type).
 
 ## Configuration
 

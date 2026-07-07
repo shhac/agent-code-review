@@ -25,6 +25,8 @@ COMMANDS:
   queue promote <owner/repo> <number>                Float a PR to the top
   queue skip <owner/repo> <number>                   Mark a PR skipped
 
+  repos ls | add <owner/repo> | rm <owner/repo>      Manage the watched repos (config)
+
   authors ls [--repo R]                              List allowed authors
   authors allow <owner/repo|*> <handle> [--name ...] Allow an author's PRs to be approved
   authors deny <owner/repo|*> <handle>               Make an author's PRs comment-only again
@@ -51,10 +53,12 @@ APPROVAL: allowed authors (whose PRs WE may approve — we are the reviewer) are
   self-authored PR. Only this PR's author↔allowed pair is passed to the engine —
   never the whole list.
 
-REVIEW: the engine (codex) receives the main prompt + approval directive + any
-  matching rule fragments and performs the review itself (typically via the
-  pr-issue-review skill), posting to GitHub and running any post-approve Slack
-  step. Rules add extra instructions; the approve/comment decision is built in.
+REVIEW: the engine (codex) receives the main prompt + approval directive +
+  post-outcome instructions (review.on_approve / on_comment / on_reject) + any
+  matching rule fragments, performs the review itself, posts to GitHub, and
+  reports back what it did (APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED).
+  The tool assumes ONLY the gh and codex CLIs. Anything else — skills, extra
+  CLIs, team conventions — belongs in YOUR prompts, never in shipped defaults.
 
 STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
   binary on PATH (brew install duckdb); override with AGENT_CODE_REVIEW_DUCKDB_PATH.

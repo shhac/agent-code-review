@@ -74,8 +74,18 @@ func TestStarterMatchesExample(t *testing.T) {
 	if err := json.Unmarshal(StarterJSON(), &cfg); err != nil {
 		t.Fatalf("starter.json does not parse as Config: %v", err)
 	}
-	if len(cfg.Repos) == 0 || cfg.Review.MainPrompt == "" {
-		t.Error("starter should ship example repos and a main prompt")
+	if len(cfg.Repos) != 0 {
+		t.Error("starter must ship with NO repos — watched repos are configured, never placeholder")
+	}
+	if cfg.Review.MainPrompt == "" {
+		t.Error("starter should ship a generic main prompt")
+	}
+	// The shipped prompt must assume only gh + codex — no skills or extra CLIs.
+	lower := strings.ToLower(cfg.Review.MainPrompt + cfg.Review.OnApprove + cfg.Review.OnComment + cfg.Review.OnReject)
+	for _, banned := range []string{"pr-issue-review", "agent-slack", "slack", "emoji"} {
+		if strings.Contains(lower, banned) {
+			t.Errorf("starter prompts must not assume %q — that's user-config territory", banned)
+		}
 	}
 }
 

@@ -67,10 +67,19 @@ type CodexSettings struct {
 }
 
 // ReviewSettings selects and configures the pluggable review engine.
+//
+// OnApprove/OnComment/OnReject are post-outcome prompt fragments: instructions
+// the agent follows after landing on that outcome (approve / comment without
+// approving / request changes). Workspace-specific knowledge — Slack channels,
+// emoji conventions, extra CLIs — belongs HERE, in the user's config, never in
+// the tool or its shipped defaults. The tool itself assumes only gh and codex.
 type ReviewSettings struct {
 	Engine         string        `json:"engine,omitempty"`           // "codex" (default) | "claude" (later)
 	MainPrompt     string        `json:"main_prompt,omitempty"`      // inline main review prompt
 	MainPromptPath string        `json:"main_prompt_path,omitempty"` // or load it from a file
+	OnApprove      string        `json:"on_approve,omitempty"`
+	OnComment      string        `json:"on_comment,omitempty"`
+	OnReject       string        `json:"on_reject,omitempty"` // reject = requested changes
 	Rules          []Rule        `json:"rules,omitempty"`
 	Codex          CodexSettings `json:"codex,omitempty"`
 }

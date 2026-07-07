@@ -23,13 +23,14 @@ type Verdict struct {
 	Raw      string `json:"raw,omitempty"` // full engine transcript, for debugging
 }
 
-// Verdict decisions. The first three are reported by the agent; ERROR is the
+// Verdict decisions. The first four are reported by the agent; ERROR is the
 // driver's own value for "the invocation failed / no usable report".
 const (
-	DecisionApproved  = "APPROVED"
-	DecisionCommented = "COMMENTED"
-	DecisionSkipped   = "SKIPPED"
-	DecisionError     = "ERROR"
+	DecisionApproved         = "APPROVED"
+	DecisionCommented        = "COMMENTED"
+	DecisionRequestedChanges = "REQUESTED_CHANGES" // the "reject" outcome
+	DecisionSkipped          = "SKIPPED"
+	DecisionError            = "ERROR"
 )
 
 // Request is one PR review job.

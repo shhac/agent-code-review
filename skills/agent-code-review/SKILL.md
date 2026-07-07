@@ -77,6 +77,9 @@ hardcodes repos or GitHub handles — everything is config.
 - Candidate rules: **NEW** (never reviewed, ≤14d) and **REFRESHED** (head SHA
   changed since our last review, ≤21d). Processed New-first, oldest-first, up to
   4 in parallel.
-- The engine does the actual review and any GitHub/Slack actions. The assembled
-  prompt carries a built-in approval directive that defaults to comment-only;
-  approval is permitted only for an allowed author's non-self-authored PR.
+- The agent does the actual review and GitHub actions, then reports back what
+  it did (APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED). The assembled prompt
+  carries a built-in approval directive that defaults to comment-only; approval
+  is permitted only for an allowed author's non-self-authored PR. Post-outcome
+  behaviour comes from review.on_approve/on_comment/on_reject in config.
+- Manage watched repos with `repos ls|add|rm` (stored in config.json).

@@ -37,6 +37,10 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	b.WriteString(candidateContext(c))
 	b.WriteString("\n")
 	b.WriteString(approvalDirective(c, f))
+	if outcome := outcomeInstructions(cfg.Review); outcome != "" {
+		b.WriteString("\n\n")
+		b.WriteString(outcome)
+	}
 	for _, rule := range cfg.Review.Rules {
 		if matches(rule.When, c, f) {
 			b.WriteString("\n\n")
@@ -44,6 +48,30 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// outcomeInstructions renders the configured post-outcome fragments. Only
+// configured outcomes appear; when none are set the section is omitted
+// entirely. The content is the user's own (their team conventions, their
+// tooling) — the tool just routes it to the right outcome.
+func outcomeInstructions(r config.ReviewSettings) string {
+	type outcome struct{ label, prompt string }
+	outcomes := []outcome{
+		{"If you APPROVED this PR", r.OnApprove},
+		{"If you COMMENTED without approving", r.OnComment},
+		{"If you REQUESTED CHANGES (rejected)", r.OnReject},
+	}
+	var lines []string
+	for _, o := range outcomes {
+		if p := strings.TrimSpace(o.prompt); p != "" {
+			lines = append(lines, "- "+o.label+": "+p)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "After completing the review, follow the instruction matching your outcome:\n" +
+		strings.Join(lines, "\n")
 }
 
 // MainPrompt resolves the main review prompt: main_prompt_path wins when set

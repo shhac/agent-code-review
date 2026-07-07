@@ -143,10 +143,10 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 		s.logf("review %s#%d: %s — %s", c.Repo, c.Number, verdict.Decision, verdict.Summary)
 	}
 
-	// Record history only when the agent actually reviewed (approved or
-	// commented). A skip or failure must NOT count as "reviewed at this SHA",
-	// or Refreshed detection would never re-surface the PR.
-	if verdict.Decision == review.DecisionApproved || verdict.Decision == review.DecisionCommented {
+	// Record history only when the agent actually reviewed (approved, commented,
+	// or requested changes). A skip or failure must NOT count as "reviewed at
+	// this SHA", or Refreshed detection would never re-surface the PR.
+	if isActualReview(verdict.Decision) {
 		if err := s.store.RecordReview(ctx, store.Review{
 			Repo:       c.Repo,
 			Number:     c.Number,
@@ -166,12 +166,23 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 	return reviewErr
 }
 
+// isActualReview reports whether the decision represents a submitted GitHub
+// review (as opposed to a skip or a failed invocation).
+func isActualReview(decision string) bool {
+	switch decision {
+	case review.DecisionApproved, review.DecisionCommented, review.DecisionRequestedChanges:
+		return true
+	default:
+		return false
+	}
+}
+
 // statusFor maps the agent's reported decision onto a queue status.
 func statusFor(decision string) string {
-	switch decision {
-	case review.DecisionApproved, review.DecisionCommented:
+	switch {
+	case isActualReview(decision):
 		return store.StatusReviewed
-	case review.DecisionSkipped:
+	case decision == review.DecisionSkipped:
 		return store.StatusSkipped
 	default:
 		return store.StatusError

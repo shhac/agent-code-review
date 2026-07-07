@@ -49,8 +49,8 @@ const verdictSchema = `{
   "properties": {
     "decision": {
       "type": "string",
-      "enum": ["APPROVED", "COMMENTED", "SKIPPED"],
-      "description": "What you actually did: APPROVED = submitted an approving review; COMMENTED = left a review or comments without approving; SKIPPED = did not review this PR."
+      "enum": ["APPROVED", "COMMENTED", "REQUESTED_CHANGES", "SKIPPED"],
+      "description": "What you actually did: APPROVED = submitted an approving review; COMMENTED = left a review or comments without approving; REQUESTED_CHANGES = submitted a request-changes review; SKIPPED = did not review this PR."
     },
     "summary": {
       "type": "string",
@@ -65,7 +65,7 @@ const verdictSchema = `{
 // message is a machine-read report, not prose.
 const reportingInstruction = `
 
-When you are completely finished, your FINAL message must be a JSON object matching the provided output schema: {"decision": "APPROVED"|"COMMENTED"|"SKIPPED", "summary": "..."}. The decision must reflect what you ACTUALLY did on GitHub — APPROVED only if you submitted an approving review, COMMENTED if you left a review or comments without approving, SKIPPED if you did not review this PR (explain why in the summary).`
+When you are completely finished, your FINAL message must be a JSON object matching the provided output schema: {"decision": "APPROVED"|"COMMENTED"|"REQUESTED_CHANGES"|"SKIPPED", "summary": "..."}. The decision must reflect what you ACTUALLY did on GitHub — APPROVED only if you submitted an approving review, COMMENTED if you left a review or comments without approving, REQUESTED_CHANGES if you submitted a request-changes review, SKIPPED if you did not review this PR (explain why in the summary).`
 
 func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) {
 	workDir := req.WorkDir
@@ -133,7 +133,7 @@ func parseVerdict(data []byte) (Verdict, error) {
 		return Verdict{}, fmt.Errorf("parse verdict report: %w", err)
 	}
 	switch v.Decision {
-	case DecisionApproved, DecisionCommented, DecisionSkipped:
+	case DecisionApproved, DecisionCommented, DecisionRequestedChanges, DecisionSkipped:
 		return v, nil
 	default:
 		return Verdict{}, fmt.Errorf("verdict report has invalid decision %q", v.Decision)

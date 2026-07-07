@@ -89,10 +89,39 @@ func TestApprovalDirectiveDefaultsToCommentOnly(t *testing.T) {
 	}
 }
 
+func TestOutcomeInstructions(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		OnApprove:  "notify per team convention",
+		OnReject:   "explain what blocks it",
+	}}
+	c := store.Candidate{Repo: "o/r", Number: 9, Author: "alice"}
+
+	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
+	if !strings.Contains(got, "If you APPROVED this PR: notify per team convention") {
+		t.Errorf("missing on_approve instruction, got:\n%s", got)
+	}
+	if !strings.Contains(got, "If you REQUESTED CHANGES (rejected): explain what blocks it") {
+		t.Errorf("missing on_reject instruction, got:\n%s", got)
+	}
+	if strings.Contains(got, "COMMENTED without approving") {
+		t.Errorf("unset on_comment must not appear, got:\n%s", got)
+	}
+
+	// No outcomes configured → whole section omitted.
+	got = BuildPrompt(config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}, c, Facts{})
+	if strings.Contains(got, "matching your outcome") {
+		t.Errorf("outcome section must be omitted when nothing is configured, got:\n%s", got)
+	}
+}
+
 func TestParseVerdict(t *testing.T) {
 	v, err := parseVerdict([]byte(`{"decision":"APPROVED","summary":"looks good, approved on GitHub"}`))
 	if err != nil || v.Decision != DecisionApproved || v.Summary == "" {
 		t.Errorf("expected APPROVED verdict, got %+v err=%v", v, err)
+	}
+	if v, err := parseVerdict([]byte(`{"decision":"REQUESTED_CHANGES","summary":"blocked on migration"}`)); err != nil || v.Decision != DecisionRequestedChanges {
+		t.Errorf("REQUESTED_CHANGES must be a valid report, got %+v err=%v", v, err)
 	}
 	if _, err := parseVerdict([]byte(`{"decision":"MAYBE","summary":"?"}`)); err == nil {
 		t.Error("invalid decision must be rejected")

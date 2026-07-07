@@ -130,3 +130,16 @@ example config.
   `allowed_authors`, `IsAuthorAllowed`): the original name misread as "who can
   approve", when the list controls whose PRs *we* — the reviewer — will approve.
   The entity-named command group also left room for future author-scoped verbs.
+- **Assumption boundary was drawn**: the tool assumes only the gh + codex CLIs
+  (plus its own duckdb store dep). The shipped starter had leaked workspace
+  knowledge (the pr-issue-review skill, agent-slack, emoji conventions in a
+  `slack-on-approve` rule) — replaced by first-class post-outcome prompt slots
+  (`review.on_approve` / `on_comment` / `on_reject`, reject = requested
+  changes; verdict enum gained `REQUESTED_CHANGES`) shipped EMPTY. Workspace
+  conventions belong in the user's config, never in defaults. For the same
+  reason the starter's placeholder repos were dropped (`repos: []`) and a
+  `repos ls|add|rm` command was added; a lockstep test bans skill/tool names
+  reappearing in shipped prompts.
+- **Dashboard queue-add accepted PR URLs** and gated adds to watched repos;
+  CLI output was rerouted through lib-agent-output (the hand-rolled emit had
+  silently ignored --color and -f json|yaml).

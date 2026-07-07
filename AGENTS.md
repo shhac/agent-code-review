@@ -15,6 +15,7 @@ internal/
 │   ├── run.go                  # `run --once`: single review cycle
 │   ├── queue.go                # `queue ls/add/rm/promote/skip`
 │   ├── authors.go              # `authors allow/deny/ls` — whose PRs we may approve
+│   ├── repos.go                # `repos ls/add/rm` — the watched repos (config)
 │   ├── configcmd.go            # `config path/show`
 │   └── usage.go                # top-level LLM reference card
 ├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults
@@ -33,9 +34,11 @@ internal/
   over hand-rolling; `agent-sql`, `agent-mongo`, and `agent-mcp-host` are the
   sibling references.
 - **Go owns the deterministic machinery; the engine owns everything fuzzy.** The
-  scheduler/store/discovery are testable Go. The review itself, comment-only
-  enforcement, and Slack steps are expressed as **prompt** (config `review.rules`)
-  handed to Codex — never as Go control flow. See `design-docs/2026-07-architecture.md`.
+  scheduler/store/discovery are testable Go. The review itself and all
+  post-outcome behaviour are expressed as **prompt** (config `review.main_prompt`,
+  `on_approve`/`on_comment`/`on_reject`, `review.rules`) handed to the engine —
+  never as Go control flow. The tool assumes only the gh + codex CLIs; skills
+  and extra CLIs are user-prompt territory. See `design-docs/2026-07-architecture.md`.
 - **DuckDB via subprocess.** CGO-free so the binary cross-compiles through the
   family release pipeline. Mirrors `agent-sql`'s driver. Requires the `duckdb`
   CLI at runtime.

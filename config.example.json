@@ -1,8 +1,6 @@
 {
-  "repos": [
-    "your-org/your-repo",
-    "your-org/another-repo"
-  ],
+  "//repos_note": "The repos to discover candidate PRs in. Blank until you configure it: agent-code-review repos add <owner/name>",
+  "repos": [],
   "gh_user": "",
   "//authors": "Allowed authors (whose PRs we may approve) live in the DuckDB store, per repo. Manage with: agent-code-review authors allow <owner/repo|*> <github-handle> [--name ... --email ... --slack-id ...]",
   "candidates": {
@@ -16,20 +14,19 @@
   },
   "review": {
     "engine": "codex",
-    "main_prompt": "Act as a friendly PR unblocker. Review this pull request using the pr-issue-review skill and let the skill choose its own review profile. Complete every action the skill asks for (tmp workspace, GitHub review/comments). You have access to gh, agent-slack, and a tmp workspace.",
+    "//main_prompt_note": "The tool assumes only the gh and codex CLIs. Your prompt may direct the agent to use anything else you have set up (skills such as pr-issue-review, extra CLIs such as agent-* tools) — that is your prompt's business, and you grant any extra access via codex.args.",
+    "main_prompt": "Act as a friendly PR unblocker. Review this pull request thoroughly: read the diff, the PR description, and any linked context via the gh CLI. Leave one GitHub review with inline comments that help the author move forward.",
+    "//post_outcome_note": "on_approve / on_comment / on_reject run after the agent lands on that outcome (reject = requested changes). Put your workspace-specific conventions here — team channels, emoji rituals, notification tooling — the tool ships none of that.",
+    "on_approve": "",
+    "on_comment": "",
+    "on_reject": "",
     "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is on the allowed-authors list for this repo and it isn't self-authored) — you do not need a rule for it. Rules add EXTRA instructions when their condition matches.",
-    "rules": [
-      {
-        "name": "slack-on-approve",
-        "when": {},
-        "prompt": "If (and only if) you APPROVE, check the configured Slack review channels for a recent message about this PR and react/reply per the team convention: react with :git-approved: and :lizard: when the message covers only this PR (or all its PRs are now approved/merged); otherwise reply in-thread with the PR number, a :lizard: prefix and a :git-approved: suffix. Run agent-slack outside the sandbox so it can load credentials."
-      }
-    ],
+    "rules": [],
     "codex": {
       "bin": "codex",
       "model": "gpt-5.5-codex",
       "sandbox": "workspace-write",
-      "//args_note": "workspace-write disables network by default, but the agent must reach GitHub (gh) and Slack — this override re-enables network while keeping writes scoped to the per-PR workdir.",
+      "//args_note": "workspace-write disables network by default, but the agent must reach GitHub via gh — this override re-enables network while keeping writes scoped to the per-PR workdir.",
       "args": ["-c", "sandbox_workspace_write.network_access=true"]
     }
   },

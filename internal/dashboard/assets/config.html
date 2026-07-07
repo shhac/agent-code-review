@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-code-review · config</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>agent-code-review</h1>
+      <nav>
+        <a href="/">Overview</a>
+        <a href="/config.html" class="active">Config</a>
+        <a href="/prompt.html">Prompt</a>
+      </nav>
+      <span class="muted">read-only — edit via config.json and the `authors` CLI</span>
+    </header>
+    <main>
+      <h2>Watched repos</h2>
+      <ul class="plain" id="repos"></ul>
+      <div class="empty" id="repos-empty" hidden>No repos configured — edit config.json.</div>
+
+      <h2>Settings</h2>
+      <div class="scroll">
+        <table id="settings">
+          <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2>Allowed authors <span class="muted">(whose PRs we may approve)</span></h2>
+      <div class="scroll">
+        <table id="authors" hidden>
+          <thead><tr><th>Repo</th><th>GitHub</th><th>Name</th><th>Slack</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="empty" id="authors-empty" hidden>No allowed authors — every PR is comment-only. Add with: agent-code-review authors allow &lt;owner/repo|*&gt; &lt;handle&gt;</div>
+    </main>
+    <script>
+      const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+      async function load() {
+        const [cfg, au] = await Promise.all([
+          fetch('/api/config').then(r => r.json()),
+          fetch('/api/authors').then(r => r.json()),
+        ]);
+
+        const repos = cfg.repos || [];
+        document.getElementById('repos').innerHTML =
+          repos.map(r => `<li>${esc(r)}</li>`).join('');
+        document.getElementById('repos-empty').hidden = repos.length !== 0;
+
+        const rows = [
+          ['Review engine', cfg.engine],
+          ['Schedule enabled', String(cfg.schedule.enabled)],
+          ['Interval', cfg.schedule.interval],
+          ['Max parallel reviews', cfg.schedule.max_parallel],
+          ['New PR window (days)', cfg.candidates.new_max_age_days],
+          ['Refreshed PR window (days)', cfg.candidates.refreshed_max_age_days],
+        ];
+        document.querySelector('#settings tbody').innerHTML =
+          rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
+
+        const authors = au.authors || [];
+        document.querySelector('#authors tbody').innerHTML = authors.map(a =>
+          `<tr><td>${a.repo === '*' ? '<span class="pill">all repos</span>' : esc(a.repo)}</td>` +
+          `<td>@${esc(a.github_handle)}</td><td>${esc(a.name)}</td><td>${esc(a.slack_id)}</td></tr>`).join('');
+        document.getElementById('authors').hidden = authors.length === 0;
+        document.getElementById('authors-empty').hidden = authors.length !== 0;
+      }
+      load();
+    </script>
+  </body>
+</html>

@@ -32,7 +32,7 @@ func DeriveFacts(c store.Candidate, ghUser string, authorAllowed bool) Facts {
 // post-approve Slack behavior is injected — all as prompt, never Go control flow.
 func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	var b strings.Builder
-	b.WriteString(mainPrompt(cfg.Review))
+	b.WriteString(MainPrompt(cfg.Review))
 	b.WriteString("\n\n")
 	b.WriteString(candidateContext(c))
 	b.WriteString("\n")
@@ -46,7 +46,10 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	return strings.TrimSpace(b.String())
 }
 
-func mainPrompt(r config.ReviewSettings) string {
+// MainPrompt resolves the main review prompt: main_prompt_path wins when set
+// and readable, else the inline main_prompt. Exported for the dashboard's
+// read-only prompt view.
+func MainPrompt(r config.ReviewSettings) string {
 	if r.MainPromptPath != "" {
 		if data, err := os.ReadFile(r.MainPromptPath); err == nil {
 			return strings.TrimSpace(string(data))

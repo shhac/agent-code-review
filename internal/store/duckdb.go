@@ -121,8 +121,9 @@ func (d *duckDB) ListCandidates(ctx context.Context, f Filter) ([]Candidate, err
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
-	// New before Refreshed, then oldest PR first — the schedule spec's order.
-	sql += " ORDER BY CASE type WHEN 'new' THEN 0 ELSE 1 END, queue_pos, number"
+	// Manual queue positions win outright; among the default 0s the schedule
+	// spec's order holds: New before Refreshed, then oldest PR first.
+	sql += " ORDER BY queue_pos, CASE type WHEN 'new' THEN 0 ELSE 1 END, number"
 	rows, err := d.query(ctx, sql)
 	if err != nil {
 		return nil, err

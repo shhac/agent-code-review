@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-code-review · prompt</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>agent-code-review</h1>
+      <nav>
+        <a href="/">Overview</a>
+        <a href="/config.html">Config</a>
+        <a href="/prompt.html" class="active">Prompt</a>
+      </nav>
+      <span class="muted">read-only — edit review.main_prompt / review.rules in config.json</span>
+    </header>
+    <main>
+      <h2>Main prompt</h2>
+      <pre id="main-prompt"></pre>
+
+      <h2>Rules <span class="muted">(extra instructions when their condition matches)</span></h2>
+      <div id="rules"></div>
+      <div class="empty" id="rules-empty" hidden>No rules configured.</div>
+
+      <h2>Assembled preview <span class="muted" id="preview-note"></span></h2>
+      <form class="inline">
+        <label><input type="radio" name="variant" value="allowed_author" checked /> allowed author</label>
+        <label><input type="radio" name="variant" value="not_allowed_author" /> author not allowed</label>
+      </form>
+      <pre id="preview"></pre>
+    </main>
+    <script>
+      const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+      let previews = {};
+      function showPreview() {
+        const v = document.querySelector('input[name=variant]:checked').value;
+        document.getElementById('preview').textContent = previews[v] || '';
+      }
+
+      async function load() {
+        const p = await fetch('/api/prompt').then(r => r.json());
+        document.getElementById('main-prompt').textContent = p.main_prompt || '(no main prompt configured)';
+
+        const rules = p.rules || [];
+        document.getElementById('rules').innerHTML = rules.map(r =>
+          `<h2>· ${esc(r.name)}</h2>` +
+          `<div class="muted">when: <code>${esc(JSON.stringify(r.when || {}))}</code></div>` +
+          `<pre>${esc(r.prompt)}</pre>`).join('');
+        document.getElementById('rules-empty').hidden = rules.length !== 0;
+
+        previews = p.previews || {};
+        document.getElementById('preview-note').textContent = p.note || '';
+        showPreview();
+      }
+      document.querySelectorAll('input[name=variant]').forEach(el =>
+        el.addEventListener('change', showPreview));
+      load();
+    </script>
+  </body>
+</html>

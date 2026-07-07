@@ -4,37 +4,29 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>agent-code-review</title>
-    <style>
-      :root { color-scheme: light dark; --fg: #1a1a1a; --muted: #6b7280; --line: #e5e7eb; --bg: #ffffff; }
-      @media (prefers-color-scheme: dark) {
-        :root { --fg: #e5e7eb; --muted: #9ca3af; --line: #2a2f3a; --bg: #0f1115; }
-      }
-      * { box-sizing: border-box; }
-      body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg); background: var(--bg); }
-      header { padding: 20px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; }
-      h1 { font-size: 18px; margin: 0; }
-      h2 { font-size: 14px; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-      .muted { color: var(--muted); font-size: 13px; }
-      main { padding: 8px 24px 40px; }
-      .scroll { overflow-x: auto; }
-      table { border-collapse: collapse; width: 100%; min-width: 680px; }
-      th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-      th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-      td.title { white-space: normal; }
-      .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
-      .empty { color: var(--muted); padding: 24px 0; }
-    </style>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header>
       <h1>agent-code-review</h1>
+      <nav>
+        <a href="/" class="active">Overview</a>
+        <a href="/config.html">Config</a>
+        <a href="/prompt.html">Prompt</a>
+      </nav>
       <span class="muted" id="summary">loading…</span>
     </header>
     <main>
       <h2>Queue</h2>
+      <form class="inline" id="add-form">
+        <input id="add-repo" placeholder="owner/repo" required pattern="[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+" size="24" />
+        <input id="add-number" placeholder="PR #" required type="number" min="1" style="width:90px" />
+        <button type="submit">Add to queue</button>
+        <span class="err" id="add-err"></span>
+      </form>
       <div class="scroll">
         <table id="queue" hidden>
-          <thead><tr><th>#</th><th>Repo</th><th>Title</th><th>Type</th><th>Author</th><th>Status</th></tr></thead>
+          <thead><tr><th></th><th>#</th><th>Repo</th><th>Title</th><th>Type</th><th>Author</th><th>Status</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -71,6 +63,15 @@
         empty.hidden = rows.length !== 0;
       }
 
+      async function post(url, body) {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      }
+
       async function refresh() {
         try {
           const [q, rv, rn] = await Promise.all([
@@ -79,11 +80,17 @@
             fetch('/api/runs').then(r => r.json()),
           ]);
           const queue = q.candidates || [];
-          fill('queue', queue, c =>
-            `<tr><td><a href="${esc(c.url) || '#'}">#${esc(c.number)}</a></td>` +
-            `<td>${esc(c.repo)}</td><td class="title">${esc(c.title)}</td>` +
-            `<td><span class="pill">${esc(c.type)}</span></td><td>${esc(c.author)}</td>` +
-            `<td><span class="pill">${esc(c.status)}</span></td></tr>`);
+          fill('queue', queue, c => {
+            const arrows = c.status === 'queued'
+              ? `<button class="ghost move" data-repo="${esc(c.repo)}" data-number="${esc(c.number)}" data-dir="up">↑</button>` +
+                `<button class="ghost move" data-repo="${esc(c.repo)}" data-number="${esc(c.number)}" data-dir="down">↓</button>`
+              : '';
+            return `<tr><td>${arrows}</td>` +
+              `<td><a href="${esc(c.url) || '#'}">#${esc(c.number)}</a></td>` +
+              `<td>${esc(c.repo)}</td><td class="title">${esc(c.title)}</td>` +
+              `<td><span class="pill">${esc(c.type)}</span></td><td>${esc(c.author)}</td>` +
+              `<td><span class="pill">${esc(c.status)}</span></td></tr>`;
+          });
           fill('reviews', rv.reviews || [], r =>
             `<tr><td>#${esc(r.number)}</td><td>${esc(r.repo)}</td>` +
             `<td><span class="pill">${esc(r.verdict)}</span></td><td>${esc(r.engine)}</td>` +
@@ -97,6 +104,35 @@
           document.getElementById('summary').textContent = 'error loading data';
         }
       }
+
+      document.getElementById('add-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const err = document.getElementById('add-err');
+        err.textContent = '';
+        try {
+          await post('/api/queue', {
+            repo: document.getElementById('add-repo').value.trim(),
+            number: parseInt(document.getElementById('add-number').value, 10),
+          });
+          document.getElementById('add-repo').value = '';
+          document.getElementById('add-number').value = '';
+          refresh();
+        } catch (ex) { err.textContent = ex.message; }
+      });
+
+      document.querySelector('#queue tbody').addEventListener('click', async (e) => {
+        const btn = e.target.closest('button.move');
+        if (!btn) return;
+        try {
+          await post('/api/queue/move', {
+            repo: btn.dataset.repo,
+            number: parseInt(btn.dataset.number, 10),
+            direction: btn.dataset.dir,
+          });
+          refresh();
+        } catch (ex) { document.getElementById('add-err').textContent = ex.message; }
+      });
+
       refresh();
       setInterval(refresh, 15000);
     </script>

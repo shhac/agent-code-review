@@ -15,7 +15,8 @@ WHAT IT DOES:
   (default: codex). Ships a dashboard you can expose over Tailscale.
 
 COMMANDS:
-  serve [--http :8330] [--tailscale serve|funnel]   Run the daemon (scheduler + dashboard)
+  serve [--http :8330] [--tailscale serve|funnel]   Run the daemon (scheduler + dashboard:
+                                                     Overview w/ queue add+reorder, Config, Prompt)
   run  [--once]                                      Run a single review cycle, then exit
 
   queue ls [--status S] [--repo R]                   List candidates (NDJSON)

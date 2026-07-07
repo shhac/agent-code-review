@@ -1,0 +1,31 @@
+:root { color-scheme: light dark; --fg: #1a1a1a; --muted: #6b7280; --line: #e5e7eb; --bg: #ffffff; --accent: #2563eb; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e5e7eb; --muted: #9ca3af; --line: #2a2f3a; --bg: #0f1115; --accent: #60a5fa; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+header { padding: 16px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 14px; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+nav { display: flex; gap: 14px; }
+nav a { color: var(--muted); text-decoration: none; font-size: 14px; }
+nav a.active { color: var(--fg); font-weight: 600; }
+nav a:hover { color: var(--accent); }
+.muted { color: var(--muted); font-size: 13px; }
+main { padding: 8px 24px 40px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 680px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+td.title { white-space: normal; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+.empty { color: var(--muted); padding: 24px 0; }
+pre { background: color-mix(in srgb, var(--line) 30%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 14px; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+form.inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+input { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 14px; }
+button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 14px; font: inherit; font-size: 14px; cursor: pointer; }
+button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 1px 8px; font-size: 12px; }
+button.ghost:hover { color: var(--fg); border-color: var(--muted); }
+ul.plain { list-style: none; padding: 0; margin: 0; }
+ul.plain li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.err { color: #dc2626; font-size: 13px; }

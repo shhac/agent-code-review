@@ -138,6 +138,21 @@ decision.
 (addr + tailscale). The allowed-authors list is **not** in config — it lives in
 the store; manage it with `authors`.
 
+## Dashboard
+
+`serve` hosts a small web UI (default `:8330`) with three pages:
+
+- **Overview** — the queue (with an *add PR* form and ↑/↓ reordering), recent
+  reviews, and recent run cycles. Auto-refreshes.
+- **Config** — watched repos, resolved settings, and the allowed-authors list.
+  Read-only.
+- **Prompt** — the main prompt, the rules, and a fully assembled preview of
+  what the agent receives (allowed vs not-allowed author variants). Read-only.
+
+Queue add/reorder are also available as JSON endpoints (`POST /api/queue`,
+`POST /api/queue/move`). The dashboard has no auth — keep it on your tailnet
+(`--tailscale serve`) unless you mean to expose it.
+
 ## Output
 
 NDJSON on stdout — one JSON record per line. Errors go to stderr as

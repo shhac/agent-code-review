@@ -65,12 +65,12 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	if tsDown != nil {
 		stderrLogf("tailscale %s: %s -> http://%s (will shut down on exit)", opts.tailscaleMode, publicURL, opts.addr)
 		if opts.tailscaleMode == "funnel" {
-			stderrLogf("warning: the dashboard has no auth — funnel exposes it (and your queue) to the public internet; prefer --tailscale serve unless that's intended")
+			stderrLogf("warning: the dashboard has no auth — funnel exposes it (including queue add/reorder) to the public internet; prefer --tailscale serve unless that's intended")
 		}
 		defer func() { _ = tsDown() }()
 	}
 
-	srv := &http.Server{Addr: opts.addr, Handler: dashboard.NewServer(s).Handler()}
+	srv := &http.Server{Addr: opts.addr, Handler: dashboard.NewServer(s, config.Read).Handler()}
 	go func() {
 		stderrLogf("dashboard: listening on %s", opts.addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

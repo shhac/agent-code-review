@@ -58,6 +58,16 @@ func queueAddCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
+				// An existing candidate keeps its discovered metadata — just
+				// requeue it rather than upserting empty fields over it.
+				if _, exists, err := s.GetCandidate(cmd.Context(), repo, number); err != nil {
+					return err
+				} else if exists {
+					if err := s.SetStatus(cmd.Context(), repo, number, store.StatusQueued); err != nil {
+						return err
+					}
+					return emit(map[string]any{"requeued": repo + "#" + strconv.Itoa(number)})
+				}
 				c := store.Candidate{
 					Repo:         repo,
 					Number:       number,
@@ -105,7 +115,7 @@ func queuePromoteCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				// Negative position sorts ahead of the default 0 within its type.
+				// Negative position sorts ahead of the default 0 — true top of queue.
 				if err := s.SetQueuePos(cmd.Context(), repo, number, -1); err != nil {
 					return err
 				}

@@ -46,7 +46,7 @@ func (f *fakeStore) Close() error                                    { return ni
 func fixedNow() time.Time { return time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC) }
 
 func newDiscoverer(fs *fakeStore) *Discoverer {
-	d := New(config.Config{}, fs)
+	d := New(config.Config{}, fs, nil)
 	d.now = fixedNow
 	return d
 }

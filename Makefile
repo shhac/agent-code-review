@@ -10,9 +10,10 @@ build:
 test:
 	go test ./... -count=1
 
-# Drives the real codex CLI (needs codex on PATH + auth; spends quota).
+# Drives the real codex CLI (needs codex on PATH + auth; spends quota) and, if
+# AGENT_CODE_REVIEW_TEST_REPO is set, live gh discovery against that repo.
 test-integration:
-	go test ./internal/review/ -count=1 -tags=integration -run TestCodexSmoke -v -timeout 10m
+	go test ./internal/review/ ./internal/discover/ -count=1 -tags=integration -v -timeout 10m
 
 lint:
 	golangci-lint run ./...

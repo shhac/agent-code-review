@@ -36,7 +36,7 @@ func buildScheduler(ctx context.Context, cfg config.Config, s store.Store) (*sch
 	if err != nil {
 		return nil, err
 	}
-	disc := discover.New(cfg, s)
+	disc := discover.New(cfg, s, stderrLogf)
 
 	ghUser := cfg.GHUser
 	if ghUser == "" {

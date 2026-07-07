@@ -8,6 +8,7 @@ package discover
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -17,25 +18,40 @@ import (
 // Clock is injectable so tests don't depend on wall time.
 type Clock func() time.Time
 
+// Logf is a minimal logging sink (fmt.Printf-shaped).
+type Logf func(format string, args ...any)
+
 // Discoverer turns config + gh + store into fresh queue entries.
 type Discoverer struct {
 	cfg   config.Config
 	store store.Store
 	now   Clock
+	logf  Logf
 }
 
-func New(cfg config.Config, s store.Store) *Discoverer {
-	return &Discoverer{cfg: cfg, store: s, now: time.Now}
+func New(cfg config.Config, s store.Store, logf Logf) *Discoverer {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	return &Discoverer{cfg: cfg, store: s, now: time.Now, logf: logf}
 }
 
 // Discover lists PRs across all configured repos, classifies each as New or
 // Refreshed (or neither), upserts the matches into the store, and returns them.
+// A repo that fails to list (bad name, auth hiccup) is logged and skipped so it
+// can't take down the whole cycle; an error is returned only when every repo
+// failed, since that usually means gh itself is broken.
 func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 	var found []store.Candidate
+	var lastErr error
+	failed := 0
 	for _, repo := range d.cfg.Repos {
 		prs, err := d.listPRs(ctx, repo)
 		if err != nil {
-			return nil, err
+			d.logf("discover %s: %v — skipping repo this cycle", repo, err)
+			failed++
+			lastErr = err
+			continue
 		}
 		for _, pr := range prs {
 			cand, ok, err := d.classify(ctx, repo, pr)
@@ -50,6 +66,9 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 			}
 			found = append(found, cand)
 		}
+	}
+	if failed > 0 && failed == len(d.cfg.Repos) {
+		return nil, fmt.Errorf("discovery failed for all %d repos: %w", failed, lastErr)
 	}
 	return found, nil
 }

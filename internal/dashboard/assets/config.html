@@ -55,7 +55,7 @@
         document.getElementById('repos-empty').hidden = repos.length !== 0;
 
         const loopState = (running, enabled) =>
-          running ? 'running' : 'off' + (enabled ? ' (config says enabled — started with --no-schedule?)' : '');
+          running ? 'running' : 'off' + (enabled ? ' (config says enabled — overridden by a --no-* flag this boot)' : '');
         const rows = [
           ['Reviewing as', cfg.reviewing_as ? '@' + cfg.reviewing_as : 'unknown (gh not authenticated?)'],
           ['Review engine', cfg.engine],

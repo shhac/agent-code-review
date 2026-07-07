@@ -79,7 +79,8 @@ tool neither requires nor mentions it.
 ## Command map
 
 ```
-serve [--http :8330] [--tailscale serve|funnel] [--public-url URL] [--no-schedule]
+serve [--http :8330] [--tailscale serve|funnel] [--public-url URL]
+      [--no-discovery] [--no-reviews] [--no-schedule]
 run   [--once]
 
 queue ls [--status S] [--repo R]

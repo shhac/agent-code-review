@@ -23,6 +23,8 @@ type serveOpts struct {
 	tailscaleMode string
 	tailscalePort int
 	noSchedule    bool
+	noDiscovery   bool
+	noReviews     bool
 }
 
 func registerServe(root *cobra.Command) {
@@ -44,7 +46,9 @@ func registerServe(root *cobra.Command) {
 	f.StringVar(&opts.publicURL, "public-url", cfg.Dashboard.PublicURL, "Externally-reachable URL (derived from Tailscale when unset)")
 	f.StringVar(&opts.tailscaleMode, "tailscale", cfg.Dashboard.Tailscale.Mode, `Expose via Tailscale: "serve" (tailnet) or "funnel" (public)`)
 	f.IntVar(&opts.tailscalePort, "tailscale-port", tailscalePortOr(cfg.Dashboard.Tailscale.Port), "Tailscale port (443, 8443, or 10000)")
-	f.BoolVar(&opts.noSchedule, "no-schedule", false, "Serve the dashboard only; don't run the review scheduler")
+	f.BoolVar(&opts.noSchedule, "no-schedule", false, "Serve the dashboard only; run neither loop")
+	f.BoolVar(&opts.noDiscovery, "no-discovery", false, "Don't run the discovery loop this boot (overrides discovery.enabled)")
+	f.BoolVar(&opts.noReviews, "no-reviews", false, "Don't run the review loop this boot (overrides schedule.enabled)")
 	root.AddCommand(cmd)
 }
 
@@ -77,10 +81,16 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	usageCache := usage.NewCache()
 	go usageCache.Poll(ctx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
 
+	// Config sets the default per loop; flags override for this process only.
+	// --no-schedule remains the "neither loop" shorthand.
 	running := dashboard.Running{
-		Discovery: !opts.noSchedule && cfg.Discovery.Enabled,
-		Review:    !opts.noSchedule && cfg.Schedule.Enabled,
+		Discovery: !opts.noSchedule && !opts.noDiscovery && cfg.Discovery.Enabled,
+		Review:    !opts.noSchedule && !opts.noReviews && cfg.Schedule.Enabled,
 	}
+	// The scheduler reads the switches from config — apply the effective
+	// (flag-overridden) state so it starts exactly the loops shown above.
+	cfg.Discovery.Enabled = running.Discovery
+	cfg.Schedule.Enabled = running.Review
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser)
 	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
 	go func() {
@@ -102,7 +112,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 			}
 		}()
 	} else {
-		stderrLogf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled false, or --no-schedule)")
+		stderrLogf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
 	}
 
 	<-ctx.Done()

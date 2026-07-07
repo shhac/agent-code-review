@@ -10,9 +10,6 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
-	"regexp"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -83,158 +80,12 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// handleQueue lists on GET and adds a PR on POST — mirroring `queue ls` and
-// `queue add` so users can submit their own PRs from the dashboard.
-func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.listQueue(w, r)
-	case http.MethodPost:
-		s.addToQueue(w, r)
-	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "GET or POST"})
-	}
-}
-
-func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	candidates, err := s.store.ListCandidates(ctx, store.Filter{})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"candidates": candidates})
-}
-
-var (
-	repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	// prRefPattern matches a PR reference in URL syntax, with or without the
-	// https://github.com/ prefix: "owner/repo/pull/123" works bare.
-	prRefPattern = regexp.MustCompile(`^(?:https://github\.com/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)`)
-)
-
-// addToQueue accepts {"url": "<PR reference>"} — a full GitHub PR URL or the
-// bare "owner/repo/pull/N" form — or {"repo": "owner/name", "number": N}.
-// Either way the repo must be one of the configured watched repos — the
-// dashboard is the surface other people use, so it only takes PRs this tool is
-// actually set up to review.
-func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Repo   string `json:"repo"`
-		Number int    `json:"number"`
-		URL    string `json:"url"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
-		return
-	}
-	if req.URL != "" {
-		m := prRefPattern.FindStringSubmatch(strings.TrimSpace(req.URL))
-		if m == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a PR reference — expected https://github.com/owner/repo/pull/N or owner/repo/pull/N"})
-			return
-		}
-		req.Repo = m[1]
-		req.Number, _ = strconv.Atoi(m[2])
-	}
-	if !repoPattern.MatchString(req.Repo) || req.Number <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need {"url": "owner/repo/pull/N"} or {"repo": "owner/name", "number": N}`})
-		return
-	}
-	if !s.repoWatched(req.Repo) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": req.Repo + " is not a watched repo — see the Config page for the allowed list"})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	// Requeue inserts new or flips an existing candidate back to queued,
-	// preserving discovered metadata either way.
-	err := s.store.Requeue(ctx, store.Candidate{
-		Repo:         req.Repo,
-		Number:       req.Number,
-		Type:         store.TypeNew,
-		URL:          "https://github.com/" + req.Repo + "/pull/" + strconv.Itoa(req.Number),
-		Status:       store.StatusQueued,
-		DiscoveredAt: time.Now(),
-	})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"queued": true})
-}
-
-// repoWatched reports whether repo is in the configured watch list
-// (case-insensitive, matching GitHub's semantics).
-func (s *Server) repoWatched(repo string) bool {
-	for _, r := range s.config().Repos {
-		if strings.EqualFold(r, repo) {
-			return true
-		}
-	}
-	return false
-}
-
-// handleQueueMove nudges a queued PR up or down one place. Positions are
-// normalized to the current display order (1..N) on every move, so ties on the
-// default 0 become explicit and the swap always takes effect.
-func (s *Server) handleQueueMove(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
-		return
-	}
-	var req struct {
-		Repo      string `json:"repo"`
-		Number    int    `json:"number"`
-		Direction string `json:"direction"` // "up" | "down"
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Direction != "up" && req.Direction != "down") {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need {"repo", "number", "direction": "up"|"down"}`})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	queued, err := s.store.ListCandidates(ctx, store.Filter{Status: store.StatusQueued})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	i := -1
-	for idx, c := range queued {
-		if c.Repo == req.Repo && c.Number == req.Number {
-			i = idx
-			break
-		}
-	}
-	if i < 0 {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "PR is not in the queued list"})
-		return
-	}
-	j := i - 1
-	if req.Direction == "down" {
-		j = i + 1
-	}
-	if j >= 0 && j < len(queued) {
-		queued[i], queued[j] = queued[j], queued[i]
-	}
-	for pos, c := range queued {
-		if err := s.store.SetQueuePos(ctx, c.Repo, c.Number, pos+1); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"moved": true})
-}
-
 func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	reviews, err := s.store.ListReviews(ctx, 50)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"reviews": reviews})
@@ -245,7 +96,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	runs, err := s.store.ListRuns(ctx, 20)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
@@ -287,31 +138,32 @@ func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"available": !snap.FetchedAt.IsZero(), "usage": snap})
 }
 
-// handleStats returns 24 hourly buckets of review outcomes for the sliding
-// last-24h window: approved / commented / requested_changes counts per hour.
-func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	now := time.Now().UTC()
-	start := now.Truncate(time.Hour).Add(-23 * time.Hour)
-	reviews, err := s.store.ListReviewsSince(ctx, start)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	type bucket struct {
-		Hour             string `json:"hour"`
-		Approved         int    `json:"approved"`
-		Commented        int    `json:"commented"`
-		RequestedChanges int    `json:"requested_changes"`
-	}
-	buckets := make([]bucket, 24)
+// statsBucket is one hour of review outcomes in the /api/stats response.
+type statsBucket struct {
+	Hour             string `json:"hour"`
+	Approved         int    `json:"approved"`
+	Commented        int    `json:"commented"`
+	RequestedChanges int    `json:"requested_changes"`
+}
+
+// bucketReviews aggregates reviews into 24 hourly buckets starting at start
+// (which must be hour-aligned). Reviews outside [start, start+24h) are
+// dropped; SKIPPED/ERROR verdicts don't count as outcomes. Pure — the
+// hour-index math and verdict mapping are unit-tested directly.
+func bucketReviews(reviews []store.Review, start time.Time) []statsBucket {
+	buckets := make([]statsBucket, 24)
 	for i := range buckets {
 		buckets[i].Hour = start.Add(time.Duration(i) * time.Hour).Format(time.RFC3339)
 	}
 	for _, rv := range reviews {
-		i := int(rv.ReviewedAt.UTC().Sub(start) / time.Hour)
-		if i < 0 || i >= 24 {
+		at := rv.ReviewedAt.UTC()
+		// Duration division truncates toward zero, so a negative sub-hour
+		// offset would land in bucket 0 — guard Before() explicitly.
+		if at.Before(start) {
+			continue
+		}
+		i := int(at.Sub(start) / time.Hour)
+		if i >= 24 {
 			continue
 		}
 		switch rv.Verdict {
@@ -323,7 +175,21 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 			buckets[i].RequestedChanges++
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"buckets": buckets})
+	return buckets
+}
+
+// handleStats returns 24 hourly buckets of review outcomes for the sliding
+// last-24h window: approved / commented / requested_changes counts per hour.
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	start := time.Now().UTC().Truncate(time.Hour).Add(-23 * time.Hour)
+	reviews, err := s.store.ListReviewsSince(ctx, start)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"buckets": bucketReviews(reviews, start)})
 }
 
 func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
@@ -331,7 +197,7 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	authors, err := s.store.ListAllowedAuthors(ctx, r.URL.Query().Get("repo"))
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"authors": authors})
@@ -386,4 +252,14 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// fail writes the standard 500 error envelope.
+func (s *Server) fail(w http.ResponseWriter, err error) {
+	httpError(w, http.StatusInternalServerError, err.Error())
+}
+
+// httpError writes the JSON error envelope with an explicit status.
+func httpError(w http.ResponseWriter, code int, msg string) {
+	writeJSON(w, code, map[string]string{"error": msg})
 }

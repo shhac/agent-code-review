@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -181,6 +182,11 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 	if verdict.Summary != "" {
 		s.logf("review %s#%d: %s — %s", c.Repo, c.Number, verdict.Decision, verdict.Summary)
 	}
+	// A failed invocation's only clue is the engine's own output — surface its
+	// tail instead of a bare exit status.
+	if reviewErr != nil && verdict.Raw != "" {
+		s.logf("review %s#%d: engine output tail: %s", c.Repo, c.Number, tail(verdict.Raw, 500))
+	}
 
 	// Record history only when the agent actually reviewed (approved, commented,
 	// or requested changes). A skip or failure must NOT count as "reviewed at
@@ -226,6 +232,15 @@ func statusFor(decision string) string {
 	default:
 		return store.StatusError
 	}
+}
+
+// tail returns the last n bytes of s, whitespace-trimmed, newlines flattened.
+func tail(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) > n {
+		s = "…" + s[len(s)-n:]
+	}
+	return strings.ReplaceAll(s, "\n", " | ")
 }
 
 func newRunID() string { return fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid()) }

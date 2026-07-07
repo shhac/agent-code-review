@@ -30,7 +30,8 @@
     "rules": [],
     "codex": {
       "bin": "codex",
-      "model": "gpt-5.5-codex",
+      "//model_note": "Leave empty to use codex's own default model. To pin one, pick a valid id from `codex debug models` — an invalid id fails every review with a 400.",
+      "model": "",
       "sandbox": "workspace-write",
       "//args_note": "workspace-write disables network by default, but the agent must reach GitHub via gh — this override re-enables network while keeping writes scoped to the per-PR workdir.",
       "args": ["-c", "sandbox_workspace_write.network_access=true"]

@@ -32,7 +32,7 @@ type Review struct {
 	Repo       string    `json:"repo"`
 	Number     int       `json:"number"`
 	HeadSHA    string    `json:"head_sha"`
-	Verdict    string    `json:"verdict"` // APPROVE|COMMENT|ERROR
+	Verdict    string    `json:"verdict"` // APPROVED|COMMENTED|REQUESTED_CHANGES (real reviews only)
 	Engine     string    `json:"engine"`
 	ReviewedAt time.Time `json:"reviewed_at"`
 }
@@ -95,8 +95,9 @@ type Store interface {
 	// This is the manual-add primitive; discovery uses UpsertCandidate, which
 	// deliberately never touches status.
 	Requeue(ctx context.Context, c Candidate) error
+	// (No single-candidate getter: ListCandidates with a filter covers reads;
+	// a GetCandidate was removed once Requeue absorbed its only callers.)
 	ListCandidates(ctx context.Context, f Filter) ([]Candidate, error)
-	GetCandidate(ctx context.Context, repo string, number int) (Candidate, bool, error)
 	SetStatus(ctx context.Context, repo string, number int, status string) error
 	SetQueuePos(ctx context.Context, repo string, number int, pos int) error
 	RemoveCandidate(ctx context.Context, repo string, number int) error

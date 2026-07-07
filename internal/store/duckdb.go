@@ -146,14 +146,6 @@ func (d *duckDB) ListCandidates(ctx context.Context, f Filter) ([]Candidate, err
 	return cands, nil
 }
 
-func (d *duckDB) GetCandidate(ctx context.Context, repo string, number int) (Candidate, bool, error) {
-	rows, err := d.query(ctx, fmt.Sprintf("SELECT * FROM candidates WHERE repo = %s AND number = %d", q(repo), number))
-	if err != nil || len(rows) == 0 {
-		return Candidate{}, false, err
-	}
-	return scanCandidate(rows[0]), true, nil
-}
-
 func (d *duckDB) SetStatus(ctx context.Context, repo string, number int, status string) error {
 	_, err := d.query(ctx, fmt.Sprintf("UPDATE candidates SET status = %s WHERE repo = %s AND number = %d", q(status), q(repo), number))
 	return err

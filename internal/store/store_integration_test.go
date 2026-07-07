@@ -28,6 +28,22 @@ func newTestStore(t *testing.T) Store {
 	return s
 }
 
+// getCandidate finds one candidate via ListCandidates — the Store contract
+// has no single-row getter (removed as dead once Requeue absorbed its callers).
+func getCandidate(t *testing.T, s Store, repo string, number int) (Candidate, bool) {
+	t.Helper()
+	cands, err := s.ListCandidates(context.Background(), Filter{Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cands {
+		if c.Number == number {
+			return c, true
+		}
+	}
+	return Candidate{}, false
+}
+
 // TestIsAuthorAllowed covers the store half of the approval gate — the single
 // query that decides whether a PR may be APPROVED at all.
 func TestIsAuthorAllowed(t *testing.T) {
@@ -104,9 +120,9 @@ func TestRequeuePreservesMetadata(t *testing.T) {
 	if err := s.Requeue(ctx, Candidate{Repo: "o/r", Number: 7, Type: TypeNew}); err != nil {
 		t.Fatal(err)
 	}
-	c, ok, err := s.GetCandidate(ctx, "o/r", 7)
-	if err != nil || !ok {
-		t.Fatalf("get: ok=%v err=%v", ok, err)
+	c, ok := getCandidate(t, s, "o/r", 7)
+	if !ok {
+		t.Fatal("candidate missing after requeue")
 	}
 	if c.Status != StatusQueued || c.Title != "Real Title" || c.Author != "alice" {
 		t.Errorf("requeue lost state: %+v", c)
@@ -118,7 +134,7 @@ func TestRequeuePreservesMetadata(t *testing.T) {
 	if err := s.UpsertCandidate(ctx, Candidate{Repo: "o/r", Number: 7, Type: TypeNew, Title: "Real Title", Author: "alice", HeadSHA: "sha2"}); err != nil {
 		t.Fatal(err)
 	}
-	c, _, _ = s.GetCandidate(ctx, "o/r", 7)
+	c, _ = getCandidate(t, s, "o/r", 7)
 	if c.Status != StatusReviewing {
 		t.Errorf("discovery upsert changed status to %s — must preserve", c.Status)
 	}
@@ -133,9 +149,9 @@ func TestHostileStringsRoundTrip(t *testing.T) {
 	if err := s.UpsertCandidate(ctx, Candidate{Repo: "o/r", Number: 9, Type: TypeNew, Title: title, Author: "o'malley"}); err != nil {
 		t.Fatal(err)
 	}
-	c, ok, err := s.GetCandidate(ctx, "o/r", 9)
-	if err != nil || !ok {
-		t.Fatalf("get after hostile insert: ok=%v err=%v", ok, err)
+	c, ok := getCandidate(t, s, "o/r", 9)
+	if !ok {
+		t.Fatal("candidate missing after hostile insert")
 	}
 	if c.Title != title || c.Author != "o'malley" {
 		t.Errorf("hostile strings corrupted: title=%q author=%q", c.Title, c.Author)

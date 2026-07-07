@@ -5,8 +5,10 @@ across your repos, keeps a DuckDB-backed queue, and reviews each one by handing
 an assembled prompt to a pluggable engine (default: Codex). Ships a dashboard
 you can expose over Tailscale.
 
-- **Deterministic discovery** — finds New and Refreshed candidate PRs via `gh`,
-  no runtime scripts.
+- **Deterministic discovery** — finds New and Refreshed candidate PRs via `gh`
+  on its own cadence (`discovery.interval`, with its own `discovery.enabled` switch), never involving the LLM;
+  already-approved PRs are skipped, and repos can be scoped to allowed authors
+  only (`repos add --allowed-authors-only`).
 - **Durable queue** — candidates, positions, and review history in DuckDB, so
   "we already reviewed this at SHA X" survives restarts (that's what powers
   Refreshed detection).
@@ -165,9 +167,9 @@ the store; manage it with `authors`.
 
 `serve` hosts a small web UI (default `:8330`) with three pages:
 
-- **Overview** — a two-panel hero: the queue (with an *add PR* box — paste a
-  PR URL or type `owner/repo/pull/N`; only watched repos are accepted — and
-  ↑/↓ reordering) beside **Codex usage meters** (5h + weekly windows, polled
+- **Overview** — a two-panel hero: the queue (add via pasted PR URL or
+  `owner/repo/pull/N` — live title/author fetched on add, closed/merged PRs
+  and unwatched repos rejected; ↑/↓ reordering; ✕ removal) beside **Codex usage meters** (5h + weekly windows, polled
   every `dashboard.usage_poll_interval`, default 10m) and a **last-24h chart**
   of approved / commented / changes-requested outcomes per hour. Recent
   reviews and runs below. Auto-refreshes.

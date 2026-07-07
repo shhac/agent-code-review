@@ -22,15 +22,21 @@ import (
 //go:embed assets/*
 var assets embed.FS
 
+// Running is the effective loop state of THIS daemon — what config alone
+// can't tell after --no-schedule: whether the discovery and review loops are
+// actually running in this process.
+type Running struct {
+	Discovery bool
+	Review    bool
+}
+
 // Server renders the queue, config, and prompt views. Config comes through a
 // getter so edits to config.json show up without restarting the daemon.
-// schedulerOn is whether THIS process is running the scheduler — the effective
-// state after --no-schedule, which config alone can't tell.
 type Server struct {
-	store       store.Store
-	config      func() config.Config
-	schedulerOn bool
-	usage       *usage.Cache // nil when the daemon isn't polling usage
+	store   store.Store
+	config  func() config.Config
+	running Running
+	usage   *usage.Cache // nil when the daemon isn't polling usage
 
 	// ghUser resolves the login the gh CLI acts as; resolved once, lazily —
 	// the Config page shows "reviewing as @…" so visitors know whose reviews
@@ -40,8 +46,8 @@ type Server struct {
 	ghUserVal  string
 }
 
-func NewServer(s store.Store, cfg func() config.Config, schedulerOn bool, u *usage.Cache, ghUser func(ctx context.Context) (string, error)) *Server {
-	return &Server{store: s, config: cfg, schedulerOn: schedulerOn, usage: u, ghUser: ghUser}
+func NewServer(s store.Store, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error)) *Server {
+	return &Server{store: s, config: cfg, running: running, usage: u, ghUser: ghUser}
 }
 
 // reviewingAs returns the identity reviews are posted as: the configured
@@ -108,9 +114,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.config()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	repos := make([]map[string]any, 0, len(cfg.Repos))
+	for _, r := range cfg.Repos {
+		repos = append(repos, map[string]any{"name": r, "allowed_authors_only": cfg.AuthorScopedRepo(r)})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"reviewing_as": s.reviewingAs(ctx),
-		"repos":        cfg.Repos,
+		"repos":        repos,
 		"candidates": map[string]any{
 			"new_max_age_days":       int(cfg.NewMaxAge().Hours() / 24),
 			"refreshed_max_age_days": int(cfg.RefreshedMaxAge().Hours() / 24),
@@ -120,9 +130,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"interval":     cfg.Interval().String(),
 			"max_parallel": cfg.MaxParallel(),
 		},
+		"discovery": map[string]any{
+			"enabled":  cfg.Discovery.Enabled,
+			"interval": cfg.DiscoverInterval().String(),
+		},
 		// The effective state of THIS daemon: config may say enabled while the
-		// process was started with --no-schedule (or vice-versa scenarios later).
-		"scheduler_running": s.schedulerOn,
+		// process was started with --no-schedule.
+		"review_running":    s.running.Review,
+		"discovery_running": s.running.Discovery,
 		"engine":            cfg.Engine(),
 	})
 }

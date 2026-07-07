@@ -22,11 +22,13 @@ type Clock func() time.Time
 type Logf func(format string, args ...any)
 
 // candidateStore is the narrow slice of the store discovery actually uses:
-// upserting classified candidates and reading our last review for Refreshed
-// detection. Consumer-defined so tests fake two methods, not twenty.
+// upserting classified candidates, reading our last review for Refreshed
+// detection, and the allowed-authors check for author-scoped repos.
+// Consumer-defined so tests fake three methods, not twenty.
 type candidateStore interface {
 	UpsertCandidate(ctx context.Context, c store.Candidate) error
 	LastReview(ctx context.Context, repo string, number int) (store.Review, bool, error)
+	IsAuthorAllowed(ctx context.Context, repo, handle string) (bool, error)
 }
 
 // Discoverer turns config + gh + store into fresh queue entries.
@@ -103,6 +105,22 @@ func (d *Discoverer) listPRs(ctx context.Context, repo string) ([]ghPR, error) {
 func (d *Discoverer) classify(ctx context.Context, repo string, pr ghPR) (store.Candidate, bool, error) {
 	if pr.IsDraft || !pr.hasOpenReviewRequest() {
 		return store.Candidate{}, false, nil
+	}
+	// An approved PR is already unblocked — nothing for this tool to do.
+	if pr.isApproved() {
+		return store.Candidate{}, false, nil
+	}
+	// Author-scoped repos only discover PRs from allowed authors; everywhere
+	// else any open PR is fair game (the allow-list then only governs whether
+	// an APPROVE is permitted).
+	if d.cfg.AuthorScopedRepo(repo) {
+		allowed, err := d.store.IsAuthorAllowed(ctx, repo, pr.Author.Login)
+		if err != nil {
+			return store.Candidate{}, false, err
+		}
+		if !allowed {
+			return store.Candidate{}, false, nil
+		}
 	}
 	now := d.now()
 

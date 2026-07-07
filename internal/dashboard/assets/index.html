@@ -152,11 +152,13 @@
           ]);
           const queue = q.candidates || [];
           fill('queue', queue, c => {
+            const ref = `data-repo="${esc(c.repo)}" data-number="${esc(c.number)}"`;
             const arrows = c.status === 'queued'
-              ? `<button class="ghost move" data-repo="${esc(c.repo)}" data-number="${esc(c.number)}" data-dir="up">↑</button>` +
-                `<button class="ghost move" data-repo="${esc(c.repo)}" data-number="${esc(c.number)}" data-dir="down">↓</button>`
+              ? `<button class="ghost move" ${ref} data-dir="up">↑</button>` +
+                `<button class="ghost move" ${ref} data-dir="down">↓</button>`
               : '';
-            return `<tr><td>${arrows}</td>` +
+            const del = `<button class="ghost del" ${ref} title="Remove from queue">✕</button>`;
+            return `<tr><td>${arrows}${del}</td>` +
               `<td><a href="${esc(c.url) || '#'}">#${esc(c.number)}</a></td>` +
               `<td>${esc(c.repo)}</td><td class="title">${esc(c.title)}</td>` +
               `<td><span class="pill">${esc(c.type)}</span></td><td>${esc(c.author)}</td>` +
@@ -190,14 +192,20 @@
       });
 
       document.querySelector('#queue tbody').addEventListener('click', async (e) => {
-        const btn = e.target.closest('button.move');
+        const btn = e.target.closest('button.move, button.del');
         if (!btn) return;
+        const ref = { repo: btn.dataset.repo, number: parseInt(btn.dataset.number, 10) };
         try {
-          await post('/api/queue/move', {
-            repo: btn.dataset.repo,
-            number: parseInt(btn.dataset.number, 10),
-            direction: btn.dataset.dir,
-          });
+          if (btn.classList.contains('del')) {
+            const res = await fetch('/api/queue', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(ref),
+            });
+            if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+          } else {
+            await post('/api/queue/move', { ...ref, direction: btn.dataset.dir });
+          }
           refresh();
         } catch (ex) { document.getElementById('add-err').textContent = ex.message; }
       });

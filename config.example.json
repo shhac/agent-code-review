@@ -1,16 +1,22 @@
 {
-  "//repos_note": "The repos to discover candidate PRs in. Blank until you configure it: agent-code-review repos add <owner/name>",
+  "//repos_note": "The repos to discover candidate PRs in. Blank until you configure it: agent-code-review repos add <owner/name> [--allowed-authors-only]. Repos listed in allowed_authors_only_repos only discover PRs from allowed authors; others discover any open PR.",
   "repos": [],
+  "allowed_authors_only_repos": [],
   "gh_user": "",
   "//authors": "Allowed authors (whose PRs we may approve) live in the DuckDB store, per repo. Manage with: agent-code-review authors allow <owner/repo|*> <github-handle> [--name ... --email ... --slack-id ...]",
   "candidates": {
     "new_max_age_days": 14,
     "refreshed_max_age_days": 21
   },
+  "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates (deterministic gh calls, no LLM); schedule runs review cycles (codex invocations, hence max_parallel).",
   "schedule": {
     "enabled": true,
     "interval": "30m",
     "max_parallel": 4
+  },
+  "discovery": {
+    "enabled": true,
+    "interval": "10m"
   },
   "review": {
     "engine": "codex",

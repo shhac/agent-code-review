@@ -25,7 +25,8 @@ COMMANDS:
   queue promote <owner/repo> <number>                Float a PR to the top
   queue skip <owner/repo> <number>                   Mark a PR skipped
 
-  repos ls | add <owner/repo> | rm <owner/repo>      Manage the watched repos (config)
+  repos ls | add <owner/repo> [--allowed-authors-only] | rm <owner/repo>
+                                                     Manage the watched repos (config)
 
   authors ls [--repo R]                              List allowed authors
   authors allow <owner/repo|*> <handle> [--name ...] Allow an author's PRs to be approved
@@ -44,10 +45,14 @@ CONFIG: ~/.config/agent-code-review/config.json (respects XDG_CONFIG_HOME).
   review engine + main prompt + rules, the DuckDB path, and dashboard/Tailscale.
   See config.example.json. No repos or GitHub handles are hardcoded.
 
-CANDIDATES:
-  NEW       — open, not draft, review requested, never reviewed, ≤ new_max_age_days
-  REFRESHED — open, not draft, re-review requested, head SHA differs from our last
-              recorded review, ≤ refreshed_max_age_days
+CANDIDATES (discovery is deterministic — gh + rules, never the LLM):
+  NEW       — open, not draft, review requested, never reviewed, not currently
+              approved, ≤ new_max_age_days
+  REFRESHED — open, not draft, re-review requested, not currently approved, head
+              SHA differs from our last recorded review, ≤ refreshed_max_age_days
+  Repos in allowed_authors_only_repos additionally require the PR author to be
+  on the allowed-authors list. Manual adds (queue add / dashboard) fetch live
+  metadata via gh and reject closed/merged PRs.
 
 APPROVAL: allowed authors (whose PRs WE may approve — we are the reviewer) are
   stored in DuckDB, per repo (manage with 'authors'). The assembled prompt always
@@ -79,8 +84,9 @@ COMMANDS:
     before Refreshed, then lowest PR number. One NDJSON record per candidate.
 
   queue add <owner/repo> <number>
-    Add a PR by hand. An already-known PR is requeued, keeping its discovered
-    metadata. (The scheduler also adds candidates automatically via discovery.)
+    Add a PR by hand: live metadata (title/author/SHA) is fetched via gh, and
+    closed/merged PRs are rejected. An already-known PR is requeued, keeping
+    its metadata. (The scheduler also adds candidates via discovery.)
 
   queue promote <owner/repo> <number>
     Float a PR to the very top of the queue (across types).
@@ -105,9 +111,12 @@ Discovery, the dashboard add-PR form, and the scheduler only operate on repos
 in this list. Ships empty: nothing is watched until you add it.
 
 COMMANDS:
-  repos ls                 One {"repo": "owner/name"} record per watched repo
-  repos add <owner/repo>   Add a repo (idempotent; reports "unchanged" if present)
-  repos rm <owner/repo>    Stop watching a repo
+  repos ls                 One record per watched repo, with its author scope
+  repos add <owner/repo> [--allowed-authors-only]
+    Add a repo (idempotent; re-running toggles the scope). By default any open
+    PR is discovered; --allowed-authors-only scopes discovery to PRs authored
+    by allowed authors — for repos where reviewing every PR would be noise.
+  repos rm <owner/repo>    Stop watching a repo (clears its scope too)
 
 EXAMPLES:
   agent-code-review repos add example-org/example-repo
@@ -180,8 +189,10 @@ COMMANDS:
 
 KEYS:
   gh_user                              self-review detection (empty = derive via gh)
-  schedule.enabled                     true|false — daemon runs cycles
-  schedule.interval                    Go duration, e.g. 30m
+  schedule.enabled                     true|false — daemon runs review cycles
+  schedule.interval                    review cadence, e.g. 30m
+  discovery.enabled                    true|false — daemon scrapes for candidates
+  discovery.interval                   scrape cadence, e.g. 10m (gh only, no LLM)
   schedule.max_parallel                1..32 concurrent reviews per cycle
   candidates.new_max_age_days          New candidate window (default 14)
   candidates.refreshed_max_age_days    Refreshed candidate window (default 21)

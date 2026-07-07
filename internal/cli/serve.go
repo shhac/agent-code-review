@@ -77,8 +77,11 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	usageCache := usage.NewCache()
 	go usageCache.Poll(ctx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
 
-	schedulerOn := !opts.noSchedule && cfg.Schedule.Enabled
-	dash := dashboard.NewServer(s, config.Read, schedulerOn, usageCache, discover.CurrentUser)
+	running := dashboard.Running{
+		Discovery: !opts.noSchedule && cfg.Discovery.Enabled,
+		Review:    !opts.noSchedule && cfg.Schedule.Enabled,
+	}
+	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser)
 	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
 	go func() {
 		stderrLogf("dashboard: listening on %s", opts.addr)
@@ -88,7 +91,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		}
 	}()
 
-	if schedulerOn {
+	if running.Discovery || running.Review {
 		sched, err := buildScheduler(ctx, cfg, s)
 		if err != nil {
 			return err
@@ -99,7 +102,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 			}
 		}()
 	} else {
-		stderrLogf("scheduler: disabled (config schedule.enabled=false or --no-schedule)")
+		stderrLogf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled false, or --no-schedule)")
 	}
 
 	<-ctx.Done()

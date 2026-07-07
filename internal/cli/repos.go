@@ -31,8 +31,13 @@ func reposLsCmd() *cobra.Command {
 		Short: "List watched repos (NDJSON)",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			for _, r := range config.Read().Repos {
-				if err := emit(map[string]string{"repo": r}); err != nil {
+			cfg := config.Read()
+			for _, r := range cfg.Repos {
+				scope := "any"
+				if cfg.AuthorScopedRepo(r) {
+					scope = "allowed-authors-only"
+				}
+				if err := emit(map[string]string{"repo": r, "authors": scope}); err != nil {
 					return err
 				}
 			}
@@ -42,28 +47,66 @@ func reposLsCmd() *cobra.Command {
 }
 
 func reposAddCmd() *cobra.Command {
-	return &cobra.Command{
+	var allowedOnly bool
+	cmd := &cobra.Command{
 		Use:   "add <owner/repo>",
 		Short: "Add a repo to the watch list",
-		Args:  cobra.ExactArgs(1),
+		Long: "Watch a repo for candidate PRs. By default any open PR is discovered\n" +
+			"(the allowed-authors list then only governs approve vs comment-only);\n" +
+			"--allowed-authors-only scopes discovery itself to allowed authors — for\n" +
+			"repos where reviewing every PR would be noise.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			repo := args[0]
 			if !repoArgPattern.MatchString(repo) {
 				return output.New("Repo must be owner/name, got "+repo, output.FixableByAgent)
 			}
 			cfg := config.Read()
+			watched := false
 			for _, r := range cfg.Repos {
 				if strings.EqualFold(r, repo) {
-					return emit(map[string]any{"unchanged": repo, "reason": "already watched"})
+					watched = true
+					break
 				}
 			}
-			cfg.Repos = append(cfg.Repos, repo)
+			if !watched {
+				cfg.Repos = append(cfg.Repos, repo)
+			}
+			// Reconcile the scope list with the flag (add or remove membership).
+			scoped := cfg.AuthorScopedRepo(repo)
+			if allowedOnly && !scoped {
+				cfg.AllowedAuthorsOnlyRepos = append(cfg.AllowedAuthorsOnlyRepos, repo)
+			} else if !allowedOnly && scoped {
+				cfg.AllowedAuthorsOnlyRepos = removeFold(cfg.AllowedAuthorsOnlyRepos, repo)
+			}
 			if err := config.Write(cfg); err != nil {
 				return err
 			}
-			return emit(map[string]any{"added": repo})
+			scope := "any"
+			if allowedOnly {
+				scope = "allowed-authors-only"
+			}
+			verb := "added"
+			if watched {
+				verb = "updated"
+			}
+			return emit(map[string]any{verb: repo, "authors": scope})
 		},
 	}
+	cmd.Flags().BoolVar(&allowedOnly, "allowed-authors-only", false,
+		"Only discover PRs authored by allowed authors in this repo")
+	return cmd
+}
+
+// removeFold returns list without repo (case-insensitive).
+func removeFold(list []string, repo string) []string {
+	kept := list[:0]
+	for _, r := range list {
+		if !strings.EqualFold(r, repo) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }
 
 func reposRmCmd() *cobra.Command {
@@ -88,6 +131,7 @@ func reposRmCmd() *cobra.Command {
 					WithHint("run 'agent-code-review repos ls' to see the watch list")
 			}
 			cfg.Repos = kept
+			cfg.AllowedAuthorsOnlyRepos = removeFold(cfg.AllowedAuthorsOnlyRepos, repo)
 			if err := config.Write(cfg); err != nil {
 				return err
 			}

@@ -154,3 +154,25 @@ example config.
   approved/commented/requested-changes (`/api/stats`; colors validated with
   the dataviz six-checks in both light and dark modes), and the Config page
   showed the resolved "reviewing as @…" gh identity.
+
+## Addendum 2 — feature batch (2026-07-07, later)
+
+- **Cadences split into two independent loops**: the daemon had run discovery
+  inside every review cycle; user feedback separated them fully. A new
+  `discovery` config object ({enabled, interval}, default 10m) drives the
+  deterministic gh sweep; `schedule` ({enabled, interval, max_parallel})
+  drives review cycles — its own switch, and no parallelism dial where one
+  makes no sense. Reaffirmed explicitly: candidate identification never
+  involves the LLM — codex is invoked only per accepted review.
+- **Manual adds fetch live metadata**: `queue add` and the dashboard POST had
+  inserted bare rows that discovery would only backfill if the PR matched the
+  candidate rules — exactly what a manual add often doesn't. Both paths now
+  call `discover.ManualCandidate` (gh pr view → title/author/SHA), rejecting
+  CLOSED/MERGED PRs.
+- **Discovery gained two filters**: PRs whose GitHub `reviewDecision` is
+  APPROVED are skipped (already unblocked — and deliberately keyed off the
+  computed decision, not the raw reviews list, so a stale approval can't block
+  a Refreshed re-review); repos listed in `allowed_authors_only_repos`
+  (`repos add --allowed-authors-only`) only discover PRs from allowed authors.
+- **Dashboard rows gained ✕ removal** (DELETE /api/queue), completing the
+  add/reorder/remove management loop from the UI.

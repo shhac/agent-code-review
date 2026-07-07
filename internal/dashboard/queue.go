@@ -14,20 +14,43 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// handleQueue lists on GET and adds a PR on POST — mirroring `queue ls` and
-// `queue add` so users can submit their own PRs from the dashboard.
+// handleQueue lists on GET, adds a PR on POST, and removes one on DELETE —
+// mirroring `queue ls`/`queue add`/`queue rm` so users can manage their own
+// PRs from the dashboard.
 func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.listQueue(w, r)
 	case http.MethodPost:
 		s.addToQueue(w, r)
+	case http.MethodDelete:
+		s.removeFromQueue(w, r)
 	default:
-		httpError(w, http.StatusMethodNotAllowed, "GET or POST")
+		httpError(w, http.StatusMethodNotAllowed, "GET, POST, or DELETE")
 	}
+}
+
+// removeFromQueue drops a candidate entirely — the "changed our mind" path.
+func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Repo   string `json:"repo"`
+		Number int    `json:"number"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !repoPattern.MatchString(req.Repo) || req.Number <= 0 {
+		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	if err := s.store.RemoveCandidate(ctx, req.Repo, req.Number); err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": true})
 }
 
 func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
@@ -80,24 +103,25 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusForbidden, req.Repo+" is not a watched repo — see the Config page for the allowed list")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	// Fetching metadata involves a gh round-trip; give it room.
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
+	// Fetch real metadata up front (title/author/SHA) and reject closed or
+	// merged PRs — discovery only backfills PRs that match the candidate
+	// rules, which a manual add may not.
+	c, err := discover.ManualCandidate(ctx, req.Repo, req.Number)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	// Requeue inserts new or flips an existing candidate back to queued,
 	// preserving discovered metadata either way.
-	err := s.store.Requeue(ctx, store.Candidate{
-		Repo:         req.Repo,
-		Number:       req.Number,
-		Type:         store.TypeNew,
-		URL:          "https://github.com/" + req.Repo + "/pull/" + strconv.Itoa(req.Number),
-		Status:       store.StatusQueued,
-		DiscoveredAt: time.Now(),
-	})
-	if err != nil {
+	if err := s.store.Requeue(ctx, c); err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"queued": true})
+	writeJSON(w, http.StatusOK, map[string]any{"queued": true, "title": c.Title, "author": c.Author})
 }
 
 // repoWatched reports whether repo is in the configured watch list

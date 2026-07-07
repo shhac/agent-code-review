@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -22,12 +23,13 @@ type Logf func(format string, args ...any)
 
 // Scheduler wires the deterministic machinery around a review engine.
 type Scheduler struct {
-	cfg    config.Config
-	store  store.Store
-	disc   *discover.Discoverer
-	engine review.Engine
-	ghUser string
-	logf   Logf
+	cfg         config.Config
+	store       store.Store
+	disc        *discover.Discoverer
+	engine      review.Engine
+	ghUser      string
+	logf        Logf
+	discovering atomic.Bool // in-flight guard for the discovery sweep
 }
 
 func New(cfg config.Config, s store.Store, d *discover.Discoverer, e review.Engine, ghUser string, logf Logf) *Scheduler {
@@ -37,28 +39,61 @@ func New(cfg config.Config, s store.Store, d *discover.Discoverer, e review.Engi
 	return &Scheduler{cfg: cfg, store: s, disc: d, engine: e, ghUser: ghUser, logf: logf}
 }
 
-// Start runs RunCycle immediately, then on the configured interval until ctx
-// is cancelled.
+// Start runs the enabled loops until ctx is cancelled: discovery (cheap,
+// deterministic gh scraping, discovery.enabled/interval) and review cycles
+// (LLM invocations, schedule.enabled/interval) switch and tick independently.
+// Enabled loops fire immediately on start.
 func (s *Scheduler) Start(ctx context.Context) error {
-	interval := s.cfg.Interval()
-	s.logf("scheduler: starting, interval %s, max parallel %d", interval, s.cfg.MaxParallel())
+	if s.cfg.Discovery.Enabled {
+		s.logf("scheduler: discovery every %s", s.cfg.DiscoverInterval())
+		go s.loop(ctx, s.cfg.DiscoverInterval(), "discover", s.Discover)
+	}
+	if s.cfg.Schedule.Enabled {
+		s.logf("scheduler: reviews every %s, max parallel %d", s.cfg.Interval(), s.cfg.MaxParallel())
+		go s.loop(ctx, s.cfg.Interval(), "review", s.ReviewCycle)
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// loop runs fn immediately, then every interval until ctx is done.
+func (s *Scheduler) loop(ctx context.Context, interval time.Duration, name string, fn func(context.Context) error) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := s.RunCycle(ctx); err != nil {
-			s.logf("cycle error: %v", err)
+		if err := fn(ctx); err != nil {
+			s.logf("%s error: %v", name, err)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		case <-ticker.C:
 		}
 	}
 }
 
-// RunCycle performs one review cycle. It is a no-op (returns nil) when another
-// cycle is still in flight — the run-lock rule from the schedule spec.
-func (s *Scheduler) RunCycle(ctx context.Context) error {
+// Discover scrapes the watched repos for candidates. Purely deterministic —
+// gh + classification rules, no LLM involved. A guard skips the sweep when
+// the previous one is still in flight.
+func (s *Scheduler) Discover(ctx context.Context) error {
+	if !s.discovering.CompareAndSwap(false, true) {
+		s.logf("discover: previous sweep still running — skipping")
+		return nil
+	}
+	defer s.discovering.Store(false)
+	found, err := s.disc.Discover(ctx)
+	if err != nil {
+		return err
+	}
+	if len(found) > 0 {
+		s.logf("discover: %d candidate(s) upserted", len(found))
+	}
+	return nil
+}
+
+// ReviewCycle processes the queued candidates. It is a no-op (returns nil)
+// when another cycle is still in flight — the run-lock rule from the spec.
+func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 	s.logf("cycle: started at %s", time.Now().Format(time.RFC3339))
 
 	staleAfter := s.cfg.Interval() * 4
@@ -81,11 +116,6 @@ func (s *Scheduler) RunCycle(ctx context.Context) error {
 		s.logf("cycle: finished at %s (%s)", time.Now().Format(time.RFC3339), status)
 	}()
 
-	if _, err := s.disc.Discover(ctx); err != nil {
-		status = "failed"
-		return err
-	}
-
 	queued, err := s.store.ListCandidates(ctx, store.Filter{Status: store.StatusQueued})
 	if err != nil {
 		status = "failed"
@@ -98,6 +128,15 @@ func (s *Scheduler) RunCycle(ctx context.Context) error {
 	s.logf("cycle: %d candidate(s) to review", len(queued))
 	s.processQueue(ctx, queued)
 	return nil
+}
+
+// RunCycle is the one-shot flow (`run --once`): a discovery sweep followed by
+// one review cycle.
+func (s *Scheduler) RunCycle(ctx context.Context) error {
+	if err := s.Discover(ctx); err != nil {
+		return err
+	}
+	return s.ReviewCycle(ctx)
 }
 
 // processQueue reviews candidates concurrently, capped at MaxParallel. The

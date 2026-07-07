@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shhac/lib-agent-cli/creds"
@@ -51,11 +52,20 @@ type CandidateSettings struct {
 	RefreshedMaxAgeDays int `json:"refreshed_max_age_days,omitempty"` // default 21
 }
 
-// ScheduleSettings drives the serve daemon's internal ticker.
+// ScheduleSettings drives the review loop: LLM invocations, so it carries the
+// parallelism cap. Discovery has its own independent settings (DiscoverySettings).
 type ScheduleSettings struct {
 	Enabled     bool   `json:"enabled,omitempty"`
-	Interval    string `json:"interval,omitempty"`     // Go duration, e.g. "30m"
+	Interval    string `json:"interval,omitempty"`     // review cadence, e.g. "30m"
 	MaxParallel int    `json:"max_parallel,omitempty"` // default 4
+}
+
+// DiscoverySettings drives the candidate-scraping loop: cheap, deterministic
+// gh calls — no LLM, hence no parallelism dial — with its own on/off switch so
+// scraping can run without reviews (or vice versa).
+type DiscoverySettings struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Interval string `json:"interval,omitempty"` // e.g. "10m"
 }
 
 // CodexSettings configures the default review engine (codex exec).
@@ -109,12 +119,18 @@ type DashboardSettings struct {
 
 // Config is the whole on-disk document.
 type Config struct {
-	Repos  []string `json:"repos,omitempty"`
-	GHUser string   `json:"gh_user,omitempty"` // optional; else derived via `gh api user`
+	Repos []string `json:"repos,omitempty"`
+	// AllowedAuthorsOnlyRepos scopes discovery for the listed repos to PRs
+	// authored by allowed authors. Repos not listed discover any open PR (the
+	// default) — the allowed-authors list then only governs approve vs
+	// comment-only. Use for repos where reviewing every PR would be noise.
+	AllowedAuthorsOnlyRepos []string `json:"allowed_authors_only_repos,omitempty"`
+	GHUser                  string   `json:"gh_user,omitempty"` // optional; else derived via `gh api user`
 	// The allowed-authors list (whose PRs we may approve) lives in the store,
 	// per repo, not here — manage it with `agent-code-review authors`.
 	Candidates CandidateSettings `json:"candidates,omitempty"`
 	Schedule   ScheduleSettings  `json:"schedule,omitempty"`
+	Discovery  DiscoverySettings `json:"discovery,omitempty"`
 	Review     ReviewSettings    `json:"review,omitempty"`
 	Store      StoreSettings     `json:"store,omitempty"`
 	Dashboard  DashboardSettings `json:"dashboard,omitempty"`
@@ -208,6 +224,29 @@ func (c Config) DashboardAddr() string {
 		return c.Dashboard.Addr
 	}
 	return ":8330"
+}
+
+// DiscoverInterval is the candidate-scraping cadence (default 10m — discovery
+// is cheap gh calls, so it can run more often than reviews).
+func (c Config) DiscoverInterval() time.Duration {
+	if c.Discovery.Interval == "" {
+		return 10 * time.Minute
+	}
+	if d, err := time.ParseDuration(c.Discovery.Interval); err == nil && d > 0 {
+		return d
+	}
+	return 10 * time.Minute
+}
+
+// AuthorScopedRepo reports whether repo's discovery is limited to PRs from
+// allowed authors (case-insensitive membership in AllowedAuthorsOnlyRepos).
+func (c Config) AuthorScopedRepo(repo string) bool {
+	for _, r := range c.AllowedAuthorsOnlyRepos {
+		if strings.EqualFold(r, repo) {
+			return true
+		}
+	}
+	return false
 }
 
 // UsagePollInterval is the Codex usage refresh cadence (default 10m, and 10m

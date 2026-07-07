@@ -2,12 +2,12 @@ package cli
 
 import (
 	"strconv"
-	"time"
 
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -59,20 +59,16 @@ func queueAddCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				// Requeue inserts new or flips an existing candidate back to
-				// queued, preserving discovered metadata either way.
-				c := store.Candidate{
-					Repo:         repo,
-					Number:       number,
-					Type:         store.TypeNew,
-					URL:          "https://github.com/" + repo + "/pull/" + strconv.Itoa(number),
-					Status:       store.StatusQueued,
-					DiscoveredAt: time.Now(),
+				// Fetch real metadata up front — discovery only backfills PRs
+				// that match the candidate rules, which a manual add may not.
+				c, err := discover.ManualCandidate(cmd.Context(), repo, number)
+				if err != nil {
+					return err
 				}
 				if err := s.Requeue(cmd.Context(), c); err != nil {
 					return err
 				}
-				return emit(map[string]any{"queued": repo + "#" + strconv.Itoa(number)})
+				return emit(map[string]any{"queued": repo + "#" + strconv.Itoa(number), "title": c.Title, "author": c.Author})
 			})
 		},
 	}

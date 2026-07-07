@@ -50,20 +50,20 @@
         ]);
 
         const repos = cfg.repos || [];
-        document.getElementById('repos').innerHTML =
-          repos.map(r => `<li>${esc(r)}</li>`).join('');
+        document.getElementById('repos').innerHTML = repos.map(r =>
+          `<li>${esc(r.name)}${r.allowed_authors_only ? ' <span class="pill">allowed authors only</span>' : ''}</li>`).join('');
         document.getElementById('repos-empty').hidden = repos.length !== 0;
 
-        const schedNote = cfg.scheduler_running !== cfg.schedule.enabled
-          ? (cfg.scheduler_running ? '' : ' (config says enabled — this daemon was started with --no-schedule)')
-          : '';
+        const loopState = (running, enabled) =>
+          running ? 'running' : 'off' + (enabled ? ' (config says enabled — started with --no-schedule?)' : '');
         const rows = [
           ['Reviewing as', cfg.reviewing_as ? '@' + cfg.reviewing_as : 'unknown (gh not authenticated?)'],
           ['Review engine', cfg.engine],
-          ['Scheduler (this daemon)', (cfg.scheduler_running ? 'running' : 'off') + schedNote],
-          ['Schedule enabled (config)', String(cfg.schedule.enabled)],
-          ['Interval', cfg.schedule.interval],
+          ['Review loop (this daemon)', loopState(cfg.review_running, cfg.schedule.enabled)],
+          ['Review interval', cfg.schedule.interval],
           ['Max parallel reviews', cfg.schedule.max_parallel],
+          ['Discovery loop (this daemon)', loopState(cfg.discovery_running, cfg.discovery.enabled)],
+          ['Discovery interval', cfg.discovery.interval],
           ['New PR window (days)', cfg.candidates.new_max_age_days],
           ['Refreshed PR window (days)', cfg.candidates.refreshed_max_age_days],
         ];

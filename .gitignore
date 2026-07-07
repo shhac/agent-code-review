@@ -23,3 +23,6 @@ CLAUDE.local.md
 
 # design docs — tracked, except the archive of stale/internal notes
 design-docs/archive/
+
+# playwright MCP artifacts
+.playwright-mcp/

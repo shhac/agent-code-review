@@ -23,13 +23,16 @@ var assets embed.FS
 
 // Server renders the queue, config, and prompt views. Config comes through a
 // getter so edits to config.json show up without restarting the daemon.
+// schedulerOn is whether THIS process is running the scheduler — the effective
+// state after --no-schedule, which config alone can't tell.
 type Server struct {
-	store  store.Store
-	config func() config.Config
+	store       store.Store
+	config      func() config.Config
+	schedulerOn bool
 }
 
-func NewServer(s store.Store, cfg func() config.Config) *Server {
-	return &Server{store: s, config: cfg}
+func NewServer(s store.Store, cfg func() config.Config, schedulerOn bool) *Server {
+	return &Server{store: s, config: cfg, schedulerOn: schedulerOn}
 }
 
 // Handler returns the dashboard's HTTP routes. Config and prompt are
@@ -206,7 +209,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 			"interval":     cfg.Interval().String(),
 			"max_parallel": cfg.MaxParallel(),
 		},
-		"engine": cfg.Engine(),
+		// The effective state of THIS daemon: config may say enabled while the
+		// process was started with --no-schedule (or vice-versa scenarios later).
+		"scheduler_running": s.schedulerOn,
+		"engine":            cfg.Engine(),
 	})
 }
 

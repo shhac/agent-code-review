@@ -53,9 +53,13 @@
           repos.map(r => `<li>${esc(r)}</li>`).join('');
         document.getElementById('repos-empty').hidden = repos.length !== 0;
 
+        const schedNote = cfg.scheduler_running !== cfg.schedule.enabled
+          ? (cfg.scheduler_running ? '' : ' (config says enabled — this daemon was started with --no-schedule)')
+          : '';
         const rows = [
           ['Review engine', cfg.engine],
-          ['Schedule enabled', String(cfg.schedule.enabled)],
+          ['Scheduler (this daemon)', (cfg.scheduler_running ? 'running' : 'off') + schedNote],
+          ['Schedule enabled (config)', String(cfg.schedule.enabled)],
           ['Interval', cfg.schedule.interval],
           ['Max parallel reviews', cfg.schedule.max_parallel],
           ['New PR window (days)', cfg.candidates.new_max_age_days],

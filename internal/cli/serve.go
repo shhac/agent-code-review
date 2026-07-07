@@ -70,7 +70,8 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		defer func() { _ = tsDown() }()
 	}
 
-	srv := &http.Server{Addr: opts.addr, Handler: dashboard.NewServer(s, config.Read).Handler()}
+	schedulerOn := !opts.noSchedule && cfg.Schedule.Enabled
+	srv := &http.Server{Addr: opts.addr, Handler: dashboard.NewServer(s, config.Read, schedulerOn).Handler()}
 	go func() {
 		stderrLogf("dashboard: listening on %s", opts.addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -79,7 +80,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		}
 	}()
 
-	if !opts.noSchedule && cfg.Schedule.Enabled {
+	if schedulerOn {
 		sched, err := buildScheduler(ctx, cfg, s)
 		if err != nil {
 			return err

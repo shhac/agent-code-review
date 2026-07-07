@@ -18,6 +18,7 @@ func registerQueue(root *cobra.Command) {
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(queueLsCmd(), queueAddCmd(), queueRmCmd(), queuePromoteCmd(), queueSkipCmd())
+	registerGroupUsage(cmd, "queue", queueUsageText)
 	root.AddCommand(cmd)
 }
 

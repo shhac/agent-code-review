@@ -50,7 +50,7 @@ type AllowedAuthor struct {
 	SlackID      string `json:"slack_id,omitempty"`
 }
 
-// WildcardRepo, when used as an AllowedAuthor.Repo, applies to every repo.
+// WildcardRepo as an AllowedAuthor.Repo applies the entry to every repo.
 const WildcardRepo = "*"
 
 // Run is one review cycle, used as the advisory run-lock.

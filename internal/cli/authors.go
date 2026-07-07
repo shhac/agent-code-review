@@ -18,6 +18,7 @@ func registerAuthors(root *cobra.Command) {
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(authorsLsCmd(), authorsAllowCmd(), authorsDenyCmd())
+	registerGroupUsage(cmd, "authors", authorsUsageText)
 	root.AddCommand(cmd)
 }
 

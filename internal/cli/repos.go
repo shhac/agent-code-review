@@ -21,6 +21,7 @@ func registerRepos(root *cobra.Command) {
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(reposLsCmd(), reposAddCmd(), reposRmCmd())
+	registerGroupUsage(cmd, "repos", reposUsageText)
 	root.AddCommand(cmd)
 }
 

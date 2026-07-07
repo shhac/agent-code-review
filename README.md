@@ -58,12 +58,16 @@ tool neither requires nor mentions it.
    agent-code-review repos add your-org/your-repo
    agent-code-review authors allow '*' some-handle --name "Some Engineer"
    ```
-3. Tune `review.main_prompt` and the `on_approve`/`on_comment`/`on_reject`
-   instructions in the config file, then kick a single cycle:
+3. Set your prompts and dials, then kick a single cycle:
 
    ```bash
+   agent-code-review prompts set on-approve "Notify the team per your conventions."
+   agent-code-review config set schedule.interval 15m
    agent-code-review run --once
    ```
+
+   Every command group has a `usage` subcommand with full docs and examples
+   (`repos usage`, `authors usage`, `prompts usage`, `config usage`, `queue usage`).
 4. Or run the daemon with the dashboard on your tailnet:
 
    ```bash
@@ -84,7 +88,10 @@ queue skip    <owner/repo> <number>
 
 repos ls | add <owner/repo> | rm <owner/repo>
 
+prompts show | set <slot> <text> | unset <slot> | preview [--author-not-allowed]
+
 config init | path | show
+config list | get <key> | set <key> <value> | unset <key>
 
 authors ls    [--repo R]
 authors allow <owner/repo|*> <handle> [--name N --email E --slack-id ID]
@@ -158,8 +165,8 @@ the store; manage it with `authors`.
 
 `serve` hosts a small web UI (default `:8330`) with three pages:
 
-- **Overview** — the queue (with an *add PR* form — paste a PR URL or type
-  owner/repo + number; only watched repos are accepted — and ↑/↓ reordering),
+- **Overview** — the queue (with an *add PR* box — paste a PR URL or type
+  `owner/repo/pull/N`; only watched repos are accepted — and ↑/↓ reordering),
   recent reviews, and recent run cycles. Auto-refreshes.
 - **Config** — watched repos, resolved settings, and the allowed-authors list.
   Read-only.

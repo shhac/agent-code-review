@@ -16,6 +16,7 @@ internal/
 │   ├── queue.go                # `queue ls/add/rm/promote/skip`
 │   ├── authors.go              # `authors allow/deny/ls` — whose PRs we may approve
 │   ├── repos.go                # `repos ls/add/rm` — the watched repos (config)
+│   ├── prompts.go              # `prompts show/set/unset/preview` — review prompts
 │   ├── configcmd.go            # `config path/show`
 │   └── usage.go                # top-level LLM reference card
 ├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults

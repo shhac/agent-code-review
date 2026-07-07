@@ -82,4 +82,7 @@ hardcodes repos or GitHub handles — everything is config.
   carries a built-in approval directive that defaults to comment-only; approval
   is permitted only for an allowed author's non-self-authored PR. Post-outcome
   behaviour comes from review.on_approve/on_comment/on_reject in config.
-- Manage watched repos with `repos ls|add|rm` (stored in config.json).
+- Manage watched repos with `repos ls|add|rm`, prompts with
+  `prompts show|set|unset|preview`, and scalar dials with
+  `config list|get|set|unset` (all persisted to config.json).
+- Every command group has a `usage` subcommand with full docs and examples.

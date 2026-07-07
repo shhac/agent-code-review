@@ -29,7 +29,8 @@
       "bin": "codex",
       "model": "gpt-5.5-codex",
       "sandbox": "workspace-write",
-      "args": []
+      "//args_note": "workspace-write disables network by default, but the agent must reach GitHub (gh) and Slack — this override re-enables network while keeping writes scoped to the per-PR workdir.",
+      "args": ["-c", "sandbox_workspace_write.network_access=true"]
     }
   },
   "store": {

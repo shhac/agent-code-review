@@ -99,3 +99,30 @@ example config.
   this tool is itself a server rather than a data CLI an agent calls. Easy to add
   later via `lib-agent-mcp`.
 - **A second store driver.** The interface exists; only DuckDB is wired.
+
+## Addendum — shipped later the same day (2026-07-07)
+
+- **Structured verdicts landed** (superseding the first deferred item above),
+  reframed after discussion: the *agent* performs the approve/comment on GitHub
+  itself — so it can pair the decision with appropriate feedback comments — and
+  then **reports back what it did** as a schema-constrained final message
+  (`codex exec --output-schema` + `--output-last-message`, both verified against
+  the real CLI). The driver parses `{decision: APPROVED|COMMENTED|SKIPPED,
+  summary}`; `ERROR` remained driver-only. The scheduler records review history
+  only for APPROVED/COMMENTED so skips/failures never masked Refreshed
+  detection.
+- **Live validation happened**: a codex smoke test drove the full driver path
+  (passed, ~11s), and env-gated live discovery (`AGENT_CODE_REVIEW_TEST_REPO`)
+  classified real `gh pr list` output correctly — team review requests carried
+  `name` rather than `login`, as the structs assumed.
+- **Discovery became per-repo resilient**: one failing repo was logged and
+  skipped; discovery errored only when every repo failed.
+- **Sandbox/network gotcha captured**: codex `workspace-write` disabled network
+  by default, which would have broken every `gh` call. The starter config
+  shipped `-c sandbox_workspace_write.network_access=true` (key verified against
+  the real CLI) to re-enable network while keeping writes scoped to the per-PR
+  workdir.
+- **Dashboard grew review + run history** (`/api/reviews`, `/api/runs`);
+  `config init` wrote the embedded starter (kept in lockstep with
+  `config.example.json` by a test); `serve` warned that `--tailscale funnel`
+  exposes the unauthenticated dashboard publicly.

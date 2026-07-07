@@ -29,6 +29,9 @@ type ghPR struct {
 	// CHANGES_REQUESTED, REVIEW_REQUIRED, or empty) — unlike the raw reviews
 	// list, it accounts for stale/dismissed approvals.
 	ReviewDecision string `json:"reviewDecision"`
+	// State (OPEN | CLOSED | MERGED) is only populated by `gh pr view`; the
+	// list path filters to open PRs at the query.
+	State string `json:"state"`
 }
 
 type ghActor struct {
@@ -80,6 +83,36 @@ type PRMetadata struct {
 	UpdatedAt time.Time
 }
 
+// StillCandidate re-fetches one PR and reports whether it would still pass
+// the candidacy gates (open, not draft, review requested, not approved). The
+// scheduler calls this just before spending an engine invocation on a
+// DISCOVERED candidate; the window between discovery and review is long
+// enough for someone else to have approved, merged, or closed the PR.
+func StillCandidate(ctx context.Context, repo string, number int) (bool, string, error) {
+	out, err := runGH(ctx, "pr", "view", fmt.Sprintf("%d", number),
+		"--repo", repo,
+		"--json", "number,isDraft,state,reviewRequests,reviewDecision")
+	if err != nil {
+		return false, "", err
+	}
+	return stillCandidateFromJSON(out)
+}
+
+// stillCandidateFromJSON applies the live-state gate plus the shared
+// candidacy gates to a `gh pr view` payload. Pure — the state and gate
+// branches are table-tested from canned JSON, mirroring parsePRMetadata.
+func stillCandidateFromJSON(out []byte) (bool, string, error) {
+	var pr ghPR
+	if err := json.Unmarshal(out, &pr); err != nil {
+		return false, "", fmt.Errorf("parse gh pr view: %w", err)
+	}
+	if pr.State != "OPEN" {
+		return false, strings.ToLower(pr.State), nil
+	}
+	ok, reason := candidacyGate(pr)
+	return ok, reason, nil
+}
+
 // ManualCandidate fetches a PR's live metadata and shapes it as a queued
 // candidate — the manual-add path for both the CLI and the dashboard. Closed
 // or merged PRs are rejected: there is nothing left to review.
@@ -109,6 +142,7 @@ func candidateFromMetadata(repo string, number int, meta PRMetadata) (store.Cand
 		CreatedAt:    meta.CreatedAt,
 		UpdatedAt:    meta.UpdatedAt,
 		DiscoveredAt: time.Now(),
+		Source:       store.SourceManual,
 	}, nil
 }
 

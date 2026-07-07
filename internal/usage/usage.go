@@ -32,6 +32,36 @@ type Snapshot struct {
 	Error     string    `json:"error,omitempty"`
 }
 
+// weeklyThresholdMins separates the two Codex windows by duration rather than
+// position: a window of at least a week is "weekly", anything shorter is the
+// session (5h) window.
+const weeklyThresholdMins = 10080
+
+// BelowFloor reports whether review work should pause because a usage
+// window's REMAINING percentage has dropped below its floor, and names the
+// window that tripped. A floor of 0 disables that window's check. Fail-open
+// by design: an empty or errored snapshot never pauses, because review
+// availability must not depend on the usage meter working.
+func BelowFloor(s Snapshot, floor5h, floorWeekly int) (bool, string) {
+	if s.FetchedAt.IsZero() || s.Error != "" {
+		return false, ""
+	}
+	for _, w := range []*Window{s.Primary, s.Secondary} {
+		if w == nil {
+			continue
+		}
+		floor, name := floor5h, "5h"
+		if w.WindowMins >= weeklyThresholdMins {
+			floor, name = floorWeekly, "weekly"
+		}
+		remaining := 100 - w.UsedPercent
+		if floor > 0 && remaining < float64(floor) {
+			return true, fmt.Sprintf("%s window has %.0f%% remaining, floor is %d%%", name, remaining, floor)
+		}
+	}
+	return false, ""
+}
+
 // wire shapes for the app-server protocol (only the fields we read).
 type rpcWindow struct {
 	UsedPercent float64 `json:"usedPercent"`

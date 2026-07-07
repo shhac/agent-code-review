@@ -63,9 +63,19 @@ type CandidateSettings struct {
 // ScheduleSettings drives the review loop: LLM invocations, so it carries the
 // parallelism cap. Discovery has its own independent settings (DiscoverySettings).
 type ScheduleSettings struct {
-	Enabled     bool   `json:"enabled,omitempty"`
-	Interval    string `json:"interval,omitempty"`     // review cadence, e.g. "30m"
-	MaxParallel int    `json:"max_parallel,omitempty"` // default 4
+	Enabled     bool             `json:"enabled,omitempty"`
+	Interval    string           `json:"interval,omitempty"`     // review cadence, e.g. "30m"
+	MaxParallel int              `json:"max_parallel,omitempty"` // default 4
+	UsageFloor  UsageFloorLimits `json:"usage_floor,omitempty"`
+}
+
+// UsageFloorLimits pauses the review loop while Codex usage headroom is low:
+// when a window's remaining percentage drops below its floor, no new review
+// cycle starts until the window refills. nil means the default (10); an
+// explicit 0 disables that window's floor.
+type UsageFloorLimits struct {
+	FiveHourPercent *int `json:"5h_percent,omitempty"`
+	WeeklyPercent   *int `json:"weekly_percent,omitempty"`
 }
 
 // DiscoverySettings drives the candidate-scraping loop: cheap, deterministic
@@ -210,6 +220,23 @@ func (c Config) MaxParallel() int {
 // Interval is the review cadence (default 30m, and 30m on parse failure).
 func (c Config) Interval() time.Duration {
 	return durationOr(c.Schedule.Interval, 30*time.Minute)
+}
+
+// UsageFloor5h and UsageFloorWeekly are the remaining-percentage floors below
+// which the review loop pauses (default 10; explicit 0 disables).
+func (c Config) UsageFloor5h() int {
+	return intOr(c.Schedule.UsageFloor.FiveHourPercent, 10)
+}
+
+func (c Config) UsageFloorWeekly() int {
+	return intOr(c.Schedule.UsageFloor.WeeklyPercent, 10)
+}
+
+func intOr(v *int, def int) int {
+	if v == nil {
+		return def
+	}
+	return *v
 }
 
 // LeaseWindow is how long a claim (or an unfinished run) stays authoritative

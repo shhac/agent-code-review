@@ -101,10 +101,13 @@ func parseNDJSON(stdout string) ([]map[string]any, error) {
 
 // --- queue ---
 
+// Enqueue inserts or refreshes a queue row. On conflict, source only ever
+// escalates to manual: a discovery sweep must not downgrade a PR someone
+// explicitly added (that would re-enable the precheck they meant to bypass).
 func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	sql := fmt.Sprintf(`INSERT INTO queue
-	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at)
-	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s)
+	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source)
+	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s)
 	ON CONFLICT (repo, number) DO UPDATE SET
 	  type = excluded.type,
 	  title = excluded.title,
@@ -112,9 +115,10 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  url = excluded.url,
 	  head_sha = excluded.head_sha,
 	  updated_at = excluded.updated_at,
-	  discovered_at = excluded.discovered_at`,
+	  discovered_at = excluded.discovered_at,
+	  source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE queue.source END`,
 		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
-		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt))
+		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), q(orDefault(c.Source, SourceDiscovered)))
 	_, err := d.query(ctx, sql)
 	return err
 }
@@ -148,11 +152,11 @@ func (d *duckDB) Claim(ctx context.Context, repo string, number int, at time.Tim
 // the next cycle reviews the newer commits.
 func (d *duckDB) Complete(ctx context.Context, r Review) error {
 	sql := fmt.Sprintf(`BEGIN;
-	INSERT INTO history (repo, number, head_sha, verdict, engine, reviewed_at) VALUES (%s, %d, %s, %s, %s, %s);
+	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, reviewed_at) VALUES (%s, %d, %s, %s, %s, %s, %s, %s);
 	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha = %s;
 	UPDATE queue SET claimed_at = NULL WHERE repo = %s AND number = %d;
 	COMMIT;`,
-		q(r.Repo), r.Number, q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt),
+		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt),
 		q(r.Repo), r.Number, q(r.HeadSHA),
 		q(r.Repo), r.Number)
 	_, err := d.query(ctx, sql)
@@ -309,6 +313,8 @@ func scanReview(r map[string]any) Review {
 	return Review{
 		Repo:       getString(r, "repo"),
 		Number:     getInt(r, "number"),
+		Title:      getString(r, "title"),
+		Author:     getString(r, "author"),
 		HeadSHA:    getString(r, "head_sha"),
 		Verdict:    getString(r, "verdict"),
 		Engine:     getString(r, "engine"),
@@ -353,6 +359,7 @@ func scanCandidate(r map[string]any) Candidate {
 		UpdatedAt:    getTime(r, "updated_at"),
 		QueuePos:     getInt(r, "queue_pos"),
 		DiscoveredAt: getTime(r, "discovered_at"),
+		Source:       getString(r, "source"),
 	}
 	if t := getTime(r, "claimed_at"); !t.IsZero() {
 		c.ClaimedAt = &t

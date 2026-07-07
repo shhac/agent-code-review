@@ -1,0 +1,76 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { fetchJSON } from '../lib/api';
+  import { feed, feedStale } from '../lib/feed';
+
+  let configData: any = null;
+  let authors: any[] = [];
+
+  async function load() {
+    try {
+      const [cfg, au] = await Promise.all([fetchJSON('/api/config'), fetchJSON('/api/authors')]);
+      configData = cfg;
+      authors = au.authors || [];
+      feed.set({ ok: true, detail: 'read-only' });
+    } catch {
+      feedStale();
+    }
+  }
+
+  onMount(load);
+</script>
+
+<section class="page-head">
+  <p class="eyebrow">Read-only</p>
+  <h1>Configuration</h1>
+  <p>Edit via the `repos` / `authors` CLIs and config.json.</p>
+</section>
+{#if configData}
+  <div class="stack">
+    <section class="surface">
+      <div class="section-head"><h2>Watched repos</h2></div>
+      {#if configData.repos?.length}
+        <ul class="repo-list">
+          {#each configData.repos as r}
+            <li><span>{r.name}</span>{#if r.allowed_authors_only}<span class="tag">allowed authors only</span>{/if}</li>
+          {/each}
+        </ul>
+      {:else}
+        <div class="empty">No repos. Add with: agent-code-review repos add owner/name</div>
+      {/if}
+    </section>
+    <section class="surface">
+      <div class="section-head"><h2>Settings</h2></div>
+      <div class="settings">
+        {#each [
+          ['Reviewing as', configData.reviewing_as ? `@${configData.reviewing_as}` : 'unknown (gh not authenticated?)'],
+          ['Review engine', configData.engine],
+          ['Review loop (this daemon)', configData.review_running ? 'running' : configData.schedule.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
+          ['Review interval', configData.schedule.interval],
+          ['Max parallel reviews', configData.schedule.max_parallel],
+          ['Usage floor (5h window)', configData.schedule.usage_floor_5h_percent ? `pause below ${configData.schedule.usage_floor_5h_percent}% remaining` : 'disabled'],
+          ['Usage floor (weekly window)', configData.schedule.usage_floor_weekly_percent ? `pause below ${configData.schedule.usage_floor_weekly_percent}% remaining` : 'disabled'],
+          ['Discovery loop (this daemon)', configData.discovery_running ? 'running' : configData.discovery.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
+          ['Discovery interval', configData.discovery.interval],
+          ['New PR window (days)', configData.candidates.new_max_age_days],
+          ['Refreshed PR window (days)', configData.candidates.refreshed_max_age_days],
+        ] as row}
+          <div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>
+        {/each}
+      </div>
+    </section>
+    <section class="surface">
+      <div class="section-head"><h2>Allowed authors</h2><span>whose PRs we may approve</span></div>
+      {#if authors.length}
+        <div class="table">
+          <p><b>Repo</b><b>GitHub</b><b>Name</b><b>Slack</b></p>
+          {#each authors as a}
+            <p><span>{a.repo === '*' ? 'all repos' : a.repo}</span><span>@{a.github_handle}</span><span>{a.name}</span><span>{a.slack_id}</span></p>
+          {/each}
+        </div>
+      {:else}
+        <div class="empty">No allowed authors. Every PR is comment-only.</div>
+      {/if}
+    </section>
+  </div>
+{/if}

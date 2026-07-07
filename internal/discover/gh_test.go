@@ -53,3 +53,41 @@ func TestCandidateFromMetadataGate(t *testing.T) {
 		}
 	}
 }
+
+// TestStillCandidateFromJSON covers the pre-review recheck's decision table:
+// the live-state gate unique to this path, delegation to the shared candidacy
+// gates, and the malformed-payload error.
+func TestStillCandidateFromJSON(t *testing.T) {
+	cases := []struct {
+		name    string
+		json    string
+		ok      bool
+		reason  string
+		wantErr bool
+	}{
+		{"still a candidate", `{"state":"OPEN","isDraft":false,"reviewRequests":[{"login":"reviewer"}],"reviewDecision":"REVIEW_REQUIRED"}`, true, "", false},
+		{"merged", `{"state":"MERGED"}`, false, "merged", false},
+		{"closed", `{"state":"CLOSED"}`, false, "closed", false},
+		{"turned draft", `{"state":"OPEN","isDraft":true,"reviewRequests":[{"login":"reviewer"}]}`, false, "draft", false},
+		{"request withdrawn", `{"state":"OPEN","isDraft":false,"reviewRequests":[]}`, false, "no open review request", false},
+		{"approved meanwhile", `{"state":"OPEN","isDraft":false,"reviewRequests":[{"login":"reviewer"}],"reviewDecision":"APPROVED"}`, false, "already approved", false},
+		{"malformed payload", `not json`, false, "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, reason, err := stillCandidateFromJSON([]byte(tc.json))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected parse error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ok != tc.ok || reason != tc.reason {
+				t.Errorf("got ok=%v reason=%q, want ok=%v reason=%q", ok, reason, tc.ok, tc.reason)
+			}
+		})
+	}
+}

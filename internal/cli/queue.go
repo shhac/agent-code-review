@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"strconv"
-	"time"
 
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
@@ -137,11 +136,7 @@ func queueSkipCmd() *cobra.Command {
 				if !found {
 					return output.New(repo+"#"+strconv.Itoa(number)+" is not in the queue", output.FixableByAgent)
 				}
-				skip := store.Review{
-					Repo: repo, Number: number, HeadSHA: c.HeadSHA,
-					Verdict: "SKIPPED", Engine: "manual", ReviewedAt: time.Now(),
-				}
-				if err := s.Complete(cmd.Context(), skip); err != nil {
+				if err := s.Complete(cmd.Context(), store.ReviewFrom(c, "SKIPPED", store.EngineManual)); err != nil {
 					return err
 				}
 				return emit(map[string]any{"skipped": repo + "#" + strconv.Itoa(number)})

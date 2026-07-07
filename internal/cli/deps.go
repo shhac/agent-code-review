@@ -47,9 +47,10 @@ func stderrLogf(format string, args ...any) {
 }
 
 // buildScheduler wires the review engine, discoverer, and resolved gh user
-// around an already-open store. logf is the cycle log sink — plain stderr for
-// one-shot runs; serve tees it into the dashboard's log ring.
-func buildScheduler(ctx context.Context, cfg config.Config, s store.Store, logf func(string, ...any)) (*scheduler.Scheduler, error) {
+// around an already-open store. logf is the cycle log sink: plain stderr for
+// one-shot runs; serve tees it into the dashboard's log ring. usageFn feeds
+// the usage-floor pause; nil (one-shot runs) bypasses the floor.
+func buildScheduler(ctx context.Context, cfg config.Config, s store.Store, logf func(string, ...any), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
 	engine, err := review.NewEngine(cfg.Review)
 	if err != nil {
 		return nil, err
@@ -65,5 +66,5 @@ func buildScheduler(ctx context.Context, cfg config.Config, s store.Store, logf 
 		}
 	}
 
-	return scheduler.New(cfg, s, disc, engine, ghUser, logf), nil
+	return scheduler.New(cfg, s, disc, engine, ghUser, logf, usageFn), nil
 }

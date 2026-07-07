@@ -85,6 +85,10 @@ func configKeys() []libcli.ConfigKey {
 			func(c *config.Config) *string { return &c.Dashboard.UsagePollInterval }, validateDuration),
 		stringKey("store.path", "DuckDB file path (default under XDG data dir)",
 			func(c *config.Config) *string { return &c.Store.Path }, nil),
+		optionalIntKey("schedule.usage_floor.5h_percent", "Pause reviews when the 5h Codex window has less than this % remaining (default 10, 0 disables)",
+			func(c *config.Config) **int { return &c.Schedule.UsageFloor.FiveHourPercent }, 0, 100),
+		optionalIntKey("schedule.usage_floor.weekly_percent", "Pause reviews when the weekly Codex window has less than this % remaining (default 10, 0 disables)",
+			func(c *config.Config) **int { return &c.Schedule.UsageFloor.WeeklyPercent }, 0, 100),
 	}
 }
 
@@ -151,9 +155,9 @@ func intKey(name, desc string, field func(*config.Config) *int, min, max int) li
 			return strconv.Itoa(v), v != 0
 		},
 		Set: func(value string) error {
-			n, err := strconv.Atoi(value)
-			if err != nil || n < min || n > max {
-				return output.Newf(output.FixableByAgent, "Value must be an integer in [%d, %d], got %s", min, max, value)
+			n, err := parseBoundedInt(value, min, max)
+			if err != nil {
+				return err
 			}
 			cfg := config.Read()
 			*field(&cfg) = n
@@ -165,6 +169,47 @@ func intKey(name, desc string, field func(*config.Config) *int, min, max int) li
 			return config.Write(cfg)
 		},
 	}
+}
+
+// optionalIntKey is intKey over a nullable field: unset restores the coded
+// default (nil), and an explicit value (including 0) is stored as set.
+func optionalIntKey(name, desc string, field func(*config.Config) **int, min, max int) libcli.ConfigKey {
+	return libcli.ConfigKey{
+		Name:        name,
+		Description: desc,
+		Get: func() (string, bool) {
+			cfg := config.Read()
+			p := *field(&cfg)
+			if p == nil {
+				return "", false
+			}
+			return strconv.Itoa(*p), true
+		},
+		Set: func(value string) error {
+			n, err := parseBoundedInt(value, min, max)
+			if err != nil {
+				return err
+			}
+			cfg := config.Read()
+			*field(&cfg) = &n
+			return config.Write(cfg)
+		},
+		Unset: func() error {
+			cfg := config.Read()
+			*field(&cfg) = nil
+			return config.Write(cfg)
+		},
+	}
+}
+
+// parseBoundedInt is the shared validation for integer config keys — one
+// source for the bounds check and its error wording.
+func parseBoundedInt(value string, min, max int) (int, error) {
+	n, err := strconv.Atoi(value)
+	if err != nil || n < min || n > max {
+		return 0, output.Newf(output.FixableByAgent, "Value must be an integer in [%d, %d], got %s", min, max, value)
+	}
+	return n, nil
 }
 
 func validateDuration(v string) error {

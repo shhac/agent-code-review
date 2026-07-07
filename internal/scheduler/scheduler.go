@@ -17,10 +17,17 @@ import (
 	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 // Logf is a minimal logging sink (fmt.Printf-shaped).
 type Logf func(format string, args ...any)
+
+// UsageFn supplies the latest Codex usage snapshot. Callers with no usage
+// data (one-shot runs) pass nil; New normalizes that to an empty-snapshot
+// getter, so the fail-open rule lives in exactly one place —
+// usage.BelowFloor, which never pauses on an empty snapshot.
+type UsageFn func() usage.Snapshot
 
 // Scheduler wires the deterministic machinery around a review engine.
 type Scheduler struct {
@@ -30,14 +37,25 @@ type Scheduler struct {
 	engine      review.Engine
 	ghUser      string
 	logf        Logf
+	usageFn     UsageFn
 	discovering atomic.Bool // in-flight guard for the discovery sweep
+
+	// stillCandidate re-checks a PR's candidacy just before the engine runs
+	// (discover.StillCandidate in production; swapped in tests).
+	stillCandidate func(ctx context.Context, repo string, number int) (bool, string, error)
 }
 
-func New(cfg config.Config, s store.Store, d *discover.Discoverer, e review.Engine, ghUser string, logf Logf) *Scheduler {
+func New(cfg config.Config, s store.Store, d *discover.Discoverer, e review.Engine, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &Scheduler{cfg: cfg, store: s, disc: d, engine: e, ghUser: ghUser, logf: logf}
+	if usageFn == nil {
+		usageFn = func() usage.Snapshot { return usage.Snapshot{} }
+	}
+	return &Scheduler{
+		cfg: cfg, store: s, disc: d, engine: e, ghUser: ghUser,
+		logf: logf, usageFn: usageFn, stillCandidate: discover.StillCandidate,
+	}
 }
 
 // Start runs the enabled loops until ctx is cancelled: discovery (cheap,
@@ -95,6 +113,14 @@ func (s *Scheduler) Discover(ctx context.Context) error {
 // ReviewCycle processes the queued candidates. It is a no-op (returns nil)
 // when another cycle is still in flight — the run-lock rule from the spec.
 func (s *Scheduler) ReviewCycle(ctx context.Context) error {
+	// Usage floor: leave headroom in the Codex windows for interactive work.
+	// Checked before the run-lock so a paused cycle records no run. The loop
+	// keeps ticking, so reviews resume as soon as the window refills.
+	if paused, reason := usage.BelowFloor(s.usageFn(), s.cfg.UsageFloor5h(), s.cfg.UsageFloorWeekly()); paused {
+		s.logf("cycle: paused by usage floor (%s)", reason)
+		return nil
+	}
+
 	s.logf("cycle: started at %s", time.Now().Format(time.RFC3339))
 
 	staleAfter := s.cfg.LeaseWindow()
@@ -175,11 +201,36 @@ func (s *Scheduler) processQueue(ctx context.Context, candidates []store.Candida
 	wg.Wait()
 }
 
-// reviewOne claims a candidate, runs the engine against it, and completes it:
-// every outcome — including SKIPPED and ERROR — is recorded in history as the
-// queue row is removed (atomically, SHA-gated; see Store.Complete).
+// skipIfStale re-validates a discovered candidate just before the engine
+// spend: PRs approved, merged, or closed while waiting in the queue complete
+// as a precheck SKIPPED instead of being reviewed. Manual adds bypass the
+// check — explicit re-review requests and draft reviews must always go
+// through. A recheck error propagates with nothing recorded; the claim stays,
+// and the stale lease retries next cycle.
+func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate) (bool, error) {
+	if c.Source == store.SourceManual {
+		return false, nil
+	}
+	ok, reason, err := s.stillCandidate(ctx, c.Repo, c.Number)
+	if err != nil {
+		return false, fmt.Errorf("candidacy recheck: %w", err)
+	}
+	if ok {
+		return false, nil
+	}
+	s.logf("review %s#%d: no longer a candidate (%s) — recording skip", c.Repo, c.Number, reason)
+	return true, s.store.Complete(ctx, store.ReviewFrom(c, review.DecisionSkipped, store.EnginePrecheck))
+}
+
+// reviewOne claims a candidate, rechecks its candidacy, runs the engine, and
+// completes it: every outcome — including SKIPPED and ERROR — is recorded in
+// history as the queue row is removed (atomically, SHA-gated; see
+// Store.Complete).
 func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 	if err := s.store.Claim(ctx, c.Repo, c.Number, time.Now()); err != nil {
+		return err
+	}
+	if skipped, err := s.skipIfStale(ctx, c); skipped || err != nil {
 		return err
 	}
 
@@ -210,14 +261,7 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 	// block a future re-review: store.LastReview filters them out of
 	// Refreshed detection, and new commits change the SHA that discovery's
 	// same-SHA suppression keys on.
-	if err := s.store.Complete(ctx, store.Review{
-		Repo:       c.Repo,
-		Number:     c.Number,
-		HeadSHA:    c.HeadSHA,
-		Verdict:    verdict.Decision,
-		Engine:     s.engine.Name(),
-		ReviewedAt: time.Now(),
-	}); err != nil {
+	if err := s.store.Complete(ctx, store.ReviewFrom(c, verdict.Decision, s.engine.Name())); err != nil {
 		return err
 	}
 	return reviewErr

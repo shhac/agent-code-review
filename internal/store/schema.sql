@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS queue (
   queue_pos     INTEGER,
   discovered_at TIMESTAMP,
   claimed_at    TIMESTAMP,                      -- set while an engine reviews it; NULL = unclaimed. Stale claims (crashed daemon) are reclaimed by the next cycle.
+  source        TEXT NOT NULL DEFAULT 'discovered', -- 'discovered' | 'manual'. Manual adds bypass the pre-review candidacy check (drafts and explicit re-review requests must go through).
   PRIMARY KEY (repo, number)
 );
 
@@ -30,6 +31,8 @@ CREATE TABLE IF NOT EXISTS queue (
 CREATE TABLE IF NOT EXISTS history (
   repo        TEXT      NOT NULL,
   number      INTEGER   NOT NULL,
+  title       TEXT,                             -- PR title at completion time, for display
+  author      TEXT,                             -- PR author at completion time, for display
   head_sha    TEXT      NOT NULL,
   verdict     TEXT      NOT NULL,               -- APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
   engine      TEXT,

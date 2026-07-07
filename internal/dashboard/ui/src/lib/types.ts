@@ -1,0 +1,55 @@
+// Wire shapes returned by the dashboard's JSON API.
+
+export type Candidate = {
+  repo: string;
+  number: number;
+  url?: string;
+  title: string;
+  type: string;
+  author: string;
+  status: string;
+  head_sha: string;
+  queue_pos: number;
+  created_at: string;
+  updated_at: string;
+  discovered_at: string;
+};
+
+export type Review = {
+  repo: string;
+  number: number;
+  title: string;
+  author: string;
+  verdict: string;
+  engine: string;
+  head_sha: string;
+  reviewed_at: string;
+};
+
+export type Run = {
+  started_at: string;
+  finished_at: string;
+  status: string;
+  host: string;
+};
+
+export type Bucket = {
+  hour: string;
+  approved: number;
+  commented: number;
+  requested_changes: number;
+};
+
+export type UsageWindow = {
+  window_mins: number;
+  used_percent: number;
+  resets_at?: number;
+};
+
+export type UsageSnapshot = {
+  error?: string;
+  plan?: string;
+  fetched_at?: string;
+  primary?: UsageWindow;
+  secondary?: UsageWindow;
+};

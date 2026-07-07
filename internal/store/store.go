@@ -26,6 +26,37 @@ type Candidate struct {
 	QueuePos     int        `json:"queue_pos"`
 	DiscoveredAt time.Time  `json:"discovered_at"`
 	ClaimedAt    *time.Time `json:"claimed_at,omitempty"` // set while an engine reviews it; stale claims are reclaimable
+	Source       string     `json:"source"`               // SourceDiscovered | SourceManual
+}
+
+// Candidate sources. Manual adds bypass the pre-review candidacy check so
+// explicit re-review requests and draft reviews always go through.
+const (
+	SourceDiscovered = "discovered"
+	SourceManual     = "manual"
+)
+
+// Synthetic engine markers: history rows produced without invoking a review
+// engine record their provenance in the engine column instead.
+const (
+	EnginePrecheck = "precheck" // scheduler's pre-review candidacy recheck
+	EngineManual   = "manual"   // `queue skip` by a human
+)
+
+// ReviewFrom snapshots a candidate's identity into a history record — the
+// single place the Candidate→Review field fan-out lives, so a new snapshot
+// field cannot be added to one Complete call site and missed at another.
+func ReviewFrom(c Candidate, verdict, engine string) Review {
+	return Review{
+		Repo:       c.Repo,
+		Number:     c.Number,
+		Title:      c.Title,
+		Author:     c.Author,
+		HeadSHA:    c.HeadSHA,
+		Verdict:    verdict,
+		Engine:     engine,
+		ReviewedAt: time.Now(),
+	}
 }
 
 // ClaimActive reports whether c's claim is a live lease: an engine claimed it
@@ -39,9 +70,13 @@ func (c Candidate) ClaimActive(now time.Time, window time.Duration) bool {
 
 // Review records one completed outcome for a PR at a specific head SHA —
 // including SKIPPED and ERROR, which live in history like everything else.
+// Title and Author are snapshots of the PR at completion time so the History
+// page can render outcomes like queue items without a gh round-trip.
 type Review struct {
 	Repo       string    `json:"repo"`
 	Number     int       `json:"number"`
+	Title      string    `json:"title"`
+	Author     string    `json:"author"`
 	HeadSHA    string    `json:"head_sha"`
 	Verdict    string    `json:"verdict"` // APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
 	Engine     string    `json:"engine"`

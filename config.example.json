@@ -12,7 +12,12 @@
   "schedule": {
     "enabled": true,
     "interval": "30m",
-    "max_parallel": 4
+    "max_parallel": 4,
+    "//usage_floor_note": "Pause the review loop when a Codex window has less than this % remaining; reviews resume when the window refills. 0 disables a floor. Omit for the default of 10.",
+    "usage_floor": {
+      "5h_percent": 10,
+      "weekly_percent": 10
+    }
   },
   "discovery": {
     "enabled": true,

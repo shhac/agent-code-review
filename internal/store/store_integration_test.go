@@ -336,6 +336,41 @@ func TestAbsentRowEdges(t *testing.T) {
 	}
 }
 
+// TestCompleteSnapshotRoundTrip pins the display snapshot: Title and Author
+// written by Complete must read back intact through history (guards the
+// positional INSERT's column/value alignment), including hostile strings
+// through the q() escaping on the new columns.
+func TestCompleteSnapshotRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	title := `feat: O'Neill's "quoted" title`
+	c := Candidate{Repo: "o/r", Number: 21, Type: TypeNew, Title: title, Author: "o'connor", HeadSHA: "sha1"}
+	if err := s.Enqueue(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Claim(ctx, "o/r", 21, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Complete(ctx, ReviewFrom(c, "COMMENTED", "test-engine")); err != nil {
+		t.Fatal(err)
+	}
+	last, ok, err := s.LastOutcome(ctx, "o/r", 21)
+	if err != nil || !ok {
+		t.Fatalf("history row missing: ok=%v err=%v", ok, err)
+	}
+	if last.Title != title || last.Author != "o'connor" {
+		t.Errorf("snapshot corrupted: title=%q author=%q", last.Title, last.Author)
+	}
+	if last.Verdict != "COMMENTED" || last.Engine != "test-engine" || last.HeadSHA != "sha1" {
+		t.Errorf("columns misaligned: %+v", last)
+	}
+	all, err := s.ListReviews(ctx, 5)
+	if err != nil || len(all) != 1 || all[0].Title != title {
+		t.Errorf("ListReviews must carry the snapshot too: %+v err=%v", all, err)
+	}
+}
+
 // TestHostileStringsRoundTrip drives GitHub-controlled strings through the
 // real SQL path: quotes and injection shapes must store and read back intact.
 func TestHostileStringsRoundTrip(t *testing.T) {
@@ -355,5 +390,41 @@ func TestHostileStringsRoundTrip(t *testing.T) {
 	// And the table is still there.
 	if _, err := s.ListQueue(ctx, ""); err != nil {
 		t.Errorf("queue table damaged: %v", err)
+	}
+}
+
+// TestEnqueueSourceEscalation: source only ever escalates to manual. A manual
+// add wins over a later discovery sweep (the precheck bypass the user asked
+// for must survive), while a discovered row a human re-adds becomes manual.
+func TestEnqueueSourceEscalation(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeNew, Source: SourceDiscovered}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := getQueued(t, s, "o/r", 12); c.Source != SourceDiscovered {
+		t.Fatalf("fresh discovered row source = %q", c.Source)
+	}
+	// Human re-adds it: escalate.
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeNew, Source: SourceManual}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := getQueued(t, s, "o/r", 12); c.Source != SourceManual {
+		t.Fatalf("manual re-add must escalate source, got %q", c.Source)
+	}
+	// Discovery sweeps again: must NOT downgrade.
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeRefreshed, Source: SourceDiscovered}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := getQueued(t, s, "o/r", 12); c.Source != SourceManual {
+		t.Fatalf("discovery must not downgrade a manual row, got %q", c.Source)
+	}
+	// Empty source defaults to discovered.
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 13, Type: TypeNew}); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := getQueued(t, s, "o/r", 13); c.Source != SourceDiscovered {
+		t.Fatalf("empty source must default to discovered, got %q", c.Source)
 	}
 }

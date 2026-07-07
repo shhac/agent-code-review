@@ -103,13 +103,27 @@ func (d *Discoverer) listPRs(ctx context.Context, repo string) ([]ghPR, error) {
 	return prs, nil
 }
 
-// classify applies the New then Refreshed rules. New wins if both could match.
-func (d *Discoverer) classify(ctx context.Context, repo string, pr ghPR) (store.Candidate, bool, error) {
-	if pr.IsDraft || !pr.hasOpenReviewRequest() {
-		return store.Candidate{}, false, nil
+// candidacyGate is the shared "is this PR reviewable work?" predicate: not a
+// draft, an outstanding review request, not currently approved. classify and
+// the scheduler's pre-review recheck (StillCandidate) both use it, so the two
+// decisions cannot drift. The returned reason names the failed gate.
+func candidacyGate(pr ghPR) (bool, string) {
+	if pr.IsDraft {
+		return false, "draft"
+	}
+	if !pr.hasOpenReviewRequest() {
+		return false, "no open review request"
 	}
 	// An approved PR is already unblocked — nothing for this tool to do.
 	if pr.isApproved() {
+		return false, "already approved"
+	}
+	return true, ""
+}
+
+// classify applies the New then Refreshed rules. New wins if both could match.
+func (d *Discoverer) classify(ctx context.Context, repo string, pr ghPR) (store.Candidate, bool, error) {
+	if ok, _ := candidacyGate(pr); !ok {
 		return store.Candidate{}, false, nil
 	}
 	// Author-scoped repos only discover PRs from allowed authors; everywhere
@@ -172,5 +186,6 @@ func (d *Discoverer) toCandidate(repo string, pr ghPR, typ string, now time.Time
 		CreatedAt:    pr.CreatedAt,
 		UpdatedAt:    pr.UpdatedAt,
 		DiscoveredAt: now,
+		Source:       store.SourceDiscovered,
 	}
 }

@@ -113,7 +113,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}()
 
 	if running.Discovery || running.Review {
-		sched, err := buildScheduler(ctx, cfg, s, logf)
+		sched, err := buildScheduler(ctx, cfg, s, logf, usageCache.Get)
 		if err != nil {
 			return err
 		}

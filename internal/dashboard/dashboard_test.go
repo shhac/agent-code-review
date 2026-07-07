@@ -3,6 +3,7 @@ package dashboard
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,68 +49,43 @@ func TestBucketReviews(t *testing.T) {
 	}
 }
 
-func TestApplyMove(t *testing.T) {
-	q := func() []store.Candidate {
-		return []store.Candidate{
-			{Repo: "o/r", Number: 1},
-			{Repo: "o/r", Number: 2},
-			{Repo: "o/r", Number: 3},
-		}
+func TestValidateReorder(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	staleAfter := 2 * time.Hour
+	fresh := now.Add(-time.Hour)
+	queue := []store.Candidate{
+		{Repo: "example-org/service-alpha", Number: 1, ClaimedAt: &fresh}, // reviewing: pinned
+		{Repo: "example-org/service-alpha", Number: 2},
+		{Repo: "example-org/service-beta", Number: 3},
 	}
-	order := func(cs []store.Candidate) []int {
-		out := make([]int, len(cs))
-		for i, c := range cs {
-			out[i] = c.Number
-		}
-		return out
-	}
-	eq := func(a, b []int) bool {
-		if len(a) != len(b) {
-			return false
-		}
-		for i := range a {
-			if a[i] != b[i] {
-				return false
-			}
-		}
-		return true
-	}
+	ref := func(repo string, n int) prRef { return prRef{Repo: repo, Number: n} }
 
 	cases := []struct {
-		name      string
-		number    int
-		direction string
-		want      []int
-		found     bool
+		name    string
+		order   []prRef
+		wantErr string // substring; empty = valid
 	}{
-		{"middle up", 2, "up", []int{2, 1, 3}, true},
-		{"middle down", 2, "down", []int{1, 3, 2}, true},
-		{"top up is a no-op", 1, "up", []int{1, 2, 3}, true},
-		{"bottom down is a no-op", 3, "down", []int{1, 2, 3}, true},
-		{"not found", 99, "up", []int{1, 2, 3}, false},
+		{"full queued set in new order", []prRef{ref("example-org/service-beta", 3), ref("example-org/service-alpha", 2)}, ""},
+		{"reviewing row cannot be reordered", []prRef{ref("example-org/service-alpha", 1), ref("example-org/service-alpha", 2)}, "not reorderable"},
+		{"unknown PR rejected", []prRef{ref("example-org/service-alpha", 2), ref("example-org/ghost", 99)}, "not reorderable"},
+		{"duplicate rejected", []prRef{ref("example-org/service-alpha", 2), ref("example-org/service-alpha", 2)}, "twice"},
+		{"incomplete order rejected", []prRef{ref("example-org/service-alpha", 2)}, "exactly once"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, found := applyMove(q(), "o/r", tc.number, tc.direction)
-			if found != tc.found {
-				t.Errorf("found = %v, want %v", found, tc.found)
+			err := validateReorder(queue, tc.order, now, staleAfter)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("expected valid, got %v", err)
+				}
+				return
 			}
-			if !eq(order(got), tc.want) {
-				t.Errorf("order = %v, want %v", order(got), tc.want)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want substring %q", err, tc.wantErr)
 			}
 		})
 	}
-
-	// Single-element queue: both directions are safe no-ops.
-	single := []store.Candidate{{Repo: "o/r", Number: 1}}
-	if got, found := applyMove(single, "o/r", 1, "up"); !found || got[0].Number != 1 {
-		t.Error("single-element up must be a found no-op")
-	}
-	if got, found := applyMove(single, "o/r", 1, "down"); !found || got[0].Number != 1 {
-		t.Error("single-element down must be a found no-op")
-	}
 }
-
 func TestPRRefPattern(t *testing.T) {
 	cases := []struct {
 		in         string

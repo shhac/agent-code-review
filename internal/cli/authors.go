@@ -10,11 +10,11 @@ func registerAuthors(root *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "authors",
 		Short: "Manage the allowed authors: whose PRs we may approve (stored in DuckDB)",
-		Long: "We are the reviewer — this list controls whose PRs WE will approve, per\n" +
+		Long: "We are the reviewer. This list controls whose PRs WE will approve, per\n" +
 			"repo; it is not about who can approve. An author allowed for a PR's repo\n" +
 			"(or the wildcard repo \"*\") may receive an APPROVE; everyone else is\n" +
 			"comment-only. Only this PR's author↔allowed pair is ever passed to the\n" +
-			"review engine — never the whole list.",
+			"review engine, never the whole list.",
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(authorsLsCmd(), authorsAllowCmd(), authorsDenyCmd())

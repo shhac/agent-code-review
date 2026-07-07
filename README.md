@@ -5,20 +5,20 @@ across your repos, keeps a DuckDB-backed queue, and reviews each one by handing
 an assembled prompt to a pluggable engine (default: Codex). Ships a dashboard
 you can expose over Tailscale.
 
-- **Deterministic discovery** — finds New and Refreshed candidate PRs via `gh`
+- **Deterministic discovery**: finds New and Refreshed candidate PRs via `gh`
   on its own cadence (`discovery.interval`, with its own `discovery.enabled` switch), never involving the LLM;
   already-approved PRs are skipped, and repos can be scoped to allowed authors
   only (`repos add --allowed-authors-only`).
-- **Durable queue** — candidates, positions, and review history in DuckDB, so
+- **Durable queue**: candidates, positions, and review history in DuckDB, so
   "we already reviewed this at SHA X" survives restarts (that's what powers
   Refreshed detection).
-- **Pluggable review engine** — `codex` today; the agent does the actual
+- **Pluggable review engine**: `codex` today; the agent does the actual
   review, posts to GitHub, and reports back what it did. The tool assumes only
-  the `gh` and `codex` CLIs — your prompts may direct the agent to use anything
+  the `gh` and `codex` CLIs; your prompts may direct the agent to use anything
   else you have set up (skills, extra CLIs), but the tool never assumes it.
-- **Serve + dashboard** — an always-on daemon with a web UI, optionally exposed
+- **Serve + dashboard**: an always-on daemon with a web UI, optionally exposed
   via `--tailscale serve|funnel`.
-- **Everything is config** — repos, allow-list, thresholds, cadence, prompt, and
+- **Everything is config**: repos, allow-list, thresholds, cadence, prompt, and
   rules all live in `config.json`. No GitHub handles or repos are hardcoded.
 
 ## Installation
@@ -37,14 +37,14 @@ make build      # -> ./agent-code-review
 
 ### Runtime dependencies
 
-- **`gh`** (GitHub CLI), authenticated — used for candidate discovery.
-- **`duckdb`** CLI — the queue store (`brew install duckdb`; override the binary
+- **`gh`** (GitHub CLI), authenticated. Used for candidate discovery.
+- **`duckdb`** CLI: the queue store (`brew install duckdb`; override the binary
   with `AGENT_CODE_REVIEW_DUCKDB_PATH`).
-- **`codex`** — the default review engine (configurable).
+- **`codex`**: the default review engine (configurable).
 - Optional: **`tailscale`** for `--tailscale serve|funnel`.
 
 These are the tool's ONLY assumptions. Anything your prompts reference beyond
-them — skills, `agent-*` CLIs, team tooling — is your prompts' business; the
+them (skills, `agent-*` CLIs, team tooling) is your prompts' business; the
 tool neither requires nor mentions it.
 
 ## Quick start
@@ -108,9 +108,9 @@ Global flags come from `lib-agent-cli`: `-f/--format`, `-t/--timeout`,
 
 ## Candidate rules
 
-- **NEW** — open, not draft, review requested, never reviewed by anyone, at most
+- **NEW**: open, not draft, review requested, never reviewed by anyone, at most
   `candidates.new_max_age_days` old (default 14).
-- **REFRESHED** — open, not draft, re-review requested, head SHA differs from the
+- **REFRESHED**: open, not draft, re-review requested, head SHA differs from the
   SHA we last recorded a review at, at most `candidates.refreshed_max_age_days`
   old (default 21).
 
@@ -119,7 +119,7 @@ Candidates are processed New-before-Refreshed, oldest PR first, up to
 
 ## Allowed authors
 
-We are the reviewer — this list controls **whose PRs we will approve** (not who
+We are the reviewer. This list controls **whose PRs we will approve** (not who
 can approve). Decided per repo, and stored in DuckDB (not config) so it can vary
 per repo and change at runtime:
 
@@ -132,27 +132,27 @@ agent-code-review authors deny owner/name alice    # back to comment-only
 
 At review time the CLI looks up whether the PR's author is allowed for that
 PR's repo and passes **only that one author↔allowed pair** into the engine's
-prompt — never the whole list.
+prompt, never the whole list.
 
 ## How review works
 
-For each candidate the CLI assembles a prompt — your `review.main_prompt`, a
+For each candidate the CLI assembles a prompt (your `review.main_prompt`, a
 built-in **approval directive**, your post-outcome instructions, plus every
-matching `review.rules` fragment — and hands it to the engine along with a tmp
+matching `review.rules` fragment) and hands it to the engine along with a tmp
 workspace. The agent performs the review itself, takes all the GitHub actions,
 and reports back what it did (`APPROVED`, `COMMENTED`, `REQUESTED_CHANGES`, or
 `SKIPPED`) so the queue and history stay accurate.
 
 The approval directive is always present and **defaults to comment-only**. An
 `APPROVE` is only ever permitted when the author is on the allowed-authors list
-for this repo **and** it isn't a self-authored PR — never as a fallback when a
+for this repo **and** it isn't a self-authored PR, never as a fallback when a
 rule happens to be missing. In the comment-only case the directive gives no
 reason, so it can't leak who the gh user is.
 
 **Post-outcome instructions** (`review.on_approve`, `review.on_comment`,
 `review.on_reject`) tell the agent what to do after landing on each outcome
 (reject = requested changes). This is where workspace-specific conventions
-live — team channels, emoji rituals, notification tooling — the tool ships
+live (team channels, emoji rituals, notification tooling); the tool ships
 none of that. `review.rules` add further conditional instructions (per repo,
 per candidate type).
 
@@ -161,31 +161,31 @@ per candidate type).
 `~/.config/agent-code-review/config.json` (respects `XDG_CONFIG_HOME`). See
 `config.example.json` for the full shape: `repos`, `gh_user`, `candidates`,
 `schedule`, `review` (engine + prompt + rules + codex), `store`, and `dashboard`
-(addr + tailscale). The allowed-authors list is **not** in config — it lives in
+(addr + tailscale). The allowed-authors list is **not** in config; it lives in
 the store; manage it with `authors`.
 
 ## Dashboard
 
 `serve` hosts a small web UI (default `:8330`) with three pages:
 
-- **Overview** — a two-panel hero: the queue (add via pasted PR URL or
-  `owner/repo/pull/N` — live title/author fetched on add, closed/merged PRs
-  and unwatched repos rejected; ↑/↓ reordering; ✕ removal) beside **Codex usage meters** (5h + weekly windows, polled
+- **Overview**: a two-panel hero with the queue (add via pasted PR URL or
+  `owner/repo/pull/N`; live title/author fetched on add, closed/merged PRs
+  and unwatched repos rejected; drag-to-reorder; ✕ removal) beside **Codex usage meters** (5h + weekly windows, polled
   every `dashboard.usage_poll_interval`, default 10m) and a **last-24h chart**
   of approved / commented / changes-requested outcomes per hour. Recent
   reviews and runs below. Auto-refreshes.
-- **Config** — watched repos, resolved settings, and the allowed-authors list.
+- **Config**: watched repos, resolved settings, and the allowed-authors list.
   Read-only.
-- **Prompt** — the main prompt, the rules, and a fully assembled preview of
+- **Prompt**: the main prompt, the rules, and a fully assembled preview of
   what the agent receives (allowed vs not-allowed author variants). Read-only.
 
 Queue add/reorder are also available as JSON endpoints (`POST /api/queue`,
-`POST /api/queue/move`). The dashboard has no auth — keep it on your tailnet
+`POST /api/queue/reorder`). The dashboard has no auth, so keep it on your tailnet
 (`--tailscale serve`) unless you mean to expose it.
 
 ## Output
 
-NDJSON on stdout — one JSON record per line. Errors go to stderr as
+NDJSON on stdout, one JSON record per line. Errors go to stderr as
 `{"error", "fixable_by", "hint"}` with a non-zero exit.
 
 ## Development

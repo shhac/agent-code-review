@@ -78,7 +78,7 @@ func (s *Server) reviewingAs(ctx context.Context) string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/queue", s.handleQueue)
-	mux.HandleFunc("/api/queue/move", s.handleQueueMove)
+	mux.HandleFunc("/api/queue/reorder", s.handleQueueReorder)
 	mux.HandleFunc("/api/reviews", s.handleReviews)
 	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/config", s.handleConfig)
@@ -132,9 +132,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"refreshed_max_age_days": int(cfg.RefreshedMaxAge().Hours() / 24),
 		},
 		"schedule": map[string]any{
-			"enabled":      cfg.Schedule.Enabled,
-			"interval":     cfg.Interval().String(),
-			"max_parallel": cfg.MaxParallel(),
+			"enabled":                    cfg.Schedule.Enabled,
+			"interval":                   cfg.Interval().String(),
+			"max_parallel":               cfg.MaxParallel(),
+			"usage_floor_5h_percent":     cfg.UsageFloor5h(),
+			"usage_floor_weekly_percent": cfg.UsageFloorWeekly(),
 		},
 		"discovery": map[string]any{
 			"enabled":  cfg.Discovery.Enabled,
@@ -149,14 +151,22 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUsage returns the cached Codex rate-limit snapshot (refreshed by the
-// daemon on dashboard.usage_poll_interval).
+// daemon on dashboard.usage_poll_interval) plus the usage-floor verdict the
+// scheduler applies to it, so the UI can show why reviews are paused.
 func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request) {
 	if s.usage == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"available": false})
 		return
 	}
 	snap := s.usage.Get()
-	writeJSON(w, http.StatusOK, map[string]any{"available": !snap.FetchedAt.IsZero(), "usage": snap})
+	cfg := s.config()
+	paused, reason := usage.BelowFloor(snap, cfg.UsageFloor5h(), cfg.UsageFloorWeekly())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"available":     !snap.FetchedAt.IsZero(),
+		"usage":         snap,
+		"review_paused": paused,
+		"paused_reason": reason,
+	})
 }
 
 // statsBucket is one hour of review outcomes in the /api/stats response.

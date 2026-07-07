@@ -10,6 +10,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 // fakeSchedStore records the calls reviewOne makes; unused Store methods panic
@@ -51,7 +52,11 @@ func (e *fakeEngine) Review(_ context.Context, req review.Request) (review.Verdi
 
 func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
-	return New(cfg, fs, nil, fe, "the-gh-user", nil)
+	s := New(cfg, fs, nil, fe, "the-gh-user", nil, nil)
+	// Default the candidacy recheck to "still a candidate" so tests exercise
+	// the review path; precheck-specific tests override this.
+	s.stillCandidate = func(context.Context, string, int) (bool, string, error) { return true, "", nil }
+	return s
 }
 
 // TestReviewOneCompletesEveryOutcome: every decision — real reviews, skips,
@@ -147,4 +152,81 @@ func TestAvailableCandidates(t *testing.T) {
 	if len(got) != 2 || got[0].Number != 1 || got[1].Number != 3 {
 		t.Fatalf("availableCandidates = %+v, want candidates 1 and 3", got)
 	}
+}
+
+// TestReviewCyclePausedByUsageFloor: a tripped floor returns before ANY store
+// access (the embedded nil Store panics on use, so reaching the store fails
+// the test) and records no run.
+func TestReviewCyclePausedByUsageFloor(t *testing.T) {
+	fs := &fakeSchedStore{}
+	fe := &fakeEngine{}
+	cfg := config.Config{}
+	tripped := func() usage.Snapshot {
+		return usage.Snapshot{
+			FetchedAt: time.Now(),
+			Primary:   &usage.Window{UsedPercent: 95, WindowMins: 300},
+		}
+	}
+	s := New(cfg, fs, nil, fe, "u", nil, tripped)
+	if err := s.ReviewCycle(context.Background()); err != nil {
+		t.Fatalf("paused cycle must return nil, got %v", err)
+	}
+}
+
+// TestReviewOnePrecheck pins the pre-review revalidation: stale discovered
+// candidates are skipped without touching the engine; manual adds bypass the
+// check entirely; a recheck error propagates without recording an outcome
+// (the stale lease retries it next cycle).
+func TestReviewOnePrecheck(t *testing.T) {
+	t.Run("stale discovered candidate records a precheck skip", func(t *testing.T) {
+		fs := &fakeSchedStore{}
+		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionApproved}}
+		s := newTestScheduler(fs, fe)
+		s.stillCandidate = func(context.Context, string, int) (bool, string, error) {
+			return false, "already approved", nil
+		}
+		c := store.Candidate{Repo: "o/r", Number: 7, HeadSHA: "sha1", Source: store.SourceDiscovered}
+		if err := s.reviewOne(context.Background(), c); err != nil {
+			t.Fatal(err)
+		}
+		if fe.prompt != "" {
+			t.Error("engine must not run for a stale candidate")
+		}
+		if len(fs.completed) != 1 || fs.completed[0].Verdict != review.DecisionSkipped || fs.completed[0].Engine != store.EnginePrecheck {
+			t.Errorf("stale candidate must complete as a precheck SKIPPED, got %+v", fs.completed)
+		}
+	})
+
+	t.Run("manual candidates bypass the recheck", func(t *testing.T) {
+		fs := &fakeSchedStore{}
+		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+		s := newTestScheduler(fs, fe)
+		s.stillCandidate = func(context.Context, string, int) (bool, string, error) {
+			t.Error("manual candidate must not be rechecked")
+			return false, "", nil
+		}
+		c := store.Candidate{Repo: "o/r", Number: 8, HeadSHA: "sha1", Source: store.SourceManual}
+		if err := s.reviewOne(context.Background(), c); err != nil {
+			t.Fatal(err)
+		}
+		if len(fs.completed) != 1 || fs.completed[0].Verdict != review.DecisionCommented {
+			t.Errorf("manual candidate must be reviewed normally, got %+v", fs.completed)
+		}
+	})
+
+	t.Run("recheck error propagates and records nothing", func(t *testing.T) {
+		fs := &fakeSchedStore{}
+		fe := &fakeEngine{}
+		s := newTestScheduler(fs, fe)
+		s.stillCandidate = func(context.Context, string, int) (bool, string, error) {
+			return false, "", errors.New("gh unavailable")
+		}
+		c := store.Candidate{Repo: "o/r", Number: 9, HeadSHA: "sha1", Source: store.SourceDiscovered}
+		if err := s.reviewOne(context.Background(), c); err == nil {
+			t.Fatal("recheck error must propagate")
+		}
+		if len(fs.completed) != 0 {
+			t.Errorf("no outcome may be recorded on recheck error, got %+v", fs.completed)
+		}
+	})
 }

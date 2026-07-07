@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const usageText = `agent-code-review — PR review queue + scheduler for AI agents
+const usageText = `agent-code-review: PR review queue + scheduler for AI agents
 
 WHAT IT DOES:
   Discovers candidate PRs across configured repos (via gh), keeps a DuckDB-backed
@@ -42,33 +42,33 @@ COMMANDS:
   usage                                              This help
 
 CONFIG: ~/.config/agent-code-review/config.json (respects XDG_CONFIG_HOME).
-  Everything tunable lives here — watched repos, the approval allow-list, age
+  Everything tunable lives here: watched repos, the approval allow-list, age
   thresholds (14d New / 21d Refreshed), schedule cadence + parallelism, the
   review engine + main prompt + rules, the DuckDB path, and dashboard/Tailscale.
   See config.example.json. No repos or GitHub handles are hardcoded.
 
-CANDIDATES (discovery is deterministic — gh + rules, never the LLM):
-  NEW       — open, not draft, review requested, never reviewed, not currently
+CANDIDATES (discovery is deterministic: gh + rules, never the LLM):
+  NEW:       open, not draft, review requested, never reviewed, not currently
               approved, ≤ new_max_age_days
-  REFRESHED — open, not draft, re-review requested, not currently approved, head
+  REFRESHED: open, not draft, re-review requested, not currently approved, head
               SHA differs from our last recorded review, ≤ refreshed_max_age_days
   Repos in allowed_authors_only_repos additionally require the PR author to be
   on the allowed-authors list. Manual adds (queue add / dashboard) fetch live
   metadata via gh and reject closed/merged PRs.
 
-APPROVAL: allowed authors (whose PRs WE may approve — we are the reviewer) are
+APPROVAL: allowed authors (whose PRs WE may approve; we are the reviewer) are
   stored in DuckDB, per repo (manage with 'authors'). The assembled prompt always
   carries a built-in approval directive that DEFAULTS to comment-only; an APPROVE
   is permitted only when the author is allowed for this repo and it isn't a
-  self-authored PR. Only this PR's author↔allowed pair is passed to the engine —
+  self-authored PR. Only this PR's author↔allowed pair is passed to the engine,
   never the whole list.
 
 REVIEW: the engine (codex) receives the main prompt + approval directive +
   post-outcome instructions (review.on_approve / on_comment / on_reject) + any
   matching rule fragments, performs the review itself, posts to GitHub, and
   reports back what it did (APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED).
-  The tool assumes ONLY the gh and codex CLIs. Anything else — skills, extra
-  CLIs, team conventions — belongs in YOUR prompts, never in shipped defaults.
+  The tool assumes ONLY the gh and codex CLIs. Anything else (skills, extra
+  CLIs, team conventions) belongs in YOUR prompts, never in shipped defaults.
 
 STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
   binary on PATH (brew install duckdb); override with AGENT_CODE_REVIEW_DUCKDB_PATH.
@@ -78,7 +78,7 @@ OUTPUT: NDJSON to stdout; errors {error, fixable_by, hint} to stderr, exit 1.
 DETAIL: Run "<command> usage" for per-command docs and examples
   (queue usage, repos usage, authors usage, prompts usage, config usage).`
 
-const queueUsageText = `queue — The review queue (stored in DuckDB)
+const queueUsageText = `queue: The review queue (stored in DuckDB)
 
 COMMANDS:
   queue ls [--repo owner/name]
@@ -89,7 +89,10 @@ COMMANDS:
   queue add <owner/repo> <number>
     Add a PR by hand: live metadata (title/author/SHA) is fetched via gh, and
     closed/merged PRs are rejected. An already-queued PR just refreshes its
-    metadata. (The scheduler also adds candidates via discovery.)
+    metadata. Manual adds are ALWAYS reviewed: they bypass the pre-review
+    candidacy recheck that discovered candidates get (which skips PRs that
+    were approved/closed/merged while waiting in the queue), so explicit
+    re-review requests and draft reviews go through.
 
   queue promote <owner/repo> <number>
     Float a PR to the very top of the queue (across types).
@@ -106,11 +109,11 @@ EXAMPLES:
   agent-code-review queue add example-org/example-repo 123
   agent-code-review queue promote example-org/example-repo 123
 
-NOTES: the queue holds only pending work — completed reviews (including
+NOTES: the queue holds only pending work. Completed reviews (including
 skips and errors) live in the outcome history shown by the dashboard's
 Recent reviews. The dashboard offers the same add/reorder operations.`
 
-const reposUsageText = `repos — The watched repos (stored in config.json)
+const reposUsageText = `repos: The watched repos (stored in config.json)
 
 Discovery, the dashboard add-PR form, and the scheduler only operate on repos
 in this list. Ships empty: nothing is watched until you add it.
@@ -120,16 +123,16 @@ COMMANDS:
   repos add <owner/repo> [--allowed-authors-only]
     Add a repo (idempotent; re-running toggles the scope). By default any open
     PR is discovered; --allowed-authors-only scopes discovery to PRs authored
-    by allowed authors — for repos where reviewing every PR would be noise.
+    by allowed authors, for repos where reviewing every PR would be noise.
   repos rm <owner/repo>    Stop watching a repo (clears its scope too)
 
 EXAMPLES:
   agent-code-review repos add example-org/example-repo
   agent-code-review repos ls`
 
-const authorsUsageText = `authors — Allowed authors: whose PRs WE may approve (stored in DuckDB)
+const authorsUsageText = `authors: Allowed authors, whose PRs WE may approve (stored in DuckDB)
 
-We are the reviewer. This list controls whose PRs this tool will APPROVE — it
+We are the reviewer. This list controls whose PRs this tool will APPROVE; it
 is not about who can approve. Authors not on the list still get reviewed, but
 comment-only. Only the single author<->allowed pair for the PR under review is
 ever passed to the engine, never the whole list.
@@ -152,7 +155,7 @@ EXAMPLES:
 NOTES: matching is case-insensitive. Self-authored PRs are always comment-only
 regardless of this list.`
 
-const promptsUsageText = `prompts — The review prompts (stored in config.json)
+const promptsUsageText = `prompts: The review prompts (stored in config.json)
 
 The assembled prompt = main prompt + candidate context + built-in approval
 directive + post-outcome instructions + matching rules. The engine driver
@@ -169,7 +172,7 @@ COMMANDS:
   prompts set <slot> <text>    Set a slot (multi-word text can be one quoted arg)
   prompts unset <slot>         Clear a slot
   prompts preview [--author-not-allowed]
-    Print the fully assembled prompt for a synthetic candidate — exactly what
+    Print the fully assembled prompt for a synthetic candidate: exactly what
     the agent receives (allowed-author variant by default).
 
 EXAMPLES:
@@ -178,10 +181,10 @@ EXAMPLES:
   agent-code-review prompts preview --author-not-allowed
 
 NOTES: put workspace-specific conventions (channels, emoji, extra CLIs) in
-these slots — the tool itself assumes only the gh and codex CLIs. Conditional
+these slots; the tool itself assumes only the gh and codex CLIs. Conditional
 extras (per repo / per candidate type) live in review.rules in config.json.`
 
-const configUsageText = `config — Persisted settings (stored in config.json)
+const configUsageText = `config: Persisted settings (stored in config.json)
 
 COMMANDS:
   config init            Write the annotated starter config (refuses to overwrite)
@@ -194,11 +197,14 @@ COMMANDS:
 
 KEYS:
   gh_user                              self-review detection (empty = derive via gh)
-  schedule.enabled                     true|false — daemon runs review cycles
+  schedule.enabled                     true|false: daemon runs review cycles
   schedule.interval                    review cadence, e.g. 30m
-  discovery.enabled                    true|false — daemon scrapes for candidates
+  discovery.enabled                    true|false: daemon scrapes for candidates
   discovery.interval                   scrape cadence, e.g. 10m (gh only, no LLM)
   schedule.max_parallel                1..32 concurrent reviews per cycle
+  schedule.usage_floor.5h_percent      pause reviews when the 5h Codex window has
+                                       less than this % remaining (default 10, 0 off)
+  schedule.usage_floor.weekly_percent  same for the weekly window (default 10, 0 off)
   candidates.new_max_age_days          New candidate window (default 14)
   candidates.refreshed_max_age_days    Refreshed candidate window (default 21)
   review.engine                        codex

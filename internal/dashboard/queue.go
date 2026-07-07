@@ -7,6 +7,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -36,10 +37,7 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 
 // removeFromQueue drops a candidate entirely — the "changed our mind" path.
 func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Repo   string `json:"repo"`
-		Number int    `json:"number"`
-	}
+	var req prRef
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !config.ValidRepoName(req.Repo) || req.Number <= 0 {
 		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
 		return
@@ -100,9 +98,8 @@ var prRefPattern = regexp.MustCompile(`^(?:https://github\.com/)?([A-Za-z0-9_.-]
 // actually set up to review.
 func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Repo   string `json:"repo"`
-		Number int    `json:"number"`
-		URL    string `json:"url"`
+		prRef
+		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
@@ -152,65 +149,73 @@ func (s *Server) repoWatched(repo string) bool {
 	return s.config().WatchesRepo(repo)
 }
 
-// handleQueueMove nudges a queued PR up or down one place. Positions are
-// normalized to the current display order (1..N) on every move, so ties on the
-// default 0 become explicit and the swap always takes effect.
-func (s *Server) handleQueueMove(w http.ResponseWriter, r *http.Request) {
+// prRef is the queue-row wire shape shared by the remove, add, and reorder
+// request bodies (and the reorder validator's set key).
+type prRef struct {
+	Repo   string `json:"repo"`
+	Number int    `json:"number"`
+}
+
+// handleQueueReorder replaces the queued ordering in one write: the drag-and-
+// drop UI sends the complete new order of the reorderable (unclaimed) rows.
+// Rows under a live review claim are pinned — they cannot be reordered, and
+// the request must not mention them.
+func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
 	var req struct {
-		Repo      string `json:"repo"`
-		Number    int    `json:"number"`
-		Direction string `json:"direction"` // "up" | "down"
+		Order []prRef `json:"order"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Direction != "up" && req.Direction != "down") {
-		httpError(w, http.StatusBadRequest, `need {"repo", "number", "direction": "up"|"down"}`)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Order) == 0 {
+		httpError(w, http.StatusBadRequest, `need {"order": [{"repo", "number"}, ...]} covering every queued PR`)
 		return
 	}
 	ctx, cancel := reqCtx(r, 30*time.Second)
 	defer cancel()
 
-	queued, err := s.store.ListQueue(ctx, "")
+	queue, err := s.store.ListQueue(ctx, "")
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	reordered, found := applyMove(queued, req.Repo, req.Number, req.Direction)
-	if !found {
-		httpError(w, http.StatusNotFound, "PR is not in the queued list")
+	if err := validateReorder(queue, req.Order, time.Now(), s.config().LeaseWindow()); err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	for pos, c := range reordered {
-		if err := s.store.SetQueuePos(ctx, c.Repo, c.Number, pos+1); err != nil {
+	for pos, ref := range req.Order {
+		if err := s.store.SetQueuePos(ctx, ref.Repo, ref.Number, pos+1); err != nil {
 			s.fail(w, err)
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"moved": true})
+	writeJSON(w, http.StatusOK, map[string]any{"reordered": true})
 }
 
-// applyMove returns the queue with the target nudged one place up or down (a
-// no-op at the edges), and whether the target was found. Pure — the boundary
-// cases live in unit tests, not in production incidents.
-func applyMove(queued []store.Candidate, repo string, number int, direction string) ([]store.Candidate, bool) {
-	i := -1
-	for idx, c := range queued {
-		if c.Repo == repo && c.Number == number {
-			i = idx
-			break
+// validateReorder checks that order is exactly the set of reorderable rows:
+// every unclaimed queue row once, no duplicates, no unknown PRs, and no rows
+// that are mid-review (their position is pinned while claimed). Pure —
+// unit-tested directly.
+func validateReorder(queue []store.Candidate, order []prRef, now time.Time, staleAfter time.Duration) error {
+	reorderable := make(map[prRef]struct{}, len(queue))
+	for _, c := range queue {
+		if !c.ClaimActive(now, staleAfter) {
+			reorderable[prRef{Repo: c.Repo, Number: c.Number}] = struct{}{}
 		}
 	}
-	if i < 0 {
-		return queued, false
+	if len(order) != len(reorderable) {
+		return fmt.Errorf("order lists %d PRs but %d are reorderable; it must cover every queued PR exactly once", len(order), len(reorderable))
 	}
-	j := i - 1
-	if direction == "down" {
-		j = i + 1
+	seen := make(map[prRef]struct{}, len(order))
+	for _, ref := range order {
+		if _, ok := reorderable[ref]; !ok {
+			return fmt.Errorf("%s#%d is not reorderable (not queued, or currently being reviewed)", ref.Repo, ref.Number)
+		}
+		if _, dup := seen[ref]; dup {
+			return fmt.Errorf("%s#%d appears twice in the order", ref.Repo, ref.Number)
+		}
+		seen[ref] = struct{}{}
 	}
-	if j >= 0 && j < len(queued) {
-		queued[i], queued[j] = queued[j], queued[i]
-	}
-	return queued, true
+	return nil
 }

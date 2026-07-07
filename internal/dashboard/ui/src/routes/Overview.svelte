@@ -21,8 +21,9 @@
 
   $: queued = queue.filter((c) => c.status === 'queued').length;
   $: reviewing = queue.filter((c) => c.status === 'reviewing').length;
-  $: totalReviews = sumBuckets('approved') + sumBuckets('commented') + sumBuckets('requested_changes');
-  $: approvedReviews = sumBuckets('approved');
+  $: totalReviews = sumBuckets(buckets, 'approved') + sumBuckets(buckets, 'commented') + sumBuckets(buckets, 'requested_changes');
+  $: approvedReviews = sumBuckets(buckets, 'approved');
+  $: chart = chartBars(buckets);
   $: visibleQueue = queueShowAll ? queue : queue.slice(0, 100);
   $: reviewingItems = visibleQueue.filter((c) => c.status === 'reviewing');
   $: queuedItems = visibleQueue.filter((c) => c.status !== 'reviewing');
@@ -31,17 +32,20 @@
   $: displayQueue = draft ?? [...reviewingItems, ...queuedItems];
   $: lastRun = runs[0];
 
-  function sumBuckets(k: keyof Pick<Bucket, 'approved' | 'commented' | 'requested_changes'>) {
-    return buckets.reduce((n, b) => n + b[k], 0);
+  // State is passed in explicitly: Svelte's legacy reactive statements only
+  // see dependencies named in the expression, so a closure reading component
+  // state silently never recomputes (the launch-week frozen-stats bug).
+  function sumBuckets(bs: Bucket[], k: keyof Pick<Bucket, 'approved' | 'commented' | 'requested_changes'>) {
+    return bs.reduce((n, b) => n + b[k], 0);
   }
 
-  function historyFor(c: Candidate) {
-    return reviews.filter((r) => r.repo === c.repo && r.number === c.number);
+  function historyFor(rs: Review[], c: Candidate) {
+    return rs.filter((r) => r.repo === c.repo && r.number === c.number);
   }
 
-  function chartBars() {
-    const total = buckets.reduce((n, b) => n + b.approved + b.commented + b.requested_changes, 0);
-    const max = Math.max(1, ...buckets.map((b) => b.approved + b.commented + b.requested_changes));
+  function chartBars(bs: Bucket[]) {
+    const total = bs.reduce((n, b) => n + b.approved + b.commented + b.requested_changes, 0);
+    const max = Math.max(1, ...bs.map((b) => b.approved + b.commented + b.requested_changes));
     return { total, max };
   }
 
@@ -233,8 +237,8 @@
                 </dl>
                 <div class="review-history">
                   <h3>Reviews of this PR</h3>
-                  {#if historyFor(c).length}
-                    {#each historyFor(c) as r}
+                  {#if historyFor(reviews, c).length}
+                    {#each historyFor(reviews, c) as r}
                       <p>
                         <span class="status {statusKind(r.verdict)}"><i></i>{statusLabel(r.verdict)}</span>
                         <span class="mono">{r.engine} · {r.head_sha?.slice(0, 8)}</span>
@@ -300,14 +304,14 @@
     </section>
 
     <section>
-      <div class="section-head compact"><h2>Activity</h2><span>{chartBars().total ? `${chartBars().total} total · peak ${chartBars().max}/h` : '24h'}</span></div>
-      {#if chartBars().total}
-        <div class="bars" style={`--peak:${chartBars().max}`}>
+      <div class="section-head compact"><h2>Activity</h2><span>{chart.total ? `${chart.total} total · peak ${chart.max}/h` : '24h'}</span></div>
+      {#if chart.total}
+        <div class="bars" style={`--peak:${chart.max}`}>
           {#each buckets as b}
             <div title={`${new Date(b.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${b.approved} approved, ${b.commented} commented, ${b.requested_changes} changes requested`}>
-              <i class="approved" style={`height:${Math.max(2, (b.approved / chartBars().max) * 100)}%`}></i>
-              <i class="commented" style={`height:${Math.max(2, (b.commented / chartBars().max) * 100)}%`}></i>
-              <i class="changes" style={`height:${Math.max(2, (b.requested_changes / chartBars().max) * 100)}%`}></i>
+              <i class="approved" style={`height:${Math.max(2, (b.approved / chart.max) * 100)}%`}></i>
+              <i class="commented" style={`height:${Math.max(2, (b.commented / chart.max) * 100)}%`}></i>
+              <i class="changes" style={`height:${Math.max(2, (b.requested_changes / chart.max) * 100)}%`}></i>
             </div>
           {/each}
         </div>

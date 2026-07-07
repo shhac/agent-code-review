@@ -28,6 +28,8 @@ func NewServer(s store.Store) *Server { return &Server{store: s} }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/queue", s.handleQueue)
+	mux.HandleFunc("/api/reviews", s.handleReviews)
+	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/healthz", s.handleHealth)
 	mux.Handle("/", http.FileServer(http.FS(mustSub())))
 	return mux
@@ -42,6 +44,28 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"candidates": candidates})
+}
+
+func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	reviews, err := s.store.ListReviews(ctx, 50)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reviews": reviews})
+}
+
+func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	runs, err := s.store.ListRuns(ctx, 20)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

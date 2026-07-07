@@ -184,6 +184,55 @@ func (d *duckDB) RecordReview(ctx context.Context, r Review) error {
 	return err
 }
 
+func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := d.query(ctx, fmt.Sprintf(
+		"SELECT * FROM reviews ORDER BY reviewed_at DESC LIMIT %d", limit))
+	if err != nil {
+		return nil, err
+	}
+	reviews := make([]Review, 0, len(rows))
+	for _, r := range rows {
+		reviews = append(reviews, Review{
+			Repo:       getString(r, "repo"),
+			Number:     getInt(r, "number"),
+			HeadSHA:    getString(r, "head_sha"),
+			Verdict:    getString(r, "verdict"),
+			Engine:     getString(r, "engine"),
+			ReviewedAt: getTime(r, "reviewed_at"),
+		})
+	}
+	return reviews, nil
+}
+
+func (d *duckDB) ListRuns(ctx context.Context, limit int) ([]Run, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := d.query(ctx, fmt.Sprintf(
+		"SELECT * FROM runs ORDER BY started_at DESC LIMIT %d", limit))
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]Run, 0, len(rows))
+	for _, r := range rows {
+		run := Run{
+			ID:        getString(r, "id"),
+			StartedAt: getTime(r, "started_at"),
+			Status:    getString(r, "status"),
+			Host:      getString(r, "host"),
+			PID:       getInt(r, "pid"),
+		}
+		if t := getTime(r, "finished_at"); !t.IsZero() {
+			run.FinishedAt = &t
+		}
+		runs = append(runs, run)
+	}
+	return runs, nil
+}
+
 // --- approvers ---
 
 func (d *duckDB) AddApprover(ctx context.Context, a Approver) error {

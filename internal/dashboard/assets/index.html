@@ -13,14 +13,16 @@
       body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif; color: var(--fg); background: var(--bg); }
       header { padding: 20px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; }
       h1 { font-size: 18px; margin: 0; }
+      h2 { font-size: 14px; margin: 28px 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
       .muted { color: var(--muted); font-size: 13px; }
-      main { padding: 24px; overflow-x: auto; }
-      table { border-collapse: collapse; width: 100%; min-width: 720px; }
+      main { padding: 8px 24px 40px; }
+      .scroll { overflow-x: auto; }
+      table { border-collapse: collapse; width: 100%; min-width: 680px; }
       th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
       th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
       td.title { white-space: normal; }
       .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
-      .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+      .empty { color: var(--muted); padding: 24px 0; }
     </style>
   </head>
   <body>
@@ -29,39 +31,70 @@
       <span class="muted" id="summary">loading…</span>
     </header>
     <main>
-      <table id="queue" hidden>
-        <thead>
-          <tr><th>#</th><th>Repo</th><th>Title</th><th>Type</th><th>Author</th><th>Status</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <div class="empty" id="empty" hidden>Queue is empty.</div>
+      <h2>Queue</h2>
+      <div class="scroll">
+        <table id="queue" hidden>
+          <thead><tr><th>#</th><th>Repo</th><th>Title</th><th>Type</th><th>Author</th><th>Status</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="empty" id="queue-empty" hidden>Queue is empty.</div>
+
+      <h2>Recent reviews</h2>
+      <div class="scroll">
+        <table id="reviews" hidden>
+          <thead><tr><th>#</th><th>Repo</th><th>Result</th><th>Engine</th><th>SHA</th><th>When</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="empty" id="reviews-empty" hidden>No reviews yet.</div>
+
+      <h2>Recent runs</h2>
+      <div class="scroll">
+        <table id="runs" hidden>
+          <thead><tr><th>Started</th><th>Finished</th><th>Status</th><th>Host</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="empty" id="runs-empty" hidden>No runs yet.</div>
     </main>
     <script>
+      const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+      const when = (t) => t ? new Date(t).toLocaleString() : '';
+
+      function fill(tableId, rows, render) {
+        const table = document.getElementById(tableId);
+        const empty = document.getElementById(tableId + '-empty');
+        table.querySelector('tbody').innerHTML = rows.map(render).join('');
+        table.hidden = rows.length === 0;
+        empty.hidden = rows.length !== 0;
+      }
+
       async function refresh() {
         try {
-          const res = await fetch('/api/queue');
-          const data = await res.json();
-          const rows = (data.candidates || []);
-          const tbody = document.querySelector('#queue tbody');
-          tbody.innerHTML = '';
-          for (const c of rows) {
-            const tr = document.createElement('tr');
-            tr.innerHTML =
-              `<td><a href="${c.url || '#'}">#${c.number}</a></td>` +
-              `<td>${c.repo || ''}</td>` +
-              `<td class="title">${c.title || ''}</td>` +
-              `<td><span class="pill">${c.type || ''}</span></td>` +
-              `<td>${c.author || ''}</td>` +
-              `<td><span class="pill">${c.status || ''}</span></td>`;
-            tbody.appendChild(tr);
-          }
-          document.querySelector('#queue').hidden = rows.length === 0;
-          document.querySelector('#empty').hidden = rows.length !== 0;
-          document.querySelector('#summary').textContent =
-            `${rows.length} in queue · updated ${new Date().toLocaleTimeString()}`;
+          const [q, rv, rn] = await Promise.all([
+            fetch('/api/queue').then(r => r.json()),
+            fetch('/api/reviews').then(r => r.json()),
+            fetch('/api/runs').then(r => r.json()),
+          ]);
+          const queue = q.candidates || [];
+          fill('queue', queue, c =>
+            `<tr><td><a href="${esc(c.url) || '#'}">#${esc(c.number)}</a></td>` +
+            `<td>${esc(c.repo)}</td><td class="title">${esc(c.title)}</td>` +
+            `<td><span class="pill">${esc(c.type)}</span></td><td>${esc(c.author)}</td>` +
+            `<td><span class="pill">${esc(c.status)}</span></td></tr>`);
+          fill('reviews', rv.reviews || [], r =>
+            `<tr><td>#${esc(r.number)}</td><td>${esc(r.repo)}</td>` +
+            `<td><span class="pill">${esc(r.verdict)}</span></td><td>${esc(r.engine)}</td>` +
+            `<td>${esc((r.head_sha || '').slice(0, 8))}</td><td>${when(r.reviewed_at)}</td></tr>`);
+          fill('runs', rn.runs || [], r =>
+            `<tr><td>${when(r.started_at)}</td><td>${when(r.finished_at)}</td>` +
+            `<td><span class="pill">${esc(r.status)}</span></td><td>${esc(r.host)}</td></tr>`);
+          document.getElementById('summary').textContent =
+            `${queue.length} in queue · updated ${new Date().toLocaleTimeString()}`;
         } catch (e) {
-          document.querySelector('#summary').textContent = 'error loading queue';
+          document.getElementById('summary').textContent = 'error loading data';
         }
       }
       refresh();

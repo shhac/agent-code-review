@@ -29,7 +29,11 @@ func (f *fakeStore) RemoveCandidate(context.Context, string, int) error   { retu
 func (f *fakeStore) LastReview(context.Context, string, int) (store.Review, bool, error) {
 	return f.last, f.hasLast, nil
 }
-func (f *fakeStore) RecordReview(context.Context, store.Review) error     { return nil }
+func (f *fakeStore) RecordReview(context.Context, store.Review) error { return nil }
+func (f *fakeStore) ListReviews(context.Context, int) ([]store.Review, error) {
+	return nil, nil
+}
+func (f *fakeStore) ListRuns(context.Context, int) ([]store.Run, error)   { return nil, nil }
 func (f *fakeStore) AddApprover(context.Context, store.Approver) error    { return nil }
 func (f *fakeStore) RemoveApprover(context.Context, string, string) error { return nil }
 func (f *fakeStore) ListApprovers(context.Context, string) ([]store.Approver, error) {

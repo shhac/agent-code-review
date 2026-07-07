@@ -98,6 +98,8 @@ type Store interface {
 	// LastReview returns the most recent review for a PR, if any.
 	LastReview(ctx context.Context, repo string, number int) (Review, bool, error)
 	RecordReview(ctx context.Context, r Review) error
+	// ListReviews returns review history, most recent first, capped at limit.
+	ListReviews(ctx context.Context, limit int) ([]Review, error)
 
 	// Approver allow-list (per repo, "*" = all repos).
 	AddApprover(ctx context.Context, a Approver) error
@@ -111,6 +113,8 @@ type Store interface {
 	ActiveRun(ctx context.Context, staleAfter time.Duration) (Run, bool, error)
 	StartRun(ctx context.Context, r Run) error
 	FinishRun(ctx context.Context, id string, status string) error
+	// ListRuns returns cycle history, most recent first, capped at limit.
+	ListRuns(ctx context.Context, limit int) ([]Run, error)
 
 	Close() error
 }

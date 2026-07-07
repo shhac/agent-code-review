@@ -22,6 +22,7 @@ type rootFlags struct {
 
 func newRootCmd(version string) *cobra.Command {
 	g := &rootFlags{}
+	globals = &g.Globals // emit() resolves -f/--format from here
 	root := libcli.NewRoot(libcli.Options{
 		Use:           "agent-code-review",
 		Short:         "PR review queue + scheduler for AI agents",

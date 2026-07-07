@@ -25,9 +25,19 @@ internal/
 ├── review/                     # Engine interface + codex driver + prompt/rule assembly
 ├── scheduler/                  # run-lock, ordering, parallelism cap, cycle orchestration
 └── dashboard/                  # embedded web UI + JSON API over the store
+    ├── ui/                     # Svelte + Vite source (npm; not embedded)
+    └── assets/                 # BUILT bundle, committed + go:embed'd
 ```
 
 ## Key patterns
+
+- **The dashboard bundle is committed, not built in CI.** `make dashboard`
+  (npm run build in `internal/dashboard/ui`) writes into
+  `internal/dashboard/assets/`, which `go:embed` ships and the release
+  workflow embeds as-is via `go build`. After ANY change under `ui/src`,
+  run `make dashboard` and commit the regenerated assets — CI's
+  `dashboard-fresh` job rebuilds and diffs to enforce this. Release ritual:
+  `make dashboard` → commit → tag.
 
 - **Family libraries**: `lib-agent-cli` (root scaffolding, XDG paths, creds
   store), `lib-agent-output` (NDJSON contract, `{error, fixable_by, hint}`),

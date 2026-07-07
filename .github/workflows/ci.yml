@@ -19,3 +19,21 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
+
+  # The dashboard is a Vite build whose OUTPUT is committed (go:embed ships
+  # it; the release workflow only runs `go build`). Rebuild and diff so a UI
+  # source change can't land with a stale committed bundle. Works because
+  # Vite's filenames are content-hashed and npm ci pins deps via the lockfile,
+  # so rebuilding unchanged source is byte-identical.
+  dashboard-fresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: internal/dashboard/ui/package-lock.json
+      - run: npm ci --prefix internal/dashboard/ui
+      - run: npm run build --prefix internal/dashboard/ui
+      - run: git diff --exit-code -- internal/dashboard/assets

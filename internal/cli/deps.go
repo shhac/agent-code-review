@@ -47,22 +47,23 @@ func stderrLogf(format string, args ...any) {
 }
 
 // buildScheduler wires the review engine, discoverer, and resolved gh user
-// around an already-open store.
-func buildScheduler(ctx context.Context, cfg config.Config, s store.Store) (*scheduler.Scheduler, error) {
+// around an already-open store. logf is the cycle log sink — plain stderr for
+// one-shot runs; serve tees it into the dashboard's log ring.
+func buildScheduler(ctx context.Context, cfg config.Config, s store.Store, logf func(string, ...any)) (*scheduler.Scheduler, error) {
 	engine, err := review.NewEngine(cfg.Review)
 	if err != nil {
 		return nil, err
 	}
-	disc := discover.New(cfg, s, stderrLogf)
+	disc := discover.New(cfg, s, logf)
 
 	ghUser := cfg.GHUser
 	if ghUser == "" {
 		if u, err := discover.CurrentUser(ctx); err == nil {
 			ghUser = u
 		} else {
-			stderrLogf("warning: could not resolve gh user (%v); self-review rule will not fire", err)
+			logf("warning: could not resolve gh user (%v); self-review rule will not fire", err)
 		}
 	}
 
-	return scheduler.New(cfg, s, disc, engine, ghUser, stderrLogf), nil
+	return scheduler.New(cfg, s, disc, engine, ghUser, logf), nil
 }

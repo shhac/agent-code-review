@@ -61,7 +61,21 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"candidates": candidates})
+	writeJSON(w, http.StatusOK, map[string]any{"candidates": pendingOnly(candidates)})
+}
+
+// pendingOnly drops reviewed candidates from the queue view: a reviewed PR
+// graduates to Recent reviews, and its candidate row stays in the store only
+// as the dedupe/refresh ledger. Skipped and error rows stay visible — they
+// have no review row, so the queue is the only place they can be seen.
+func pendingOnly(candidates []store.Candidate) []store.Candidate {
+	out := make([]store.Candidate, 0, len(candidates))
+	for _, c := range candidates {
+		if c.Status != store.StatusReviewed {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // prRefPattern matches a PR reference in URL syntax, with or without the

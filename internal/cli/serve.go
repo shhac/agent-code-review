@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/dashboard"
 	"github.com/shhac/agent-code-review/internal/discover"
+	"github.com/shhac/agent-code-review/internal/logbuf"
 	"github.com/shhac/agent-code-review/internal/usage"
 )
 
@@ -63,15 +65,24 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	defer func() { _ = s.Close() }()
 
+	// Tee the daemon's log sink into a ring so the dashboard's Logs page can
+	// show a live tail; stderr remains the durable copy.
+	logs := logbuf.New(1000)
+	logf := func(format string, args ...any) {
+		stderrLogf(format, args...)
+		logs.Addf(format, args...)
+	}
+	logf("serve: starting (pid %d)", os.Getpid())
+
 	// Bring up the Tailscale tunnel (if requested) and derive the public URL.
 	publicURL, tsDown, err := tailscale.Wire(ctx, opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
 	if err != nil {
 		return err
 	}
 	if tsDown != nil {
-		stderrLogf("tailscale %s: %s -> http://%s (will shut down on exit)", opts.tailscaleMode, publicURL, opts.addr)
+		logf("tailscale %s: %s -> http://%s (will shut down on exit)", opts.tailscaleMode, publicURL, opts.addr)
 		if opts.tailscaleMode == "funnel" {
-			stderrLogf("warning: the dashboard has no auth — funnel exposes it (including queue add/reorder) to the public internet; prefer --tailscale serve unless that's intended")
+			logf("warning: the dashboard has no auth — funnel exposes it (including queue add/reorder) to the public internet; prefer --tailscale serve unless that's intended")
 		}
 		defer func() { _ = tsDown() }()
 	}
@@ -91,32 +102,32 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// (flag-overridden) state so it starts exactly the loops shown above.
 	cfg.Discovery.Enabled = running.Discovery
 	cfg.Schedule.Enabled = running.Review
-	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser)
+	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs)
 	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
 	go func() {
-		stderrLogf("dashboard: listening on %s", opts.addr)
+		logf("dashboard: listening on %s", opts.addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			stderrLogf("dashboard error: %v", err)
+			logf("dashboard error: %v", err)
 			stop()
 		}
 	}()
 
 	if running.Discovery || running.Review {
-		sched, err := buildScheduler(ctx, cfg, s)
+		sched, err := buildScheduler(ctx, cfg, s, logf)
 		if err != nil {
 			return err
 		}
 		go func() {
 			if err := sched.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				stderrLogf("scheduler stopped: %v", err)
+				logf("scheduler stopped: %v", err)
 			}
 		}()
 	} else {
-		stderrLogf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
+		logf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
 	}
 
 	<-ctx.Done()
-	stderrLogf("shutting down…")
+	logf("shutting down…")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)

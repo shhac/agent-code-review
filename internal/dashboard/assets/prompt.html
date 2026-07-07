@@ -4,38 +4,45 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>agent-code-review · prompt</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header>
-      <div class="header-row">
-        <h1>agent-code-review</h1>
-        <nav>
-          <a href="/">Overview</a>
-          <a href="/config.html">Config</a>
-          <a href="/prompt.html" class="active">Prompt</a>
-        </nav>
-      </div>
-      <span class="muted header-status">read-only — edit the review section of config.json</span>
-    </header>
+    <header class="topbar" data-status="read-only — edit the review section of config.json"></header>
     <main>
-      <h2>Main prompt</h2>
-      <pre id="main-prompt"></pre>
+      <div class="stack">
+        <section class="panel">
+          <div class="panel-head"><h2>Main prompt</h2></div>
+          <div class="panel-body"><pre id="main-prompt"></pre></div>
+        </section>
 
-      <h2>Post-outcome instructions <span class="muted">(what the agent does after landing on each outcome)</span></h2>
-      <div id="outcomes"></div>
-      <div class="empty" id="outcomes-empty" hidden>None configured — set review.on_approve / on_comment / on_reject in config.json.</div>
+        <section class="panel">
+          <div class="panel-head"><h2>Post-outcome instructions</h2><span class="meta">what the agent does after landing on each outcome</span></div>
+          <div class="panel-body">
+            <div id="outcomes" class="stack"></div>
+            <div class="empty" id="outcomes-empty" hidden>none configured — set review.on_approve / on_comment / on_reject in config.json</div>
+          </div>
+        </section>
 
-      <h2>Rules <span class="muted">(extra instructions when their condition matches)</span></h2>
-      <div id="rules"></div>
-      <div class="empty" id="rules-empty" hidden>No rules configured.</div>
+        <section class="panel">
+          <div class="panel-head"><h2>Rules</h2><span class="meta">extra instructions when their condition matches</span></div>
+          <div class="panel-body">
+            <div id="rules" class="stack"></div>
+            <div class="empty" id="rules-empty" hidden>no rules configured</div>
+          </div>
+        </section>
 
-      <h2>Assembled preview <span class="muted" id="preview-note"></span></h2>
-      <form class="inline">
-        <label><input type="radio" name="variant" value="allowed_author" checked /> allowed author</label>
-        <label><input type="radio" name="variant" value="not_allowed_author" /> author not allowed</label>
-      </form>
-      <pre id="preview"></pre>
+        <section class="panel">
+          <div class="panel-head"><h2>Assembled preview</h2><span class="meta" id="preview-note"></span></div>
+          <div class="panel-body">
+            <form class="inline" style="margin-bottom: 12px;">
+              <label><input type="radio" name="variant" value="allowed_author" checked /> allowed author</label>
+              <label><input type="radio" name="variant" value="not_allowed_author" /> author not allowed</label>
+            </form>
+            <pre id="preview"></pre>
+          </div>
+        </section>
+      </div>
     </main>
     <script src="/app.js"></script>
     <script>
@@ -52,14 +59,14 @@
 
         const outcomes = Object.entries(p.outcomes || {}).filter(([, v]) => v);
         document.getElementById('outcomes').innerHTML = outcomes.map(([k, v]) =>
-          `<h2>· ${esc(k)}</h2><pre>${esc(v)}</pre>`).join('');
+          `<div><div class="subhead">· ${esc(k)}</div><pre>${esc(v)}</pre></div>`).join('');
         document.getElementById('outcomes-empty').hidden = outcomes.length !== 0;
 
         const rules = p.rules || [];
         document.getElementById('rules').innerHTML = rules.map(r =>
-          `<h2>· ${esc(r.name)}</h2>` +
-          `<div class="muted">when: <code>${esc(JSON.stringify(r.when || {}))}</code></div>` +
-          `<pre>${esc(r.prompt)}</pre>`).join('');
+          `<div><div class="subhead">· ${esc(r.name)}</div>` +
+          `<div class="muted" style="margin-bottom: 6px;">when: <code>${esc(JSON.stringify(r.when || {}))}</code></div>` +
+          `<pre>${esc(r.prompt)}</pre></div>`).join('');
         document.getElementById('rules-empty').hidden = rules.length !== 0;
 
         previews = p.previews || {};

@@ -22,7 +22,7 @@ func registerRun(root *cobra.Command) {
 			}
 			defer func() { _ = s.Close() }()
 
-			sched, err := buildScheduler(ctx, cfg, s)
+			sched, err := buildScheduler(ctx, cfg, s, stderrLogf)
 			if err != nil {
 				return err
 			}

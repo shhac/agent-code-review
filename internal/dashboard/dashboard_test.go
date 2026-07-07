@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -160,5 +162,52 @@ func TestRepoWatched(t *testing.T) {
 	empty := &Server{config: func() config.Config { return config.Config{} }}
 	if empty.repoWatched("any/repo") {
 		t.Error("no watched repos means nothing is accepted")
+	}
+}
+
+func TestPendingOnly(t *testing.T) {
+	in := []store.Candidate{
+		{Number: 1, Status: store.StatusQueued},
+		{Number: 2, Status: store.StatusReviewed},
+		{Number: 3, Status: store.StatusReviewing},
+		{Number: 4, Status: store.StatusSkipped},
+		{Number: 5, Status: store.StatusError},
+	}
+	got := pendingOnly(in)
+	want := []int{1, 3, 4, 5} // reviewed graduates to Recent reviews; the rest stay visible
+	if len(got) != len(want) {
+		t.Fatalf("got %d candidates, want %d", len(got), len(want))
+	}
+	for i, n := range want {
+		if got[i].Number != n {
+			t.Errorf("pos %d = #%d, want #%d (order must be preserved)", i, got[i].Number, n)
+		}
+	}
+	if all := pendingOnly([]store.Candidate{{Status: store.StatusReviewed}}); all == nil || len(all) != 0 {
+		t.Errorf("all-reviewed input must return a non-nil empty slice, got %#v", all)
+	}
+	if empty := pendingOnly(nil); empty == nil || len(empty) != 0 {
+		t.Errorf("nil input must return a non-nil empty slice, got %#v", empty)
+	}
+}
+
+func TestQueryInt(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want int
+	}{
+		{"", 50}, // absent → default
+		{"?limit=25", 25},
+		{"?limit=500", 500}, // inclusive upper bound
+		{"?limit=501", 50},  // over max → default
+		{"?limit=0", 50},    // zero → default
+		{"?limit=-3", 50},   // negative → default
+		{"?limit=abc", 50},  // garbage → default
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest(http.MethodGet, "/api/reviews"+tc.raw, nil)
+		if got := queryInt(r, "limit", 50, 500); got != tc.want {
+			t.Errorf("queryInt(%q) = %d, want %d", tc.raw, got, tc.want)
+		}
 	}
 }

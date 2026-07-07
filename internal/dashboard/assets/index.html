@@ -4,70 +4,107 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>agent-code-review</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header>
-      <div class="header-row">
-        <h1>agent-code-review</h1>
-        <nav>
-          <a href="/" class="active">Overview</a>
-          <a href="/config.html">Config</a>
-          <a href="/prompt.html">Prompt</a>
-        </nav>
-      </div>
-      <span class="muted header-status" id="summary">loading…</span>
-    </header>
+    <header class="topbar"></header>
     <main>
-      <div class="panels">
-        <section class="panel-main">
-          <h2>Queue</h2>
-          <form class="inline" id="add-form">
-            <input id="add-input" placeholder="https://github.com/owner/repo/pull/123 — or owner/repo/pull/123" required size="48" />
-            <button type="submit">Add to queue</button>
-            <span class="err" id="add-err"></span>
-          </form>
-          <div class="scroll">
-            <table id="queue" hidden>
-              <thead><tr><th></th><th>#</th><th>Repo</th><th>Title</th><th>Type</th><th>Author</th><th>Status</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div class="empty" id="queue-empty" hidden>Queue is empty.</div>
-        </section>
-
-        <section class="panel-side">
-          <h2>Codex usage</h2>
-          <div id="usage"><span class="muted">loading…</span></div>
-
-          <h2>Last 24 hours</h2>
-          <svg id="chart" class="chart" viewBox="0 0 480 140" preserveAspectRatio="none" role="img" aria-label="Review outcomes per hour, last 24 hours"></svg>
-          <div class="legend">
-            <span><span class="swatch" style="background:var(--c-approved)"></span>Approved</span>
-            <span><span class="swatch" style="background:var(--c-commented)"></span>Commented</span>
-            <span><span class="swatch" style="background:var(--c-rejected)"></span>Changes requested</span>
-          </div>
-          <div class="empty" id="chart-empty" hidden>No reviews in the last 24 hours.</div>
-        </section>
+      <div class="stats">
+        <div class="stat">
+          <div class="label">In queue</div>
+          <div class="value" id="stat-queue">–</div>
+          <div class="sub" id="stat-queue-sub">&nbsp;</div>
+        </div>
+        <div class="stat">
+          <div class="label">Reviews · 24h</div>
+          <div class="value" id="stat-reviews">–</div>
+          <div class="sub" id="stat-reviews-sub">&nbsp;</div>
+        </div>
+        <div class="stat">
+          <div class="label">Approved · 24h</div>
+          <div class="value" id="stat-approved">–</div>
+          <div class="sub" id="stat-approved-sub">&nbsp;</div>
+        </div>
+        <div class="stat">
+          <div class="label">Last run</div>
+          <div class="value" id="stat-run">–</div>
+          <div class="sub" id="stat-run-sub">&nbsp;</div>
+        </div>
       </div>
 
-      <h2>Recent reviews</h2>
-      <div class="scroll">
-        <table id="reviews" hidden>
-          <thead><tr><th>#</th><th>Repo</th><th>Result</th><th>Engine</th><th>SHA</th><th>When</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="empty" id="reviews-empty" hidden>No reviews yet.</div>
+      <div class="grid">
+        <div class="col">
+          <section class="panel">
+            <div class="panel-head"><h2>Queue</h2><span class="meta" id="queue-meta"></span></div>
+            <div class="panel-body">
+              <form class="inline" id="add-form">
+                <input id="add-input" placeholder="https://github.com/owner/repo/pull/123 — or owner/repo/pull/123" required />
+                <button type="submit">Add to queue</button>
+                <span class="err" id="add-err"></span>
+              </form>
+            </div>
+            <div class="panel-body flush">
+              <div class="scroll">
+                <table id="queue" hidden>
+                  <thead><tr><th></th><th>#</th><th>Repo</th><th>Title</th><th>Type</th><th>Author</th><th>Status</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="empty" id="queue-empty" hidden>queue empty</div>
+              <div class="show-more" id="queue-more" hidden><button class="ghost" type="button"></button></div>
+            </div>
+          </section>
 
-      <h2>Recent runs</h2>
-      <div class="scroll">
-        <table id="runs" hidden>
-          <thead><tr><th>Started</th><th>Finished</th><th>Status</th><th>Host</th></tr></thead>
-          <tbody></tbody>
-        </table>
+          <section class="panel">
+            <div class="panel-head"><h2>Recent reviews</h2></div>
+            <div class="panel-body flush">
+              <div class="scroll">
+                <table id="reviews" hidden>
+                  <thead><tr><th>#</th><th>Repo</th><th>Result</th><th>Engine</th><th>SHA</th><th>When</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="empty" id="reviews-empty" hidden>no reviews yet</div>
+              <div class="show-more" id="reviews-more" hidden><button class="ghost" type="button">show more</button></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="col">
+          <section class="panel">
+            <div class="panel-head"><h2>Codex usage</h2><span class="meta" id="usage-meta"></span></div>
+            <div class="panel-body" id="usage"><span class="muted">loading…</span></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Activity · 24h</h2><span class="meta" id="chart-meta"></span></div>
+            <div class="panel-body">
+              <svg id="chart" class="chart" viewBox="0 0 480 130" preserveAspectRatio="none" role="img" aria-label="Review outcomes per hour, last 24 hours"></svg>
+              <div class="chart-x" id="chart-x"></div>
+              <div class="legend">
+                <span><span class="swatch" style="background:var(--c-approved)"></span>Approved</span>
+                <span><span class="swatch" style="background:var(--c-commented)"></span>Commented</span>
+                <span><span class="swatch" style="background:var(--c-rejected)"></span>Changes requested</span>
+              </div>
+              <div class="empty" id="chart-empty" hidden>no reviews in the last 24h</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Recent runs</h2></div>
+            <div class="panel-body flush">
+              <div class="scroll">
+                <table id="runs" hidden>
+                  <thead><tr><th>Started</th><th class="num">Dur</th><th>Status</th><th>Host</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="empty" id="runs-empty" hidden>no runs yet</div>
+            </div>
+          </section>
+        </div>
       </div>
-      <div class="empty" id="runs-empty" hidden>No runs yet.</div>
     </main>
     <script src="/app.js"></script>
     <script>
@@ -93,14 +130,15 @@
         if (!w) return '';
         const resets = w.resets_at ? `resets ${new Date(w.resets_at * 1000).toLocaleString()}` : '';
         const pct = Math.min(100, Math.max(0, w.used_percent));
-        return `<div class="meter">
-          <div class="meter-label"><span>${esc(label)}</span><span>${pct.toFixed(0)}% used <span class="muted">· ${esc(resets)}</span></span></div>
+        return `<div class="meter${pct >= 90 ? ' hot' : ''}">
+          <div class="meter-label"><span>${esc(label)}</span><span>${pct.toFixed(0)}% <span class="muted">· ${esc(resets)}</span></span></div>
           <div class="meter-track"><div class="meter-fill" style="width:${pct}%"></div></div>
         </div>`;
       }
 
       function renderUsage(u) {
         const el = document.getElementById('usage');
+        const meta = document.getElementById('usage-meta');
         if (!u.available) { el.innerHTML = '<span class="muted">not available yet</span>'; return; }
         const s = u.usage || {};
         if (s.error) { el.innerHTML = `<span class="muted">unavailable: ${esc(s.error)}</span>`; return; }
@@ -112,19 +150,23 @@
         }
         el.innerHTML =
           meter(windowName(s.primary, 'Primary'), s.primary) +
-          meter(windowName(s.secondary, 'Secondary'), s.secondary) +
-          `<div class="muted">plan: ${esc(s.plan || 'unknown')} · fetched ${when(s.fetched_at)}</div>`;
+          meter(windowName(s.secondary, 'Secondary'), s.secondary);
+        meta.textContent = `plan ${s.plan || 'unknown'} · fetched ${new Date(s.fetched_at).toLocaleTimeString()}`;
       }
 
       function renderChart(buckets) {
         const svg = document.getElementById('chart');
         const total = buckets.reduce((n, b) => n + b.approved + b.commented + b.requested_changes, 0);
         document.getElementById('chart-empty').hidden = total !== 0;
-        const W = 480, H = 140, PAD = 2, n = buckets.length;
+        const W = 480, H = 130, PAD = 2, n = buckets.length || 1;
         const bw = W / n;
         const max = Math.max(1, ...buckets.map(b => b.approved + b.commented + b.requested_changes));
-        const scale = (H - 18) / max;
+        const scale = (H - 14) / max;
         const parts = [];
+        for (const f of [0.25, 0.5, 0.75]) {
+          parts.push(`<line class="grid-line" x1="0" x2="${W}" y1="${H - (H - 14) * f}" y2="${H - (H - 14) * f}" />`);
+        }
+        parts.push(`<line class="base-line" x1="0" x2="${W}" y1="${H - 0.5}" y2="${H - 0.5}" />`);
         buckets.forEach((b, i) => {
           const x = i * bw + PAD / 2, w = Math.max(1, bw - PAD - 2); // 2px surface gap between bars
           let y = H;
@@ -139,44 +181,138 @@
           }
         });
         svg.innerHTML = parts.join('');
+        const hh = (b) => b ? new Date(b.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        document.getElementById('chart-x').innerHTML =
+          [buckets[0], buckets[Math.floor(buckets.length / 2)], buckets[buckets.length - 1]]
+            .map(b => `<span>${esc(hh(b))}</span>`).join('');
+        document.getElementById('chart-meta').textContent = total ? `${total} total · peak ${max}/h` : '';
+      }
+
+      function renderStats(queue, buckets, runs) {
+        const set = (id, html) => { document.getElementById(id).innerHTML = html; };
+        const queued = queue.filter(c => c.status === 'queued').length;
+        const reviewing = queue.filter(c => c.status === 'reviewing').length;
+        set('stat-queue', String(queued));
+        set('stat-queue-sub', reviewing ? badge('reviewing', `${reviewing} reviewing`) : '&nbsp;');
+
+        const sum = (k) => buckets.reduce((n, b) => n + b[k], 0);
+        const approved = sum('approved'), total = approved + sum('commented') + sum('requested_changes');
+        set('stat-reviews', String(total));
+        set('stat-reviews-sub', total
+          ? `${approved} appr · ${sum('commented')} comm · ${sum('requested_changes')} chg`
+          : '&nbsp;');
+        set('stat-approved', total ? `${Math.round(100 * approved / total)}<span class="unit">%</span>` : '–');
+        set('stat-approved-sub', total ? `${approved} of ${total} reviews` : 'no reviews in window');
+
+        const run = runs[0];
+        if (run) {
+          set('stat-run', esc(rel(run.started_at)) || '–');
+          set('stat-run-sub', `${badge(run.status)} · ${esc(run.host)}`);
+        } else {
+          set('stat-run', '–');
+          set('stat-run-sub', 'no runs yet');
+        }
+      }
+
+      // Queue + reviews render from this cache so a row can expand/collapse
+      // without a refetch, and survive the periodic refresh.
+      let last = { queue: [], reviews: [] };
+      // Long lists stay usable: queue truncates client-side (the endpoint is
+      // the scheduler's full order), reviews grow the server-side limit.
+      const QUEUE_PAGE = 100;
+      let queueShowAll = false;
+      let reviewLimit = 50;
+      const expanded = new Set();
+      const keyOf = (c) => `${c.repo}#${c.number}`;
+      // Prefer the store's URL when the row carries one; reconstruct only for
+      // review rows, which don't.
+      const prLink = (repo, number, url) =>
+        `<a href="${esc(url || `https://github.com/${repo}/pull/${number}`)}" target="_blank" rel="noopener">#${esc(number)}</a>`;
+
+      function detailRow(c) {
+        const history = last.reviews.filter(r => r.repo === c.repo && r.number === c.number);
+        const hist = history.length
+          ? history.map(r =>
+              `<div>${badge(r.verdict)} <span class="muted">${esc(r.engine)} ·</span> ` +
+              `<span class="sha">${esc((r.head_sha || '').slice(0, 8))}</span>` +
+              `${r.head_sha === c.head_sha ? ' <span class="tag">current head</span>' : ''} ` +
+              `${ago(r.reviewed_at)}</div>`).join('')
+          : '<span class="muted">none recorded</span>';
+        const kv = (k, v) => `<div class="kv"><span>${esc(k)}</span><span>${v}</span></div>`;
+        return `<tr class="detail-row"><td colspan="7"><div class="detail">` +
+          kv('Head SHA', `<span class="sha">${esc(c.head_sha)}</span>`) +
+          kv('PR created', ago(c.created_at) || '<span class="muted">unknown</span>') +
+          kv('PR updated', ago(c.updated_at) || '<span class="muted">unknown</span>') +
+          kv('Discovered', ago(c.discovered_at) || '<span class="muted">unknown</span>') +
+          kv('Queue position', esc(c.queue_pos)) +
+          kv('Reviews of this PR', hist) +
+          `</div></td></tr>`;
+      }
+
+      function renderQueue() {
+        const visible = queueShowAll ? last.queue : last.queue.slice(0, QUEUE_PAGE);
+        const more = document.getElementById('queue-more');
+        more.hidden = last.queue.length <= QUEUE_PAGE;
+        more.querySelector('button').textContent = queueShowAll
+          ? 'collapse' : `show all ${last.queue.length}`;
+        fill('queue', visible, c => {
+          const open = expanded.has(keyOf(c));
+          const ref = `data-repo="${esc(c.repo)}" data-number="${esc(c.number)}"`;
+          const arrows = c.status === 'queued'
+            ? `<button class="ghost move" ${ref} data-dir="up">↑</button> ` +
+              `<button class="ghost move" ${ref} data-dir="down">↓</button> `
+            : '';
+          const del = `<button class="ghost del" ${ref} title="Remove from queue">✕</button>`;
+          return `<tr class="expandable${open ? ' open' : ''}" data-key="${esc(keyOf(c))}">` +
+            `<td><span class="caret">${open ? '▾' : '▸'}</span>${arrows}${del}</td>` +
+            `<td>${prLink(c.repo, c.number, c.url)}</td>` +
+            `<td>${esc(c.repo)}</td><td class="title">${esc(c.title)}</td>` +
+            `<td><span class="tag">${esc(c.type)}</span></td><td>${esc(c.author)}</td>` +
+            `<td>${badge(c.status)}</td></tr>` +
+            (open ? detailRow(c) : '');
+        });
+        const queued = last.queue.filter(c => c.status === 'queued').length;
+        const reviewing = last.queue.filter(c => c.status === 'reviewing').length;
+        const attention = last.queue.length - queued - reviewing;
+        document.getElementById('queue-meta').textContent = last.queue.length
+          ? `${queued} queued · ${reviewing} reviewing${attention ? ` · ${attention} attention` : ''}`
+          : '';
+      }
+
+      function renderReviews() {
+        fill('reviews', last.reviews, r =>
+          `<tr><td>${prLink(r.repo, r.number)}</td><td>${esc(r.repo)}</td>` +
+          `<td>${badge(r.verdict)}</td><td>${esc(r.engine)}</td>` +
+          `<td class="sha">${esc((r.head_sha || '').slice(0, 8))}</td><td>${ago(r.reviewed_at)}</td></tr>`);
+        document.getElementById('reviews-more').hidden =
+          last.reviews.length < reviewLimit || reviewLimit >= 500;
+      }
+
+      function renderRuns(runs) {
+        fill('runs', runs, r =>
+          `<tr><td>${ago(r.started_at)}</td><td class="num">${dur(r.started_at, r.finished_at)}</td>` +
+          `<td>${badge(r.status)}</td><td>${esc(r.host)}</td></tr>`);
       }
 
       async function refresh() {
         try {
           const [q, rv, rn, us, st] = await Promise.all([
             fetchJSON('/api/queue'),
-            fetchJSON('/api/reviews'),
+            fetchJSON(`/api/reviews?limit=${reviewLimit}`),
             fetchJSON('/api/runs'),
             fetchJSON('/api/usage'),
             fetchJSON('/api/stats'),
           ]);
-          const queue = q.candidates || [];
-          fill('queue', queue, c => {
-            const ref = `data-repo="${esc(c.repo)}" data-number="${esc(c.number)}"`;
-            const arrows = c.status === 'queued'
-              ? `<button class="ghost move" ${ref} data-dir="up">↑</button>` +
-                `<button class="ghost move" ${ref} data-dir="down">↓</button>`
-              : '';
-            const del = `<button class="ghost del" ${ref} title="Remove from queue">✕</button>`;
-            return `<tr><td>${arrows}${del}</td>` +
-              `<td><a href="${esc(c.url) || '#'}">#${esc(c.number)}</a></td>` +
-              `<td>${esc(c.repo)}</td><td class="title">${esc(c.title)}</td>` +
-              `<td><span class="pill">${esc(c.type)}</span></td><td>${esc(c.author)}</td>` +
-              `<td><span class="pill">${esc(c.status)}</span></td></tr>`;
-          });
-          fill('reviews', rv.reviews || [], r =>
-            `<tr><td>#${esc(r.number)}</td><td>${esc(r.repo)}</td>` +
-            `<td><span class="pill">${esc(r.verdict)}</span></td><td>${esc(r.engine)}</td>` +
-            `<td>${esc((r.head_sha || '').slice(0, 8))}</td><td>${when(r.reviewed_at)}</td></tr>`);
-          fill('runs', rn.runs || [], r =>
-            `<tr><td>${when(r.started_at)}</td><td>${when(r.finished_at)}</td>` +
-            `<td><span class="pill">${esc(r.status)}</span></td><td>${esc(r.host)}</td></tr>`);
+          last = { queue: q.candidates || [], reviews: rv.reviews || [] };
+          renderQueue();
+          renderReviews();
+          renderRuns(rn.runs || []);
           renderUsage(us);
           renderChart(st.buckets || []);
-          document.getElementById('summary').textContent =
-            `${queue.length} in queue · updated ${new Date().toLocaleTimeString()}`;
+          renderStats(last.queue, st.buckets || [], rn.runs || []);
+          feed(true);
         } catch (e) {
-          document.getElementById('summary').textContent = 'error loading data';
+          feed(false);
         }
       }
 
@@ -191,9 +327,19 @@
         } catch (ex) { err.textContent = ex.message; }
       });
 
+      function toggleRow(e) {
+        if (e.target.closest('a')) return;
+        const row = e.target.closest('tr.expandable');
+        if (!row) return;
+        const k = row.dataset.key;
+        if (expanded.has(k)) expanded.delete(k);
+        else expanded.add(k);
+        renderQueue();
+      }
+
       document.querySelector('#queue tbody').addEventListener('click', async (e) => {
         const btn = e.target.closest('button.move, button.del');
-        if (!btn) return;
+        if (!btn) return toggleRow(e);
         const ref = { repo: btn.dataset.repo, number: parseInt(btn.dataset.number, 10) };
         try {
           if (btn.classList.contains('del')) {
@@ -208,6 +354,15 @@
           }
           refresh();
         } catch (ex) { document.getElementById('add-err').textContent = ex.message; }
+      });
+
+      document.querySelector('#queue-more button').addEventListener('click', () => {
+        queueShowAll = !queueShowAll;
+        renderQueue();
+      });
+      document.querySelector('#reviews-more button').addEventListener('click', () => {
+        reviewLimit = Math.min(500, reviewLimit + 100);
+        refresh();
       });
 
       refresh();

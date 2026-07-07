@@ -10,10 +10,12 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/logbuf"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 	"github.com/shhac/agent-code-review/internal/usage"
@@ -37,6 +39,7 @@ type Server struct {
 	config  func() config.Config
 	running Running
 	usage   *usage.Cache // nil when the daemon isn't polling usage
+	logs    *logbuf.Ring // nil when the process doesn't capture logs
 
 	// ghUser resolves the login the gh CLI acts as; resolved once, lazily —
 	// the Config page shows "reviewing as @…" so visitors know whose reviews
@@ -46,8 +49,8 @@ type Server struct {
 	ghUserVal  string
 }
 
-func NewServer(s store.Store, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error)) *Server {
-	return &Server{store: s, config: cfg, running: running, usage: u, ghUser: ghUser}
+func NewServer(s store.Store, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring) *Server {
+	return &Server{store: s, config: cfg, running: running, usage: u, ghUser: ghUser, logs: logs}
 }
 
 // reviewingAs returns the identity reviews are posted as: the configured
@@ -81,6 +84,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/authors", s.handleAuthors)
 	mux.HandleFunc("/api/prompt", s.handlePrompt)
+	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/healthz", s.handleHealth)
 	mux.Handle("/", http.FileServer(http.FS(mustSub())))
 	return mux
@@ -89,7 +93,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
-	reviews, err := s.store.ListReviews(ctx, 50)
+	reviews, err := s.store.ListReviews(ctx, queryInt(r, "limit", 50, 500))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -248,6 +252,15 @@ func (s *Server) handlePrompt(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// handleLogs returns the newest captured daemon log lines, oldest first.
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	if s.logs == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"available": false, "entries": []logbuf.Entry{}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"available": true, "entries": s.logs.Tail(queryInt(r, "n", 500, 1000))})
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -267,6 +280,16 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// queryInt reads a bounded positive integer query parameter, falling back to
+// def when the parameter is absent, malformed, or outside (0, max].
+func queryInt(r *http.Request, key string, def, max int) int {
+	v, err := strconv.Atoi(r.URL.Query().Get(key))
+	if err != nil || v <= 0 || v > max {
+		return def
+	}
+	return v
 }
 
 // reqCtx bounds a handler's work with the standard per-request deadline.

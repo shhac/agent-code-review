@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-code-review · logs</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar"></header>
+    <main>
+      <section class="panel">
+        <div class="panel-head"><h2>Server logs</h2><span class="meta" id="logs-meta">in-memory tail of this daemon — stderr is the durable copy</span></div>
+        <div class="panel-body flush">
+          <div class="log-pane" id="log-pane" hidden></div>
+          <div class="empty" id="logs-empty" hidden>no log lines captured yet</div>
+        </div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+    <script>
+
+      async function refresh() {
+        const pane = document.getElementById('log-pane');
+        const empty = document.getElementById('logs-empty');
+        try {
+          const data = await fetchJSON('/api/logs');
+          const entries = data.entries || [];
+          if (!data.available) {
+            empty.textContent = 'log capture is not enabled in this process';
+          }
+          // Stick to the tail unless the user has scrolled up to read.
+          const pinned = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40;
+          pane.innerHTML = entries.map(e =>
+            `<div class="log-line"><span class="log-time" title="${esc(when(e.at))}">${esc(new Date(e.at).toLocaleTimeString())}</span>${esc(e.line)}</div>`).join('');
+          pane.hidden = entries.length === 0;
+          empty.hidden = entries.length !== 0;
+          if (pinned) pane.scrollTop = pane.scrollHeight;
+          if (entries.length) {
+            document.getElementById('logs-meta').textContent =
+              `${entries.length} line${entries.length === 1 ? '' : 's'} · in-memory tail — stderr is the durable copy`;
+          }
+          feed(true);
+        } catch (e) {
+          feed(false);
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>

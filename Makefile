@@ -2,10 +2,16 @@ BINARY := agent-code-review
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build test test-integration lint dev tidy
+.PHONY: build dashboard dashboard-dev test test-integration lint dev tidy
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/agent-code-review
+
+dashboard:
+	npm --prefix internal/dashboard/ui run build
+
+dashboard-dev:
+	npm --prefix internal/dashboard/ui run dev
 
 test:
 	go test ./... -count=1

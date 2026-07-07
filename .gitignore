@@ -4,6 +4,7 @@
 
 # build
 dist
+node_modules
 release
 /agent-code-review
 

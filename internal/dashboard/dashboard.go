@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"path"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,7 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/prompt", s.handlePrompt)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/api/healthz", s.handleHealth)
-	mux.Handle("/", http.FileServer(http.FS(mustSub())))
+	mux.Handle("/", spaHandler(mustSub()))
 	return mux
 }
 
@@ -274,6 +276,27 @@ func mustSub() fs.FS {
 		panic(err)
 	}
 	return sub
+}
+
+// spaHandler serves built dashboard assets and lets the frontend own page
+// routes such as /config, /prompt, and /logs. Real missing asset files still
+// return 404 so broken script/style URLs are visible during development.
+func spaHandler(files fs.FS) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+		if name == "." || name == "" {
+			name = "index.html"
+		}
+		if _, err := fs.Stat(files, name); err == nil {
+			http.ServeFileFS(w, r, files, name)
+			return
+		}
+		if path.Ext(name) != "" && !strings.HasSuffix(name, ".html") {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFileFS(w, r, files, "index.html")
+	})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

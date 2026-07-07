@@ -192,6 +192,7 @@ NDJSON on stdout — one JSON record per line. Errors go to stderr as
 
 ```bash
 make build     # build the binary
+make dashboard # rebuild embedded dashboard assets
 make test      # go test ./...
 make lint      # golangci-lint
 make dev ARGS="queue ls"

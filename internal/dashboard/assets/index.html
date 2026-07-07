@@ -8,19 +8,21 @@
   </head>
   <body>
     <header>
-      <h1>agent-code-review</h1>
-      <nav>
-        <a href="/" class="active">Overview</a>
-        <a href="/config.html">Config</a>
-        <a href="/prompt.html">Prompt</a>
-      </nav>
-      <span class="muted" id="summary">loading…</span>
+      <div class="header-row">
+        <h1>agent-code-review</h1>
+        <nav>
+          <a href="/" class="active">Overview</a>
+          <a href="/config.html">Config</a>
+          <a href="/prompt.html">Prompt</a>
+        </nav>
+      </div>
+      <span class="muted header-status" id="summary">loading…</span>
     </header>
     <main>
       <h2>Queue</h2>
       <form class="inline" id="add-form">
-        <input id="add-repo" placeholder="owner/repo" required pattern="[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+" size="24" />
-        <input id="add-number" placeholder="PR #" required type="number" min="1" style="width:90px" />
+        <input id="add-input" placeholder="https://github.com/owner/repo/pull/123  ·  or owner/repo" required size="40" />
+        <input id="add-number" placeholder="PR #" type="number" min="1" style="width:90px" />
         <button type="submit">Add to queue</button>
         <span class="err" id="add-err"></span>
       </form>
@@ -109,12 +111,14 @@
         e.preventDefault();
         const err = document.getElementById('add-err');
         err.textContent = '';
+        const value = document.getElementById('add-input').value.trim();
+        const body = value.startsWith('http')
+          ? { url: value }
+          : { repo: value, number: parseInt(document.getElementById('add-number').value, 10) };
+        if (!body.url && !(body.number > 0)) { err.textContent = 'PR # required (or paste a full PR URL)'; return; }
         try {
-          await post('/api/queue', {
-            repo: document.getElementById('add-repo').value.trim(),
-            number: parseInt(document.getElementById('add-number').value, 10),
-          });
-          document.getElementById('add-repo').value = '';
+          await post('/api/queue', body);
+          document.getElementById('add-input').value = '';
           document.getElementById('add-number').value = '';
           refresh();
         } catch (ex) { err.textContent = ex.message; }

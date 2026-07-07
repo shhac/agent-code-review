@@ -158,8 +158,9 @@ the store; manage it with `authors`.
 
 `serve` hosts a small web UI (default `:8330`) with three pages:
 
-- **Overview** — the queue (with an *add PR* form and ↑/↓ reordering), recent
-  reviews, and recent run cycles. Auto-refreshes.
+- **Overview** — the queue (with an *add PR* form — paste a PR URL or type
+  owner/repo + number; only watched repos are accepted — and ↑/↓ reordering),
+  recent reviews, and recent run cycles. Auto-refreshes.
 - **Config** — watched repos, resolved settings, and the allowed-authors list.
   Read-only.
 - **Prompt** — the main prompt, the rules, and a fully assembled preview of

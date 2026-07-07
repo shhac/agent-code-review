@@ -8,18 +8,20 @@
   </head>
   <body>
     <header>
-      <h1>agent-code-review</h1>
-      <nav>
-        <a href="/">Overview</a>
-        <a href="/config.html" class="active">Config</a>
-        <a href="/prompt.html">Prompt</a>
-      </nav>
-      <span class="muted">read-only — edit via config.json and the `authors` CLI</span>
+      <div class="header-row">
+        <h1>agent-code-review</h1>
+        <nav>
+          <a href="/">Overview</a>
+          <a href="/config.html" class="active">Config</a>
+          <a href="/prompt.html">Prompt</a>
+        </nav>
+      </div>
+      <span class="muted header-status">read-only — edit via the `repos` / `authors` CLIs and config.json</span>
     </header>
     <main>
       <h2>Watched repos</h2>
       <ul class="plain" id="repos"></ul>
-      <div class="empty" id="repos-empty" hidden>No repos configured — edit config.json.</div>
+      <div class="empty" id="repos-empty" hidden>No repos configured — add with: agent-code-review repos add owner/name</div>
 
       <h2>Settings</h2>
       <div class="scroll">

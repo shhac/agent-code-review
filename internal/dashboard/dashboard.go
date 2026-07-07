@@ -11,6 +11,8 @@ import (
 	"io/fs"
 	"net/http"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -76,19 +78,40 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"candidates": candidates})
 }
 
-var repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+var (
+	repoPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	prURLPattern = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)`)
+)
 
+// addToQueue accepts either {"url": "https://github.com/owner/repo/pull/N"} or
+// {"repo": "owner/name", "number": N}. Either way the repo must be one of the
+// configured watched repos — the dashboard is the surface other people use, so
+// it only takes PRs this tool is actually set up to review.
 func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Repo   string `json:"repo"`
 		Number int    `json:"number"`
+		URL    string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 		return
 	}
+	if req.URL != "" {
+		m := prURLPattern.FindStringSubmatch(strings.TrimSpace(req.URL))
+		if m == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a GitHub PR URL — expected https://github.com/owner/repo/pull/N"})
+			return
+		}
+		req.Repo = m[1]
+		req.Number, _ = strconv.Atoi(m[2])
+	}
 	if !repoPattern.MatchString(req.Repo) || req.Number <= 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need {"repo": "owner/name", "number": N}`})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `need {"url": "https://github.com/owner/repo/pull/N"} or {"repo": "owner/name", "number": N}`})
+		return
+	}
+	if !s.repoWatched(req.Repo) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": req.Repo + " is not a watched repo — see the Config page for the allowed list"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -110,6 +133,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		Repo:         req.Repo,
 		Number:       req.Number,
 		Type:         store.TypeNew,
+		URL:          "https://github.com/" + req.Repo + "/pull/" + strconv.Itoa(req.Number),
 		Status:       store.StatusQueued,
 		DiscoveredAt: time.Now(),
 	})
@@ -118,6 +142,17 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"added": true})
+}
+
+// repoWatched reports whether repo is in the configured watch list
+// (case-insensitive, matching GitHub's semantics).
+func (s *Server) repoWatched(repo string) bool {
+	for _, r := range s.config().Repos {
+		if strings.EqualFold(r, repo) {
+			return true
+		}
+	}
+	return false
 }
 
 // handleQueueMove nudges a queued PR up or down one place. Positions are
@@ -243,7 +278,12 @@ func (s *Server) handlePrompt(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"main_prompt": review.MainPrompt(cfg.Review),
-		"rules":       cfg.Review.Rules,
+		"outcomes": map[string]string{
+			"on_approve": cfg.Review.OnApprove,
+			"on_comment": cfg.Review.OnComment,
+			"on_reject":  cfg.Review.OnReject,
+		},
+		"rules": cfg.Review.Rules,
 		"previews": map[string]string{
 			"allowed_author":     review.BuildPrompt(cfg, sample, review.Facts{AuthorAllowed: true}),
 			"not_allowed_author": review.BuildPrompt(cfg, sample, review.Facts{}),

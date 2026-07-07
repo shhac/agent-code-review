@@ -8,17 +8,23 @@
   </head>
   <body>
     <header>
-      <h1>agent-code-review</h1>
-      <nav>
-        <a href="/">Overview</a>
-        <a href="/config.html">Config</a>
-        <a href="/prompt.html" class="active">Prompt</a>
-      </nav>
-      <span class="muted">read-only — edit review.main_prompt / review.rules in config.json</span>
+      <div class="header-row">
+        <h1>agent-code-review</h1>
+        <nav>
+          <a href="/">Overview</a>
+          <a href="/config.html">Config</a>
+          <a href="/prompt.html" class="active">Prompt</a>
+        </nav>
+      </div>
+      <span class="muted header-status">read-only — edit the review section of config.json</span>
     </header>
     <main>
       <h2>Main prompt</h2>
       <pre id="main-prompt"></pre>
+
+      <h2>Post-outcome instructions <span class="muted">(what the agent does after landing on each outcome)</span></h2>
+      <div id="outcomes"></div>
+      <div class="empty" id="outcomes-empty" hidden>None configured — set review.on_approve / on_comment / on_reject in config.json.</div>
 
       <h2>Rules <span class="muted">(extra instructions when their condition matches)</span></h2>
       <div id="rules"></div>
@@ -44,6 +50,11 @@
       async function load() {
         const p = await fetch('/api/prompt').then(r => r.json());
         document.getElementById('main-prompt').textContent = p.main_prompt || '(no main prompt configured)';
+
+        const outcomes = Object.entries(p.outcomes || {}).filter(([, v]) => v);
+        document.getElementById('outcomes').innerHTML = outcomes.map(([k, v]) =>
+          `<h2>· ${esc(k)}</h2><pre>${esc(v)}</pre>`).join('');
+        document.getElementById('outcomes-empty').hidden = outcomes.length !== 0;
 
         const rules = p.rules || [];
         document.getElementById('rules').innerHTML = rules.map(r =>

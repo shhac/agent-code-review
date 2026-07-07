@@ -49,11 +49,7 @@ const fetchJSON = (url) => fetch(url).then((r) => r.json());
 // carry just `<header class="topbar" [data-status="…"]></header>` so a nav
 // or brand change lands everywhere at once.
 const TABS = [['/', 'Overview'], ['/config.html', 'Config'], ['/prompt.html', 'Prompt'], ['/logs.html', 'Logs']];
-const BRAND_MARK = `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-  <rect x="1" y="1" width="16" height="16" rx="3" stroke-width="1.5" class="mark-frame" />
-  <path d="M5 6l3 3-3 3" stroke-width="1.5" class="mark-glyph" stroke-linecap="round" stroke-linejoin="round" />
-  <path d="M9.5 12.5H13" stroke-width="1.5" class="mark-glyph" stroke-linecap="round" />
-</svg>`;
+const BRAND_MARK = '<img src="/mascot.webp" alt="agent-code-review" title="agent-code-review" width="36" height="36" />';
 const mountTopbar = () => {
   const bar = document.querySelector('header.topbar');
   if (!bar) return;
@@ -63,7 +59,7 @@ const mountTopbar = () => {
   const status = bar.dataset.status === undefined
     ? '<span class="topbar-status" id="feed"><i class="dot"></i><span id="feed-label">sync</span><span class="detail" id="feed-detail"></span></span>'
     : `<span class="topbar-status">${esc(bar.dataset.status)}</span>`;
-  bar.innerHTML = `<span class="brand">${BRAND_MARK} agent-code-review</span><nav class="tabs">${tabs}</nav>${status}`;
+  bar.innerHTML = `<span class="brand">${BRAND_MARK}</span><nav class="tabs">${tabs}</nav>${status}`;
 };
 mountTopbar();
 

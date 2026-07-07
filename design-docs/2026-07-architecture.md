@@ -143,3 +143,14 @@ example config.
 - **Dashboard queue-add accepted PR URLs** and gated adds to watched repos;
   CLI output was rerouted through lib-agent-output (the hand-rolled emit had
   silently ignored --color and -f json|yaml).
+- **Codex usage reached the dashboard** via the app-server protocol: the codex
+  CLI exposed no usage subcommand, but `codex app-server` (JSON-RPC over
+  stdio, the desktop app's surface) answered `account/rateLimits/read` with
+  the primary/weekly windows the TUI's /status shows. `internal/usage` spawns
+  it per poll (default 10m, `dashboard.usage_poll_interval`), caches the
+  snapshot, and `/api/usage` serves it. Protocol pinned at codex 0.138.0 —
+  experimental surface, may drift. The Overview page became a two-panel hero:
+  queue beside usage meters + a last-24h stacked hourly chart of
+  approved/commented/requested-changes (`/api/stats`; colors validated with
+  the dataviz six-checks in both light and dark modes), and the Config page
+  showed the resolved "reviewing as @…" gh identity.

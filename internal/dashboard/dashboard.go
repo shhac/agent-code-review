@@ -13,11 +13,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 //go:embed assets/*
@@ -31,10 +33,35 @@ type Server struct {
 	store       store.Store
 	config      func() config.Config
 	schedulerOn bool
+	usage       *usage.Cache // nil when the daemon isn't polling usage
+
+	// ghUser resolves the login the gh CLI acts as; resolved once, lazily —
+	// the Config page shows "reviewing as @…" so visitors know whose reviews
+	// these will be.
+	ghUser     func(ctx context.Context) (string, error)
+	ghUserOnce sync.Once
+	ghUserVal  string
 }
 
-func NewServer(s store.Store, cfg func() config.Config, schedulerOn bool) *Server {
-	return &Server{store: s, config: cfg, schedulerOn: schedulerOn}
+func NewServer(s store.Store, cfg func() config.Config, schedulerOn bool, u *usage.Cache, ghUser func(ctx context.Context) (string, error)) *Server {
+	return &Server{store: s, config: cfg, schedulerOn: schedulerOn, usage: u, ghUser: ghUser}
+}
+
+// reviewingAs returns the identity reviews are posted as: the configured
+// gh_user override, else the lazily resolved gh login ("" if unresolvable).
+func (s *Server) reviewingAs(ctx context.Context) string {
+	if u := s.config().GHUser; u != "" {
+		return u
+	}
+	if s.ghUser == nil {
+		return ""
+	}
+	s.ghUserOnce.Do(func() {
+		if u, err := s.ghUser(ctx); err == nil {
+			s.ghUserVal = u
+		}
+	})
+	return s.ghUserVal
 }
 
 // Handler returns the dashboard's HTTP routes. Config and prompt are
@@ -47,6 +74,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/reviews", s.handleReviews)
 	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/usage", s.handleUsage)
+	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/authors", s.handleAuthors)
 	mux.HandleFunc("/api/prompt", s.handlePrompt)
 	mux.HandleFunc("/api/healthz", s.handleHealth)
@@ -234,10 +263,13 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 
 // handleConfig returns the operational settings the UI shows: watched repos and
 // the resolved dials (with defaults applied), not the raw file.
-func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.config()
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"repos": cfg.Repos,
+		"reviewing_as": s.reviewingAs(ctx),
+		"repos":        cfg.Repos,
 		"candidates": map[string]any{
 			"new_max_age_days":       int(cfg.NewMaxAge().Hours() / 24),
 			"refreshed_max_age_days": int(cfg.RefreshedMaxAge().Hours() / 24),
@@ -252,6 +284,56 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		"scheduler_running": s.schedulerOn,
 		"engine":            cfg.Engine(),
 	})
+}
+
+// handleUsage returns the cached Codex rate-limit snapshot (refreshed by the
+// daemon on dashboard.usage_poll_interval).
+func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request) {
+	if s.usage == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"available": false})
+		return
+	}
+	snap := s.usage.Get()
+	writeJSON(w, http.StatusOK, map[string]any{"available": !snap.FetchedAt.IsZero(), "usage": snap})
+}
+
+// handleStats returns 24 hourly buckets of review outcomes for the sliding
+// last-24h window: approved / commented / requested_changes counts per hour.
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	now := time.Now().UTC()
+	start := now.Truncate(time.Hour).Add(-23 * time.Hour)
+	reviews, err := s.store.ListReviewsSince(ctx, start)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	type bucket struct {
+		Hour             string `json:"hour"`
+		Approved         int    `json:"approved"`
+		Commented        int    `json:"commented"`
+		RequestedChanges int    `json:"requested_changes"`
+	}
+	buckets := make([]bucket, 24)
+	for i := range buckets {
+		buckets[i].Hour = start.Add(time.Duration(i) * time.Hour).Format(time.RFC3339)
+	}
+	for _, rv := range reviews {
+		i := int(rv.ReviewedAt.UTC().Sub(start) / time.Hour)
+		if i < 0 || i >= 24 {
+			continue
+		}
+		switch rv.Verdict {
+		case review.DecisionApproved:
+			buckets[i].Approved++
+		case review.DecisionCommented:
+			buckets[i].Commented++
+		case review.DecisionRequestedChanges:
+			buckets[i].RequestedChanges++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"buckets": buckets})
 }
 
 func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {

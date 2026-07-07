@@ -208,6 +208,26 @@ func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
 	return reviews, nil
 }
 
+func (d *duckDB) ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error) {
+	rows, err := d.query(ctx, fmt.Sprintf(
+		"SELECT * FROM reviews WHERE reviewed_at >= %s ORDER BY reviewed_at", ts(since)))
+	if err != nil {
+		return nil, err
+	}
+	reviews := make([]Review, 0, len(rows))
+	for _, r := range rows {
+		reviews = append(reviews, Review{
+			Repo:       getString(r, "repo"),
+			Number:     getInt(r, "number"),
+			HeadSHA:    getString(r, "head_sha"),
+			Verdict:    getString(r, "verdict"),
+			Engine:     getString(r, "engine"),
+			ReviewedAt: getTime(r, "reviewed_at"),
+		})
+	}
+	return reviews, nil
+}
+
 func (d *duckDB) ListRuns(ctx context.Context, limit int) ([]Run, error) {
 	if limit <= 0 {
 		limit = 20

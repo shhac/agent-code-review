@@ -165,9 +165,12 @@ the store; manage it with `authors`.
 
 `serve` hosts a small web UI (default `:8330`) with three pages:
 
-- **Overview** — the queue (with an *add PR* box — paste a PR URL or type
-  `owner/repo/pull/N`; only watched repos are accepted — and ↑/↓ reordering),
-  recent reviews, and recent run cycles. Auto-refreshes.
+- **Overview** — a two-panel hero: the queue (with an *add PR* box — paste a
+  PR URL or type `owner/repo/pull/N`; only watched repos are accepted — and
+  ↑/↓ reordering) beside **Codex usage meters** (5h + weekly windows, polled
+  every `dashboard.usage_poll_interval`, default 10m) and a **last-24h chart**
+  of approved / commented / changes-requested outcomes per hour. Recent
+  reviews and runs below. Auto-refreshes.
 - **Config** — watched repos, resolved settings, and the allowed-authors list.
   Read-only.
 - **Prompt** — the main prompt, the rules, and a fully assembled preview of

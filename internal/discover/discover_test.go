@@ -33,6 +33,9 @@ func (f *fakeStore) RecordReview(context.Context, store.Review) error { return n
 func (f *fakeStore) ListReviews(context.Context, int) ([]store.Review, error) {
 	return nil, nil
 }
+func (f *fakeStore) ListReviewsSince(context.Context, time.Time) ([]store.Review, error) {
+	return nil, nil
+}
 func (f *fakeStore) ListRuns(context.Context, int) ([]store.Run, error)     { return nil, nil }
 func (f *fakeStore) AllowAuthor(context.Context, store.AllowedAuthor) error { return nil }
 func (f *fakeStore) DenyAuthor(context.Context, string, string) error       { return nil }

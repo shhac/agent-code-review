@@ -101,6 +101,8 @@ type Store interface {
 	RecordReview(ctx context.Context, r Review) error
 	// ListReviews returns review history, most recent first, capped at limit.
 	ListReviews(ctx context.Context, limit int) ([]Review, error)
+	// ListReviewsSince returns all reviews at or after since, oldest first.
+	ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error)
 
 	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.
 	AllowAuthor(ctx context.Context, a AllowedAuthor) error

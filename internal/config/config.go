@@ -102,6 +102,9 @@ type DashboardSettings struct {
 	Addr      string            `json:"addr,omitempty"`       // default ":8330"
 	PublicURL string            `json:"public_url,omitempty"` // derived from Tailscale when unset
 	Tailscale TailscaleSettings `json:"tailscale,omitempty"`
+	// UsagePollInterval is how often the daemon refreshes Codex usage for the
+	// dashboard (Go duration, default 10m).
+	UsagePollInterval string `json:"usage_poll_interval,omitempty"`
 }
 
 // Config is the whole on-disk document.
@@ -205,6 +208,18 @@ func (c Config) DashboardAddr() string {
 		return c.Dashboard.Addr
 	}
 	return ":8330"
+}
+
+// UsagePollInterval is the Codex usage refresh cadence (default 10m, and 10m
+// on parse failure).
+func (c Config) UsagePollInterval() time.Duration {
+	if c.Dashboard.UsagePollInterval == "" {
+		return 10 * time.Minute
+	}
+	if d, err := time.ParseDuration(c.Dashboard.UsagePollInterval); err == nil && d > 0 {
+		return d
+	}
+	return 10 * time.Minute
 }
 
 // StorePath is the DuckDB file location (default <XDG_DATA>/agent-code-review/queue.duckdb).

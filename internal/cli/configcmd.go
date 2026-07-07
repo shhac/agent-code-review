@@ -77,6 +77,8 @@ func configKeys() []libcli.ConfigKey {
 			func(c *config.Config) *string { return &c.Dashboard.Addr }, nil),
 		stringKey("dashboard.tailscale.mode", `Tailscale exposure: "", "serve", or "funnel"`,
 			func(c *config.Config) *string { return &c.Dashboard.Tailscale.Mode }, validateTailscaleMode),
+		stringKey("dashboard.usage_poll_interval", "Codex usage refresh cadence as a Go duration (default 10m)",
+			func(c *config.Config) *string { return &c.Dashboard.UsagePollInterval }, validateDuration),
 		stringKey("store.path", "DuckDB file path (default under XDG data dir)",
 			func(c *config.Config) *string { return &c.Store.Path }, nil),
 	}

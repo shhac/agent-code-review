@@ -13,6 +13,8 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/dashboard"
+	"github.com/shhac/agent-code-review/internal/discover"
+	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 type serveOpts struct {
@@ -70,8 +72,14 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		defer func() { _ = tsDown() }()
 	}
 
+	// Poll Codex usage in the background so the dashboard can show remaining
+	// quota without a subprocess per request.
+	usageCache := usage.NewCache()
+	go usageCache.Poll(ctx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
+
 	schedulerOn := !opts.noSchedule && cfg.Schedule.Enabled
-	srv := &http.Server{Addr: opts.addr, Handler: dashboard.NewServer(s, config.Read, schedulerOn).Handler()}
+	dash := dashboard.NewServer(s, config.Read, schedulerOn, usageCache, discover.CurrentUser)
+	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
 	go func() {
 		stderrLogf("dashboard: listening on %s", opts.addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

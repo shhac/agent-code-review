@@ -19,19 +19,37 @@
       <span class="muted header-status" id="summary">loading…</span>
     </header>
     <main>
-      <h2>Queue</h2>
-      <form class="inline" id="add-form">
-        <input id="add-input" placeholder="https://github.com/owner/repo/pull/123 — or owner/repo/pull/123" required size="48" />
-        <button type="submit">Add to queue</button>
-        <span class="err" id="add-err"></span>
-      </form>
-      <div class="scroll">
-        <table id="queue" hidden>
-          <thead><tr><th></th><th>#</th><th>Repo</th><th>Title</th><th>Type</th><th>Author</th><th>Status</th></tr></thead>
-          <tbody></tbody>
-        </table>
+      <div class="panels">
+        <section class="panel-main">
+          <h2>Queue</h2>
+          <form class="inline" id="add-form">
+            <input id="add-input" placeholder="https://github.com/owner/repo/pull/123 — or owner/repo/pull/123" required size="48" />
+            <button type="submit">Add to queue</button>
+            <span class="err" id="add-err"></span>
+          </form>
+          <div class="scroll">
+            <table id="queue" hidden>
+              <thead><tr><th></th><th>#</th><th>Repo</th><th>Title</th><th>Type</th><th>Author</th><th>Status</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty" id="queue-empty" hidden>Queue is empty.</div>
+        </section>
+
+        <section class="panel-side">
+          <h2>Codex usage</h2>
+          <div id="usage"><span class="muted">loading…</span></div>
+
+          <h2>Last 24 hours</h2>
+          <svg id="chart" class="chart" viewBox="0 0 480 140" preserveAspectRatio="none" role="img" aria-label="Review outcomes per hour, last 24 hours"></svg>
+          <div class="legend">
+            <span><span class="swatch" style="background:var(--c-approved)"></span>Approved</span>
+            <span><span class="swatch" style="background:var(--c-commented)"></span>Commented</span>
+            <span><span class="swatch" style="background:var(--c-rejected)"></span>Changes requested</span>
+          </div>
+          <div class="empty" id="chart-empty" hidden>No reviews in the last 24 hours.</div>
+        </section>
       </div>
-      <div class="empty" id="queue-empty" hidden>Queue is empty.</div>
 
       <h2>Recent reviews</h2>
       <div class="scroll">
@@ -73,12 +91,62 @@
         if (!res.ok) throw new Error((await res.json()).error || res.statusText);
       }
 
+      function meter(label, w) {
+        if (!w) return '';
+        const resets = w.resets_at ? `resets ${new Date(w.resets_at * 1000).toLocaleString()}` : '';
+        const pct = Math.min(100, Math.max(0, w.used_percent));
+        return `<div class="meter">
+          <div class="meter-label"><span>${esc(label)}</span><span>${pct.toFixed(0)}% used <span class="muted">· ${esc(resets)}</span></span></div>
+          <div class="meter-track"><div class="meter-fill" style="width:${pct}%"></div></div>
+        </div>`;
+      }
+
+      function renderUsage(u) {
+        const el = document.getElementById('usage');
+        if (!u.available) { el.innerHTML = '<span class="muted">not available yet</span>'; return; }
+        const s = u.usage || {};
+        if (s.error) { el.innerHTML = `<span class="muted">unavailable: ${esc(s.error)}</span>`; return; }
+        const windowName = (w, fallback) => !w ? fallback
+          : w.window_mins >= 10080 ? 'Weekly' : w.window_mins >= 60 ? `${Math.round(w.window_mins / 60)}h window` : `${w.window_mins}m window`;
+        el.innerHTML =
+          meter(windowName(s.primary, 'Primary'), s.primary) +
+          meter(windowName(s.secondary, 'Secondary'), s.secondary) +
+          `<div class="muted">plan: ${esc(s.plan || 'unknown')} · fetched ${when(s.fetched_at)}</div>`;
+      }
+
+      function renderChart(buckets) {
+        const svg = document.getElementById('chart');
+        const total = buckets.reduce((n, b) => n + b.approved + b.commented + b.requested_changes, 0);
+        document.getElementById('chart-empty').hidden = total !== 0;
+        const W = 480, H = 140, PAD = 2, n = buckets.length;
+        const bw = W / n;
+        const max = Math.max(1, ...buckets.map(b => b.approved + b.commented + b.requested_changes));
+        const scale = (H - 18) / max;
+        const parts = [];
+        buckets.forEach((b, i) => {
+          const x = i * bw + PAD / 2, w = Math.max(1, bw - PAD - 2); // 2px surface gap between bars
+          let y = H;
+          const hour = new Date(b.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const tip = `${hour} — ${b.approved} approved, ${b.commented} commented, ${b.requested_changes} changes requested`;
+          for (const [key, color] of [['approved', 'var(--c-approved)'], ['commented', 'var(--c-commented)'], ['requested_changes', 'var(--c-rejected)']]) {
+            const v = b[key];
+            if (!v) continue;
+            const h = Math.max(2, v * scale - 2); // 2px gap between stacked segments
+            y -= v * scale;
+            parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${color}"><title>${esc(tip)}</title></rect>`);
+          }
+        });
+        svg.innerHTML = parts.join('');
+      }
+
       async function refresh() {
         try {
-          const [q, rv, rn] = await Promise.all([
+          const [q, rv, rn, us, st] = await Promise.all([
             fetch('/api/queue').then(r => r.json()),
             fetch('/api/reviews').then(r => r.json()),
             fetch('/api/runs').then(r => r.json()),
+            fetch('/api/usage').then(r => r.json()),
+            fetch('/api/stats').then(r => r.json()),
           ]);
           const queue = q.candidates || [];
           fill('queue', queue, c => {
@@ -99,6 +167,8 @@
           fill('runs', rn.runs || [], r =>
             `<tr><td>${when(r.started_at)}</td><td>${when(r.finished_at)}</td>` +
             `<td><span class="pill">${esc(r.status)}</span></td><td>${esc(r.host)}</td></tr>`);
+          renderUsage(us);
+          renderChart(st.buckets || []);
           document.getElementById('summary').textContent =
             `${queue.length} in queue · updated ${new Date().toLocaleTimeString()}`;
         } catch (e) {

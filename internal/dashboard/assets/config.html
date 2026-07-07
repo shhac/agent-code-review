@@ -59,6 +59,7 @@
           ? (cfg.scheduler_running ? '' : ' (config says enabled — this daemon was started with --no-schedule)')
           : '';
         const rows = [
+          ['Reviewing as', cfg.reviewing_as ? '@' + cfg.reviewing_as : 'unknown (gh not authenticated?)'],
           ['Review engine', cfg.engine],
           ['Scheduler (this daemon)', (cfg.scheduler_running ? 'running' : 'off') + schedNote],
           ['Schedule enabled (config)', String(cfg.schedule.enabled)],

@@ -189,6 +189,7 @@ KEYS:
   codex.bin | codex.model | codex.sandbox
   dashboard.addr                       listen address (default :8330)
   dashboard.tailscale.mode             "" | serve | funnel
+  dashboard.usage_poll_interval        Codex usage refresh cadence (default 10m)
   store.path                           DuckDB file location
 
 EXAMPLES:

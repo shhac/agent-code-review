@@ -369,7 +369,7 @@
         <div>
           <p class="eyebrow">Review dispatch</p>
           <h1>{queued} queued, {reviewing} underway</h1>
-          <p>{totalReviews} reviews in the last 24h · {approvalRate || 'no'}% approved{attention ? ` · ${attention} need attention` : ''}</p>
+          <p>{totalReviews} reviews in the last 24h · {totalReviews ? `${approvalRate}% approved` : 'no outcomes yet'}{attention ? ` · ${attention} need attention` : ''}</p>
         </div>
         <form class="add" on:submit|preventDefault={addToQueue}>
           <input bind:value={addInput} placeholder="owner/repo/pull/123 or GitHub PR URL" required />

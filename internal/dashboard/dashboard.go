@@ -87,7 +87,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	reviews, err := s.store.ListReviews(ctx, 50)
 	if err != nil {
@@ -98,7 +98,7 @@ func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	runs, err := s.store.ListRuns(ctx, 20)
 	if err != nil {
@@ -112,7 +112,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 // the resolved dials (with defaults applied), not the raw file.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := s.config()
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	repos := make([]map[string]any, 0, len(cfg.Repos))
 	for _, r := range cfg.Repos {
@@ -196,7 +196,7 @@ func bucketReviews(reviews []store.Review, start time.Time) []statsBucket {
 // handleStats returns 24 hourly buckets of review outcomes for the sliding
 // last-24h window: approved / commented / requested_changes counts per hour.
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	start := time.Now().UTC().Truncate(time.Hour).Add(-23 * time.Hour)
 	reviews, err := s.store.ListReviewsSince(ctx, start)
@@ -208,7 +208,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	authors, err := s.store.ListAllowedAuthors(ctx, r.URL.Query().Get("repo"))
 	if err != nil {
@@ -267,6 +267,11 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// reqCtx bounds a handler's work with the standard per-request deadline.
+func reqCtx(r *http.Request, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), d)
 }
 
 // fail writes the standard 500 error envelope.

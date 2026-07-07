@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,13 @@ import (
 )
 
 const appName = "agent-code-review"
+
+// repoNamePattern is the one definition of the accepted "owner/name" shape —
+// the CLI and dashboard validators both consume it via ValidRepoName.
+var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+// ValidRepoName reports whether s looks like an "owner/name" repo reference.
+func ValidRepoName(s string) bool { return repoNamePattern.MatchString(s) }
 
 // starterJSON is the annotated starter config written by `config init`. It is
 // the same content as the repo's config.example.json (a test keeps them in
@@ -199,15 +207,9 @@ func (c Config) MaxParallel() int {
 	return 4
 }
 
-// Interval is the scheduler cadence (default 30m, and 30m on parse failure).
+// Interval is the review cadence (default 30m, and 30m on parse failure).
 func (c Config) Interval() time.Duration {
-	if c.Schedule.Interval == "" {
-		return 30 * time.Minute
-	}
-	if d, err := time.ParseDuration(c.Schedule.Interval); err == nil && d > 0 {
-		return d
-	}
-	return 30 * time.Minute
+	return durationOr(c.Schedule.Interval, 30*time.Minute)
 }
 
 // Engine is the review engine id (default "codex").
@@ -229,20 +231,25 @@ func (c Config) DashboardAddr() string {
 // DiscoverInterval is the candidate-scraping cadence (default 10m — discovery
 // is cheap gh calls, so it can run more often than reviews).
 func (c Config) DiscoverInterval() time.Duration {
-	if c.Discovery.Interval == "" {
-		return 10 * time.Minute
-	}
-	if d, err := time.ParseDuration(c.Discovery.Interval); err == nil && d > 0 {
-		return d
-	}
-	return 10 * time.Minute
+	return durationOr(c.Discovery.Interval, 10*time.Minute)
+}
+
+// WatchesRepo reports whether repo is on the watch list (case-insensitive,
+// matching GitHub's semantics). Discovery, the dashboard add gate, and the
+// repos command all share this predicate.
+func (c Config) WatchesRepo(repo string) bool {
+	return containsFold(c.Repos, repo)
 }
 
 // AuthorScopedRepo reports whether repo's discovery is limited to PRs from
 // allowed authors (case-insensitive membership in AllowedAuthorsOnlyRepos).
 func (c Config) AuthorScopedRepo(repo string) bool {
-	for _, r := range c.AllowedAuthorsOnlyRepos {
-		if strings.EqualFold(r, repo) {
+	return containsFold(c.AllowedAuthorsOnlyRepos, repo)
+}
+
+func containsFold(list []string, want string) bool {
+	for _, r := range list {
+		if strings.EqualFold(r, want) {
 			return true
 		}
 	}
@@ -252,13 +259,7 @@ func (c Config) AuthorScopedRepo(repo string) bool {
 // UsagePollInterval is the Codex usage refresh cadence (default 10m, and 10m
 // on parse failure).
 func (c Config) UsagePollInterval() time.Duration {
-	if c.Dashboard.UsagePollInterval == "" {
-		return 10 * time.Minute
-	}
-	if d, err := time.ParseDuration(c.Dashboard.UsagePollInterval); err == nil && d > 0 {
-		return d
-	}
-	return 10 * time.Minute
+	return durationOr(c.Dashboard.UsagePollInterval, 10*time.Minute)
 }
 
 // StorePath is the DuckDB file location (default <XDG_DATA>/agent-code-review/queue.duckdb).
@@ -267,6 +268,15 @@ func (c Config) StorePath() string {
 		return c.Store.Path
 	}
 	return filepath.Join(xdg.DataDir(appName), "queue.duckdb")
+}
+
+// durationOr parses s as a positive Go duration, else returns def — the one
+// parse-or-default rule for every interval dial.
+func durationOr(s string, def time.Duration) time.Duration {
+	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return d
+	}
+	return def
 }
 
 func daysOr(days, def int) time.Duration {

@@ -88,6 +88,13 @@ func ManualCandidate(ctx context.Context, repo string, number int) (store.Candid
 	if err != nil {
 		return store.Candidate{}, err
 	}
+	return candidateFromMetadata(repo, number, meta)
+}
+
+// candidateFromMetadata applies the manual-add gate (open PRs only) and shapes
+// the metadata as a queued candidate. Pure — the state gate and field mapping
+// are unit-tested without gh.
+func candidateFromMetadata(repo string, number int, meta PRMetadata) (store.Candidate, error) {
 	if meta.State != "OPEN" {
 		return store.Candidate{}, fmt.Errorf("PR %s#%d is %s — only open PRs can be queued", repo, number, meta.State)
 	}
@@ -116,6 +123,12 @@ func FetchPR(ctx context.Context, repo string, number int) (PRMetadata, error) {
 	if err != nil {
 		return PRMetadata{}, err
 	}
+	return parsePRMetadata(out)
+}
+
+// parsePRMetadata maps `gh pr view --json` output to PRMetadata. Pure — the
+// field mapping is unit-tested from canned JSON.
+func parsePRMetadata(out []byte) (PRMetadata, error) {
 	var raw struct {
 		Title      string    `json:"title"`
 		Author     ghActor   `json:"author"`

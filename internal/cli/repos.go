@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"regexp"
 	"strings"
 
 	output "github.com/shhac/lib-agent-output"
@@ -9,8 +8,6 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 )
-
-var repoArgPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
 func registerRepos(root *cobra.Command) {
 	cmd := &cobra.Command{
@@ -58,17 +55,11 @@ func reposAddCmd() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			repo := args[0]
-			if !repoArgPattern.MatchString(repo) {
+			if !config.ValidRepoName(repo) {
 				return output.New("Repo must be owner/name, got "+repo, output.FixableByAgent)
 			}
 			cfg := config.Read()
-			watched := false
-			for _, r := range cfg.Repos {
-				if strings.EqualFold(r, repo) {
-					watched = true
-					break
-				}
-			}
+			watched := cfg.WatchesRepo(repo)
 			if !watched {
 				cfg.Repos = append(cfg.Repos, repo)
 			}

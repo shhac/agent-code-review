@@ -6,7 +6,6 @@ package dashboard
 // mutates state.
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -40,11 +40,11 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 		Repo   string `json:"repo"`
 		Number int    `json:"number"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !repoPattern.MatchString(req.Repo) || req.Number <= 0 {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !config.ValidRepoName(req.Repo) || req.Number <= 0 {
 		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	if err := s.store.RemoveCandidate(ctx, req.Repo, req.Number); err != nil {
 		s.fail(w, err)
@@ -54,7 +54,7 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	candidates, err := s.store.ListCandidates(ctx, store.Filter{})
 	if err != nil {
@@ -64,12 +64,10 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"candidates": candidates})
 }
 
-var (
-	repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	// prRefPattern matches a PR reference in URL syntax, with or without the
-	// https://github.com/ prefix: "owner/repo/pull/123" works bare.
-	prRefPattern = regexp.MustCompile(`^(?:https://github\.com/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)`)
-)
+// prRefPattern matches a PR reference in URL syntax, with or without the
+// https://github.com/ prefix: "owner/repo/pull/123" works bare. Its repo
+// segment mirrors config.ValidRepoName's grammar.
+var prRefPattern = regexp.MustCompile(`^(?:https://github\.com/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)`)
 
 // addToQueue accepts {"url": "<PR reference>"} — a full GitHub PR URL or the
 // bare "owner/repo/pull/N" form — or {"repo": "owner/name", "number": N}.
@@ -95,7 +93,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		req.Repo = m[1]
 		req.Number, _ = strconv.Atoi(m[2])
 	}
-	if !repoPattern.MatchString(req.Repo) || req.Number <= 0 {
+	if !config.ValidRepoName(req.Repo) || req.Number <= 0 {
 		httpError(w, http.StatusBadRequest, `need {"url": "owner/repo/pull/N"} or {"repo": "owner/name", "number": N}`)
 		return
 	}
@@ -104,7 +102,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Fetching metadata involves a gh round-trip; give it room.
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := reqCtx(r, 30*time.Second)
 	defer cancel()
 
 	// Fetch real metadata up front (title/author/SHA) and reject closed or
@@ -124,15 +122,10 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"queued": true, "title": c.Title, "author": c.Author})
 }
 
-// repoWatched reports whether repo is in the configured watch list
-// (case-insensitive, matching GitHub's semantics).
+// repoWatched defers to the config-layer predicate — one definition of
+// watch-list membership.
 func (s *Server) repoWatched(repo string) bool {
-	for _, r := range s.config().Repos {
-		if strings.EqualFold(r, repo) {
-			return true
-		}
-	}
-	return false
+	return s.config().WatchesRepo(repo)
 }
 
 // handleQueueMove nudges a queued PR up or down one place. Positions are
@@ -152,7 +145,7 @@ func (s *Server) handleQueueMove(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, `need {"repo", "number", "direction": "up"|"down"}`)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := reqCtx(r, 30*time.Second)
 	defer cancel()
 
 	queued, err := s.store.ListCandidates(ctx, store.Filter{Status: store.StatusQueued})

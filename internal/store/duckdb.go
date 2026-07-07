@@ -91,10 +91,18 @@ func parseNDJSON(stdout string) ([]map[string]any, error) {
 
 // --- candidates ---
 
-func (d *duckDB) UpsertCandidate(ctx context.Context, c Candidate) error {
-	sql := fmt.Sprintf(`INSERT INTO candidates
+// candidateInsert renders the shared INSERT head for the candidates table;
+// UpsertCandidate and Requeue differ only in their ON CONFLICT tails.
+func candidateInsert(c Candidate, status string) string {
+	return fmt.Sprintf(`INSERT INTO candidates
 	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, status, discovered_at)
-	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s)
+	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s)`,
+		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
+		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, q(status), ts(c.DiscoveredAt))
+}
+
+func (d *duckDB) UpsertCandidate(ctx context.Context, c Candidate) error {
+	sql := candidateInsert(c, orDefault(c.Status, StatusQueued)) + `
 	ON CONFLICT (repo, number) DO UPDATE SET
 	  type = excluded.type,
 	  title = excluded.title,
@@ -102,20 +110,14 @@ func (d *duckDB) UpsertCandidate(ctx context.Context, c Candidate) error {
 	  url = excluded.url,
 	  head_sha = excluded.head_sha,
 	  updated_at = excluded.updated_at,
-	  discovered_at = excluded.discovered_at`,
-		q(c.Repo), c.Number, q(c.Type), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
-		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, q(orDefault(c.Status, StatusQueued)), ts(c.DiscoveredAt))
+	  discovered_at = excluded.discovered_at`
 	_, err := d.query(ctx, sql)
 	return err
 }
 
 func (d *duckDB) Requeue(ctx context.Context, c Candidate) error {
-	sql := fmt.Sprintf(`INSERT INTO candidates
-	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, status, discovered_at)
-	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, 'queued', %s)
-	ON CONFLICT (repo, number) DO UPDATE SET status = 'queued'`,
-		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
-		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt))
+	sql := candidateInsert(c, StatusQueued) + `
+	ON CONFLICT (repo, number) DO UPDATE SET status = 'queued'`
 	_, err := d.query(ctx, sql)
 	return err
 }

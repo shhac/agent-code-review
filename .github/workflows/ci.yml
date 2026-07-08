@@ -16,6 +16,19 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./... -count=1
+      # The store's DuckDB round-trips (hold-upsert CASE, Promote, queue
+      # ordering) only run under the integration tag and self-skip without
+      # the duckdb CLI — install it so the queue's most intricate SQL is
+      # actually exercised in CI. Only the store package: review/discover
+      # integration tests need codex/gh auth, which CI doesn't have.
+      - name: Install DuckDB CLI
+        run: |
+          curl -fsSL https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
+      # Fail loudly if the CLI isn't reachable — the integration tests
+      # self-skip without it, which would read as green.
+      - run: duckdb --version
+      - run: go test ./internal/store/ -count=1 -tags=integration
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest

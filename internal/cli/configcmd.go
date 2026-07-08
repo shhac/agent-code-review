@@ -57,7 +57,7 @@ func configKeys() []libcli.ConfigKey {
 			func(c *config.Config) *string { return &c.GHUser }, nil),
 		boolKey("schedule.enabled", "Whether the serve daemon runs review cycles",
 			func(c *config.Config) *bool { return &c.Schedule.Enabled }),
-		stringKey("schedule.interval", "Review cadence as a Go duration (default 30m)",
+		stringKey("schedule.interval", "Review cadence as a Go duration (default 1m; idle cycles are no-ops)",
 			func(c *config.Config) *string { return &c.Schedule.Interval }, validateDuration),
 		boolKey("discovery.enabled", "Whether the serve daemon scrapes repos for candidates",
 			func(c *config.Config) *bool { return &c.Discovery.Enabled }),
@@ -69,6 +69,10 @@ func configKeys() []libcli.ConfigKey {
 			func(c *config.Config) *int { return &c.Candidates.NewMaxAgeDays }, 1, 365),
 		intKey("candidates.refreshed_max_age_days", "Age window for Refreshed candidates (default 21)",
 			func(c *config.Config) *int { return &c.Candidates.RefreshedMaxAgeDays }, 1, 365),
+		stringKey("candidates.rereview_cooldown", "Hold after one of our own reviews before re-discovery, as a Go duration (default 90m, 0s disables)",
+			func(c *config.Config) *string { return &c.Candidates.RereviewCooldown }, validateHoldDuration),
+		stringKey("candidates.quiet_period", "How long a PR must go untouched before discovery accepts it, as a Go duration (default 15m, 0s disables)",
+			func(c *config.Config) *string { return &c.Candidates.QuietPeriod }, validateHoldDuration),
 		stringKey("review.engine", "Review engine (default codex)",
 			func(c *config.Config) *string { return &c.Review.Engine }, validateEngine),
 		stringKey("codex.bin", "Codex binary (default codex)",
@@ -218,6 +222,18 @@ func validateDuration(v string) error {
 	}
 	if d, err := time.ParseDuration(v); err != nil || d <= 0 {
 		return output.New("Value must be a positive Go duration (e.g. 30m, 1h), got "+v, output.FixableByAgent)
+	}
+	return nil
+}
+
+// validateHoldDuration is validateDuration for the eligibility-hold dials,
+// where an explicit zero ("0s") is meaningful: it disables the hold.
+func validateHoldDuration(v string) error {
+	if v == "" {
+		return nil
+	}
+	if d, err := time.ParseDuration(v); err != nil || d < 0 {
+		return output.New("Value must be a non-negative Go duration (e.g. 90m, 0s to disable), got "+v, output.FixableByAgent)
 	}
 	return nil
 }

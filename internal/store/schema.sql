@@ -16,10 +16,12 @@ CREATE TABLE IF NOT EXISTS queue (
   created_at    TIMESTAMP,
   updated_at    TIMESTAMP,
   queue_pos     INTEGER,
-  discovered_at TIMESTAMP,
+  discovered_at TIMESTAMP,                      -- first time discovery saw this pending work; NEVER bumped by later sweeps
   claimed_at    TIMESTAMP,                      -- set while an engine reviews it; NULL = unclaimed. Stale claims (crashed daemon) are reclaimed by the next cycle.
   source        TEXT NOT NULL DEFAULT 'discovered', -- 'discovered' | 'manual'. Manual adds bypass the pre-review candidacy check (drafts and explicit re-review requests must go through).
   work_dir      TEXT,                           -- the engine's scratch workspace, set at claim time; its agent.log is the live review log
+  eligible_at   TIMESTAMP,                      -- eligibility hold: the scheduler skips this row until then. NULL = eligible now. Manual adds/promotion clear it.
+  hold_reason   TEXT,                           -- why the hold exists: 'cooldown' (recently reviewed by us) | 'settling' (PR updated too recently)
   PRIMARY KEY (repo, number)
 );
 
@@ -48,6 +50,8 @@ CREATE TABLE IF NOT EXISTS history (
 -- (No NOT NULL here: DuckDB can't add constrained columns; DEFAULT 0
 -- backfills the pre-existing rows, and Complete always writes a value.)
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS work_dir TEXT;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS eligible_at TIMESTAMP;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS hold_reason TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS duration_secs INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS work_dir TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS tokens_used INTEGER DEFAULT 0;

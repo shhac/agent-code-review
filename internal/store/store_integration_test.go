@@ -248,18 +248,21 @@ func TestListQueueOrderingAndClaimVisibility(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
+	sweep := func(h int) time.Time { return time.Date(2026, 7, 1, h, 0, 0, 0, time.UTC) }
 	rows := []Candidate{
-		{Repo: "o/r", Number: 30, Type: TypeRefreshed},
-		{Repo: "o/r", Number: 20, Type: TypeNew},
-		{Repo: "o/r", Number: 10, Type: TypeNew},
-		{Repo: "o/r", Number: 40, Type: TypeRefreshed},
+		// #30 was discovered hours before the others: FIFO puts it first even
+		// though it is Refreshed and the later sweep found New PRs.
+		{Repo: "o/r", Number: 30, Type: TypeRefreshed, DiscoveredAt: sweep(9)},
+		{Repo: "o/r", Number: 20, Type: TypeNew, DiscoveredAt: sweep(12)},
+		{Repo: "o/r", Number: 10, Type: TypeNew, DiscoveredAt: sweep(12)},
+		{Repo: "o/r", Number: 40, Type: TypeRefreshed, DiscoveredAt: sweep(12)},
 	}
 	for _, c := range rows {
 		if err := s.Enqueue(ctx, c); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Manual position floats #40 to the very top, across types.
+	// Manual position floats #40 to the very top, across everything.
 	if err := s.SetQueuePos(ctx, "o/r", 40, -1); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +279,7 @@ func TestListQueueOrderingAndClaimVisibility(t *testing.T) {
 	for _, c := range queue {
 		order = append(order, c.Number)
 	}
-	want := []int{40, 10, 20, 30} // promoted, then new by number, then refreshed
+	want := []int{40, 30, 10, 20} // promoted, then FIFO by discovery, then new-before-refreshed/number within a sweep
 	if len(order) != len(want) {
 		t.Fatalf("queue = %v, want %v (claimed rows must not be hidden)", order, want)
 	}
@@ -447,5 +450,104 @@ func TestEnqueueSourceEscalation(t *testing.T) {
 	}
 	if c, _ := getQueued(t, s, "o/r", 13); c.Source != SourceDiscovered {
 		t.Fatalf("empty source must default to discovered, got %q", c.Source)
+	}
+}
+
+// TestEnqueueDiscoveredAtFirstSeen: a sweep re-seeing pending work is not a
+// new discovery — discovered_at must keep its first-seen value, not track the
+// latest sweep.
+func TestEnqueueDiscoveredAtFirstSeen(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	first := time.Now().UTC().Truncate(time.Second).Add(-3 * time.Hour)
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 20, Type: TypeNew, DiscoveredAt: first}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 20, Type: TypeNew, DiscoveredAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := getQueued(t, s, "o/r", 20)
+	if !c.DiscoveredAt.Equal(first) {
+		t.Errorf("discovered_at bumped by re-enqueue: got %v, want %v", c.DiscoveredAt, first)
+	}
+}
+
+// TestEnqueueHoldSemantics pins the eligibility-hold upsert rules: a hold
+// only ever extends (later wins, earlier is ignored), a manual enqueue clears
+// it, and discovery never re-imposes one on a manual row.
+func TestEnqueueHoldSemantics(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	base := time.Now().UTC().Truncate(time.Second)
+	at := func(d time.Duration) *time.Time { t := base.Add(d); return &t }
+
+	enq := func(eligible *time.Time, reason, source string) {
+		t.Helper()
+		if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 21, Type: TypeNew, EligibleAt: eligible, HoldReason: reason, Source: source}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hold := func() (*time.Time, string) {
+		t.Helper()
+		c, ok := getQueued(t, s, "o/r", 21)
+		if !ok {
+			t.Fatal("row missing")
+		}
+		return c.EligibleAt, c.HoldReason
+	}
+
+	// Fresh row with a settling hold.
+	enq(at(15*time.Minute), HoldSettling, SourceDiscovered)
+	if e, r := hold(); e == nil || !e.Equal(*at(15*time.Minute)) || r != HoldSettling {
+		t.Fatalf("fresh hold not recorded: eligible=%v reason=%q", e, r)
+	}
+	// A later hold extends (and its reason wins).
+	enq(at(90*time.Minute), HoldCooldown, SourceDiscovered)
+	if e, r := hold(); e == nil || !e.Equal(*at(90*time.Minute)) || r != HoldCooldown {
+		t.Fatalf("later hold must extend: eligible=%v reason=%q", e, r)
+	}
+	// An earlier hold must not shrink it.
+	enq(at(5*time.Minute), HoldSettling, SourceDiscovered)
+	if e, r := hold(); e == nil || !e.Equal(*at(90*time.Minute)) || r != HoldCooldown {
+		t.Fatalf("earlier hold must not shrink: eligible=%v reason=%q", e, r)
+	}
+	// A hold-free sweep must not clear an existing hold either.
+	enq(nil, "", SourceDiscovered)
+	if e, _ := hold(); e == nil || !e.Equal(*at(90*time.Minute)) {
+		t.Fatalf("hold-free sweep must keep the hold: eligible=%v", e)
+	}
+	// A manual enqueue clears the hold.
+	enq(nil, "", SourceManual)
+	if e, r := hold(); e != nil || r != "" {
+		t.Fatalf("manual enqueue must clear the hold: eligible=%v reason=%q", e, r)
+	}
+	// Discovery must never re-impose a hold on a manual row.
+	enq(at(2*time.Hour), HoldCooldown, SourceDiscovered)
+	if e, r := hold(); e != nil || r != "" {
+		t.Fatalf("discovery must not hold a manual row: eligible=%v reason=%q", e, r)
+	}
+}
+
+// TestPromote: promote floats the row, clears the hold, and escalates source
+// to manual — the one-write "review this now" action.
+func TestPromote(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	eligible := time.Now().UTC().Truncate(time.Second).Add(time.Hour)
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 22, Type: TypeNew, EligibleAt: &eligible, HoldReason: HoldCooldown}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Promote(ctx, "o/r", 22); err != nil {
+		t.Fatal(err)
+	}
+	c, ok := getQueued(t, s, "o/r", 22)
+	if !ok {
+		t.Fatal("row missing after promote")
+	}
+	if c.QueuePos != -1 || c.EligibleAt != nil || c.HoldReason != "" || c.Source != SourceManual {
+		t.Errorf("promote must float, clear hold, and escalate: %+v", c)
 	}
 }

@@ -101,13 +101,21 @@ func parseNDJSON(stdout string) ([]map[string]any, error) {
 
 // --- queue ---
 
-// Enqueue inserts or refreshes a queue row. On conflict, source only ever
-// escalates to manual: a discovery sweep must not downgrade a PR someone
-// explicitly added (that would re-enable the precheck they meant to bypass).
+// Enqueue inserts or refreshes a queue row. On conflict:
+//   - discovered_at keeps its first-seen value — a sweep re-seeing pending
+//     work is not a new discovery, and bumping it would hide how long the PR
+//     has actually been waiting.
+//   - source only ever escalates to manual: a discovery sweep must not
+//     downgrade a PR someone explicitly added (that would re-enable the
+//     precheck they meant to bypass).
+//   - the eligibility hold only ever extends. A later eligible_at from this
+//     sweep wins (the author is still active — push the hold out); an earlier
+//     one loses (a hold, once set, does not shrink). A manual-source enqueue
+//     clears the hold, and a hold is never re-imposed on a manual row.
 func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	sql := fmt.Sprintf(`INSERT INTO queue
-	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source)
-	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s)
+	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, eligible_at, hold_reason)
+	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s)
 	ON CONFLICT (repo, number) DO UPDATE SET
 	  type = excluded.type,
 	  title = excluded.title,
@@ -115,10 +123,18 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  url = excluded.url,
 	  head_sha = excluded.head_sha,
 	  updated_at = excluded.updated_at,
-	  discovered_at = excluded.discovered_at,
+	  eligible_at = CASE
+	    WHEN excluded.source = 'manual' OR queue.source = 'manual' THEN NULL
+	    WHEN COALESCE(excluded.eligible_at, TIMESTAMP '1970-01-01') > COALESCE(queue.eligible_at, TIMESTAMP '1970-01-01') THEN excluded.eligible_at
+	    ELSE queue.eligible_at END,
+	  hold_reason = CASE
+	    WHEN excluded.source = 'manual' OR queue.source = 'manual' THEN NULL
+	    WHEN COALESCE(excluded.eligible_at, TIMESTAMP '1970-01-01') > COALESCE(queue.eligible_at, TIMESTAMP '1970-01-01') THEN excluded.hold_reason
+	    ELSE queue.hold_reason END,
 	  source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE queue.source END`,
 		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
-		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), q(orDefault(c.Source, SourceDiscovered)))
+		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), q(orDefault(c.Source, SourceDiscovered)),
+		tsp(c.EligibleAt), q(c.HoldReason))
 	_, err := d.query(ctx, sql)
 	return err
 }
@@ -128,9 +144,12 @@ func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error
 	if repo != "" {
 		sql += " WHERE repo = " + q(repo)
 	}
-	// Manual queue positions win outright; among the default 0s the schedule
-	// spec's order holds: New before Refreshed, then oldest PR first.
-	sql += " ORDER BY queue_pos, CASE type WHEN 'new' THEN 0 ELSE 1 END, number"
+	// Manual queue positions win outright; among the default 0s the queue is
+	// FIFO on first discovery — earlier-discovered work is actioned first, so
+	// a fresh sweep can never leapfrog PRs already waiting. New-before-
+	// Refreshed and PR number only break ties within one sweep instant.
+	// NULLS FIRST: rows predating discovered_at tracking have waited longest.
+	sql += " ORDER BY queue_pos, discovered_at ASC NULLS FIRST, CASE type WHEN 'new' THEN 0 ELSE 1 END, number"
 	rows, err := d.query(ctx, sql)
 	if err != nil {
 		return nil, err
@@ -170,6 +189,17 @@ func (d *duckDB) Dequeue(ctx context.Context, repo string, number int) error {
 
 func (d *duckDB) SetQueuePos(ctx context.Context, repo string, number int, pos int) error {
 	_, err := d.query(ctx, fmt.Sprintf("UPDATE queue SET queue_pos = %d WHERE repo = %s AND number = %d", pos, q(repo), number))
+	return err
+}
+
+// Promote floats the row to the top (negative queue_pos sorts ahead of the
+// default 0), clears any eligibility hold, and escalates source to manual so
+// the pre-review candidacy check is bypassed — one write, same semantics as
+// removing and manually re-adding the PR at the front.
+func (d *duckDB) Promote(ctx context.Context, repo string, number int) error {
+	_, err := d.query(ctx, fmt.Sprintf(
+		"UPDATE queue SET queue_pos = -1, eligible_at = NULL, hold_reason = NULL, source = 'manual' WHERE repo = %s AND number = %d",
+		q(repo), number))
 	return err
 }
 
@@ -379,9 +409,13 @@ func scanCandidate(r map[string]any) Candidate {
 		DiscoveredAt: getTime(r, "discovered_at"),
 		Source:       getString(r, "source"),
 		WorkDir:      getString(r, "work_dir"),
+		HoldReason:   getString(r, "hold_reason"),
 	}
 	if t := getTime(r, "claimed_at"); !t.IsZero() {
 		c.ClaimedAt = &t
+	}
+	if t := getTime(r, "eligible_at"); !t.IsZero() {
+		c.EligibleAt = &t
 	}
 	return c
 }
@@ -400,6 +434,14 @@ func ts(t time.Time) string {
 		return "NULL"
 	}
 	return "'" + t.UTC().Format("2006-01-02 15:04:05") + "'"
+}
+
+// tsp is ts for optional timestamps: NULL for nil.
+func tsp(t *time.Time) string {
+	if t == nil {
+		return "NULL"
+	}
+	return ts(*t)
 }
 
 func orDefault(s, def string) string {

@@ -24,11 +24,19 @@ type Candidate struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	QueuePos     int        `json:"queue_pos"`
-	DiscoveredAt time.Time  `json:"discovered_at"`
-	ClaimedAt    *time.Time `json:"claimed_at,omitempty"` // set while an engine reviews it; stale claims are reclaimable
-	Source       string     `json:"source"`               // SourceDiscovered | SourceManual
-	WorkDir      string     `json:"work_dir,omitempty"`   // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
+	DiscoveredAt time.Time  `json:"discovered_at"`         // first time discovery saw this pending work; never bumped by later sweeps
+	ClaimedAt    *time.Time `json:"claimed_at,omitempty"`  // set while an engine reviews it; stale claims are reclaimable
+	Source       string     `json:"source"`                // SourceDiscovered | SourceManual
+	WorkDir      string     `json:"work_dir,omitempty"`    // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
+	EligibleAt   *time.Time `json:"eligible_at,omitempty"` // eligibility hold: the scheduler skips this row until then; nil = eligible now
+	HoldReason   string     `json:"hold_reason,omitempty"` // HoldCooldown | HoldSettling while a hold is set
 }
+
+// Hold reasons: why a queued candidate is not yet eligible for review.
+const (
+	HoldCooldown = "cooldown" // we reviewed this PR recently (candidates.rereview_cooldown)
+	HoldSettling = "settling" // the PR was updated too recently (candidates.quiet_period)
+)
 
 // Candidate sources. Manual adds bypass the pre-review candidacy check so
 // explicit re-review requests and draft reviews always go through.
@@ -75,6 +83,14 @@ func ReviewFrom(c Candidate, verdict, engine string, started time.Time) Review {
 // both defined in terms of it, so they cannot disagree.
 func (c Candidate) ClaimActive(now time.Time, window time.Duration) bool {
 	return c.ClaimedAt != nil && now.Sub(*c.ClaimedAt) <= window
+}
+
+// Held reports whether c is under an eligibility hold: queued, visible, but
+// not yet reviewable. THE hold predicate — the scheduler's eligibility filter
+// and the dashboard's "on hold" badge are both defined in terms of it, so
+// they cannot disagree.
+func (c Candidate) Held(now time.Time) bool {
+	return c.EligibleAt != nil && now.Before(*c.EligibleAt)
 }
 
 // Review records one completed outcome for a PR at a specific head SHA —
@@ -188,12 +204,17 @@ type Store interface {
 	Init(ctx context.Context) error
 
 	// Enqueue inserts c, or — when the PR is already queued — refreshes its
-	// discovered metadata (type, title, author, url, head_sha, updated_at,
-	// discovered_at). It never touches claimed_at or queue_pos, so it cannot
-	// stomp an in-flight review or a manual reorder.
+	// discovered metadata (type, title, author, url, head_sha, updated_at).
+	// discovered_at keeps its first-seen value, and it never touches
+	// claimed_at or queue_pos, so it cannot stomp an in-flight review or a
+	// manual reorder. The eligibility hold (eligible_at/hold_reason) only
+	// ever extends: a sweep can push eligibility later (the author is still
+	// active) but never earlier; a manual-source enqueue clears it.
 	Enqueue(ctx context.Context, c Candidate) error
-	// ListQueue returns the whole queue in scheduler order (queue_pos, new
-	// before refreshed, number). repo narrows to one repo; "" means all.
+	// ListQueue returns the whole queue in scheduler order: queue_pos, then
+	// FIFO on first discovery (oldest discovered_at first — later sweeps
+	// never leapfrog waiting work), with new-before-refreshed and PR number
+	// as same-instant tiebreaks. repo narrows to one repo; "" means all.
 	ListQueue(ctx context.Context, repo string) ([]Candidate, error)
 	// Claim marks a candidate as being reviewed right now and records the
 	// engine's scratch workspace (whose agent.log is the live review log).
@@ -209,6 +230,11 @@ type Store interface {
 	// our mind" path.
 	Dequeue(ctx context.Context, repo string, number int) error
 	SetQueuePos(ctx context.Context, repo string, number int, pos int) error
+	// Promote is the "review this now" action: float the row to the top of
+	// the queue, clear any eligibility hold, and escalate source to manual —
+	// equivalent to a manual add, so the pre-review candidacy check is
+	// bypassed too.
+	Promote(ctx context.Context, repo string, number int) error
 
 	// LastReview returns the most recent REAL review (per IsRealVerdict) for
 	// a PR, if any. SKIPPED/ERROR rows never count as "reviewed at this SHA",

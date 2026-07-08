@@ -161,11 +161,18 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 		return store.Candidate{}, false, nil
 	}
 
-	// NEW: never reviewed by anyone, within the New window.
-	if !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= cfg.NewMaxAge() {
-		return d.toCandidate(repo, pr, store.TypeNew, now), true, nil
+	// The last real verdict in our own history feeds both Refreshed detection
+	// and the cooldown hold, so it's fetched once ahead of the type branches.
+	last, reviewed, err := d.store.LastReview(ctx, repo, pr.Number)
+	if err != nil {
+		return store.Candidate{}, false, err
 	}
 
+	var typ string
+	switch {
+	// NEW: never reviewed by anyone, within the New window.
+	case !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= cfg.NewMaxAge():
+		typ = store.TypeNew
 	// REFRESHED: we reviewed it before, at a different head SHA, within the
 	// Refreshed window. "Reviewed by us" means a real verdict in our own
 	// history (LastReview filters out SKIPPED/ERROR), not gh state. The SHA
@@ -173,15 +180,44 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	// (suppression above already returned for a current-SHA outcome) — kept
 	// as cheap insurance so Refreshed stays correct even if that invariant
 	// ever breaks.
-	last, ok, err := d.store.LastReview(ctx, repo, pr.Number)
-	if err != nil {
-		return store.Candidate{}, false, err
-	}
-	if ok && last.HeadSHA != pr.HeadRefOID && now.Sub(pr.CreatedAt) <= cfg.RefreshedMaxAge() {
-		return d.toCandidate(repo, pr, store.TypeRefreshed, now), true, nil
+	case reviewed && last.HeadSHA != pr.HeadRefOID && now.Sub(pr.CreatedAt) <= cfg.RefreshedMaxAge():
+		typ = store.TypeRefreshed
+	default:
+		return store.Candidate{}, false, nil
 	}
 
-	return store.Candidate{}, false, nil
+	c := d.toCandidate(repo, pr, typ, now)
+	lastReviewedAt := time.Time{}
+	if reviewed {
+		lastReviewedAt = last.ReviewedAt
+	}
+	c.EligibleAt, c.HoldReason = hold(now, cfg, pr.UpdatedAt, lastReviewedAt)
+	return c, true, nil
+}
+
+// hold computes a discovered candidate's eligibility hold: the later of the
+// quiet-period bound (the PR must sit untouched before we review it — a PR
+// being actively pushed to or edited isn't done) and the cooldown bound (we
+// reviewed it recently — give the author room to finish responding). nil
+// means eligible now. Manual adds never pass through here, which is exactly
+// the bypass: an explicit request is reviewed regardless of holds.
+func hold(now time.Time, cfg config.Config, updatedAt, lastReviewedAt time.Time) (*time.Time, string) {
+	var eligible time.Time
+	var reason string
+	if q := cfg.QuietPeriod(); q > 0 && !updatedAt.IsZero() {
+		if t := updatedAt.Add(q); t.After(now) {
+			eligible, reason = t, store.HoldSettling
+		}
+	}
+	if cd := cfg.RereviewCooldown(); cd > 0 && !lastReviewedAt.IsZero() {
+		if t := lastReviewedAt.Add(cd); t.After(now) && t.After(eligible) {
+			eligible, reason = t, store.HoldCooldown
+		}
+	}
+	if eligible.IsZero() {
+		return nil, ""
+	}
+	return &eligible, reason
 }
 
 func (d *Discoverer) toCandidate(repo string, pr ghPR, typ string, now time.Time) store.Candidate {

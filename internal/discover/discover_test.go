@@ -249,6 +249,73 @@ func TestClassifyRefreshedAfterNewCommits(t *testing.T) {
 	}
 }
 
+// TestClassifyHolds pins the eligibility-hold computation: a freshly-updated
+// PR gets a settling hold (quiet period), a recently-reviewed PR gets a
+// cooldown hold, the later bound wins, and settled-and-cooled PRs carry no
+// hold. Held PRs are still candidates — they enqueue as visible-but-not-yet-
+// eligible rows rather than being silently dropped.
+func TestClassifyHolds(t *testing.T) {
+	newPR := func(updated time.Time) ghPR {
+		return ghPR{
+			Number:         8,
+			HeadRefOID:     "sha8",
+			CreatedAt:      fixedNow().Add(-2 * 24 * time.Hour),
+			UpdatedAt:      updated,
+			ReviewRequests: openReq(),
+		}
+	}
+
+	t.Run("fresh update settles", func(t *testing.T) {
+		d := newDiscoverer(&fakeStore{})
+		c, ok, err := d.classify(context.Background(), d.cfg(), "o/r", newPR(fixedNow().Add(-5*time.Minute)))
+		if err != nil || !ok {
+			t.Fatalf("held PR must still classify as a candidate, ok=%v err=%v", ok, err)
+		}
+		want := fixedNow().Add(-5 * time.Minute).Add(15 * time.Minute) // updated + default quiet period
+		if c.EligibleAt == nil || !c.EligibleAt.Equal(want) || c.HoldReason != store.HoldSettling {
+			t.Errorf("eligible=%v reason=%q, want %v settling", c.EligibleAt, c.HoldReason, want)
+		}
+	})
+
+	t.Run("quiet PR carries no hold", func(t *testing.T) {
+		d := newDiscoverer(&fakeStore{})
+		c, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", newPR(fixedNow().Add(-time.Hour)))
+		if !ok || c.EligibleAt != nil || c.HoldReason != "" {
+			t.Errorf("settled PR must be eligible now: ok=%v eligible=%v reason=%q", ok, c.EligibleAt, c.HoldReason)
+		}
+	})
+
+	t.Run("recent review cools down and outlasts settling", func(t *testing.T) {
+		reviewedAt := fixedNow().Add(-30 * time.Minute)
+		fs := &fakeStore{hasLast: true, last: store.Review{HeadSHA: "old-sha", Verdict: "COMMENTED", ReviewedAt: reviewedAt}}
+		d := newDiscoverer(fs)
+		pr := newPR(fixedNow().Add(-10 * time.Minute)) // settling would end sooner than the cooldown
+		pr.Reviews = []ghReview{{State: "COMMENTED"}}  // not New → Refreshed
+		c, ok, err := d.classify(context.Background(), d.cfg(), "o/r", pr)
+		if err != nil || !ok {
+			t.Fatalf("cooled-down PR must still classify, ok=%v err=%v", ok, err)
+		}
+		want := reviewedAt.Add(90 * time.Minute) // default rereview cooldown
+		if c.EligibleAt == nil || !c.EligibleAt.Equal(want) || c.HoldReason != store.HoldCooldown {
+			t.Errorf("eligible=%v reason=%q, want %v cooldown", c.EligibleAt, c.HoldReason, want)
+		}
+	})
+
+	t.Run("disabled holds never fire", func(t *testing.T) {
+		fs := &fakeStore{hasLast: true, last: store.Review{HeadSHA: "old-sha", Verdict: "COMMENTED", ReviewedAt: fixedNow().Add(-time.Minute)}}
+		d := New(staticConfig(config.Config{
+			Candidates: config.CandidateSettings{RereviewCooldown: "0s", QuietPeriod: "0s"},
+		}), fs, nil)
+		d.now = fixedNow
+		pr := newPR(fixedNow()) // updated right now AND reviewed a minute ago
+		pr.Reviews = []ghReview{{State: "COMMENTED"}}
+		c, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", pr)
+		if !ok || c.EligibleAt != nil {
+			t.Errorf("0s holds must disable: ok=%v eligible=%v", ok, c.EligibleAt)
+		}
+	})
+}
+
 // TestDiscoverSweep pins the sweep's per-repo resilience: one failing repo is
 // logged and skipped so it can't take down the cycle, matches from healthy
 // repos are enqueued, and an error surfaces only when EVERY repo failed

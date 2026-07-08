@@ -7,10 +7,10 @@
   import QueueBoard from '../lib/QueueBoard.svelte';
   import RecentRuns from '../lib/RecentRuns.svelte';
   import StatusBadge from '../lib/StatusBadge.svelte';
-  import type { Bucket, Candidate, Review, Run, UsageSnapshot, UsageWindow } from '../lib/types';
+  import type { Bucket, Candidate, QueueCounts, Review, Run, UsageSnapshot, UsageWindow } from '../lib/types';
 
   let queue: Candidate[] = [];
-  let counts = { total: 0, queued: 0, reviewing: 0 };
+  let counts: QueueCounts = { total: 0, queued: 0, reviewing: 0, held: 0 };
   let reviews: Review[] = [];
   let runs: Run[] = [];
   let buckets: Bucket[] = [];
@@ -46,7 +46,7 @@
         fetchJSON('/api/stats'),
       ]);
       queue = q.candidates || [];
-      counts = q.counts || { total: queue.length, queued: 0, reviewing: 0 };
+      counts = q.counts || { total: queue.length, queued: 0, reviewing: 0, held: 0 };
       reviews = rv.reviews || [];
       runs = rn.runs || [];
       usageAvailable = !!us.available;
@@ -80,7 +80,7 @@
   <div>
     <p class="eyebrow">Review dispatch</p>
     <h1>Queue</h1>
-    <p>{counts.queued} queued · {counts.reviewing} reviewing · {totalReviews} reviews in the last 24h{#if usagePaused} · <span class="status warn"><i></i>reviews paused (usage floor)</span>{/if}</p>
+    <p>{counts.queued} queued · {counts.reviewing} reviewing{#if counts.held} · {counts.held} on hold{/if} · {totalReviews} reviews in the last 24h{#if usagePaused} · <span class="status warn"><i></i>reviews paused (usage floor)</span>{/if}</p>
   </div>
   <form class="add" on:submit|preventDefault={addToQueue}>
     <input bind:value={addInput} placeholder="owner/repo/pull/123 or GitHub PR URL" required />
@@ -90,7 +90,7 @@
 </section>
 
 <div class="overview">
-  <QueueBoard {queue} {reviews} bind:dragging onchanged={refresh} onerror={(msg) => (addErr = msg)} />
+  <QueueBoard {queue} {counts} {reviews} bind:dragging onchanged={refresh} onerror={(msg) => (addErr = msg)} />
 
   <aside class="context">
     <section>

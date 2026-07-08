@@ -20,6 +20,15 @@ export type Candidate = {
   hold_reason?: string;
 };
 
+// Header-badge tallies computed server-side (dashboard countQueue) — the one
+// derivation both the Overview header and the QueueBoard section header use.
+export type QueueCounts = {
+  total: number;
+  queued: number;
+  reviewing: number;
+  held: number;
+};
+
 export type Review = {
   repo: string;
   number: number;

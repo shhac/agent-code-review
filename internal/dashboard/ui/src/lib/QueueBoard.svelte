@@ -6,9 +6,12 @@
   import PrIdentity from './PrIdentity.svelte';
   import { moveByKey, reorderPayload } from './queueorder';
   import StatusBadge from './StatusBadge.svelte';
-  import type { Candidate, Review } from './types';
+  import type { Candidate, QueueCounts, Review } from './types';
 
   export let queue: Candidate[] = [];
+  // Server-computed tallies (the same payload the Overview header reads) —
+  // one derivation, so the two headers cannot disagree.
+  export let counts: QueueCounts = { total: 0, queued: 0, reviewing: 0, held: 0 };
   export let reviews: Review[] = [];
   // Parent-bound: true while a drag is in flight so the poll loop can hold
   // off replacing the queue under the user's cursor.
@@ -21,9 +24,6 @@
   let queueShowAll = false;
   let expanded = new Set<string>();
 
-  $: queued = queue.filter((c) => c.status === 'queued').length;
-  $: reviewing = queue.filter((c) => c.status === 'reviewing').length;
-  $: held = queue.filter((c) => c.status === 'held').length;
   $: visibleQueue = queueShowAll ? queue : queue.slice(0, 100);
   $: reviewingItems = visibleQueue.filter((c) => c.status === 'reviewing');
   $: queuedItems = visibleQueue.filter((c) => c.status !== 'reviewing');
@@ -112,7 +112,7 @@
       <p class="eyebrow">Worklist</p>
       <h2>Pull requests</h2>
     </div>
-    <span>{queue.length ? `${queued} queued · ${reviewing} reviewing${held ? ` · ${held} on hold` : ''}` : 'empty'}</span>
+    <span>{queue.length ? `${counts.queued} queued · ${counts.reviewing} reviewing${counts.held ? ` · ${counts.held} on hold` : ''}` : 'empty'}</span>
   </div>
 
   {#if displayQueue.length}

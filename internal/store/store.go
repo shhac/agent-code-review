@@ -7,6 +7,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 )
@@ -24,9 +26,9 @@ type Candidate struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	QueuePos     int        `json:"queue_pos"`
-	DiscoveredAt time.Time  `json:"discovered_at"`         // first time discovery saw this pending work; never bumped by later sweeps
-	ClaimedAt    *time.Time `json:"claimed_at,omitempty"`  // set while an engine reviews it; stale claims are reclaimable
-	ClaimHost    string     `json:"claim_host,omitempty"`  // which daemon holds the claim — boot reconciliation clears claims whose pid died on this host
+	DiscoveredAt time.Time  `json:"discovered_at"`        // first time discovery saw this pending work; never bumped by later sweeps
+	ClaimedAt    *time.Time `json:"claimed_at,omitempty"` // set while an engine reviews it; stale claims are reclaimable
+	ClaimHost    string     `json:"claim_host,omitempty"` // which daemon holds the claim — boot reconciliation clears claims whose pid died on this host
 	ClaimPID     int        `json:"claim_pid,omitempty"`
 	Source       string     `json:"source"`                // SourceDiscovered | SourceManual
 	WorkDir      string     `json:"work_dir,omitempty"`    // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
@@ -113,6 +115,7 @@ func (c Candidate) Held(now time.Time) bool {
 type Review struct {
 	Repo         string    `json:"repo"`
 	Number       int       `json:"number"`
+	LogKey       string    `json:"log_key,omitempty"` // deterministic URL key for selecting this exact history row's log
 	Title        string    `json:"title"`
 	Author       string    `json:"author"`
 	HeadSHA      string    `json:"head_sha"`
@@ -122,6 +125,15 @@ type Review struct {
 	DurationSecs int       `json:"duration_secs"`      // claim-to-completion elapsed; 0 when unknown
 	WorkDir      string    `json:"work_dir,omitempty"` // engine workspace used, kept for postmortem log access
 	TokensUsed   int       `json:"tokens_used"`        // engine-reported token spend; 0 when unknown
+}
+
+// ReviewLogKey is the stable, non-secret URL token for a history row's log.
+func ReviewLogKey(r Review) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%d\x00%s\x00%s\x00%s\x00%s\x00%d\x00%s\x00%d",
+		r.Repo, r.Number, r.HeadSHA, r.Verdict, r.Engine,
+		r.ReviewedAt.UTC().Format(time.RFC3339Nano), r.DurationSecs, r.WorkDir, r.TokensUsed)
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // Workspace is where a PR's review agent ran, resolved by FindWorkspace.
@@ -140,6 +152,20 @@ type Workspace struct {
 // `queue log` and the dashboard's review-log endpoint share this resolution
 // so the two surfaces cannot drift.
 func FindWorkspace(ctx context.Context, s Store, repo string, number int) (Workspace, bool, error) {
+	return FindReviewWorkspace(ctx, s, repo, number, "")
+}
+
+// FindReviewWorkspace resolves a review log workspace. With reviewKey set, it
+// selects that exact history row and never falls back to the live/latest PR log.
+// With reviewKey empty, it preserves the normal live-then-latest behavior.
+func FindReviewWorkspace(ctx context.Context, s Store, repo string, number int, reviewKey string) (Workspace, bool, error) {
+	if reviewKey != "" {
+		r, ok, err := s.ReviewByLogKey(ctx, repo, number, reviewKey)
+		if err != nil || !ok || r.WorkDir == "" {
+			return Workspace{}, false, err
+		}
+		return Workspace{Dir: r.WorkDir, Finished: &r}, true, nil
+	}
 	queue, err := s.ListQueue(ctx, repo)
 	if err != nil {
 		return Workspace{}, false, err
@@ -264,6 +290,8 @@ type Store interface {
 	LastOutcome(ctx context.Context, repo string, number int) (Review, bool, error)
 	// ListReviews returns outcome history, most recent first, capped at limit.
 	ListReviews(ctx context.Context, limit int) ([]Review, error)
+	// ReviewByLogKey returns one exact history row by its ReviewLogKey.
+	ReviewByLogKey(ctx context.Context, repo string, number int, logKey string) (Review, bool, error)
 	// ListReviewsSince returns all outcomes at or after since, oldest first.
 	ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error)
 	// TokensUsed sums the engine-reported token spend of outcomes at or

@@ -10,9 +10,10 @@
 
   type Route = 'overview' | 'history' | 'config' | 'prompt' | 'logs' | 'review';
 
-  const reviewPath = /^\/review\/([^/]+\/[^/]+)\/(\d+)$/;
+  const reviewPath = /^\/review\/([^/]+\/[^/]+)\/(\d+)(?:\/([^/]+))?$/;
   let reviewRepo = '';
   let reviewNumber = 0;
+  let reviewKey = '';
 
   const nav: { route: Route; label: string; path: string }[] = [
     { route: 'overview', label: 'Queue', path: '/' },
@@ -29,6 +30,7 @@
     if (m) {
       reviewRepo = m[1];
       reviewNumber = Number(m[2]);
+      reviewKey = m[3] || '';
       return 'review';
     }
     if (path === '/history') return 'history';
@@ -80,8 +82,8 @@
     {:else if route === 'logs'}
       <Logs />
     {:else if route === 'review'}
-      {#key `${reviewRepo}#${reviewNumber}`}
-        <ReviewLog repo={reviewRepo} number={reviewNumber} />
+      {#key `${reviewRepo}#${reviewNumber}#${reviewKey}`}
+        <ReviewLog repo={reviewRepo} number={reviewNumber} {reviewKey} />
       {/key}
     {/if}
   </main>

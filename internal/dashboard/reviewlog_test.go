@@ -124,6 +124,7 @@ func TestTailFile(t *testing.T) {
 type reviewLogStore struct {
 	store.Store
 	queue []store.Candidate
+	byKey map[string]store.Review
 }
 
 func (f *reviewLogStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
@@ -132,6 +133,11 @@ func (f *reviewLogStore) ListQueue(context.Context, string) ([]store.Candidate, 
 
 func (f *reviewLogStore) LastOutcome(context.Context, string, int) (store.Review, bool, error) {
 	return store.Review{}, false, nil
+}
+
+func (f *reviewLogStore) ReviewByLogKey(_ context.Context, repo string, number int, key string) (store.Review, bool, error) {
+	r, ok := f.byKey[key]
+	return r, ok && r.Repo == repo && r.Number == number, nil
 }
 
 // TestHandleReviewLog covers the HTTP wiring above the tested pure cores:
@@ -145,6 +151,17 @@ func TestHandleReviewLog(t *testing.T) {
 	newServer := func(queue []store.Candidate) *Server {
 		return &Server{
 			store:  &reviewLogStore{queue: queue},
+			config: func() config.Config { return config.Config{} },
+		}
+	}
+	newServerWithReviews := func(queue []store.Candidate, reviews ...store.Review) *Server {
+		byKey := make(map[string]store.Review, len(reviews))
+		for _, r := range reviews {
+			r.LogKey = store.ReviewLogKey(r)
+			byKey[r.LogKey] = r
+		}
+		return &Server{
+			store:  &reviewLogStore{queue: queue, byKey: byKey},
 			config: func() config.Config { return config.Config{} },
 		}
 	}
@@ -185,6 +202,35 @@ func TestHandleReviewLog(t *testing.T) {
 		}
 		if resp.PR == nil || resp.PR.Repo != "o/r" || resp.PR.Number != 5 {
 			t.Errorf("pr header = %+v, want o/r#5", resp.PR)
+		}
+	})
+
+	t.Run("review key serves the selected history log", func(t *testing.T) {
+		liveDir := t.TempDir()
+		oldDir := t.TempDir()
+		if err := os.WriteFile(review.LogPath(liveDir), []byte("live output"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(review.LogPath(oldDir), []byte("old output"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		old := store.Review{
+			Repo:       "o/r",
+			Number:     5,
+			HeadSHA:    "sha1",
+			Verdict:    "COMMENTED",
+			ReviewedAt: time.Now().Add(-time.Hour),
+			WorkDir:    oldDir,
+		}
+		key := store.ReviewLogKey(old)
+		code, resp := get(t, newServerWithReviews([]store.Candidate{
+			{Repo: "o/r", Number: 5, WorkDir: liveDir},
+		}, old), "/api/review-log?repo=o/r&number=5&review="+key)
+		if code != http.StatusOK || !resp.Available || resp.State != "finished" {
+			t.Fatalf("want available finished, got %d %+v", code, resp)
+		}
+		if resp.Content != "old output" {
+			t.Errorf("content = %q, want selected history log", resp.Content)
 		}
 	})
 

@@ -103,6 +103,7 @@ type workspaceStore struct {
 	queue  []Candidate
 	last   Review
 	lastOK bool
+	byKey  map[string]Review
 }
 
 func (f *workspaceStore) ListQueue(context.Context, string) ([]Candidate, error) {
@@ -111,6 +112,11 @@ func (f *workspaceStore) ListQueue(context.Context, string) ([]Candidate, error)
 
 func (f *workspaceStore) LastOutcome(context.Context, string, int) (Review, bool, error) {
 	return f.last, f.lastOK, nil
+}
+
+func (f *workspaceStore) ReviewByLogKey(_ context.Context, repo string, number int, key string) (Review, bool, error) {
+	r, ok := f.byKey[key]
+	return r, ok && r.Repo == repo && r.Number == number, nil
 }
 
 // TestFindWorkspace pins the shared queue-then-history resolution behind
@@ -154,4 +160,25 @@ func TestFindWorkspace(t *testing.T) {
 			t.Errorf("pre-feature reviews have no workspace; found=%v err=%v", found, err)
 		}
 	})
+}
+
+func TestFindReviewWorkspaceByLogKey(t *testing.T) {
+	ctx := context.Background()
+	reviewed := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	chosen := Review{Repo: "o/r", Number: 5, HeadSHA: "sha1", Verdict: "COMMENTED", ReviewedAt: reviewed, WorkDir: "/chosen"}
+	chosen.LogKey = ReviewLogKey(chosen)
+	s := &workspaceStore{
+		queue:  []Candidate{{Number: 5, WorkDir: "/live"}},
+		last:   Review{WorkDir: "/latest"},
+		lastOK: true,
+	}
+	s.byKey = map[string]Review{chosen.LogKey: chosen}
+
+	ws, found, err := FindReviewWorkspace(ctx, s, "o/r", 5, chosen.LogKey)
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if ws.Dir != "/chosen" || ws.Finished == nil || ws.Queued != nil {
+		t.Errorf("review key must select the exact history row, got %+v", ws)
+	}
 }

@@ -80,7 +80,7 @@ func (s *Server) handleReviewLog(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 
-	ws, found, err := store.FindWorkspace(ctx, s.store, repo, number)
+	ws, found, err := store.FindReviewWorkspace(ctx, s.store, repo, number, r.URL.Query().Get("review"))
 	if err != nil {
 		s.fail(w, err)
 		return

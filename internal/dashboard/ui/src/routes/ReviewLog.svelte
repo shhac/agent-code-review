@@ -8,6 +8,7 @@
 
   export let repo: string;
   export let number: number;
+  export let reviewKey = '';
 
   type PrInfo = {
     repo: string;
@@ -34,7 +35,9 @@
   async function refresh() {
     try {
       const pinned = pane ? pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40 : true;
-      const data = await fetchJSON(`/api/review-log?repo=${encodeURIComponent(repo)}&number=${number}`);
+      let url = `/api/review-log?repo=${encodeURIComponent(repo)}&number=${number}`;
+      if (reviewKey) url += `&review=${encodeURIComponent(reviewKey)}`;
+      const data = await fetchJSON(url);
       available = !!data.available;
       state = data.state || '';
       content = data.content || '';

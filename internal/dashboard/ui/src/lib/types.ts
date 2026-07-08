@@ -32,6 +32,7 @@ export type QueueCounts = {
 export type Review = {
   repo: string;
   number: number;
+  log_key?: string;
   title: string;
   author: string;
   verdict: string;

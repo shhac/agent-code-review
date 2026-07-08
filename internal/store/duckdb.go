@@ -264,6 +264,21 @@ func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
 	return mapRows(rows, scanReview), nil
 }
 
+func (d *duckDB) ReviewByLogKey(ctx context.Context, repo string, number int, logKey string) (Review, bool, error) {
+	rows, err := d.query(ctx, fmt.Sprintf(
+		"SELECT * FROM history WHERE repo = %s AND number = %d ORDER BY reviewed_at DESC", q(repo), number))
+	if err != nil {
+		return Review{}, false, err
+	}
+	for _, row := range rows {
+		r := scanReview(row)
+		if r.LogKey == logKey {
+			return r, true, nil
+		}
+	}
+	return Review{}, false, nil
+}
+
 func (d *duckDB) ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error) {
 	rows, err := d.query(ctx, fmt.Sprintf(
 		"SELECT * FROM history WHERE reviewed_at >= %s ORDER BY reviewed_at", ts(since)))
@@ -384,7 +399,7 @@ func (d *duckDB) FinishRun(ctx context.Context, id string, status string) error 
 // --- scan/format helpers ---
 
 func scanReview(r map[string]any) Review {
-	return Review{
+	review := Review{
 		Repo:         getString(r, "repo"),
 		Number:       getInt(r, "number"),
 		Title:        getString(r, "title"),
@@ -397,6 +412,8 @@ func scanReview(r map[string]any) Review {
 		WorkDir:      getString(r, "work_dir"),
 		TokensUsed:   getInt(r, "tokens_used"),
 	}
+	review.LogKey = ReviewLogKey(review)
+	return review
 }
 
 func scanAuthor(r map[string]any) AllowedAuthor {

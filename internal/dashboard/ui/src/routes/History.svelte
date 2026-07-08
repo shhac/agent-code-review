@@ -68,8 +68,8 @@
             <span class="dur">{durSecs(r.duration_secs)}{#if r.tokens_used}<small>{tokens(r.tokens_used)} tok</small>{/if}</span>
             <time title={when(r.reviewed_at)}>{ago(r.reviewed_at)}</time>
             <span>
-              {#if r.work_dir}
-                <a class="log-link" href={`/review/${r.repo}/${r.number}`} on:click|preventDefault={() => navigate(`/review/${r.repo}/${r.number}`)}>log</a>
+              {#if r.work_dir && r.log_key}
+                <a class="log-link" href={`/review/${r.repo}/${r.number}/${r.log_key}`} on:click|preventDefault={() => navigate(`/review/${r.repo}/${r.number}/${r.log_key}`)}>log</a>
               {/if}
             </span>
           </p>

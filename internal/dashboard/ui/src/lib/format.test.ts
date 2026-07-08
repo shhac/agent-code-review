@@ -61,6 +61,13 @@ describe('untilRel', () => {
     expect(untilRel(undefined)).toBe('');
     expect(untilRel('0001-01-01T00:00:00Z')).toBe(''); // Go zero time = not set
   });
+
+  it('renders compound units past the hour — a countdown, not a measurement', () => {
+    expect(untilRel(new Date(Date.now() + 102 * 60_000).toISOString())).toBe('1h42m');
+    expect(untilRel(new Date(Date.now() + 2 * 3600_000).toISOString())).toBe('2h');
+    expect(untilRel(new Date(Date.now() + 51 * 3600_000).toISOString())).toBe('2d3h');
+    expect(untilRel(new Date(Date.now() + 48 * 3600_000).toISOString())).toBe('2d');
+  });
 });
 
 describe('prHref', () => {

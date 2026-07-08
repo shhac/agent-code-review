@@ -28,16 +28,21 @@ export function ago(t: string) {
   return r ? `${r} ago` : '';
 }
 
-// Relative time until a FUTURE timestamp ("42m"); "" once it has passed
-// (or was never set) — the countdown shown on held queue rows.
+// Relative time until a FUTURE timestamp ("42m", "1h42m", "2d3h"); "" once
+// it has passed (or was never set) — the countdown shown on held queue rows.
+// Compound units past the hour: "1.7h" reads like a measurement, "1h42m"
+// like a countdown.
 export function untilRel(t: string | undefined) {
   if (!t || new Date(t).getFullYear() < 2000) return '';
   const s = (new Date(t).getTime() - Date.now()) / 1000;
   if (s <= 0) return '';
   if (s < 60) return `${Math.ceil(s)}s`;
-  if (s < 3600) return `${Math.ceil(s / 60)}m`;
-  if (s < 86400) return `${(s / 3600).toFixed(1)}h`;
-  return `${Math.ceil(s / 86400)}d`;
+  const mins = Math.ceil(s / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h${mins % 60 ? `${mins % 60}m` : ''}`;
+  const days = Math.floor(hours / 24);
+  return `${days}d${hours % 24 ? `${hours % 24}h` : ''}`;
 }
 
 // Human duration from a seconds count ("42s", "8m", "1.5h"). Zero and

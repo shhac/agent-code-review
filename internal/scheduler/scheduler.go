@@ -7,11 +7,13 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -49,6 +51,10 @@ type Scheduler struct {
 	// stillCandidate re-checks a PR's candidacy just before the engine runs
 	// (discover.StillCandidate in production; swapped in tests).
 	stillCandidate func(ctx context.Context, repo string, number int) (bool, string, error)
+	// pidAlive reports whether a pid is a live process on THIS host (real
+	// signal-0 probe in production; swapped in tests). Reconcile uses it to
+	// tell a crashed daemon's leftovers from a sibling instance's live work.
+	pidAlive func(pid int) bool
 }
 
 func New(cfg func() config.Config, s store.Store, d *discover.Discoverer, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
@@ -63,6 +69,7 @@ func New(cfg func() config.Config, s store.Store, d *discover.Discoverer, ghUser
 		logf: logf, usageFn: usageFn,
 		newEngine:      func(c config.Config) (review.Engine, error) { return review.NewEngine(c.Review) },
 		stillCandidate: discover.StillCandidate,
+		pidAlive:       pidAlive,
 	}
 }
 
@@ -71,6 +78,14 @@ func New(cfg func() config.Config, s store.Store, d *discover.Discoverer, ghUser
 // (LLM invocations, schedule.enabled/interval) switch and tick independently.
 // Enabled loops fire immediately on start.
 func (s *Scheduler) Start(ctx context.Context) error {
+	// A crashed daemon leaves a running run row (which would block cycles
+	// for the whole lease window) and claimed queue rows (which would wait
+	// it out too). Reconcile before the first tick so a restart resumes
+	// immediately. Failure is logged, not fatal — the lease window is the
+	// fallback that always works.
+	if err := s.Reconcile(ctx); err != nil {
+		s.logf("reconcile: %v", err)
+	}
 	boot := s.cfg()
 	if boot.Discovery.Enabled {
 		s.logf("scheduler: discovery every %s (config reloads live)", boot.DiscoverInterval())
@@ -212,13 +227,71 @@ func availableCandidates(queue []store.Candidate, now time.Time, staleAfter time
 	return out
 }
 
-// RunCycle is the one-shot flow (`run --once`): a discovery sweep followed by
-// one review cycle.
+// RunCycle is the one-shot flow (`run --once`): reconcile leftovers, then a
+// discovery sweep followed by one review cycle.
 func (s *Scheduler) RunCycle(ctx context.Context) error {
+	if err := s.Reconcile(ctx); err != nil {
+		s.logf("reconcile: %v", err)
+	}
 	if err := s.Discover(ctx); err != nil {
 		return err
 	}
 	return s.ReviewCycle(ctx)
+}
+
+// Reconcile cleans up after crashed processes on THIS host: run rows still
+// marked running and queue claims whose recorded pid is dead are released
+// immediately instead of waiting out the lease window (2h+ of "a previous
+// run is still active — skipping" after every mid-cycle crash, which bites
+// hardest during development). Another host's state — and any live pid's —
+// is left strictly alone: a sibling instance's in-flight work looks exactly
+// like this, minus the dead pid.
+func (s *Scheduler) Reconcile(ctx context.Context) error {
+	host := hostname()
+
+	runs, err := s.store.RunningRuns(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range runs {
+		if r.Host != host || s.pidAlive(r.PID) {
+			continue
+		}
+		s.logf("reconcile: run %s (pid %d) died mid-cycle — marking failed", r.ID, r.PID)
+		if err := s.store.FinishRun(ctx, r.ID, "failed"); err != nil {
+			return err
+		}
+	}
+
+	queue, err := s.store.ListQueue(ctx, "")
+	if err != nil {
+		return err
+	}
+	for _, c := range queue {
+		if c.ClaimedAt == nil || c.ClaimHost != host || s.pidAlive(c.ClaimPID) {
+			continue
+		}
+		s.logf("reconcile: %s#%d was claimed by dead pid %d — releasing", c.Repo, c.Number, c.ClaimPID)
+		if err := s.store.ClearClaim(ctx, c.Repo, c.Number); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pidAlive is the production liveness probe: signal 0 reaches any process we
+// can address. EPERM means "alive but not ours" — still alive. Non-positive
+// pids (missing data) count as dead rather than blocking reconciliation.
+func pidAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	err = p.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // processQueue reviews candidates concurrently, capped at cfg.MaxParallel.
@@ -277,8 +350,19 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	}
 	c.WorkDir = workDir
 	claimedAt := time.Now()
-	if err := s.store.Claim(ctx, c.Repo, c.Number, claimedAt, workDir); err != nil {
+	claimed, err := s.store.Claim(ctx, c.Repo, c.Number, store.Lease{
+		At: claimedAt, WorkDir: workDir, Host: hostname(), PID: os.Getpid(), StaleAfter: cfg.LeaseWindow(),
+	})
+	if err != nil {
 		return err
+	}
+	// Lost the compare-and-swap: another worker (possibly another daemon
+	// instance sharing the store) claimed it between our queue listing and
+	// now. Their review proceeds; nothing to record here.
+	if !claimed {
+		s.logf("review %s#%d: claimed by another worker — skipping", c.Repo, c.Number)
+		_ = os.Remove(workDir)
+		return nil
 	}
 	if skipped, err := s.skipIfStale(ctx, c, claimedAt); skipped || err != nil {
 		return err

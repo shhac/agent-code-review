@@ -22,17 +22,21 @@ type fakeSchedStore struct {
 
 	mu        sync.Mutex
 	allowed   bool
-	claims    []time.Time
+	claimLost bool // simulate losing the compare-and-swap to another worker
+	claims    []store.Lease
 	workDirs  []string
 	completed []store.Review
 }
 
-func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, at time.Time, workDir string) error {
+func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, l store.Lease) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.claims = append(f.claims, at)
-	f.workDirs = append(f.workDirs, workDir)
-	return nil
+	if f.claimLost {
+		return false, nil
+	}
+	f.claims = append(f.claims, l)
+	f.workDirs = append(f.workDirs, l.WorkDir)
+	return true, nil
 }
 
 func (f *fakeSchedStore) IsAuthorAllowed(context.Context, string, string) (bool, error) {
@@ -139,6 +143,39 @@ func TestReviewOneEngineErrorStillCompletes(t *testing.T) {
 	}
 	if len(fs.completed) != 1 || fs.completed[0].Verdict != review.DecisionError {
 		t.Errorf("failed invocation must record an ERROR outcome, got %+v", fs.completed)
+	}
+}
+
+// TestReviewOneClaimRace: losing the compare-and-swap claim to another
+// worker (e.g. a second daemon instance sharing the store) must be a clean
+// no-op — no engine spend, no outcome recorded, no error.
+func TestReviewOneClaimRace(t *testing.T) {
+	fs := &fakeSchedStore{claimLost: true}
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionApproved}}
+	s := newTestScheduler(fs, fe)
+
+	if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 6, HeadSHA: "sha1"}); err != nil {
+		t.Fatalf("lost claim must not error, got %v", err)
+	}
+	if fe.prompt != "" {
+		t.Error("engine must not run when the claim was lost")
+	}
+	if len(fs.completed) != 0 {
+		t.Errorf("no outcome may be recorded for a lost claim, got %+v", fs.completed)
+	}
+}
+
+// TestReviewOneClaimCarriesIdentity: the lease must record host+pid so boot
+// reconciliation can tell this process's claims from a sibling's.
+func TestReviewOneClaimCarriesIdentity(t *testing.T) {
+	fs := &fakeSchedStore{}
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+	s := newTestScheduler(fs, fe)
+	if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 6, HeadSHA: "sha1"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.claims) != 1 || fs.claims[0].Host == "" || fs.claims[0].PID <= 0 || fs.claims[0].StaleAfter <= 0 {
+		t.Errorf("claim lease must carry host/pid/staleness, got %+v", fs.claims)
 	}
 }
 

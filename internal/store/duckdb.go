@@ -157,9 +157,27 @@ func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error
 	return mapRows(rows, scanCandidate), nil
 }
 
-func (d *duckDB) Claim(ctx context.Context, repo string, number int, at time.Time, workDir string) error {
+// Claim is a compare-and-swap: the WHERE clause only matches an unclaimed
+// row or a stale (abandoned) claim, and RETURNING tells us whether we won —
+// one statement is one duckdb invocation, so the check and the write are
+// atomic under DuckDB's file lock even across daemon instances.
+func (d *duckDB) Claim(ctx context.Context, repo string, number int, l Lease) (bool, error) {
+	rows, err := d.query(ctx, fmt.Sprintf(
+		`UPDATE queue SET claimed_at = %s, work_dir = %s, claim_host = %s, claim_pid = %d
+		 WHERE repo = %s AND number = %d AND (claimed_at IS NULL OR claimed_at < %s)
+		 RETURNING 1 AS claimed`,
+		ts(l.At), q(l.WorkDir), q(l.Host), l.PID,
+		q(repo), number, ts(l.At.Add(-l.StaleAfter))))
+	if err != nil {
+		return false, err
+	}
+	return len(rows) > 0, nil
+}
+
+func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error {
 	_, err := d.query(ctx, fmt.Sprintf(
-		"UPDATE queue SET claimed_at = %s, work_dir = %s WHERE repo = %s AND number = %d", ts(at), q(workDir), q(repo), number))
+		"UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE repo = %s AND number = %d",
+		q(repo), number))
 	return err
 }
 
@@ -173,7 +191,7 @@ func (d *duckDB) Complete(ctx context.Context, r Review) error {
 	sql := fmt.Sprintf(`BEGIN;
 	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, reviewed_at, duration_secs, work_dir, tokens_used) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %d, %s, %d);
 	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha = %s;
-	UPDATE queue SET claimed_at = NULL WHERE repo = %s AND number = %d;
+	UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE repo = %s AND number = %d;
 	COMMIT;`,
 		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed,
 		q(r.Repo), r.Number, q(r.HeadSHA),
@@ -328,6 +346,14 @@ func (d *duckDB) IsAuthorAllowed(ctx context.Context, repo, handle string) (bool
 
 // --- run-lock ---
 
+func (d *duckDB) RunningRuns(ctx context.Context) ([]Run, error) {
+	rows, err := d.query(ctx, "SELECT * FROM runs WHERE status = 'running' ORDER BY started_at")
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, scanRun), nil
+}
+
 func (d *duckDB) ActiveRun(ctx context.Context, staleAfter time.Duration) (Run, bool, error) {
 	cutoff := time.Now().Add(-staleAfter)
 	rows, err := d.query(ctx, fmt.Sprintf(
@@ -410,6 +436,8 @@ func scanCandidate(r map[string]any) Candidate {
 		Source:       getString(r, "source"),
 		WorkDir:      getString(r, "work_dir"),
 		HoldReason:   getString(r, "hold_reason"),
+		ClaimHost:    getString(r, "claim_host"),
+		ClaimPID:     getInt(r, "claim_pid"),
 	}
 	if t := getTime(r, "claimed_at"); !t.IsZero() {
 		c.ClaimedAt = &t

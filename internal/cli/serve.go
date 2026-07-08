@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -113,9 +115,17 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
 	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
+	// Bind BEFORE the scheduler starts: the port doubles as the "one daemon
+	// per address" guard, and the loops fire immediately on start — an
+	// accidental second instance must die here, not after it has already
+	// claimed a PR and spent an engine invocation.
+	ln, err := net.Listen("tcp", opts.addr)
+	if err != nil {
+		return fmt.Errorf("dashboard: %w (is another serve instance already running?)", err)
+	}
 	go func() {
 		logf("dashboard: listening on %s", opts.addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logf("dashboard error: %v", err)
 			stop()
 		}

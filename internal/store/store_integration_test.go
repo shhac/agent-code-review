@@ -28,6 +28,22 @@ func newTestStore(t *testing.T) Store {
 	return s
 }
 
+// mustClaim claims a row with a fresh test lease, failing the test if the
+// compare-and-swap loses — for tests where the claim is setup, not the
+// subject.
+func mustClaim(t *testing.T, s Store, repo string, number int, at time.Time, workDir string) {
+	t.Helper()
+	ok, err := s.Claim(context.Background(), repo, number, Lease{
+		At: at, WorkDir: workDir, Host: "test-host", PID: 4242, StaleAfter: 2 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("claim of %s#%d unexpectedly lost", repo, number)
+	}
+}
+
 // getQueued finds one queue row — the Store contract has no single-row getter.
 func getQueued(t *testing.T, s Store, repo string, number int) (Candidate, bool) {
 	t.Helper()
@@ -131,9 +147,7 @@ func TestQueueLifecycle(t *testing.T) {
 
 	// Claim marks it in-flight.
 	claimAt := time.Now().UTC().Truncate(time.Second)
-	if err := s.Claim(ctx, "o/r", 7, claimAt, "/tmp/example-workdir-7"); err != nil {
-		t.Fatal(err)
-	}
+	mustClaim(t, s, "o/r", 7, claimAt, "/tmp/example-workdir-7")
 	c, ok := getQueued(t, s, "o/r", 7)
 	if !ok || c.ClaimedAt == nil {
 		t.Fatalf("claim not visible: %+v", c)
@@ -173,9 +187,7 @@ func TestCompleteSHAGate(t *testing.T) {
 	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 8, Type: TypeNew, HeadSHA: "sha1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Claim(ctx, "o/r", 8, time.Now(), "/tmp/example-workdir-8"); err != nil {
-		t.Fatal(err)
-	}
+	mustClaim(t, s, "o/r", 8, time.Now(), "/tmp/example-workdir-8")
 	// Discovery updates the head mid-review.
 	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 8, Type: TypeRefreshed, HeadSHA: "sha2"}); err != nil {
 		t.Fatal(err)
@@ -267,9 +279,7 @@ func TestListQueueOrderingAndClaimVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A claimed row must remain visible.
-	if err := s.Claim(ctx, "o/r", 10, time.Now(), "/tmp/example-workdir-10"); err != nil {
-		t.Fatal(err)
-	}
+	mustClaim(t, s, "o/r", 10, time.Now(), "/tmp/example-workdir-10")
 
 	queue, err := s.ListQueue(ctx, "")
 	if err != nil {
@@ -315,16 +325,17 @@ func TestDequeueRecordsNothing(t *testing.T) {
 	}
 }
 
-// TestAbsentRowEdges documents the advisory semantics when the queue row is
-// gone (e.g. dequeued between ListQueue and reviewOne): Claim no-ops, and
+// TestAbsentRowEdges documents the semantics when the queue row is gone
+// (e.g. dequeued between ListQueue and reviewOne): Claim loses the CAS, and
 // Complete still records the outcome (an orphan history row is harmless and
 // preferable to losing a real review's record).
 func TestAbsentRowEdges(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	if err := s.Claim(ctx, "o/r", 99, time.Now(), "/tmp/example-workdir-99"); err != nil {
-		t.Fatalf("Claim on missing row must no-op, got %v", err)
+	ok, err := s.Claim(ctx, "o/r", 99, Lease{At: time.Now(), WorkDir: "/tmp/example-workdir-99", Host: "h", PID: 1, StaleAfter: time.Hour})
+	if err != nil || ok {
+		t.Fatalf("Claim on missing row must lose cleanly, got ok=%v err=%v", ok, err)
 	}
 	queue, err := s.ListQueue(ctx, "")
 	if err != nil || len(queue) != 0 {
@@ -352,9 +363,7 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	if err := s.Enqueue(ctx, c); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Claim(ctx, "o/r", 21, time.Now(), "/tmp/example-workdir-21"); err != nil {
-		t.Fatal(err)
-	}
+	mustClaim(t, s, "o/r", 21, time.Now(), "/tmp/example-workdir-21")
 	rec := ReviewFrom(c, "COMMENTED", "test-engine", time.Now().Add(-90*time.Second))
 	rec.WorkDir = "/tmp/example-workdir-21"
 	rec.TokensUsed = 192575
@@ -527,6 +536,80 @@ func TestEnqueueHoldSemantics(t *testing.T) {
 	enq(at(2*time.Hour), HoldCooldown, SourceDiscovered)
 	if e, r := hold(); e != nil || r != "" {
 		t.Fatalf("discovery must not hold a manual row: eligible=%v reason=%q", e, r)
+	}
+}
+
+// TestClaimCAS pins the compare-and-swap lease: a live claim cannot be
+// stolen, a stale one can, host+pid are recorded for reconciliation, and
+// ClearClaim releases everything.
+func TestClaimCAS(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 30, Type: TypeNew, HeadSHA: "sha1"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	lease := func(at time.Time, pid int) Lease {
+		return Lease{At: at, WorkDir: "/tmp/example-workdir-30", Host: "host-a", PID: pid, StaleAfter: 2 * time.Hour}
+	}
+
+	// First claim wins and records its identity.
+	if ok, err := s.Claim(ctx, "o/r", 30, lease(now, 100)); err != nil || !ok {
+		t.Fatalf("first claim must win: ok=%v err=%v", ok, err)
+	}
+	c, _ := getQueued(t, s, "o/r", 30)
+	if c.ClaimHost != "host-a" || c.ClaimPID != 100 {
+		t.Errorf("claim identity not recorded: %+v", c)
+	}
+
+	// A second claimant loses while the lease is live — and must not clobber
+	// the holder's identity.
+	if ok, err := s.Claim(ctx, "o/r", 30, lease(now.Add(time.Minute), 200)); err != nil || ok {
+		t.Fatalf("live lease must not be stolen: ok=%v err=%v", ok, err)
+	}
+	if c, _ := getQueued(t, s, "o/r", 30); c.ClaimPID != 100 {
+		t.Errorf("losing claim overwrote the holder: %+v", c)
+	}
+
+	// Once stale (older than StaleAfter), the claim is reclaimable.
+	if ok, err := s.Claim(ctx, "o/r", 30, lease(now.Add(3*time.Hour), 200)); err != nil || !ok {
+		t.Fatalf("stale lease must be reclaimable: ok=%v err=%v", ok, err)
+	}
+	if c, _ := getQueued(t, s, "o/r", 30); c.ClaimPID != 200 {
+		t.Errorf("reclaim must record the new holder: %+v", c)
+	}
+
+	// ClearClaim releases the row entirely.
+	if err := s.ClearClaim(ctx, "o/r", 30); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := getQueued(t, s, "o/r", 30); c.ClaimedAt != nil || c.ClaimHost != "" || c.ClaimPID != 0 {
+		t.Errorf("ClearClaim must clear the whole lease: %+v", c)
+	}
+}
+
+// TestRunningRuns: only status='running' rows surface — the reconciliation
+// input must not include finished runs.
+func TestRunningRuns(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.StartRun(ctx, Run{ID: "r1", StartedAt: time.Now().Add(-time.Hour), Host: "h", PID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartRun(ctx, Run{ID: "r2", StartedAt: time.Now(), Host: "h", PID: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishRun(ctx, "r1", "done"); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := s.RunningRuns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].ID != "r2" {
+		t.Errorf("RunningRuns = %+v, want just r2", runs)
 	}
 }
 

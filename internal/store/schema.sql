@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS queue (
   queue_pos     INTEGER,
   discovered_at TIMESTAMP,                      -- first time discovery saw this pending work; NEVER bumped by later sweeps
   claimed_at    TIMESTAMP,                      -- set while an engine reviews it; NULL = unclaimed. Stale claims (crashed daemon) are reclaimed by the next cycle.
+  claim_host    TEXT,                           -- which daemon holds the claim (host + pid) — lets a rebooted daemon clear its own dead claims immediately instead of waiting out the lease
+  claim_pid     INTEGER,
   source        TEXT NOT NULL DEFAULT 'discovered', -- 'discovered' | 'manual'. Manual adds bypass the pre-review candidacy check (drafts and explicit re-review requests must go through).
   work_dir      TEXT,                           -- the engine's scratch workspace, set at claim time; its agent.log is the live review log
   eligible_at   TIMESTAMP,                      -- eligibility hold: the scheduler skips this row until then. NULL = eligible now. Manual adds/promotion clear it.
@@ -52,6 +54,8 @@ CREATE TABLE IF NOT EXISTS history (
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS work_dir TEXT;
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS eligible_at TIMESTAMP;
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS hold_reason TEXT;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS claim_host TEXT;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS claim_pid INTEGER;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS duration_secs INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS work_dir TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS tokens_used INTEGER DEFAULT 0;

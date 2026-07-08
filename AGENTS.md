@@ -81,7 +81,22 @@ internal/
   runtime data in the store (managed via `authors`). Never hardcode a GitHub
   handle or repo — not in code, docs, or the example config.
 
+- **Crash/concurrency safety.** Claims are compare-and-swap leases carrying
+  host+pid (`Store.Claim` returns whether you won; losing is a clean skip),
+  and boot runs `Scheduler.Reconcile` to release run rows and claims left by
+  a dead pid on this host — so a mid-review crash never blocks the next boot
+  for the lease window. `serve` binds the dashboard port before starting any
+  loop, so a second instance on the same address exits before it can claim
+  or review anything.
+
 ## Conventions
+
+- **Dev boots: never point a second live instance at the real store.** Run
+  `make dev ARGS="serve --no-schedule"` (dashboard only) by default, opting
+  into exactly what you're testing with `--no-reviews` (discovery only) or a
+  scratch store (`XDG_CONFIG_HOME`/`XDG_DATA_HOME` to a temp dir, or
+  `store.path` in a scratch config) before enabling the review loop — a dev
+  instance with reviews on will claim real PRs and spend real tokens.
 
 - `const`/early-return, avoid `as`-style casts (see `CLAUDE.local.md`).
 - Tests colocated as `_test.go`. `make test` runs everything; discovery,

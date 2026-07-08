@@ -269,3 +269,36 @@ rebase/title fix landed).
   junk rows/day. The queue listing therefore moved ahead of StartRun in the
   cycle. LeaseWindow's 2h floor already kept short intervals from shrinking
   claim leases.
+
+## Addendum 5 — crash + multi-instance resilience (2026-07-08, post-v0.9.0)
+
+Motivated by two live-running observations: killing the daemon mid-review
+left it refusing to cycle for the whole 2h lease window after restart ("a
+previous run is still active — skipping"), and dev instances routinely run
+beside the persistent daemon against the same store.
+
+- **Boot reconciliation** (`Scheduler.Reconcile`, run at serve start and
+  before `run --once`): run rows still `running` and queue claims whose
+  recorded pid is dead *on this host* are released immediately (run →
+  `failed`, claim → cleared) instead of waiting out the lease. Another
+  host's state and any live pid — i.e. a sibling instance's in-flight work —
+  are left strictly alone; the lease window remains the universal fallback.
+- **Claims became compare-and-swap leases carrying host+pid**
+  (`claim_host`/`claim_pid` columns; `Claim(ctx, repo, number, Lease)`
+  returns whether you won). The UPDATE matches only unclaimed rows or claims
+  older than `StaleAfter`, with `RETURNING` as the won/lost signal — one
+  statement is one duckdb invocation, so the check-and-write is atomic under
+  DuckDB's file lock even across instances. Losing is a clean skip: no
+  engine spend, no outcome, closing the double-review hole two instances
+  (or the run-lock's check-then-insert race) could hit.
+- **`serve` binds the dashboard port before starting any loop.** The port
+  doubles as the one-daemon-per-address guard; previously the loops fired
+  concurrently with the bind, so a doomed second instance could claim and
+  start reviewing during its first seconds. Now it exits with "is another
+  serve instance already running?" before touching the queue.
+- **Dev-boot guidance landed in AGENTS.md**: `serve --no-schedule` by
+  default; opt into specific loops, or point at a scratch store, before
+  enabling reviews on a dev instance.
+- Verified live: a planted dead-pid run row + claim were reconciled at boot
+  (run → failed, claim cleared) while a held row stayed held; a second
+  serve on the same port exits at bind.

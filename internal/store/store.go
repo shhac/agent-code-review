@@ -26,10 +26,23 @@ type Candidate struct {
 	QueuePos     int        `json:"queue_pos"`
 	DiscoveredAt time.Time  `json:"discovered_at"`         // first time discovery saw this pending work; never bumped by later sweeps
 	ClaimedAt    *time.Time `json:"claimed_at,omitempty"`  // set while an engine reviews it; stale claims are reclaimable
+	ClaimHost    string     `json:"claim_host,omitempty"`  // which daemon holds the claim — boot reconciliation clears claims whose pid died on this host
+	ClaimPID     int        `json:"claim_pid,omitempty"`
 	Source       string     `json:"source"`                // SourceDiscovered | SourceManual
 	WorkDir      string     `json:"work_dir,omitempty"`    // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
 	EligibleAt   *time.Time `json:"eligible_at,omitempty"` // eligibility hold: the scheduler skips this row until then; nil = eligible now
 	HoldReason   string     `json:"hold_reason,omitempty"` // HoldCooldown | HoldSettling while a hold is set
+}
+
+// Lease identifies one claim attempt: when, by whom (host+pid, for crash
+// reconciliation), the engine workspace, and how old an existing claim must
+// be before it counts as abandoned and may be taken over.
+type Lease struct {
+	At         time.Time
+	WorkDir    string
+	Host       string
+	PID        int
+	StaleAfter time.Duration
 }
 
 // Hold reasons: why a queued candidate is not yet eligible for review.
@@ -217,10 +230,16 @@ type Store interface {
 	// as same-instant tiebreaks. repo narrows to one repo; "" means all.
 	ListQueue(ctx context.Context, repo string) ([]Candidate, error)
 	// Claim marks a candidate as being reviewed right now and records the
-	// engine's scratch workspace (whose agent.log is the live review log).
-	// Claims are advisory leases: a claim older than the caller's staleness
-	// window is treated as abandoned (crashed daemon) and reclaimed.
-	Claim(ctx context.Context, repo string, number int, at time.Time, workDir string) error
+	// engine's scratch workspace (whose agent.log is the live review log)
+	// plus the claimer's host+pid. Compare-and-swap: it succeeds only when
+	// the row is unclaimed or the existing claim is older than l.StaleAfter
+	// (abandoned by a crashed daemon), so two workers — including two daemon
+	// instances — can never both win the same row. false = another worker
+	// holds a live claim; skip the row.
+	Claim(ctx context.Context, repo string, number int, l Lease) (bool, error)
+	// ClearClaim releases a claim without recording an outcome — boot
+	// reconciliation uses it to free rows abandoned by a dead process.
+	ClearClaim(ctx context.Context, repo string, number int) error
 	// Complete records r in history and removes the queue row — atomically,
 	// in one store round-trip. The delete is gated on r.HeadSHA: if the row's
 	// head has advanced while the review ran, the row survives (its claim is
@@ -261,6 +280,9 @@ type Store interface {
 
 	// ActiveRun returns an unfinished run more recent than staleAfter, if any.
 	ActiveRun(ctx context.Context, staleAfter time.Duration) (Run, bool, error)
+	// RunningRuns returns every run still marked running, regardless of age —
+	// the input to boot reconciliation (finish the ones whose pid is dead).
+	RunningRuns(ctx context.Context) ([]Run, error)
 	StartRun(ctx context.Context, r Run) error
 	FinishRun(ctx context.Context, id string, status string) error
 	// ListRuns returns cycle history, most recent first, capped at limit.

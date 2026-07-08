@@ -9,6 +9,13 @@ you can expose over Tailscale.
   on its own cadence (`discovery.interval`, with its own `discovery.enabled` switch), never involving the LLM;
   already-approved PRs are skipped, and repos can be scoped to allowed authors
   only (`repos add --allowed-authors-only`).
+- **Eligibility holds**: discovered candidates wait out a **quiet period**
+  (`candidates.quiet_period`, default 15m — don't review a PR mid-rebase or
+  mid-fix push) and a **re-review cooldown** (`candidates.rereview_cooldown`,
+  default 90m — give the author room to respond to the last review). Held PRs
+  sit visibly in the queue and are skipped by review cycles until eligible;
+  `queue promote` or a manual add bypasses holds. This is what makes a tight
+  review cadence cheap: only genuinely actionable work spends tokens.
 - **Durable queue**: candidates, positions, and review history (verdict,
   duration, token spend, workspace) in DuckDB, so "we already reviewed this at
   SHA X" survives restarts (that's what powers Refreshed detection).
@@ -72,7 +79,7 @@ tool neither requires nor mentions it.
 
    ```bash
    agent-code-review prompts set on-approve "Notify the team per your conventions."
-   agent-code-review config set schedule.interval 15m
+   agent-code-review config set candidates.rereview_cooldown 2h
    agent-code-review run --once
    ```
 
@@ -127,12 +134,37 @@ In both cases the PR must not be currently approved (it's already unblocked),
 and any recorded outcome — review, skip, or error — at the PR's current head
 SHA suppresses re-enqueueing until new commits change the SHA.
 
-Candidates are processed New-before-Refreshed, oldest PR first, up to
-`schedule.max_parallel` (default 4) at a time. Just before the engine runs,
-discovered candidates are re-checked: PRs approved, closed, or merged while
-waiting in the queue complete as a precheck SKIPPED instead of spending a
-review. Manual adds (`queue add`, dashboard) bypass that recheck — an explicit
-request always goes through.
+Discovered candidates can carry an **eligibility hold**, computed at discovery
+time as the later of two bounds and stored on the queue row (`eligible_at` +
+`hold_reason`):
+
+- **settling** — the PR was pushed to or edited within
+  `candidates.quiet_period` (default 15m). Authors often mark a PR ready and
+  then rebase once more or fix the title; every update pushes the bound out.
+- **cooldown** — we posted a real review within
+  `candidates.rereview_cooldown` (default 90m). The common rhythm is "agent
+  requests changes, author fixes finding 1 of 3 and pushes" — without the
+  cooldown, that first push would immediately burn a re-review.
+
+Held rows stay visible in the queue (badged, with a countdown) but review
+cycles skip them until `eligible_at`. Sweeps only ever *extend* a hold, never
+shrink one. Set either dial to `0s` to disable it. `queue promote` (or the
+dashboard's ▶) clears the hold, floats the PR to the top, and treats it as a
+manual add; plain drag-reorder changes only the position and never lifts a
+hold. `discovered_at` records the *first* sweep that saw the pending work and
+is never bumped by later sweeps.
+
+Candidates are processed FIFO by first discovery (a later sweep can never
+leapfrog PRs already waiting; New-before-Refreshed and PR number break ties
+within one sweep), up to `schedule.max_parallel` (default 4) at a time. Just
+before the engine runs, discovered candidates are re-checked: PRs approved,
+closed, or merged while waiting in the queue complete as a precheck SKIPPED
+instead of spending a review. Manual adds (`queue add`, dashboard) bypass
+that recheck — an explicit request always goes through.
+
+The review loop itself defaults to a tight `schedule.interval` of 1m: idle
+cycles (nothing eligible) are free no-ops that record nothing, so the cadence
+costs nothing while holds and same-SHA suppression keep the queue quiet.
 
 ## Allowed authors
 
@@ -191,7 +223,9 @@ the store; manage it with `authors`.
 - **Queue**: the pending worklist (add via pasted PR URL or
   `owner/repo/pull/N`; live title/author fetched on add, closed/merged PRs
   and unwatched repos rejected; drag-to-reorder; ✕ removal). A reviewing
-  badge links to that review's live log page. Beside it: **Codex usage
+  badge links to that review's live log page; held rows show an on-hold badge
+  with the reason and a countdown, plus a ▶ "review now" action that clears
+  the hold (reordering alone never does). Beside it: **Codex usage
   meters** (5h + weekly windows, polled every `dashboard.usage_poll_interval`,
   default 10m) with total token spend, a **last-24h chart** of
   approved / commented / changes-requested outcomes per hour, and paginated
@@ -207,8 +241,8 @@ the store; manage it with `authors`.
   what the agent receives (allowed vs not-allowed author variants). Read-only.
 - **Logs**: a live tail of the daemon's own log.
 
-Queue add/reorder are also available as JSON endpoints (`POST /api/queue`,
-`POST /api/queue/reorder`). The dashboard has no auth, so keep it on your tailnet
+Queue add/reorder/promote are also available as JSON endpoints
+(`POST /api/queue`, `POST /api/queue/reorder`, `POST /api/queue/promote`). The dashboard has no auth, so keep it on your tailnet
 (`--tailscale serve`) unless you mean to expose it.
 
 ## Output

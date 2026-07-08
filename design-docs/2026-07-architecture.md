@@ -229,3 +229,43 @@ example config.
   carry DEFAULTs and the CREATEs keep NOT NULL for fresh stores.
 - **The ldflags build version reached the Config page** so a browser can tell
   which daemon build is serving.
+
+## Addendum 4 — eligibility holds + FIFO queue (2026-07-08)
+
+Motivated by live-running observations: the review loop needed a long
+interval purely to avoid re-burning tokens on the same few PRs, discovery
+kept bumping `discovered_at` on every sweep, and the agent repeatedly
+pounced on PRs the author was still actively working on (one fix of three
+pushed → instant re-review; PR marked ready → reviewed before the final
+rebase/title fix landed).
+
+- **Eligibility holds on queue rows** (`eligible_at` + `hold_reason`,
+  idempotent ALTER migration). Discovery computes the hold at classify time
+  as the later of two bounds: **settling** (`candidates.quiet_period`,
+  default 15m — the PR must go untouched that long; `updatedAt` was chosen
+  over a GraphQL ReadyForReviewEvent lookup because it's already in the
+  list payload and also covers mid-fix pushes on Refreshed candidates) and
+  **cooldown** (`candidates.rereview_cooldown`, default 90m since our last
+  real verdict — SKIPPED/ERROR deliberately don't cool down). Held rows are
+  enqueued VISIBLY rather than silently dropped — the dashboard badges them
+  with a countdown — and the scheduler's `availableCandidates` filter skips
+  them via the shared `Candidate.Held` predicate. Holds only ever extend on
+  re-sweep (an active author pushes the bound out), never shrink. `0s`
+  disables either dial.
+- **Promote became "review this now"**: one store write floats the row to
+  the top, clears the hold, and escalates source to manual (bypassing the
+  pre-review recheck) — CLI `queue promote` and dashboard ▶ share it.
+  Decided explicitly: drag-reorder does NONE of that — moving a held row
+  around the queue neither lifts its hold nor makes it manual.
+- **`discovered_at` became first-seen** (the upsert had bumped it every
+  sweep) and the queue order became **FIFO by first discovery** — a later
+  sweep can never leapfrog work already waiting; New-before-Refreshed and
+  PR number only break same-sweep ties. Explicit `queue_pos` still wins
+  outright.
+- **The review cadence default dropped 30m → 1m.** Holds + same-SHA
+  suppression keep the queue empty of non-actionable work, and idle cycles
+  now exit before the run-lock, recording no run row and logging nothing —
+  previously each tick wrote a runs row, which at 1m would have been ~1.4k
+  junk rows/day. The queue listing therefore moved ahead of StartRun in the
+  cycle. LeaseWindow's 2h floor already kept short intervals from shrinking
+  claim leases.

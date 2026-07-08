@@ -67,7 +67,15 @@ internal/
 - **Queue row ⇔ pending work.** Completion moves a candidate into append-only
   history atomically (SHA-gated `Complete`); "reviewing" is derived from a
   claim lease (`ClaimActive`, window `LeaseWindow()`), never stored as a
-  status column.
+  status column. Likewise "held" is derived from the eligibility hold
+  (`Held`, `eligible_at`/`hold_reason`): discovered candidates wait out a
+  quiet period (PR updated too recently) and a re-review cooldown (we
+  reviewed it too recently) while sitting visibly in the queue. Holds only
+  ever extend on re-sweep; `Promote` (= review now) clears the hold, floats
+  the row, and escalates to manual; drag-reorder never touches holds or
+  source. Queue order is FIFO by first discovery (`discovered_at` is
+  first-seen, never bumped). Idle review cycles exit before the run-lock —
+  the 1m default cadence records nothing while the queue is empty or held.
 - **Nothing environment-specific in code.** Repos, prompts, and cadence are
   config; the allowed-authors list (whose PRs we may approve) is per-repo
   runtime data in the store (managed via `authors`). Never hardcode a GitHub

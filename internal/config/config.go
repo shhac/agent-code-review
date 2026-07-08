@@ -300,16 +300,18 @@ func (c Config) DiscoverInterval() time.Duration {
 // matching GitHub's semantics). Discovery, the dashboard add gate, and the
 // repos command all share this predicate.
 func (c Config) WatchesRepo(repo string) bool {
-	return containsFold(c.Repos, repo)
+	return RepoMatches(c.Repos, repo)
 }
 
 // AuthorScopedRepo reports whether repo's discovery is limited to PRs from
 // allowed authors (case-insensitive membership in AllowedAuthorsOnlyRepos).
 func (c Config) AuthorScopedRepo(repo string) bool {
-	return containsFold(c.AllowedAuthorsOnlyRepos, repo)
+	return RepoMatches(c.AllowedAuthorsOnlyRepos, repo)
 }
 
-func containsFold(list []string, want string) bool {
+// RepoMatches reports whether want is in list using GitHub repo identity
+// semantics (case-insensitive owner/name match).
+func RepoMatches(list []string, want string) bool {
 	for _, r := range list {
 		if strings.EqualFold(r, want) {
 			return true

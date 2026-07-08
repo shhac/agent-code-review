@@ -5,8 +5,14 @@ import (
 	"strings"
 )
 
-// SortedRepos returns a presentation copy of repos ordered by owner/repo.
-func SortedRepos(repos []string) []string {
+// SortedRepos returns the watched repos as a presentation copy ordered by
+// owner/repo. Discovery still consumes Config.Repos directly so config order
+// remains behavior-neutral.
+func (c Config) SortedRepos() []string {
+	return sortRepos(c.Repos)
+}
+
+func sortRepos(repos []string) []string {
 	sorted := append([]string(nil), repos...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		left := strings.ToLower(sorted[i])

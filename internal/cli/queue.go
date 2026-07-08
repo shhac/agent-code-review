@@ -250,9 +250,15 @@ func withStore(fn func(store.Store) error) error {
 
 func parseRepoNumber(args []string) (string, int, error) {
 	repo := args[0]
+	if !config.ValidRepoName(repo) {
+		return "", 0, output.New("Repo must be owner/name, got "+repo, output.FixableByAgent)
+	}
 	number, err := strconv.Atoi(args[1])
 	if err != nil {
 		return "", 0, output.New("PR number must be an integer, got "+args[1], output.FixableByAgent)
+	}
+	if number <= 0 {
+		return "", 0, output.New("PR number must be positive, got "+args[1], output.FixableByAgent)
 	}
 	return repo, number, nil
 }

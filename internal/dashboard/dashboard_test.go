@@ -48,37 +48,38 @@ func TestValidateReorder(t *testing.T) {
 		})
 	}
 }
-func TestPRRefPattern(t *testing.T) {
+func TestParsePRRef(t *testing.T) {
 	cases := []struct {
 		in         string
 		repo       string
-		number     string
+		number     int
 		shouldFail bool
 	}{
-		{"https://github.com/owner/repo/pull/123", "owner/repo", "123", false},
-		{"https://github.com/owner/repo/pull/123/files", "owner/repo", "123", false},
-		{"owner/repo/pull/9", "owner/repo", "9", false},
-		{"owner/my.repo-x_1/pull/42", "owner/my.repo-x_1", "42", false},
-		{"http://github.com/owner/repo/pull/1", "", "", true},  // https only
-		{"https://gitlab.com/owner/repo/pull/1", "", "", true}, // github.com only
-		{"owner/repo#123", "", "", true},
-		{"owner/repo", "", "", true},
-		{"just words", "", "", true},
+		{"https://github.com/owner/repo/pull/123", "owner/repo", 123, false},
+		{"https://github.com/owner/repo/pull/123/files", "owner/repo", 123, false},
+		{"owner/repo/pull/9", "owner/repo", 9, false},
+		{"owner/my.repo-x_1/pull/42", "owner/my.repo-x_1", 42, false},
+		{"http://github.com/owner/repo/pull/1", "", 0, true},  // https only
+		{"https://gitlab.com/owner/repo/pull/1", "", 0, true}, // github.com only
+		{"owner/bad repo/pull/1", "", 0, true},
+		{"owner/repo#123", "", 0, true},
+		{"owner/repo", "", 0, true},
+		{"just words", "", 0, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
-			m := prRefPattern.FindStringSubmatch(tc.in)
+			got, ok := parsePRRef(tc.in)
 			if tc.shouldFail {
-				if m != nil {
-					t.Errorf("expected no match, got %v", m)
+				if ok {
+					t.Errorf("expected no match, got %v", got)
 				}
 				return
 			}
-			if m == nil {
+			if !ok {
 				t.Fatal("expected match, got none")
 			}
-			if m[1] != tc.repo || m[2] != tc.number {
-				t.Errorf("got repo=%s number=%s, want %s %s", m[1], m[2], tc.repo, tc.number)
+			if got.Repo != tc.repo || got.Number != tc.number {
+				t.Errorf("got repo=%s number=%d, want %s %d", got.Repo, got.Number, tc.repo, tc.number)
 			}
 		})
 	}
@@ -112,12 +113,12 @@ func TestViewQueue(t *testing.T) {
 	holdUntil := now.Add(30 * time.Minute)
 	holdOver := now.Add(-time.Minute)
 	in := []store.Candidate{
-		{Number: 1},                          // unclaimed
-		{Number: 2, ClaimedAt: &fresh},       // engine on it right now
-		{Number: 3, ClaimedAt: &stale},       // abandoned lease — next cycle reclaims
-		{Number: 4, ClaimedAt: &boundary},    // boundary — must agree with the scheduler
-		{Number: 5, EligibleAt: &holdUntil},  // eligibility hold — visible but skipped
-		{Number: 6, EligibleAt: &holdOver},   // expired hold — plain queued again
+		{Number: 1},                         // unclaimed
+		{Number: 2, ClaimedAt: &fresh},      // engine on it right now
+		{Number: 3, ClaimedAt: &stale},      // abandoned lease — next cycle reclaims
+		{Number: 4, ClaimedAt: &boundary},   // boundary — must agree with the scheduler
+		{Number: 5, EligibleAt: &holdUntil}, // eligibility hold — visible but skipped
+		{Number: 6, EligibleAt: &holdOver},  // expired hold — plain queued again
 	}
 	got := viewQueue(in, now, staleAfter)
 	want := []string{"queued", "reviewing", "queued", "reviewing", "held", "queued"}

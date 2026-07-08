@@ -134,7 +134,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	repos := make([]map[string]any, 0, len(cfg.Repos))
-	for _, r := range config.SortedRepos(cfg.Repos) {
+	for _, r := range cfg.SortedRepos() {
 		repos = append(repos, map[string]any{"name": r, "allowed_authors_only": cfg.AuthorScopedRepo(r)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

@@ -127,17 +127,8 @@ func matches(w config.Condition, c store.Candidate, f Facts) bool {
 	if w.CandidateType != "" && !strings.EqualFold(w.CandidateType, c.Type) {
 		return false
 	}
-	if len(w.Repos) > 0 && !contains(w.Repos, c.Repo) {
+	if len(w.Repos) > 0 && !config.RepoMatches(w.Repos, c.Repo) {
 		return false
 	}
 	return true
-}
-
-func contains(xs []string, want string) bool {
-	for _, x := range xs {
-		if x == want {
-			return true
-		}
-	}
-	return false
 }

@@ -1,10 +1,10 @@
 // Fetch layer: JSON in/out with the API's {error} envelope surfaced as throws.
 
-export async function fetchJSON(path: string) {
+export async function fetchJSON<T = any>(path: string): Promise<T> {
   const res = await fetch(path);
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || res.statusText);
-  return data;
+  return data as T;
 }
 
 export async function post(path: string, body: unknown) {

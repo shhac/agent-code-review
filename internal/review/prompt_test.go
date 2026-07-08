@@ -64,6 +64,19 @@ func TestBuildPromptAppendsMatchingRules(t *testing.T) {
 	}
 }
 
+func TestBuildPromptMatchesRuleReposCaseInsensitively(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		Rules: []config.Rule{
+			{Name: "repo", When: config.Condition{Repos: []string{"Org/Repo"}}, Prompt: "REPO-ONLY"},
+		},
+	}}
+	got := BuildPrompt(cfg, store.Candidate{Repo: "org/repo", Number: 7, Author: "bob"}, Facts{})
+	if !strings.Contains(got, "REPO-ONLY") {
+		t.Errorf("repo rule must match GitHub repo identity case-insensitively, got:\n%s", got)
+	}
+}
+
 func TestApprovalDirectiveDefaultsToCommentOnly(t *testing.T) {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
 	c := store.Candidate{Repo: "o/r", Number: 5, Author: "carol"}

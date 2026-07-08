@@ -120,17 +120,20 @@ func TestRepoPredicates(t *testing.T) {
 	if !c.AuthorScopedRepo("ORG/SCOPED") || c.AuthorScopedRepo("org/repo") {
 		t.Error("AuthorScopedRepo must be case-insensitive and exact-membership")
 	}
+	if !RepoMatches([]string{"Example/Repo"}, "example/repo") || RepoMatches([]string{"example/repo"}, "example/other") {
+		t.Error("RepoMatches must centralize case-insensitive repo membership")
+	}
 }
 
 func TestSortedRepos(t *testing.T) {
-	in := []string{"zeta/api", "Alpha/web", "alpha/admin"}
-	got := SortedRepos(in)
+	cfg := Config{Repos: []string{"zeta/api", "Alpha/web", "alpha/admin"}}
+	got := cfg.SortedRepos()
 	want := []string{"alpha/admin", "Alpha/web", "zeta/api"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("SortedRepos = %v, want %v", got, want)
+		t.Errorf("Config.SortedRepos = %v, want %v", got, want)
 	}
-	if strings.Join(in, ",") != "zeta/api,Alpha/web,alpha/admin" {
-		t.Errorf("SortedRepos must not mutate input, got %v", in)
+	if strings.Join(cfg.Repos, ",") != "zeta/api,Alpha/web,alpha/admin" {
+		t.Errorf("Config.SortedRepos must not mutate input, got %v", cfg.Repos)
 	}
 }
 

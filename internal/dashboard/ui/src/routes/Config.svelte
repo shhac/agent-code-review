@@ -2,13 +2,43 @@
   import { onMount } from 'svelte';
   import { fetchJSON } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
+  import type { AllowedAuthor, ConfigResponse } from '../lib/types';
 
-  let configData: any = null;
-  let authors: any[] = [];
+  type SettingsGroup = [string, [string, string][]];
+
+  let configData: ConfigResponse | null = null;
+  let authors: AllowedAuthor[] = [];
+  $: settingsGroups = configData ? ([
+    ['Daemon', [
+      ['Version', configData.version || 'dev'],
+      ['Reviewing as', configData.reviewing_as ? `@${configData.reviewing_as}` : 'unknown (gh not authenticated?)'],
+    ]],
+    ['Review loop', [
+      ['State (this daemon)', configData.review_running ? 'running' : configData.schedule.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
+      ['Engine', configData.engine],
+      ['Interval', configData.schedule.interval],
+      ['Max parallel', String(configData.schedule.max_parallel)],
+      ['Usage floor (5h)', configData.schedule.usage_floor_5h_percent ? `pause below ${configData.schedule.usage_floor_5h_percent}% remaining` : 'disabled'],
+      ['Usage floor (weekly)', configData.schedule.usage_floor_weekly_percent ? `pause below ${configData.schedule.usage_floor_weekly_percent}% remaining` : 'disabled'],
+    ]],
+    ['Discovery', [
+      ['State (this daemon)', configData.discovery_running ? 'running' : configData.discovery.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
+      ['Interval', configData.discovery.interval],
+    ]],
+    ['Candidate eligibility', [
+      ['New PR window', `${configData.candidates.new_max_age_days} days`],
+      ['Refreshed window', `${configData.candidates.refreshed_max_age_days} days`],
+      ['Re-review cooldown', configData.candidates.rereview_cooldown === '0s' ? 'disabled' : `hold ${configData.candidates.rereview_cooldown} after our review`],
+      ['Quiet period', configData.candidates.quiet_period === '0s' ? 'disabled' : `hold until untouched for ${configData.candidates.quiet_period}`],
+    ]],
+  ] satisfies SettingsGroup[]) : [];
 
   async function load() {
     try {
-      const [cfg, au] = await Promise.all([fetchJSON('/api/config'), fetchJSON('/api/authors')]);
+      const [cfg, au] = await Promise.all([
+        fetchJSON<ConfigResponse>('/api/config'),
+        fetchJSON<{ authors: AllowedAuthor[] }>('/api/authors'),
+      ]);
       configData = cfg;
       authors = au.authors || [];
       feedLive('read-only');
@@ -42,30 +72,7 @@
     <section class="surface">
       <div class="section-head"><h2>Settings</h2></div>
       <div class="settings">
-        {#each [
-          ['Daemon', [
-            ['Version', configData.version || 'dev'],
-            ['Reviewing as', configData.reviewing_as ? `@${configData.reviewing_as}` : 'unknown (gh not authenticated?)'],
-          ]],
-          ['Review loop', [
-            ['State (this daemon)', configData.review_running ? 'running' : configData.schedule.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
-            ['Engine', configData.engine],
-            ['Interval', configData.schedule.interval],
-            ['Max parallel', configData.schedule.max_parallel],
-            ['Usage floor (5h)', configData.schedule.usage_floor_5h_percent ? `pause below ${configData.schedule.usage_floor_5h_percent}% remaining` : 'disabled'],
-            ['Usage floor (weekly)', configData.schedule.usage_floor_weekly_percent ? `pause below ${configData.schedule.usage_floor_weekly_percent}% remaining` : 'disabled'],
-          ]],
-          ['Discovery', [
-            ['State (this daemon)', configData.discovery_running ? 'running' : configData.discovery.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
-            ['Interval', configData.discovery.interval],
-          ]],
-          ['Candidate eligibility', [
-            ['New PR window', `${configData.candidates.new_max_age_days} days`],
-            ['Refreshed window', `${configData.candidates.refreshed_max_age_days} days`],
-            ['Re-review cooldown', configData.candidates.rereview_cooldown === '0s' ? 'disabled' : `hold ${configData.candidates.rereview_cooldown} after our review`],
-            ['Quiet period', configData.candidates.quiet_period === '0s' ? 'disabled' : `hold until untouched for ${configData.candidates.quiet_period}`],
-          ]],
-        ] as group}
+        {#each settingsGroups as group}
           <div class="cluster">
             <h3>{group[0]}</h3>
             {#each group[1] as row}

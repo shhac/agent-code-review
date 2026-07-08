@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -36,8 +35,8 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 
 // removeFromQueue drops a candidate entirely — the "changed our mind" path.
 func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
-	var req prRef
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !config.ValidRepoName(req.Repo) || req.Number <= 0 {
+	req, ok := decodePRRef(r)
+	if !ok {
 		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
 		return
 	}
@@ -123,11 +122,6 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"candidates": views, "counts": countQueue(views)})
 }
 
-// prRefPattern matches a PR reference in URL syntax, with or without the
-// https://github.com/ prefix: "owner/repo/pull/123" works bare. Its repo
-// segment mirrors config.ValidRepoName's grammar.
-var prRefPattern = regexp.MustCompile(`^(?:https://github\.com/)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([0-9]+)`)
-
 // addToQueue accepts {"url": "<PR reference>"} — a full GitHub PR URL or the
 // bare "owner/repo/pull/N" form — or {"repo": "owner/name", "number": N}.
 // Either way the repo must be one of the configured watched repos — the
@@ -143,13 +137,12 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.URL != "" {
-		m := prRefPattern.FindStringSubmatch(strings.TrimSpace(req.URL))
-		if m == nil {
+		ref, ok := parsePRRef(req.URL)
+		if !ok {
 			httpError(w, http.StatusBadRequest, "not a PR reference — expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
 			return
 		}
-		req.Repo = m[1]
-		req.Number, _ = strconv.Atoi(m[2])
+		req.prRef = ref
 	}
 	if !config.ValidRepoName(req.Repo) || req.Number <= 0 {
 		httpError(w, http.StatusBadRequest, `need {"url": "owner/repo/pull/N"} or {"repo": "owner/name", "number": N}`)
@@ -193,6 +186,31 @@ type prRef struct {
 	Number int    `json:"number"`
 }
 
+func decodePRRef(r *http.Request) (prRef, bool) {
+	var req prRef
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return prRef{}, false
+	}
+	return req, config.ValidRepoName(req.Repo) && req.Number > 0
+}
+
+// parsePRRef accepts GitHub PR URLs and the bare owner/repo/pull/N form,
+// delegating owner/name validation to config.ValidRepoName.
+func parsePRRef(raw string) (prRef, bool) {
+	ref := strings.TrimSpace(raw)
+	ref = strings.TrimPrefix(ref, "https://github.com/")
+	parts := strings.Split(ref, "/")
+	if len(parts) < 4 || parts[2] != "pull" {
+		return prRef{}, false
+	}
+	repo := parts[0] + "/" + parts[1]
+	number, err := strconv.Atoi(parts[3])
+	if err != nil || !config.ValidRepoName(repo) || number <= 0 {
+		return prRef{}, false
+	}
+	return prRef{Repo: repo, Number: number}, true
+}
+
 // handleQueuePromote is the explicit "review this now" action: float the row
 // to the top, clear any eligibility hold, and escalate it to a manual add
 // (bypassing the pre-review candidacy recheck) — the same semantics as
@@ -203,8 +221,8 @@ func (s *Server) handleQueuePromote(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	var req prRef
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !config.ValidRepoName(req.Repo) || req.Number <= 0 {
+	req, ok := decodePRRef(r)
+	if !ok {
 		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
 		return
 	}

@@ -1,6 +1,7 @@
 package review
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -45,6 +46,72 @@ func TestBuildArgs(t *testing.T) {
 	if !strings.Contains(joined, "--sandbox workspace-write") {
 		t.Error("default sandbox must be workspace-write")
 	}
+}
+
+func TestCodexReviewProcessResultBranches(t *testing.T) {
+	t.Run("valid report wins over non-zero exit", func(t *testing.T) {
+		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t, `printf '%s\n' "raw line"
+printf '%s\n' "tokens used"
+printf '%s\n' "1,234"
+printf '{"decision":"COMMENTED","summary":"left comments"}' > "$last_msg"
+exit 7
+`)})
+		v, err := engine.Review(context.Background(), Request{WorkDir: t.TempDir(), Prompt: "P"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v.Decision != DecisionCommented || v.Summary != "left comments" || v.TokensUsed != 1234 || !strings.Contains(v.Raw, "raw line") {
+			t.Errorf("verdict = %+v, want COMMENTED with raw output and tokens", v)
+		}
+	})
+
+	t.Run("non-zero without report returns error verdict", func(t *testing.T) {
+		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t, `printf '%s\n' diagnostics
+printf '%s\n' "tokens used"
+printf '%s\n' "941"
+exit 7
+`)})
+		v, err := engine.Review(context.Background(), Request{WorkDir: t.TempDir(), Prompt: "P"})
+		if err == nil {
+			t.Fatal("expected codex exec error")
+		}
+		if v.Decision != DecisionError || v.TokensUsed != 941 || !strings.Contains(v.Raw, "diagnostics") {
+			t.Errorf("verdict = %+v, want ERROR with raw output and tokens", v)
+		}
+	})
+
+	t.Run("zero exit with invalid report returns error verdict", func(t *testing.T) {
+		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t, `printf '%s\n' done
+printf 'not json' > "$last_msg"
+exit 0
+`)})
+		v, err := engine.Review(context.Background(), Request{WorkDir: t.TempDir(), Prompt: "P"})
+		if err == nil {
+			t.Fatal("expected parse error")
+		}
+		if v.Decision != DecisionError || !strings.Contains(v.Raw, "done") {
+			t.Errorf("verdict = %+v, want ERROR with raw output", v)
+		}
+	})
+}
+
+func fakeCodex(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "codex")
+	script := `#!/bin/sh
+last_msg=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then
+    shift
+    last_msg="$1"
+  fi
+  shift
+done
+` + body
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // TestNewAgentSink pins the tee contract: engine output lands in both the

@@ -93,19 +93,19 @@ func TestReviewCycle(t *testing.T) {
 		}
 	})
 
-	t.Run("queue error fails the run", func(t *testing.T) {
+	t.Run("queue error propagates without recording a run", func(t *testing.T) {
 		fs := &fakeCycleStore{queueErr: errors.New("db gone")}
 		s := newCycleScheduler(fs, &fakeEngine{})
 		if err := s.ReviewCycle(context.Background()); err == nil {
 			t.Fatal("queue error must propagate")
 		}
-		if len(fs.finished) != 1 || fs.finished[0] != "failed" {
-			t.Errorf("run must finish as failed, got %v", fs.finished)
+		if len(fs.started) != 0 || len(fs.finished) != 0 {
+			t.Errorf("queue error happens before the run-lock, got started=%d finished=%v", len(fs.started), fs.finished)
 		}
 	})
 
 	t.Run("engine build error aborts before the run-lock", func(t *testing.T) {
-		fs := &fakeCycleStore{}
+		fs := &fakeCycleStore{queue: []store.Candidate{{Repo: "o/r", Number: 1}}}
 		s := newCycleScheduler(fs, &fakeEngine{})
 		s.newEngine = func(config.Config) (review.Engine, error) { return nil, errors.New("bad engine") }
 		if err := s.ReviewCycle(context.Background()); err == nil {
@@ -116,14 +116,55 @@ func TestReviewCycle(t *testing.T) {
 		}
 	})
 
-	t.Run("empty queue records a clean run", func(t *testing.T) {
+	t.Run("empty queue is an idle no-op recording nothing", func(t *testing.T) {
 		fs := &fakeCycleStore{}
 		s := newCycleScheduler(fs, &fakeEngine{})
 		if err := s.ReviewCycle(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		if len(fs.finished) != 1 || fs.finished[0] != "done" {
-			t.Errorf("no-candidates cycle must still finish its run as done, got %v", fs.finished)
+		if len(fs.started) != 0 || len(fs.finished) != 0 {
+			t.Errorf("idle cycle must record no run (1m cadence would flood the runs table), got started=%d finished=%v", len(fs.started), fs.finished)
+		}
+	})
+
+	t.Run("held candidates are skipped; an all-held queue is idle", func(t *testing.T) {
+		soon := time.Now().Add(30 * time.Minute)
+		fs := &fakeCycleStore{queue: []store.Candidate{
+			{Repo: "o/r", Number: 1, HeadSHA: "s1", EligibleAt: &soon, HoldReason: store.HoldCooldown},
+			{Repo: "o/r", Number: 2, HeadSHA: "s2"},
+		}}
+		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+		s := newCycleScheduler(fs, fe)
+		if err := s.ReviewCycle(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if len(fs.completed) != 1 || fs.completed[0].Number != 2 {
+			t.Errorf("only the eligible candidate may be reviewed, got %+v", fs.completed)
+		}
+
+		// Every row held → idle cycle, nothing recorded.
+		fs = &fakeCycleStore{queue: []store.Candidate{
+			{Repo: "o/r", Number: 1, HeadSHA: "s1", EligibleAt: &soon, HoldReason: store.HoldSettling},
+		}}
+		s = newCycleScheduler(fs, fe)
+		if err := s.ReviewCycle(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if len(fs.started) != 0 || len(fs.completed) != 0 {
+			t.Errorf("all-held queue must be an idle cycle, got started=%d completed=%d", len(fs.started), len(fs.completed))
+		}
+
+		// An expired hold is eligible again.
+		past := time.Now().Add(-time.Minute)
+		fs = &fakeCycleStore{queue: []store.Candidate{
+			{Repo: "o/r", Number: 3, HeadSHA: "s3", EligibleAt: &past, HoldReason: store.HoldCooldown},
+		}}
+		s = newCycleScheduler(fs, fe)
+		if err := s.ReviewCycle(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if len(fs.completed) != 1 || fs.completed[0].Number != 3 {
+			t.Errorf("expired hold must be reviewable, got %+v", fs.completed)
 		}
 	})
 }

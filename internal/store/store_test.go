@@ -33,6 +33,32 @@ func TestClaimActive(t *testing.T) {
 	}
 }
 
+// TestHeld pins the hold predicate the scheduler's eligibility filter and
+// the dashboard's "on hold" badge are defined in terms of — including the
+// exact-boundary case: at eligible_at precisely, the hold is over.
+func TestHeld(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *time.Time {
+		v := now.Add(d)
+		return &v
+	}
+	cases := []struct {
+		name string
+		c    Candidate
+		want bool
+	}{
+		{"no hold", Candidate{}, false},
+		{"future eligibility is held", Candidate{EligibleAt: at(time.Minute)}, true},
+		{"exactly eligible is not held", Candidate{EligibleAt: at(0)}, false},
+		{"expired hold is not held", Candidate{EligibleAt: at(-time.Minute)}, false},
+	}
+	for _, tc := range cases {
+		if got := tc.c.Held(now); got != tc.want {
+			t.Errorf("%s: Held = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 // TestRealVerdictsSQLDerivation: the SQL filter literal must be generated
 // from the same list the Go predicate uses.
 func TestRealVerdictsSQLDerivation(t *testing.T) {

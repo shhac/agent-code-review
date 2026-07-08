@@ -142,6 +142,9 @@ func (s *Scheduler) Discover(ctx context.Context) error {
 
 // ReviewCycle processes the queued candidates. It is a no-op (returns nil)
 // when another cycle is still in flight — the run-lock rule from the spec.
+// An idle cycle (nothing available to review) exits before the run-lock and
+// records nothing: with the default 1m cadence, anything else would flood the
+// runs table and the log with empty ticks.
 func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 	// Usage floor: leave headroom in the Codex windows for interactive work.
 	// Checked before the run-lock so a paused cycle records no run. The loop
@@ -152,6 +155,16 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 		return nil
 	}
 
+	staleAfter := cfg.LeaseWindow()
+	queue, err := s.store.ListQueue(ctx, "")
+	if err != nil {
+		return err
+	}
+	available := availableCandidates(queue, time.Now(), staleAfter)
+	if len(available) == 0 {
+		return nil
+	}
+
 	engine, err := s.newEngine(cfg)
 	if err != nil {
 		return fmt.Errorf("build review engine: %w", err)
@@ -159,7 +172,6 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 
 	s.logf("cycle: started at %s", time.Now().Format(time.RFC3339))
 
-	staleAfter := cfg.LeaseWindow()
 	if _, active, err := s.store.ActiveRun(ctx, staleAfter); err != nil {
 		return err
 	} else if active {
@@ -179,30 +191,21 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 		s.logf("cycle: finished at %s (%s)", time.Now().Format(time.RFC3339), status)
 	}()
 
-	queue, err := s.store.ListQueue(ctx, "")
-	if err != nil {
-		status = "failed"
-		return err
-	}
-	// A fresh claim is another worker (or a previous cycle) mid-review; a
-	// stale one is a crashed daemon's abandoned lease — reclaim it.
-	available := availableCandidates(queue, time.Now(), staleAfter)
-	if len(available) == 0 {
-		s.logf("cycle: no candidates")
-		return nil
-	}
 	s.logf("cycle: %d candidate(s) to review", len(available))
 	s.processQueue(ctx, available, cfg, engine)
 	return nil
 }
 
-// availableCandidates filters the queue to rows without a live lease (see
-// store.Candidate.ClaimActive): unclaimed rows plus stale claims abandoned by
-// a crashed daemon. Pure — the boundary is unit-tested directly.
+// availableCandidates filters the queue to rows that are actually reviewable
+// right now: no live lease (see store.Candidate.ClaimActive — a fresh claim
+// is another worker mid-review; a stale one is a crashed daemon's abandoned
+// lease, reclaimed here) and no eligibility hold (store.Candidate.Held —
+// cooling down after a recent review, or settling after a fresh push). Pure —
+// the boundary is unit-tested directly.
 func availableCandidates(queue []store.Candidate, now time.Time, staleAfter time.Duration) []store.Candidate {
 	out := make([]store.Candidate, 0, len(queue))
 	for _, c := range queue {
-		if !c.ClaimActive(now, staleAfter) {
+		if !c.ClaimActive(now, staleAfter) && !c.Held(now) {
 			out = append(out, c)
 		}
 	}

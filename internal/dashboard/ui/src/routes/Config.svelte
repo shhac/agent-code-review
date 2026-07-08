@@ -55,6 +55,8 @@
           ['Discovery interval', configData.discovery.interval],
           ['New PR window (days)', configData.candidates.new_max_age_days],
           ['Refreshed PR window (days)', configData.candidates.refreshed_max_age_days],
+          ['Re-review cooldown', configData.candidates.rereview_cooldown === '0s' ? 'disabled' : `hold ${configData.candidates.rereview_cooldown} after our review`],
+          ['Quiet period', configData.candidates.quiet_period === '0s' ? 'disabled' : `hold until untouched for ${configData.candidates.quiet_period}`],
         ] as row}
           <div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>
         {/each}

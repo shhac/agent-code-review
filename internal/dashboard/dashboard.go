@@ -143,6 +143,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"candidates": map[string]any{
 			"new_max_age_days":       int(cfg.NewMaxAge().Hours() / 24),
 			"refreshed_max_age_days": int(cfg.RefreshedMaxAge().Hours() / 24),
+			"rereview_cooldown":      cfg.RereviewCooldown().String(),
+			"quiet_period":           cfg.QuietPeriod().String(),
 		},
 		"schedule": map[string]any{
 			"enabled":                    cfg.Schedule.Enabled,

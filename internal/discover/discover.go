@@ -162,27 +162,14 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	}
 
 	// The last real verdict in our own history feeds both Refreshed detection
-	// and the cooldown hold, so it's fetched once ahead of the type branches.
+	// and the cooldown hold, so it's fetched once ahead of the type decision.
 	last, reviewed, err := d.store.LastReview(ctx, repo, pr.Number)
 	if err != nil {
 		return store.Candidate{}, false, err
 	}
 
-	var typ string
-	switch {
-	// NEW: never reviewed by anyone, within the New window.
-	case !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= cfg.NewMaxAge():
-		typ = store.TypeNew
-	// REFRESHED: we reviewed it before, at a different head SHA, within the
-	// Refreshed window. "Reviewed by us" means a real verdict in our own
-	// history (LastReview filters out SKIPPED/ERROR), not gh state. The SHA
-	// inequality is redundant while every real review also lands in history
-	// (suppression above already returned for a current-SHA outcome) — kept
-	// as cheap insurance so Refreshed stays correct even if that invariant
-	// ever breaks.
-	case reviewed && last.HeadSHA != pr.HeadRefOID && now.Sub(pr.CreatedAt) <= cfg.RefreshedMaxAge():
-		typ = store.TypeRefreshed
-	default:
+	typ, ok := classifyType(pr, cfg, now, last, reviewed)
+	if !ok {
 		return store.Candidate{}, false, nil
 	}
 
@@ -193,6 +180,28 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	}
 	c.EligibleAt, c.HoldReason = hold(now, cfg, pr.UpdatedAt, lastReviewedAt)
 	return c, true, nil
+}
+
+// classifyType is the pure New-vs-Refreshed decision, extracted (like hold)
+// so the boundary rules table-test without fakes. last/reviewed are our own
+// most recent real verdict, per the store.
+func classifyType(pr ghPR, cfg config.Config, now time.Time, last store.Review, reviewed bool) (string, bool) {
+	switch {
+	// NEW: never reviewed by anyone, within the New window.
+	case !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= cfg.NewMaxAge():
+		return store.TypeNew, true
+	// REFRESHED: we reviewed it before, at a different head SHA, within the
+	// Refreshed window. "Reviewed by us" means a real verdict in our own
+	// history (LastReview filters out SKIPPED/ERROR), not gh state. The SHA
+	// inequality is redundant while every real review also lands in history
+	// (classify's same-SHA suppression already returned for a current-SHA
+	// outcome) — kept as cheap insurance so Refreshed stays correct even if
+	// that invariant ever breaks.
+	case reviewed && last.HeadSHA != pr.HeadRefOID && now.Sub(pr.CreatedAt) <= cfg.RefreshedMaxAge():
+		return store.TypeRefreshed, true
+	default:
+		return "", false
+	}
 }
 
 // hold computes a discovered candidate's eligibility hold: the later of the

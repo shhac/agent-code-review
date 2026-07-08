@@ -249,6 +249,37 @@ func TestClassifyRefreshedAfterNewCommits(t *testing.T) {
 	}
 }
 
+// TestClassifyType table-tests the pure New/Refreshed decision at its
+// boundaries — no fakes needed, which is why it was extracted.
+func TestClassifyType(t *testing.T) {
+	now := fixedNow()
+	cfg := config.Config{} // defaults: New ≤ 14d, Refreshed ≤ 21d
+	day := 24 * time.Hour
+	cases := []struct {
+		name     string
+		pr       ghPR
+		last     store.Review
+		reviewed bool
+		wantType string
+		wantOK   bool
+	}{
+		{"fresh unreviewed is New", ghPR{CreatedAt: now.Add(-day)}, store.Review{}, false, store.TypeNew, true},
+		{"exactly at the New window edge is New", ghPR{CreatedAt: now.Add(-14 * day)}, store.Review{}, false, store.TypeNew, true},
+		{"past the New window, never reviewed by us: neither", ghPR{CreatedAt: now.Add(-15 * day)}, store.Review{}, false, "", false},
+		{"gh review exists but not ours: not New, not Refreshed", ghPR{CreatedAt: now.Add(-day), Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{}, false, "", false},
+		{"ours at a different SHA is Refreshed", ghPR{CreatedAt: now.Add(-15 * day), HeadRefOID: "b", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, store.TypeRefreshed, true},
+		{"ours at the same SHA: neither", ghPR{CreatedAt: now.Add(-day), HeadRefOID: "a", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, "", false},
+		{"past the Refreshed window: neither", ghPR{CreatedAt: now.Add(-22 * day), HeadRefOID: "b", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, "", false},
+		{"New wins when both could match", ghPR{CreatedAt: now.Add(-day), HeadRefOID: "b"}, store.Review{HeadSHA: "a"}, true, store.TypeNew, true},
+	}
+	for _, tc := range cases {
+		typ, ok := classifyType(tc.pr, cfg, now, tc.last, tc.reviewed)
+		if typ != tc.wantType || ok != tc.wantOK {
+			t.Errorf("%s: classifyType = (%q, %v), want (%q, %v)", tc.name, typ, ok, tc.wantType, tc.wantOK)
+		}
+	}
+}
+
 // TestClassifyHolds pins the eligibility-hold computation: a freshly-updated
 // PR gets a settling hold (quiet period), a recently-reviewed PR gets a
 // cooldown hold, the later bound wins, and settled-and-cooled PRs carry no
@@ -298,6 +329,22 @@ func TestClassifyHolds(t *testing.T) {
 		want := reviewedAt.Add(90 * time.Minute) // default rereview cooldown
 		if c.EligibleAt == nil || !c.EligibleAt.Equal(want) || c.HoldReason != store.HoldCooldown {
 			t.Errorf("eligible=%v reason=%q, want %v cooldown", c.EligibleAt, c.HoldReason, want)
+		}
+	})
+
+	t.Run("fresh push during cooldown: settling outlasts and wins", func(t *testing.T) {
+		reviewedAt := fixedNow().Add(-80 * time.Minute) // cooldown ends in 10m
+		fs := &fakeStore{hasLast: true, last: store.Review{HeadSHA: "old-sha", Verdict: "COMMENTED", ReviewedAt: reviewedAt}}
+		d := newDiscoverer(fs)
+		pr := newPR(fixedNow().Add(-time.Minute)) // settling ends in 14m — later than the cooldown
+		pr.Reviews = []ghReview{{State: "COMMENTED"}}
+		c, ok, err := d.classify(context.Background(), d.cfg(), "o/r", pr)
+		if err != nil || !ok {
+			t.Fatalf("held PR must still classify, ok=%v err=%v", ok, err)
+		}
+		want := fixedNow().Add(-time.Minute).Add(15 * time.Minute)
+		if c.EligibleAt == nil || !c.EligibleAt.Equal(want) || c.HoldReason != store.HoldSettling {
+			t.Errorf("eligible=%v reason=%q, want %v settling (the later bound must win)", c.EligibleAt, c.HoldReason, want)
 		}
 	})
 

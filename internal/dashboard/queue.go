@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -159,7 +158,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	// Fetch real metadata up front (title/author/SHA) and reject closed or
 	// merged PRs — discovery only backfills PRs that match the candidate
 	// rules, which a manual add may not.
-	c, err := discover.ManualCandidate(ctx, req.Repo, req.Number)
+	c, err := s.manualCandidate(ctx, req.Repo, req.Number)
 	if err != nil {
 		httpError(w, http.StatusBadGateway, err.Error())
 		return

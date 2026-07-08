@@ -40,13 +40,18 @@ type Discoverer struct {
 	store candidateStore
 	now   Clock
 	logf  Logf
+	// listPRs fetches one repo's open PRs (gh in production; injected in
+	// tests so the sweep's per-repo resilience is testable without gh).
+	listPRs func(ctx context.Context, repo string) ([]ghPR, error)
 }
 
 func New(cfg func() config.Config, s candidateStore, logf Logf) *Discoverer {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &Discoverer{cfg: cfg, store: s, now: time.Now, logf: logf}
+	d := &Discoverer{cfg: cfg, store: s, now: time.Now, logf: logf}
+	d.listPRs = d.ghListPRs
+	return d
 }
 
 // Discover lists PRs across all configured repos, classifies each as New or
@@ -87,8 +92,9 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 	return found, nil
 }
 
-// listPRs fetches open PRs for one repo with the fields we classify on.
-func (d *Discoverer) listPRs(ctx context.Context, repo string) ([]ghPR, error) {
+// ghListPRs fetches open PRs for one repo with the fields we classify on —
+// the production listPRs.
+func (d *Discoverer) ghListPRs(ctx context.Context, repo string) ([]ghPR, error) {
 	out, err := runGH(ctx, "pr", "list",
 		"--repo", repo,
 		"--state", "open",

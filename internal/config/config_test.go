@@ -143,3 +143,34 @@ func TestStorePathDefaultsUnderDataDir(t *testing.T) {
 		t.Errorf("StorePath override = %q, want /tmp/custom.duckdb", got)
 	}
 }
+
+// TestInitAndReadWrite pins the file lifecycle under an isolated config dir:
+// Init writes the starter exactly once (refusing to overwrite a real
+// config), Read parses what Init wrote, and Write→Read round-trips edits.
+func TestInitAndReadWrite(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	path, err := Init()
+	if err != nil {
+		t.Fatalf("first Init must succeed: %v", err)
+	}
+	if path != Path() {
+		t.Errorf("Init path = %q, want %q", path, Path())
+	}
+	if _, err := Init(); err == nil {
+		t.Fatal("second Init must refuse to overwrite")
+	}
+
+	cfg := Read()
+	if cfg.Schedule.Interval != "30m" {
+		t.Errorf("starter schedule.interval = %q, want 30m", cfg.Schedule.Interval)
+	}
+
+	cfg.GHUser = "example-handle"
+	if err := Write(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := Read(); got.GHUser != "example-handle" {
+		t.Errorf("round-trip gh_user = %q", got.GHUser)
+	}
+}

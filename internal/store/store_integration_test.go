@@ -354,6 +354,7 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	}
 	rec := ReviewFrom(c, "COMMENTED", "test-engine", time.Now().Add(-90*time.Second))
 	rec.WorkDir = "/tmp/example-workdir-21"
+	rec.TokensUsed = 192575
 	if err := s.Complete(ctx, rec); err != nil {
 		t.Fatal(err)
 	}
@@ -373,9 +374,21 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	if last.WorkDir != "/tmp/example-workdir-21" {
 		t.Errorf("work_dir = %q, want the claimed workspace", last.WorkDir)
 	}
+	if last.TokensUsed != 192575 {
+		t.Errorf("tokens_used = %d, want 192575", last.TokensUsed)
+	}
 	all, err := s.ListReviews(ctx, 5)
 	if err != nil || len(all) != 1 || all[0].Title != title {
 		t.Errorf("ListReviews must carry the snapshot too: %+v err=%v", all, err)
+	}
+	if total, err := s.TokensUsed(ctx, time.Time{}); err != nil || total != 192575 {
+		t.Errorf("TokensUsed(all time) = %d err=%v, want 192575", total, err)
+	}
+	if recent, err := s.TokensUsed(ctx, time.Now().Add(-time.Hour)); err != nil || recent != 192575 {
+		t.Errorf("TokensUsed(last hour) = %d err=%v, want 192575", recent, err)
+	}
+	if none, err := s.TokensUsed(ctx, time.Now().Add(time.Hour)); err != nil || none != 0 {
+		t.Errorf("TokensUsed(future window) = %d err=%v, want 0", none, err)
 	}
 }
 

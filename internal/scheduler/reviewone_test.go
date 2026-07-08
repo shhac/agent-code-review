@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,10 +15,12 @@ import (
 )
 
 // fakeSchedStore records the calls reviewOne makes; unused Store methods panic
-// so an unexpected dependency shows up loudly.
+// so an unexpected dependency shows up loudly. The mutex matters: processQueue
+// fans reviewOne out across goroutines, so the recorders must be race-free.
 type fakeSchedStore struct {
 	store.Store // panic on anything not overridden
 
+	mu        sync.Mutex
 	allowed   bool
 	claims    []time.Time
 	workDirs  []string
@@ -25,6 +28,8 @@ type fakeSchedStore struct {
 }
 
 func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, at time.Time, workDir string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.claims = append(f.claims, at)
 	f.workDirs = append(f.workDirs, workDir)
 	return nil
@@ -35,20 +40,27 @@ func (f *fakeSchedStore) IsAuthorAllowed(context.Context, string, string) (bool,
 }
 
 func (f *fakeSchedStore) Complete(_ context.Context, r store.Review) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.completed = append(f.completed, r)
 	return nil
 }
 
-// fakeEngine returns a fixed verdict and captures the prompt it was given.
+// fakeEngine returns a fixed verdict and captures the prompt it was given
+// (mutex-guarded — cycle tests run reviews concurrently).
 type fakeEngine struct {
 	verdict review.Verdict
 	err     error
-	prompt  string
+
+	mu     sync.Mutex
+	prompt string
 }
 
 func (e *fakeEngine) Name() string { return "fake" }
 func (e *fakeEngine) Review(_ context.Context, req review.Request) (review.Verdict, error) {
+	e.mu.Lock()
 	e.prompt = req.Prompt
+	e.mu.Unlock()
 	return e.verdict, e.err
 }
 

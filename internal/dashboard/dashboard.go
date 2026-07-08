@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/logbuf"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
@@ -50,10 +51,19 @@ type Server struct {
 	ghUser     func(ctx context.Context) (string, error)
 	ghUserOnce sync.Once
 	ghUserVal  string
+
+	// manualCandidate fetches live PR metadata for a manual queue add
+	// (discover.ManualCandidate in production; injected in tests so the add
+	// path is testable without gh).
+	manualCandidate func(ctx context.Context, repo string, number int) (store.Candidate, error)
 }
 
 func NewServer(s store.Store, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring, version string) *Server {
-	return &Server{store: s, config: cfg, running: running, usage: u, ghUser: ghUser, logs: logs, version: version}
+	return &Server{
+		store: s, config: cfg, running: running, usage: u, ghUser: ghUser,
+		logs: logs, version: version,
+		manualCandidate: discover.ManualCandidate,
+	}
 }
 
 // reviewingAs returns the identity reviews are posted as: the configured

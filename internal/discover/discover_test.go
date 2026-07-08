@@ -2,6 +2,7 @@ package discover
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -19,9 +20,13 @@ type fakeStore struct {
 	outcome        store.Review
 	hasOutcome     bool
 	allowedAuthors map[string]bool // handle → allowed (for author-scoped repos)
+	enqueued       []store.Candidate
 }
 
-func (f *fakeStore) Enqueue(context.Context, store.Candidate) error { return nil }
+func (f *fakeStore) Enqueue(_ context.Context, c store.Candidate) error {
+	f.enqueued = append(f.enqueued, c)
+	return nil
+}
 func (f *fakeStore) LastReview(context.Context, string, int) (store.Review, bool, error) {
 	return f.last, f.hasLast, nil
 }
@@ -242,4 +247,65 @@ func TestClassifyRefreshedAfterNewCommits(t *testing.T) {
 	if c.Type != store.TypeRefreshed {
 		t.Errorf("type = %q, want refreshed", c.Type)
 	}
+}
+
+// TestDiscoverSweep pins the sweep's per-repo resilience: one failing repo is
+// logged and skipped so it can't take down the cycle, matches from healthy
+// repos are enqueued, and an error surfaces only when EVERY repo failed
+// (which usually means gh itself is broken).
+func TestDiscoverSweep(t *testing.T) {
+	errGH := errors.New("gh: boom")
+	newPR := ghPR{
+		Number:         7,
+		HeadRefOID:     "sha7",
+		CreatedAt:      fixedNow().Add(-24 * time.Hour),
+		ReviewRequests: openReq(),
+	}
+	sweep := func(t *testing.T, listPRs func(context.Context, string) ([]ghPR, error)) (*fakeStore, []store.Candidate, error) {
+		t.Helper()
+		fs := &fakeStore{}
+		d := New(staticConfig(config.Config{Repos: []string{"o/broken", "o/healthy"}}), fs, nil)
+		d.now = fixedNow
+		d.listPRs = listPRs
+		found, err := d.Discover(context.Background())
+		return fs, found, err
+	}
+
+	t.Run("one failing repo is skipped", func(t *testing.T) {
+		fs, found, err := sweep(t, func(_ context.Context, repo string) ([]ghPR, error) {
+			if repo == "o/broken" {
+				return nil, errGH
+			}
+			return []ghPR{newPR}, nil
+		})
+		if err != nil {
+			t.Fatalf("partial failure must not error, got %v", err)
+		}
+		if len(found) != 1 || found[0].Repo != "o/healthy" || found[0].Number != 7 {
+			t.Errorf("healthy repo's candidate must survive, got %+v", found)
+		}
+		if len(fs.enqueued) != 1 {
+			t.Errorf("candidate must be enqueued exactly once, got %d", len(fs.enqueued))
+		}
+	})
+
+	t.Run("all repos failing errors", func(t *testing.T) {
+		_, _, err := sweep(t, func(context.Context, string) ([]ghPR, error) {
+			return nil, errGH
+		})
+		if err == nil || !errors.Is(err, errGH) {
+			t.Errorf("total failure must surface the gh error, got %v", err)
+		}
+	})
+
+	t.Run("non-candidates are not enqueued", func(t *testing.T) {
+		draft := newPR
+		draft.IsDraft = true
+		fs, found, err := sweep(t, func(context.Context, string) ([]ghPR, error) {
+			return []ghPR{draft}, nil
+		})
+		if err != nil || len(found) != 0 || len(fs.enqueued) != 0 {
+			t.Errorf("draft PRs must classify out, got found=%v enqueued=%v err=%v", found, fs.enqueued, err)
+		}
+	})
 }

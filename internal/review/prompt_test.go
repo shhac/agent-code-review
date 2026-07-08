@@ -1,6 +1,8 @@
 package review
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,5 +158,38 @@ func TestParseTokensUsed(t *testing.T) {
 	}
 	if got := parseTokensUsed("tokens used\n941"); got != 941 {
 		t.Errorf("ungrouped count must parse, got %d", got)
+	}
+}
+
+// TestNewEngine pins the engine registry: empty defaults to codex, unknown
+// names fail loudly at boot rather than mid-cycle.
+func TestNewEngine(t *testing.T) {
+	for _, name := range []string{"", "codex"} {
+		e, err := NewEngine(config.ReviewSettings{Engine: name})
+		if err != nil || e.Name() != "codex" {
+			t.Errorf("NewEngine(%q) = %v, %v; want the codex engine", name, e, err)
+		}
+	}
+	if _, err := NewEngine(config.ReviewSettings{Engine: "mystery"}); err == nil {
+		t.Error("unknown engine must fail")
+	}
+}
+
+// TestMainPrompt pins the path-wins-over-inline resolution, including the
+// unreadable-path fallback.
+func TestMainPrompt(t *testing.T) {
+	if got := MainPrompt(config.ReviewSettings{MainPrompt: "  inline  "}); got != "inline" {
+		t.Errorf("inline prompt = %q", got)
+	}
+	p := filepath.Join(t.TempDir(), "prompt.md")
+	if err := os.WriteFile(p, []byte("from file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := MainPrompt(config.ReviewSettings{MainPrompt: "inline", MainPromptPath: p}); got != "from file" {
+		t.Errorf("path must win, got %q", got)
+	}
+	missing := filepath.Join(t.TempDir(), "absent.md")
+	if got := MainPrompt(config.ReviewSettings{MainPrompt: "inline", MainPromptPath: missing}); got != "inline" {
+		t.Errorf("unreadable path must fall back to inline, got %q", got)
 	}
 }

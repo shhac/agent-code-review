@@ -78,34 +78,14 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	logf("serve: starting (pid %d)", os.Getpid())
 
-	gracefulCtx, gracefulStop := context.WithCancel(ctx)
-	reviewCtx, forceStop := context.WithCancel(ctx)
-	defer gracefulStop()
-	defer forceStop()
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
-	go func() {
-		select {
-		case <-ctx.Done():
-			gracefulStop()
-			forceStop()
-		case sig := <-sigCh:
-			logf("shutdown: received %s — stopping discovery and review scheduling; waiting for in-flight reviewers. Press Ctrl-C again to force exit.", sig)
-			gracefulStop()
-			select {
-			case <-ctx.Done():
-				forceStop()
-			case sig := <-sigCh:
-				logf("shutdown: received %s again — force shutdown", sig)
-				forceStop()
-			case <-reviewCtx.Done():
-			}
-		}
-	}()
+	shutdown := newShutdownController(ctx, sigCh, logf)
+	defer shutdown.stop()
 
 	// Bring up the Tailscale tunnel (if requested) and derive the public URL.
-	publicURL, tsDown, err := tailscale.Wire(reviewCtx, opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
+	publicURL, tsDown, err := tailscale.Wire(shutdown.reviewCtx, opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
 	if err != nil {
 		return err
 	}
@@ -120,7 +100,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// Poll Codex usage in the background so the dashboard can show remaining
 	// quota without a subprocess per request.
 	usageCache := usage.NewCache()
-	go usageCache.Poll(gracefulCtx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
+	go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
 
 	// Config sets the default per loop; flags override for this process only.
 	// --no-schedule remains the "neither loop" shorthand.
@@ -151,7 +131,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		logf("dashboard: listening on %s", opts.addr)
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logf("dashboard error: %v", err)
-			gracefulStop()
+			shutdown.graceful()
 		}
 	}()
 
@@ -163,7 +143,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		}
 		schedDone = make(chan error, 1)
 		go func() {
-			err := sched.StartGraceful(gracefulCtx, reviewCtx)
+			err := sched.StartGraceful(shutdown.gracefulCtx, shutdown.reviewCtx)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				logf("scheduler stopped: %v", err)
 			}
@@ -173,8 +153,8 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		logf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
 	}
 
-	<-gracefulCtx.Done()
-	forced := waitForScheduler(schedDone, reviewCtx, logf)
+	<-shutdown.gracefulCtx.Done()
+	forced := waitForScheduler(schedDone, shutdown.reviewCtx, logf)
 	if forced {
 		_ = srv.Close()
 		return nil
@@ -183,6 +163,45 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+type shutdownController struct {
+	gracefulCtx context.Context
+	reviewCtx   context.Context
+	graceful    func()
+	stop        func()
+}
+
+func newShutdownController(ctx context.Context, signals <-chan os.Signal, logf scheduler.Logf) shutdownController {
+	gracefulCtx, gracefulStop := context.WithCancel(ctx)
+	reviewCtx, forceStop := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-ctx.Done():
+			gracefulStop()
+			forceStop()
+		case sig := <-signals:
+			logf("shutdown: received %s — stopping discovery and review scheduling; waiting for in-flight reviewers. Press Ctrl-C again to force exit.", sig)
+			gracefulStop()
+			select {
+			case <-ctx.Done():
+				forceStop()
+			case sig := <-signals:
+				logf("shutdown: received %s again — force shutdown", sig)
+				forceStop()
+			case <-reviewCtx.Done():
+			}
+		}
+	}()
+	return shutdownController{
+		gracefulCtx: gracefulCtx,
+		reviewCtx:   reviewCtx,
+		graceful:    gracefulStop,
+		stop: func() {
+			gracefulStop()
+			forceStop()
+		},
+	}
 }
 
 func waitForScheduler(done <-chan error, forceCtx context.Context, logf scheduler.Logf) bool {

@@ -1,0 +1,110 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+)
+
+type testLogs struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *testLogs) logf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(format, args...))
+}
+
+func (l *testLogs) contains(substr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Contains(strings.Join(l.lines, "\n"), substr)
+}
+
+func waitDone(t *testing.T, ctx context.Context, name string) {
+	t.Helper()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatalf("%s was not canceled", name)
+	}
+}
+
+func assertNotDone(t *testing.T, ctx context.Context, name string) {
+	t.Helper()
+	select {
+	case <-ctx.Done():
+		t.Fatalf("%s canceled too early", name)
+	case <-time.After(25 * time.Millisecond):
+	}
+}
+
+func TestShutdownController(t *testing.T) {
+	t.Run("first signal stops intake but leaves reviewers draining", func(t *testing.T) {
+		signals := make(chan os.Signal, 2)
+		logs := &testLogs{}
+		shutdown := newShutdownController(context.Background(), signals, logs.logf)
+		defer shutdown.stop()
+
+		signals <- syscall.SIGINT
+		waitDone(t, shutdown.gracefulCtx, "graceful context")
+		assertNotDone(t, shutdown.reviewCtx, "review context")
+		if !logs.contains("stopping discovery and review scheduling") {
+			t.Fatalf("missing graceful shutdown log: %#v", logs.lines)
+		}
+	})
+
+	t.Run("second signal forces in-flight reviewers to stop", func(t *testing.T) {
+		signals := make(chan os.Signal, 2)
+		logs := &testLogs{}
+		shutdown := newShutdownController(context.Background(), signals, logs.logf)
+		defer shutdown.stop()
+
+		signals <- syscall.SIGINT
+		waitDone(t, shutdown.gracefulCtx, "graceful context")
+		signals <- syscall.SIGINT
+		waitDone(t, shutdown.reviewCtx, "review context")
+		if !logs.contains("again") || !logs.contains("force shutdown") {
+			t.Fatalf("missing force shutdown log: %#v", logs.lines)
+		}
+	})
+
+	t.Run("parent cancellation stops both contexts", func(t *testing.T) {
+		parent, cancel := context.WithCancel(context.Background())
+		shutdown := newShutdownController(parent, make(chan os.Signal), func(string, ...any) {})
+		defer shutdown.stop()
+
+		cancel()
+		waitDone(t, shutdown.gracefulCtx, "graceful context")
+		waitDone(t, shutdown.reviewCtx, "review context")
+	})
+}
+
+func TestWaitForScheduler(t *testing.T) {
+	t.Run("completed scheduler exits gracefully", func(t *testing.T) {
+		done := make(chan error)
+		close(done)
+		if waitForScheduler(done, context.Background(), func(string, ...any) {}) {
+			t.Fatal("completed scheduler must not be treated as forced")
+		}
+	})
+
+	t.Run("force context skips drain wait", func(t *testing.T) {
+		forceCtx, force := context.WithCancel(context.Background())
+		force()
+		logs := &testLogs{}
+		if !waitForScheduler(make(chan error), forceCtx, logs.logf) {
+			t.Fatal("canceled force context must force shutdown")
+		}
+		if !logs.contains("force shutdown without waiting") {
+			t.Fatalf("missing force-wait log: %#v", logs.lines)
+		}
+	})
+}

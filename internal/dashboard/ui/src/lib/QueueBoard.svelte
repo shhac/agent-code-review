@@ -35,28 +35,24 @@
     return rs.filter((r) => r.repo === c.repo && r.number === c.number);
   }
 
-  async function removeCandidate(c: Candidate) {
+  // Every queue mutation shares one lifecycle: clear the error slot, run the
+  // call, refetch, surface failures — so no handler can forget a step.
+  async function mutate(op: () => Promise<unknown>) {
     onerror('');
     try {
-      await del('/api/queue', { repo: c.repo, number: c.number });
+      await op();
       await onchanged();
     } catch (e: any) {
       onerror(e.message);
     }
   }
 
+  const removeCandidate = (c: Candidate) => mutate(() => del('/api/queue', { repo: c.repo, number: c.number }));
+
   // The "review now" escape hatch for held rows: clears the hold, floats the
   // PR to the top, and treats it as a manual add. Distinct from drag-reorder,
   // which only moves positions and never lifts a hold.
-  async function promoteCandidate(c: Candidate) {
-    onerror('');
-    try {
-      await post('/api/queue/promote', { repo: c.repo, number: c.number });
-      await onchanged();
-    } catch (e: any) {
-      onerror(e.message);
-    }
-  }
+  const promoteCandidate = (c: Candidate) => mutate(() => post('/api/queue/promote', { repo: c.repo, number: c.number }));
 
   function toggleCandidate(c: Candidate) {
     const next = new Set(expanded);
@@ -106,13 +102,7 @@
     dragKey = null;
     draft = null;
     if (!order.length) return;
-    onerror('');
-    try {
-      await post('/api/queue/reorder', { order });
-    } catch (e: any) {
-      onerror(e.message);
-    }
-    await onchanged();
+    await mutate(() => post('/api/queue/reorder', { order }));
   }
 </script>
 

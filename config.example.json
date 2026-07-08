@@ -4,14 +4,17 @@
   "allowed_authors_only_repos": [],
   "gh_user": "",
   "//authors": "Allowed authors (whose PRs we may approve) live in the DuckDB store, per repo. Manage with: agent-code-review authors allow <owner/repo|*> <github-handle> [--name ... --email ... --slack-id ...]",
+  "//candidates_note": "rereview_cooldown holds a PR after one of our own reviews before it can be re-discovered; quiet_period holds a PR until it has gone untouched that long (no pushes or edits). Held PRs sit in the queue as not-yet-eligible; promotion or a manual add bypasses both. '0s' disables a hold.",
   "candidates": {
     "new_max_age_days": 14,
-    "refreshed_max_age_days": 21
+    "refreshed_max_age_days": 21,
+    "rereview_cooldown": "90m",
+    "quiet_period": "15m"
   },
-  "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates (deterministic gh calls, no LLM); schedule runs review cycles (codex invocations, hence max_parallel).",
+  "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates (deterministic gh calls, no LLM); schedule runs review cycles (codex invocations, hence max_parallel). The eligibility holds keep a tight review interval cheap: idle cycles are no-ops.",
   "schedule": {
     "enabled": true,
-    "interval": "30m",
+    "interval": "1m",
     "max_parallel": 4,
     "//usage_floor_note": "Pause the review loop when a Codex window has less than this % remaining; reviews resume when the window refills. 0 disables a floor. Omit for the default of 10.",
     "usage_floor": {

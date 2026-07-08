@@ -54,10 +54,15 @@ type Rule struct {
 	Prompt string    `json:"prompt"`
 }
 
-// CandidateSettings holds the age windows from the schedule spec.
+// CandidateSettings holds the age windows from the schedule spec plus the two
+// eligibility holds: how long after our own review a PR stays on hold
+// (rereview_cooldown) and how long a PR must sit untouched before we accept it
+// (quiet_period). Holds defer discovered candidates; manual adds bypass both.
 type CandidateSettings struct {
-	NewMaxAgeDays       int `json:"new_max_age_days,omitempty"`       // default 14
-	RefreshedMaxAgeDays int `json:"refreshed_max_age_days,omitempty"` // default 21
+	NewMaxAgeDays       int    `json:"new_max_age_days,omitempty"`       // default 14
+	RefreshedMaxAgeDays int    `json:"refreshed_max_age_days,omitempty"` // default 21
+	RereviewCooldown    string `json:"rereview_cooldown,omitempty"`      // Go duration, default "90m"; "0s" disables
+	QuietPeriod         string `json:"quiet_period,omitempty"`           // Go duration, default "15m"; "0s" disables
 }
 
 // ScheduleSettings drives the review loop: LLM invocations, so it carries the
@@ -209,6 +214,20 @@ func (c Config) RefreshedMaxAge() time.Duration {
 	return daysOr(c.Candidates.RefreshedMaxAgeDays, 21)
 }
 
+// RereviewCooldown is how long after one of our own real reviews a discovered
+// candidate stays on hold (default 90m; an explicit "0s" disables the hold).
+// Manual adds and promotion bypass it.
+func (c Config) RereviewCooldown() time.Duration {
+	return durationOrZero(c.Candidates.RereviewCooldown, 90*time.Minute)
+}
+
+// QuietPeriod is how long a PR must go untouched (no pushes, edits, or other
+// updatedAt bumps) before discovery accepts it (default 15m; an explicit "0s"
+// disables the hold). Guards against reviewing mid-rebase or mid-fix pushes.
+func (c Config) QuietPeriod() time.Duration {
+	return durationOrZero(c.Candidates.QuietPeriod, 15*time.Minute)
+}
+
 // MaxParallel is the per-cycle concurrency cap (default 4).
 func (c Config) MaxParallel() int {
 	if c.Schedule.MaxParallel > 0 {
@@ -217,9 +236,11 @@ func (c Config) MaxParallel() int {
 	return 4
 }
 
-// Interval is the review cadence (default 30m, and 30m on parse failure).
+// Interval is the review cadence (default 1m, and 1m on parse failure). A
+// tight default is safe: eligibility holds keep the queue empty of non-
+// actionable work, and an idle cycle exits before recording anything.
 func (c Config) Interval() time.Duration {
-	return durationOr(c.Schedule.Interval, 30*time.Minute)
+	return durationOr(c.Schedule.Interval, time.Minute)
 }
 
 // UsageFloor5h and UsageFloorWeekly are the remaining-percentage floors below
@@ -315,6 +336,15 @@ func (c Config) StorePath() string {
 // parse-or-default rule for every interval dial.
 func durationOr(s string, def time.Duration) time.Duration {
 	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return d
+	}
+	return def
+}
+
+// durationOrZero is durationOr for dials where an explicit zero is meaningful
+// ("0s" = disabled) rather than an unset value to default.
+func durationOrZero(s string, def time.Duration) time.Duration {
+	if d, err := time.ParseDuration(s); err == nil && d >= 0 {
 		return d
 	}
 	return def

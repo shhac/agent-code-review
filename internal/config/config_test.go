@@ -20,8 +20,14 @@ func TestDefaults(t *testing.T) {
 	if got := c.MaxParallel(); got != 4 {
 		t.Errorf("MaxParallel default = %d, want 4", got)
 	}
-	if got := c.Interval(); got != 30*time.Minute {
-		t.Errorf("Interval default = %v, want 30m", got)
+	if got := c.Interval(); got != time.Minute {
+		t.Errorf("Interval default = %v, want 1m", got)
+	}
+	if got := c.RereviewCooldown(); got != 90*time.Minute {
+		t.Errorf("RereviewCooldown default = %v, want 90m", got)
+	}
+	if got := c.QuietPeriod(); got != 15*time.Minute {
+		t.Errorf("QuietPeriod default = %v, want 15m", got)
 	}
 	if got := c.Engine(); got != "codex" {
 		t.Errorf("Engine default = %q, want codex", got)
@@ -53,8 +59,35 @@ func TestOverrides(t *testing.T) {
 
 func TestIntervalFallsBackOnGarbage(t *testing.T) {
 	c := Config{Schedule: ScheduleSettings{Interval: "not-a-duration"}}
-	if got := c.Interval(); got != 30*time.Minute {
-		t.Errorf("Interval on garbage = %v, want 30m fallback", got)
+	if got := c.Interval(); got != time.Minute {
+		t.Errorf("Interval on garbage = %v, want 1m fallback", got)
+	}
+}
+
+// TestHoldGetters pins the eligibility-hold semantics: overrides apply, an
+// explicit "0s" DISABLES a hold (unlike the interval dials, where zero falls
+// back), and garbage falls back to the default.
+func TestHoldGetters(t *testing.T) {
+	c := Config{Candidates: CandidateSettings{RereviewCooldown: "2h", QuietPeriod: "5m"}}
+	if got := c.RereviewCooldown(); got != 2*time.Hour {
+		t.Errorf("RereviewCooldown override = %v, want 2h", got)
+	}
+	if got := c.QuietPeriod(); got != 5*time.Minute {
+		t.Errorf("QuietPeriod override = %v, want 5m", got)
+	}
+	c = Config{Candidates: CandidateSettings{RereviewCooldown: "0s", QuietPeriod: "0s"}}
+	if got := c.RereviewCooldown(); got != 0 {
+		t.Errorf("RereviewCooldown 0s = %v, want 0 (disabled)", got)
+	}
+	if got := c.QuietPeriod(); got != 0 {
+		t.Errorf("QuietPeriod 0s = %v, want 0 (disabled)", got)
+	}
+	c = Config{Candidates: CandidateSettings{RereviewCooldown: "junk", QuietPeriod: "-1m"}}
+	if got := c.RereviewCooldown(); got != 90*time.Minute {
+		t.Errorf("RereviewCooldown garbage = %v, want 90m fallback", got)
+	}
+	if got := c.QuietPeriod(); got != 15*time.Minute {
+		t.Errorf("QuietPeriod negative = %v, want 15m fallback", got)
 	}
 }
 
@@ -162,8 +195,8 @@ func TestInitAndReadWrite(t *testing.T) {
 	}
 
 	cfg := Read()
-	if cfg.Schedule.Interval != "30m" {
-		t.Errorf("starter schedule.interval = %q, want 30m", cfg.Schedule.Interval)
+	if cfg.Schedule.Interval != "1m" {
+		t.Errorf("starter schedule.interval = %q, want 1m", cfg.Schedule.Interval)
 	}
 
 	cfg.GHUser = "example-handle"

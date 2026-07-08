@@ -43,22 +43,35 @@
       <div class="section-head"><h2>Settings</h2></div>
       <div class="settings">
         {#each [
-          ['Daemon version', configData.version || 'dev'],
-          ['Reviewing as', configData.reviewing_as ? `@${configData.reviewing_as}` : 'unknown (gh not authenticated?)'],
-          ['Review engine', configData.engine],
-          ['Review loop (this daemon)', configData.review_running ? 'running' : configData.schedule.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
-          ['Review interval', configData.schedule.interval],
-          ['Max parallel reviews', configData.schedule.max_parallel],
-          ['Usage floor (5h window)', configData.schedule.usage_floor_5h_percent ? `pause below ${configData.schedule.usage_floor_5h_percent}% remaining` : 'disabled'],
-          ['Usage floor (weekly window)', configData.schedule.usage_floor_weekly_percent ? `pause below ${configData.schedule.usage_floor_weekly_percent}% remaining` : 'disabled'],
-          ['Discovery loop (this daemon)', configData.discovery_running ? 'running' : configData.discovery.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
-          ['Discovery interval', configData.discovery.interval],
-          ['New PR window (days)', configData.candidates.new_max_age_days],
-          ['Refreshed PR window (days)', configData.candidates.refreshed_max_age_days],
-          ['Re-review cooldown', configData.candidates.rereview_cooldown === '0s' ? 'disabled' : `hold ${configData.candidates.rereview_cooldown} after our review`],
-          ['Quiet period', configData.candidates.quiet_period === '0s' ? 'disabled' : `hold until untouched for ${configData.candidates.quiet_period}`],
-        ] as row}
-          <div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>
+          ['Daemon', [
+            ['Version', configData.version || 'dev'],
+            ['Reviewing as', configData.reviewing_as ? `@${configData.reviewing_as}` : 'unknown (gh not authenticated?)'],
+          ]],
+          ['Review loop', [
+            ['State (this daemon)', configData.review_running ? 'running' : configData.schedule.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
+            ['Engine', configData.engine],
+            ['Interval', configData.schedule.interval],
+            ['Max parallel', configData.schedule.max_parallel],
+            ['Usage floor (5h)', configData.schedule.usage_floor_5h_percent ? `pause below ${configData.schedule.usage_floor_5h_percent}% remaining` : 'disabled'],
+            ['Usage floor (weekly)', configData.schedule.usage_floor_weekly_percent ? `pause below ${configData.schedule.usage_floor_weekly_percent}% remaining` : 'disabled'],
+          ]],
+          ['Discovery', [
+            ['State (this daemon)', configData.discovery_running ? 'running' : configData.discovery.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
+            ['Interval', configData.discovery.interval],
+          ]],
+          ['Candidate eligibility', [
+            ['New PR window', `${configData.candidates.new_max_age_days} days`],
+            ['Refreshed window', `${configData.candidates.refreshed_max_age_days} days`],
+            ['Re-review cooldown', configData.candidates.rereview_cooldown === '0s' ? 'disabled' : `hold ${configData.candidates.rereview_cooldown} after our review`],
+            ['Quiet period', configData.candidates.quiet_period === '0s' ? 'disabled' : `hold until untouched for ${configData.candidates.quiet_period}`],
+          ]],
+        ] as group}
+          <div class="cluster">
+            <h3>{group[0]}</h3>
+            {#each group[1] as row}
+              <div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>
+            {/each}
+          </div>
         {/each}
       </div>
     </section>

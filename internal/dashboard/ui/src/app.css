@@ -177,7 +177,7 @@ a.status-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 dl, dt, dd { margin: 0; }
 dl { display: grid; gap: 8px; }
-dl div, .settings div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; }
+dl div, .settings .cluster > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; }
 dt, .settings dt { color: var(--faint); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .review-history p { margin: 0 0 8px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -249,7 +249,14 @@ time { color: var(--dim); }
 .repo-list { list-style: none; padding: 0; margin: 0; }
 .repo-list li { display: flex; justify-content: space-between; gap: 12px; padding: 13px 20px; border-top: 1px solid var(--line); }
 .repo-list li:first-child { border-top: 0; }
-.settings { padding: 18px 20px; display: grid; gap: 12px; }
+/* Settings render as titled clusters (Daemon / Review loop / Discovery /
+   Candidate eligibility), two-up when the card is wide enough. */
+.settings { padding: 18px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px 32px; }
+.settings .cluster { display: grid; gap: 10px; align-content: start; }
+.settings .cluster h3 {
+  margin: 0 0 2px; color: var(--accent); font-size: 11px; font-weight: 800;
+  letter-spacing: .14em; text-transform: uppercase;
+}
 .segmented { display: inline-flex; gap: 4px; margin: 18px 20px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-warm); }
 .segmented label { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 7px; cursor: pointer; }
 .segmented label:has(input:checked) { background: var(--ink); color: var(--surface); }
@@ -342,6 +349,6 @@ time { color: var(--dim); }
   .ticket-main .tag, .ticket-main .status { grid-column: 4; }
   .ticket-actions { padding: 0 18px 14px 94px; }
   .ticket-detail { grid-template-columns: 1fr; padding-left: 18px; }
-  dl div, .settings div { grid-template-columns: 1fr; gap: 3px; }
+  dl div, .settings .cluster > div { grid-template-columns: 1fr; gap: 3px; }
   .mini-table p, .review-list p { grid-template-columns: 1fr; gap: 4px; }
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fetchJSON } from '../lib/api';
-  import { feed, feedStale } from '../lib/feed';
+  import { feedLive, feedStale } from '../lib/feed';
 
   let promptData: any = null;
   let previewVariant = 'allowed_author';
@@ -12,7 +12,7 @@
   async function load() {
     try {
       promptData = await fetchJSON('/api/prompt');
-      feed.set({ ok: true, detail: 'read-only' });
+      feedLive('read-only');
     } catch {
       feedStale();
     }

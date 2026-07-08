@@ -26,6 +26,7 @@ COMMANDS:
   queue rm <owner/repo> <number>                     Remove a PR
   queue promote <owner/repo> <number>                Float a PR to the top
   queue skip <owner/repo> <number>                   Record a SKIPPED outcome (re-eligible on new commits)
+  queue log <owner/repo> <number> [-f]               Stream the review agent's log (live or postmortem)
 
   repos ls | add <owner/repo> [--allowed-authors-only] | rm <owner/repo>
                                                      Manage the watched repos (config)
@@ -42,6 +43,9 @@ COMMANDS:
   usage                                              This help
 
 CONFIG: ~/.config/agent-code-review/config.json (respects XDG_CONFIG_HOME).
+  Most settings reload live (within ~30s): cadence, parallelism, usage floors,
+  repos, prompts, codex settings. Restart only for the loop on/off switches,
+  dashboard address, and Tailscale mode.
   Everything tunable lives here: watched repos, the approval allow-list, age
   thresholds (14d New / 21d Refreshed), schedule cadence + parallelism, the
   review engine + main prompt + rules, the DuckDB path, and dashboard/Tailscale.
@@ -103,6 +107,11 @@ COMMANDS:
 
   queue rm <owner/repo> <number>
     Remove a PR from the queue entirely, recording nothing.
+
+  queue log <owner/repo> <number> [-f|--follow]
+    Stream the review agent's output. Live while the review runs (the engine
+    tees into <workdir>/agent.log); the log of the most recent finished
+    review otherwise. --follow keeps tailing until interrupted.
 
 EXAMPLES:
   agent-code-review queue ls --repo example-org/example-repo

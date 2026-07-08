@@ -33,15 +33,16 @@ type candidateStore interface {
 	IsAuthorAllowed(ctx context.Context, repo, handle string) (bool, error)
 }
 
-// Discoverer turns config + gh + store into fresh queue entries.
+// Discoverer turns config + gh + store into fresh queue entries. Config is a
+// getter so watched repos, author scoping, and age windows apply live.
 type Discoverer struct {
-	cfg   config.Config
+	cfg   func() config.Config
 	store candidateStore
 	now   Clock
 	logf  Logf
 }
 
-func New(cfg config.Config, s candidateStore, logf Logf) *Discoverer {
+func New(cfg func() config.Config, s candidateStore, logf Logf) *Discoverer {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -57,7 +58,8 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 	var found []store.Candidate
 	var lastErr error
 	failed := 0
-	for _, repo := range d.cfg.Repos {
+	cfg := d.cfg()
+	for _, repo := range cfg.Repos {
 		prs, err := d.listPRs(ctx, repo)
 		if err != nil {
 			d.logf("discover %s: %v — skipping repo this cycle", repo, err)
@@ -66,7 +68,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 			continue
 		}
 		for _, pr := range prs {
-			cand, ok, err := d.classify(ctx, repo, pr)
+			cand, ok, err := d.classify(ctx, cfg, repo, pr)
 			if err != nil {
 				return nil, err
 			}
@@ -79,7 +81,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 			found = append(found, cand)
 		}
 	}
-	if failed > 0 && failed == len(d.cfg.Repos) {
+	if failed > 0 && failed == len(cfg.Repos) {
 		return nil, fmt.Errorf("discovery failed for all %d repos: %w", failed, lastErr)
 	}
 	return found, nil
@@ -122,14 +124,16 @@ func candidacyGate(pr ghPR) (bool, string) {
 }
 
 // classify applies the New then Refreshed rules. New wins if both could match.
-func (d *Discoverer) classify(ctx context.Context, repo string, pr ghPR) (store.Candidate, bool, error) {
+// cfg is the sweep's snapshot, threaded from Discover so every PR in one
+// sweep is judged against one coherent config.
+func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo string, pr ghPR) (store.Candidate, bool, error) {
 	if ok, _ := candidacyGate(pr); !ok {
 		return store.Candidate{}, false, nil
 	}
 	// Author-scoped repos only discover PRs from allowed authors; everywhere
 	// else any open PR is fair game (the allow-list then only governs whether
 	// an APPROVE is permitted).
-	if d.cfg.AuthorScopedRepo(repo) {
+	if cfg.AuthorScopedRepo(repo) {
 		allowed, err := d.store.IsAuthorAllowed(ctx, repo, pr.Author.Login)
 		if err != nil {
 			return store.Candidate{}, false, err
@@ -152,7 +156,7 @@ func (d *Discoverer) classify(ctx context.Context, repo string, pr ghPR) (store.
 	}
 
 	// NEW: never reviewed by anyone, within the New window.
-	if !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= d.cfg.NewMaxAge() {
+	if !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= cfg.NewMaxAge() {
 		return d.toCandidate(repo, pr, store.TypeNew, now), true, nil
 	}
 
@@ -167,7 +171,7 @@ func (d *Discoverer) classify(ctx context.Context, repo string, pr ghPR) (store.
 	if err != nil {
 		return store.Candidate{}, false, err
 	}
-	if ok && last.HeadSHA != pr.HeadRefOID && now.Sub(pr.CreatedAt) <= d.cfg.RefreshedMaxAge() {
+	if ok && last.HeadSHA != pr.HeadRefOID && now.Sub(pr.CreatedAt) <= cfg.RefreshedMaxAge() {
 		return d.toCandidate(repo, pr, store.TypeRefreshed, now), true, nil
 	}
 

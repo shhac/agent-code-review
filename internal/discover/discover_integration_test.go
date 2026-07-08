@@ -19,7 +19,7 @@ func TestLiveDiscovery(t *testing.T) {
 		t.Skip("AGENT_CODE_REVIEW_TEST_REPO not set")
 	}
 
-	d := New(config.Config{Repos: []string{repo}}, &fakeStore{}, t.Logf)
+	d := New(staticConfig(config.Config{Repos: []string{repo}}), &fakeStore{}, t.Logf)
 	prs, err := d.listPRs(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("listPRs: %v", err)
@@ -27,7 +27,7 @@ func TestLiveDiscovery(t *testing.T) {
 	t.Logf("%s: %d open PRs fetched", repo, len(prs))
 
 	for _, pr := range prs {
-		c, ok, err := d.classify(context.Background(), repo, pr)
+		c, ok, err := d.classify(context.Background(), d.cfg(), repo, pr)
 		if err != nil {
 			t.Fatalf("classify #%d: %v", pr.Number, err)
 		}

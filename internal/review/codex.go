@@ -1,9 +1,11 @@
 package review
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,6 +63,17 @@ const verdictSchema = `{
   "additionalProperties": false
 }`
 
+// agentLogName is the live log file the engine tees its output into inside
+// the review workdir; consumers locate it through LogPath.
+const agentLogName = "agent.log"
+
+// LogPath locates the review agent's live log inside its workspace. The
+// engine tees its output there as the run progresses; the CLI's `queue log`
+// and the dashboard's per-review page both tail it through this one contract.
+func LogPath(workDir string) string {
+	return filepath.Join(workDir, agentLogName)
+}
+
 // reportingInstruction is appended to every prompt so the agent knows its final
 // message is a machine-read report, not prose.
 const reportingInstruction = `
@@ -85,8 +98,13 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 
 	args := e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt)
 	cmd := exec.CommandContext(ctx, e.bin, args...)
-	out, runErr := cmd.CombinedOutput()
-	raw := string(out)
+
+	sink, buf, closeSink := newAgentSink(workDir)
+	defer closeSink()
+	cmd.Stdout = sink
+	cmd.Stderr = sink
+	runErr := cmd.Run()
+	raw := buf.String()
 
 	// Prefer the report file even when the process exited non-zero — a partial
 	// run may still have written a valid final message.
@@ -99,6 +117,21 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 		return Verdict{Decision: DecisionError, Raw: raw}, fmt.Errorf("codex exec: %w", runErr)
 	}
 	return Verdict{Decision: DecisionError, Raw: raw}, fmt.Errorf("codex exec succeeded but no verdict report: %w", parseErr)
+}
+
+// newAgentSink builds the writer engine output streams into: an in-memory
+// buffer (it feeds Verdict.Raw for error surfacing) teed into the workdir's
+// live agent log (see LogPath) as the run progresses, so the CLI's
+// `queue log` and the dashboard's per-review page can watch it. A workspace
+// that can't hold the log file degrades to buffer-only — diagnostics must
+// survive even when the live view can't.
+func newAgentSink(workDir string) (io.Writer, *bytes.Buffer, func()) {
+	buf := &bytes.Buffer{}
+	logFile, err := os.Create(LogPath(workDir))
+	if err != nil {
+		return buf, buf, func() {}
+	}
+	return io.MultiWriter(buf, logFile), buf, func() { _ = logFile.Close() }
 }
 
 // buildArgs assembles the codex exec invocation. Pure — the CLI contract

@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/shhac/agent-code-review/internal/store"
@@ -37,4 +40,30 @@ func TestFindQueued(t *testing.T) {
 	if _, found, _ := findQueued(context.Background(), s, "o/r", 3); found {
 		t.Error("absent PR must report found=false")
 	}
+}
+
+// TestStreamFile covers `queue log`'s read path for finished reviews: the
+// whole file is copied to out, and a missing log surfaces an error instead
+// of an empty stream. The follow loop is deliberately untested (timing).
+func TestStreamFile(t *testing.T) {
+	t.Run("copies the whole file", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "agent.log")
+		if err := os.WriteFile(p, []byte("line1\nline2\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err := streamFile(context.Background(), p, false, &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != "line1\nline2\n" {
+			t.Errorf("streamed %q, want the full file", out.String())
+		}
+	})
+
+	t.Run("missing file errors", func(t *testing.T) {
+		var out bytes.Buffer
+		if err := streamFile(context.Background(), filepath.Join(t.TempDir(), "absent"), false, &out); err == nil {
+			t.Error("missing log must error, not stream nothing")
+		}
+	})
 }

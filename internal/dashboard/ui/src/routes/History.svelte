@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
   import { fetchJSON } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
-  import { ago, statusKind, statusLabel, when } from '../lib/format';
+  import { ago, durSecs, statusKind, statusLabel, when } from '../lib/format';
+  import { navigate } from '../lib/nav';
+  import { poll } from '../lib/poll';
   import PrIdentity from '../lib/PrIdentity.svelte';
   import type { Review } from '../lib/types';
 
@@ -24,14 +25,7 @@
     refresh();
   }
 
-  let timer: number | undefined;
-  onMount(() => {
-    refresh();
-    timer = window.setInterval(refresh, 15000);
-  });
-  onDestroy(() => {
-    if (timer) window.clearInterval(timer);
-  });
+  poll(refresh, 15000);
 </script>
 
 <section class="page-head">
@@ -55,7 +49,13 @@
             <PrIdentity repo={r.repo} number={r.number} title={r.title} author={r.author} />
             <span class="status {statusKind(r.verdict)}"><i></i>{statusLabel(r.verdict)}</span>
             <span class="mono">{r.engine} · {r.head_sha?.slice(0, 8)}</span>
+            <span class="dur">{durSecs(r.duration_secs)}</span>
             <time title={when(r.reviewed_at)}>{ago(r.reviewed_at)}</time>
+            <span>
+              {#if r.work_dir}
+                <a class="log-link" href={`/review/${r.repo}/${r.number}`} on:click|preventDefault={() => navigate(`/review/${r.repo}/${r.number}`)}>log</a>
+              {/if}
+            </span>
           </p>
         {/each}
       </div>

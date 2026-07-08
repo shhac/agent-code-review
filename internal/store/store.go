@@ -27,6 +27,7 @@ type Candidate struct {
 	DiscoveredAt time.Time  `json:"discovered_at"`
 	ClaimedAt    *time.Time `json:"claimed_at,omitempty"` // set while an engine reviews it; stale claims are reclaimable
 	Source       string     `json:"source"`               // SourceDiscovered | SourceManual
+	WorkDir      string     `json:"work_dir,omitempty"`   // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
 }
 
 // Candidate sources. Manual adds bypass the pre-review candidacy check so
@@ -46,16 +47,24 @@ const (
 // ReviewFrom snapshots a candidate's identity into a history record — the
 // single place the Candidate→Review field fan-out lives, so a new snapshot
 // field cannot be added to one Complete call site and missed at another.
-func ReviewFrom(c Candidate, verdict, engine string) Review {
+// started is when the review began (the claim time); the zero value records
+// an unknown duration as 0 (manual skips, backfilled rows).
+func ReviewFrom(c Candidate, verdict, engine string, started time.Time) Review {
+	duration := 0
+	if !started.IsZero() {
+		duration = int(time.Since(started).Seconds())
+	}
 	return Review{
-		Repo:       c.Repo,
-		Number:     c.Number,
-		Title:      c.Title,
-		Author:     c.Author,
-		HeadSHA:    c.HeadSHA,
-		Verdict:    verdict,
-		Engine:     engine,
-		ReviewedAt: time.Now(),
+		Repo:         c.Repo,
+		Number:       c.Number,
+		Title:        c.Title,
+		Author:       c.Author,
+		HeadSHA:      c.HeadSHA,
+		Verdict:      verdict,
+		Engine:       engine,
+		ReviewedAt:   time.Now(),
+		DurationSecs: duration,
+		WorkDir:      c.WorkDir,
 	}
 }
 
@@ -73,14 +82,51 @@ func (c Candidate) ClaimActive(now time.Time, window time.Duration) bool {
 // Title and Author are snapshots of the PR at completion time so the History
 // page can render outcomes like queue items without a gh round-trip.
 type Review struct {
-	Repo       string    `json:"repo"`
-	Number     int       `json:"number"`
-	Title      string    `json:"title"`
-	Author     string    `json:"author"`
-	HeadSHA    string    `json:"head_sha"`
-	Verdict    string    `json:"verdict"` // APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
-	Engine     string    `json:"engine"`
-	ReviewedAt time.Time `json:"reviewed_at"`
+	Repo         string    `json:"repo"`
+	Number       int       `json:"number"`
+	Title        string    `json:"title"`
+	Author       string    `json:"author"`
+	HeadSHA      string    `json:"head_sha"`
+	Verdict      string    `json:"verdict"` // APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
+	Engine       string    `json:"engine"`
+	ReviewedAt   time.Time `json:"reviewed_at"`
+	DurationSecs int       `json:"duration_secs"`      // claim-to-completion elapsed; 0 when unknown
+	WorkDir      string    `json:"work_dir,omitempty"` // engine workspace used, kept for postmortem log access
+}
+
+// Workspace is where a PR's review agent ran, resolved by FindWorkspace.
+// Exactly one of Queued/Finished is set: Queued while the PR still has a
+// queue row (in-flight review or reclaimable claim), Finished for a
+// postmortem from history.
+type Workspace struct {
+	Dir      string
+	Queued   *Candidate
+	Finished *Review
+}
+
+// FindWorkspace resolves a PR's recorded engine workspace: the live queue
+// row first, then the most recent history row. false means no workspace was
+// ever recorded (reviews predating workdir tracking have none). The CLI's
+// `queue log` and the dashboard's review-log endpoint share this resolution
+// so the two surfaces cannot drift.
+func FindWorkspace(ctx context.Context, s Store, repo string, number int) (Workspace, bool, error) {
+	queue, err := s.ListQueue(ctx, repo)
+	if err != nil {
+		return Workspace{}, false, err
+	}
+	for _, c := range queue {
+		if c.Number == number && c.WorkDir != "" {
+			return Workspace{Dir: c.WorkDir, Queued: &c}, true, nil
+		}
+	}
+	last, ok, err := s.LastOutcome(ctx, repo, number)
+	if err != nil {
+		return Workspace{}, false, err
+	}
+	if ok && last.WorkDir != "" {
+		return Workspace{Dir: last.WorkDir, Finished: &last}, true, nil
+	}
+	return Workspace{}, false, nil
 }
 
 // realVerdicts is the single source of the "actual posted review" set — the
@@ -148,10 +194,11 @@ type Store interface {
 	// ListQueue returns the whole queue in scheduler order (queue_pos, new
 	// before refreshed, number). repo narrows to one repo; "" means all.
 	ListQueue(ctx context.Context, repo string) ([]Candidate, error)
-	// Claim marks a candidate as being reviewed right now. Claims are
-	// advisory leases: a claim older than the caller's staleness window is
-	// treated as abandoned (crashed daemon) and reclaimed.
-	Claim(ctx context.Context, repo string, number int, at time.Time) error
+	// Claim marks a candidate as being reviewed right now and records the
+	// engine's scratch workspace (whose agent.log is the live review log).
+	// Claims are advisory leases: a claim older than the caller's staleness
+	// window is treated as abandoned (crashed daemon) and reclaimed.
+	Claim(ctx context.Context, repo string, number int, at time.Time, workDir string) error
 	// Complete records r in history and removes the queue row — atomically,
 	// in one store round-trip. The delete is gated on r.HeadSHA: if the row's
 	// head has advanced while the review ran, the row survives (its claim is

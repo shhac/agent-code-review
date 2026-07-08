@@ -11,44 +11,6 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-func TestBucketReviews(t *testing.T) {
-	start := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
-	at := func(offset time.Duration) time.Time { return start.Add(offset) }
-	reviews := []store.Review{
-		{Verdict: "APPROVED", ReviewedAt: at(0)},                             // first bucket, exact boundary
-		{Verdict: "COMMENTED", ReviewedAt: at(59 * time.Minute)},             // still first bucket
-		{Verdict: "REQUESTED_CHANGES", ReviewedAt: at(1 * time.Hour)},        // second bucket boundary
-		{Verdict: "APPROVED", ReviewedAt: at(23*time.Hour + 59*time.Minute)}, // last bucket
-		{Verdict: "APPROVED", ReviewedAt: at(24 * time.Hour)},                // out of window (after)
-		{Verdict: "APPROVED", ReviewedAt: at(-time.Minute)},                  // out of window (before)
-		{Verdict: "SKIPPED", ReviewedAt: at(0)},                              // never counts
-		{Verdict: "ERROR", ReviewedAt: at(0)},                                // never counts
-	}
-	buckets := bucketReviews(reviews, start)
-	if len(buckets) != 24 {
-		t.Fatalf("got %d buckets, want 24", len(buckets))
-	}
-	if buckets[0].Approved != 1 || buckets[0].Commented != 1 || buckets[0].RequestedChanges != 0 {
-		t.Errorf("bucket 0 = %+v, want 1 approved + 1 commented", buckets[0])
-	}
-	if buckets[1].RequestedChanges != 1 {
-		t.Errorf("bucket 1 = %+v, want 1 requested_changes", buckets[1])
-	}
-	if buckets[23].Approved != 1 {
-		t.Errorf("bucket 23 = %+v, want 1 approved", buckets[23])
-	}
-	total := 0
-	for _, b := range buckets {
-		total += b.Approved + b.Commented + b.RequestedChanges
-	}
-	if total != 4 {
-		t.Errorf("total counted = %d, want 4 (out-of-window and SKIPPED/ERROR excluded)", total)
-	}
-	if buckets[0].Hour != start.Format(time.RFC3339) {
-		t.Errorf("bucket 0 hour = %s, want %s", buckets[0].Hour, start.Format(time.RFC3339))
-	}
-}
-
 func TestValidateReorder(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	staleAfter := 2 * time.Hour
@@ -186,5 +148,26 @@ func TestQueryInt(t *testing.T) {
 		if got := queryInt(r, "limit", 50, 500); got != tc.want {
 			t.Errorf("queryInt(%q) = %d, want %d", tc.raw, got, tc.want)
 		}
+	}
+}
+
+// TestCountQueue keeps the header-badge counts consistent with the per-row
+// statuses viewQueue assigns: queued + reviewing always sums to total.
+func TestCountQueue(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	lease := 2 * time.Hour
+	fresh := now.Add(-time.Hour)
+	stale := now.Add(-3 * time.Hour)
+	views := viewQueue([]store.Candidate{
+		{Number: 1},
+		{Number: 2, ClaimedAt: &fresh},
+		{Number: 3, ClaimedAt: &stale},
+	}, now, lease)
+	got := countQueue(views)
+	if got.Total != 3 || got.Queued != 2 || got.Reviewing != 1 {
+		t.Errorf("counts = %+v, want total 3 / queued 2 / reviewing 1", got)
+	}
+	if got.Queued+got.Reviewing != got.Total {
+		t.Errorf("counts must sum to total, got %+v", got)
 	}
 }

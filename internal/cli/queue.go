@@ -2,13 +2,17 @@ package cli
 
 import (
 	"context"
+	"io"
+	"os"
 	"strconv"
+	"time"
 
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/discover"
+	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -18,7 +22,7 @@ func registerQueue(root *cobra.Command) {
 		Short: "Inspect and manage the review queue",
 		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(queueLsCmd(), queueAddCmd(), queueRmCmd(), queuePromoteCmd(), queueSkipCmd())
+	cmd.AddCommand(queueLsCmd(), queueAddCmd(), queueRmCmd(), queuePromoteCmd(), queueSkipCmd(), queueLogCmd())
 	registerGroupUsage(cmd, "queue", queueUsageText)
 	root.AddCommand(cmd)
 }
@@ -68,7 +72,7 @@ func queueAddCmd() *cobra.Command {
 				if err := s.Enqueue(cmd.Context(), c); err != nil {
 					return err
 				}
-				return emit(map[string]any{"queued": repo + "#" + strconv.Itoa(number), "title": c.Title, "author": c.Author})
+				return emit(map[string]any{"queued": prKey(repo, number), "title": c.Title, "author": c.Author})
 			})
 		},
 	}
@@ -88,7 +92,7 @@ func queueRmCmd() *cobra.Command {
 				if err := s.Dequeue(cmd.Context(), repo, number); err != nil {
 					return err
 				}
-				return emit(map[string]any{"removed": repo + "#" + strconv.Itoa(number)})
+				return emit(map[string]any{"removed": prKey(repo, number)})
 			})
 		},
 	}
@@ -109,7 +113,7 @@ func queuePromoteCmd() *cobra.Command {
 				if err := s.SetQueuePos(cmd.Context(), repo, number, -1); err != nil {
 					return err
 				}
-				return emit(map[string]any{"promoted": repo + "#" + strconv.Itoa(number)})
+				return emit(map[string]any{"promoted": prKey(repo, number)})
 			})
 		},
 	}
@@ -134,15 +138,87 @@ func queueSkipCmd() *cobra.Command {
 					return err
 				}
 				if !found {
-					return output.New(repo+"#"+strconv.Itoa(number)+" is not in the queue", output.FixableByAgent)
+					return output.New(prKey(repo, number)+" is not in the queue", output.FixableByAgent)
 				}
-				if err := s.Complete(cmd.Context(), store.ReviewFrom(c, "SKIPPED", store.EngineManual)); err != nil {
+				if err := s.Complete(cmd.Context(), store.ReviewFrom(c, "SKIPPED", store.EngineManual, time.Time{})); err != nil {
 					return err
 				}
-				return emit(map[string]any{"skipped": repo + "#" + strconv.Itoa(number)})
+				return emit(map[string]any{"skipped": prKey(repo, number)})
 			})
 		},
 	}
+}
+
+func queueLogCmd() *cobra.Command {
+	var follow bool
+	cmd := &cobra.Command{
+		Use:   "log <owner/repo> <number>",
+		Short: "Stream a review agent's log (live for in-flight reviews, kept for finished ones)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, number, err := parseRepoNumber(args)
+			if err != nil {
+				return err
+			}
+			return withStore(func(s store.Store) error {
+				workDir, err := reviewWorkDir(cmd.Context(), s, repo, number)
+				if err != nil {
+					return err
+				}
+				path := review.LogPath(workDir)
+				stderrLogf("streaming %s", path)
+				return streamFile(cmd.Context(), path, follow, os.Stdout)
+			})
+		},
+	}
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Keep streaming as the agent writes (Ctrl-C to stop)")
+	return cmd
+}
+
+// reviewWorkDir resolves a PR's engine workspace via the shared queue-then-
+// history resolution (store.FindWorkspace), turning "never recorded" into
+// the CLI's error envelope.
+func reviewWorkDir(ctx context.Context, s store.Store, repo string, number int) (string, error) {
+	ws, found, err := store.FindWorkspace(ctx, s, repo, number)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", output.New("no review log recorded for "+prKey(repo, number)+" (reviews before this feature have none)", output.FixableByHuman)
+	}
+	return ws.Dir, nil
+}
+
+// streamFile copies the file to out; with follow it keeps polling for
+// appended bytes until ctx is cancelled.
+func streamFile(ctx context.Context, path string, follow bool, out io.Writer) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := io.Copy(out, f); err != nil {
+		return err
+	}
+	if !follow {
+		return nil
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(500 * time.Millisecond):
+			if _, err := io.Copy(out, f); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// prKey renders the canonical "owner/repo#N" reference used in emit keys and
+// error messages.
+func prKey(repo string, number int) string {
+	return repo + "#" + strconv.Itoa(number)
 }
 
 // findQueued locates one queue row by number within an already repo-scoped

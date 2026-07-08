@@ -1,7 +1,8 @@
 // Package scheduler owns the deterministic review cycle: take the run-lock,
 // discover candidates, process the queue oldest-first up to the parallelism
-// cap, record verdicts, release the lock. The serve daemon calls RunCycle on a
-// ticker; `run --once` calls it a single time.
+// cap, record verdicts, release the lock. The serve daemon runs Discover and
+// ReviewCycle as independent heartbeat loops (Start); `run --once` calls
+// RunCycle a single time.
 package scheduler
 
 import (
@@ -29,23 +30,28 @@ type Logf func(format string, args ...any)
 // usage.BelowFloor, which never pauses on an empty snapshot.
 type UsageFn func() usage.Snapshot
 
-// Scheduler wires the deterministic machinery around a review engine.
+// Scheduler wires the deterministic machinery around a review engine. Config
+// comes through a getter so edits to config.json (cadence, parallelism,
+// usage floors, codex settings) apply without a restart; only the loop
+// on/off switches are fixed at boot, because the --no-* flags own them.
 type Scheduler struct {
-	cfg         config.Config
+	cfg         func() config.Config
 	store       store.Store
 	disc        *discover.Discoverer
-	engine      review.Engine
 	ghUser      string
 	logf        Logf
 	usageFn     UsageFn
 	discovering atomic.Bool // in-flight guard for the discovery sweep
 
+	// newEngine builds the review engine from live config at the start of
+	// each cycle, so codex.* edits apply without a restart.
+	newEngine func(config.Config) (review.Engine, error)
 	// stillCandidate re-checks a PR's candidacy just before the engine runs
 	// (discover.StillCandidate in production; swapped in tests).
 	stillCandidate func(ctx context.Context, repo string, number int) (bool, string, error)
 }
 
-func New(cfg config.Config, s store.Store, d *discover.Discoverer, e review.Engine, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
+func New(cfg func() config.Config, s store.Store, d *discover.Discoverer, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -53,8 +59,10 @@ func New(cfg config.Config, s store.Store, d *discover.Discoverer, e review.Engi
 		usageFn = func() usage.Snapshot { return usage.Snapshot{} }
 	}
 	return &Scheduler{
-		cfg: cfg, store: s, disc: d, engine: e, ghUser: ghUser,
-		logf: logf, usageFn: usageFn, stillCandidate: discover.StillCandidate,
+		cfg: cfg, store: s, disc: d, ghUser: ghUser,
+		logf: logf, usageFn: usageFn,
+		newEngine:      func(c config.Config) (review.Engine, error) { return review.NewEngine(c.Review) },
+		stillCandidate: discover.StillCandidate,
 	}
 }
 
@@ -63,30 +71,52 @@ func New(cfg config.Config, s store.Store, d *discover.Discoverer, e review.Engi
 // (LLM invocations, schedule.enabled/interval) switch and tick independently.
 // Enabled loops fire immediately on start.
 func (s *Scheduler) Start(ctx context.Context) error {
-	if s.cfg.Discovery.Enabled {
-		s.logf("scheduler: discovery every %s", s.cfg.DiscoverInterval())
-		go s.loop(ctx, s.cfg.DiscoverInterval(), "discover", s.Discover)
+	boot := s.cfg()
+	if boot.Discovery.Enabled {
+		s.logf("scheduler: discovery every %s (config reloads live)", boot.DiscoverInterval())
+		go s.loop(ctx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
 	}
-	if s.cfg.Schedule.Enabled {
-		s.logf("scheduler: reviews every %s, max parallel %d", s.cfg.Interval(), s.cfg.MaxParallel())
-		go s.loop(ctx, s.cfg.Interval(), "review", s.ReviewCycle)
+	if boot.Schedule.Enabled {
+		s.logf("scheduler: reviews every %s, max parallel %d (config reloads live)", boot.Interval(), boot.MaxParallel())
+		go s.loop(ctx, func() time.Duration { return s.cfg().Interval() }, "review", s.ReviewCycle)
 	}
 	<-ctx.Done()
 	return ctx.Err()
 }
 
-// loop runs fn immediately, then every interval until ctx is done.
-func (s *Scheduler) loop(ctx context.Context, interval time.Duration, name string, fn func(context.Context) error) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
+// loopHeartbeat is how often a loop re-reads its interval, so a cadence edit
+// in config.json takes effect within this bound instead of after the
+// previously scheduled tick.
+const loopHeartbeat = 30 * time.Second
+
+// due reports whether interval has elapsed since the last run started. The
+// heartbeat evaluates it against the LIVE interval, so shrinking the cadence
+// in config.json can make an already-elapsed run due on the next beat.
+func due(last, now time.Time, interval time.Duration) bool {
+	return now.Sub(last) >= interval
+}
+
+// loop runs fn immediately, then whenever interval() has elapsed since the
+// last run started.
+func (s *Scheduler) loop(ctx context.Context, interval func() time.Duration, name string, fn func(context.Context) error) {
+	run := func() {
 		if err := fn(ctx); err != nil {
 			s.logf("%s error: %v", name, err)
 		}
+	}
+	last := time.Now()
+	run()
+	ticker := time.NewTicker(loopHeartbeat)
+	defer ticker.Stop()
+	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if due(last, time.Now(), interval()) {
+				last = time.Now()
+				run()
+			}
 		}
 	}
 }
@@ -116,14 +146,20 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 	// Usage floor: leave headroom in the Codex windows for interactive work.
 	// Checked before the run-lock so a paused cycle records no run. The loop
 	// keeps ticking, so reviews resume as soon as the window refills.
-	if paused, reason := usage.BelowFloor(s.usageFn(), s.cfg.UsageFloor5h(), s.cfg.UsageFloorWeekly()); paused {
+	cfg := s.cfg()
+	if paused, reason := usage.BelowFloor(s.usageFn(), cfg.UsageFloor5h(), cfg.UsageFloorWeekly()); paused {
 		s.logf("cycle: paused by usage floor (%s)", reason)
 		return nil
 	}
 
+	engine, err := s.newEngine(cfg)
+	if err != nil {
+		return fmt.Errorf("build review engine: %w", err)
+	}
+
 	s.logf("cycle: started at %s", time.Now().Format(time.RFC3339))
 
-	staleAfter := s.cfg.LeaseWindow()
+	staleAfter := cfg.LeaseWindow()
 	if _, active, err := s.store.ActiveRun(ctx, staleAfter); err != nil {
 		return err
 	} else if active {
@@ -156,7 +192,7 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 		return nil
 	}
 	s.logf("cycle: %d candidate(s) to review", len(available))
-	s.processQueue(ctx, available)
+	s.processQueue(ctx, available, cfg, engine)
 	return nil
 }
 
@@ -182,10 +218,13 @@ func (s *Scheduler) RunCycle(ctx context.Context) error {
 	return s.ReviewCycle(ctx)
 }
 
-// processQueue reviews candidates concurrently, capped at MaxParallel. The
-// input is already sorted New-before-Refreshed, oldest-first by the store.
-func (s *Scheduler) processQueue(ctx context.Context, candidates []store.Candidate) {
-	sem := make(chan struct{}, s.cfg.MaxParallel())
+// processQueue reviews candidates concurrently, capped at cfg.MaxParallel.
+// The input is already sorted New-before-Refreshed, oldest-first by the
+// store. The cycle's config snapshot and engine travel as parameters so
+// every goroutine works from one coherent config — nothing cycle-scoped
+// lives on the long-lived Scheduler struct.
+func (s *Scheduler) processQueue(ctx context.Context, candidates []store.Candidate, cfg config.Config, engine review.Engine) {
+	sem := make(chan struct{}, cfg.MaxParallel())
 	var wg sync.WaitGroup
 	for _, c := range candidates {
 		wg.Add(1)
@@ -193,7 +232,7 @@ func (s *Scheduler) processQueue(ctx context.Context, candidates []store.Candida
 		go func(c store.Candidate) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := s.reviewOne(ctx, c); err != nil {
+			if err := s.reviewOne(ctx, c, cfg, engine); err != nil {
 				s.logf("review %s#%d: %v", c.Repo, c.Number, err)
 			}
 		}(c)
@@ -207,7 +246,7 @@ func (s *Scheduler) processQueue(ctx context.Context, candidates []store.Candida
 // check — explicit re-review requests and draft reviews must always go
 // through. A recheck error propagates with nothing recorded; the claim stays,
 // and the stale lease retries next cycle.
-func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate) (bool, error) {
+func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate, started time.Time) (bool, error) {
 	if c.Source == store.SourceManual {
 		return false, nil
 	}
@@ -219,23 +258,26 @@ func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate) (bool, e
 		return false, nil
 	}
 	s.logf("review %s#%d: no longer a candidate (%s) — recording skip", c.Repo, c.Number, reason)
-	return true, s.store.Complete(ctx, store.ReviewFrom(c, review.DecisionSkipped, store.EnginePrecheck))
+	return true, s.store.Complete(ctx, store.ReviewFrom(c, review.DecisionSkipped, store.EnginePrecheck, started))
 }
 
 // reviewOne claims a candidate, rechecks its candidacy, runs the engine, and
 // completes it: every outcome — including SKIPPED and ERROR — is recorded in
 // history as the queue row is removed (atomically, SHA-gated; see
 // Store.Complete).
-func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
-	if err := s.store.Claim(ctx, c.Repo, c.Number, time.Now()); err != nil {
-		return err
-	}
-	if skipped, err := s.skipIfStale(ctx, c); skipped || err != nil {
-		return err
-	}
-
+func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config.Config, engine review.Engine) error {
+	// The workdir exists before the claim so the claim can record it: from
+	// that moment <work_dir>/agent.log is the candidate's live review log.
 	workDir, err := os.MkdirTemp("", fmt.Sprintf("agent-code-review-%d-", c.Number))
 	if err != nil {
+		return err
+	}
+	c.WorkDir = workDir
+	claimedAt := time.Now()
+	if err := s.store.Claim(ctx, c.Repo, c.Number, claimedAt, workDir); err != nil {
+		return err
+	}
+	if skipped, err := s.skipIfStale(ctx, c, claimedAt); skipped || err != nil {
 		return err
 	}
 	// Leave the tmp dir in place — a future run may reuse it (per the spec).
@@ -245,9 +287,9 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 		return err
 	}
 	facts := review.DeriveFacts(c, s.ghUser, allowed)
-	prompt := review.BuildPrompt(s.cfg, c, facts)
+	prompt := review.BuildPrompt(cfg, c, facts)
 
-	verdict, reviewErr := s.engine.Review(ctx, review.Request{Candidate: c, Prompt: prompt, WorkDir: workDir})
+	verdict, reviewErr := engine.Review(ctx, review.Request{Candidate: c, Prompt: prompt, WorkDir: workDir})
 	if verdict.Summary != "" {
 		s.logf("review %s#%d: %s — %s", c.Repo, c.Number, verdict.Decision, verdict.Summary)
 	}
@@ -261,7 +303,7 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate) error {
 	// block a future re-review: store.LastReview filters them out of
 	// Refreshed detection, and new commits change the SHA that discovery's
 	// same-SHA suppression keys on.
-	if err := s.store.Complete(ctx, store.ReviewFrom(c, verdict.Decision, s.engine.Name())); err != nil {
+	if err := s.store.Complete(ctx, store.ReviewFrom(c, verdict.Decision, engine.Name(), claimedAt)); err != nil {
 		return err
 	}
 	return reviewErr

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fetchJSON } from '../lib/api';
-  import { feed, feedStale } from '../lib/feed';
+  import { feedLive, feedStale } from '../lib/feed';
 
   let configData: any = null;
   let authors: any[] = [];
@@ -11,7 +11,7 @@
       const [cfg, au] = await Promise.all([fetchJSON('/api/config'), fetchJSON('/api/authors')]);
       configData = cfg;
       authors = au.authors || [];
-      feed.set({ ok: true, detail: 'read-only' });
+      feedLive('read-only');
     } catch {
       feedStale();
     }
@@ -62,10 +62,21 @@
     <section class="surface">
       <div class="section-head"><h2>Allowed authors</h2><span>whose PRs we may approve</span></div>
       {#if authors.length}
-        <div class="table">
-          <p><b>Repo</b><b>GitHub</b><b>Name</b><b>Slack</b></p>
+        <div class="authors">
+          <p class="authors-head"><b>Repo</b><b>GitHub</b><b>Name</b><b>Slack</b></p>
           {#each authors as a}
-            <p><span>{a.repo === '*' ? 'all repos' : a.repo}</span><span>@{a.github_handle}</span><span>{a.name}</span><span>{a.slack_id}</span></p>
+            <p>
+              <span>
+                {#if a.repo === '*'}
+                  <span class="tag">all repos</span>
+                {:else}
+                  <a href={`https://github.com/${a.repo}`} target="_blank" rel="noopener">{a.repo}</a>
+                {/if}
+              </span>
+              <span><a href={`https://github.com/${a.github_handle}`} target="_blank" rel="noopener">@{a.github_handle}</a></span>
+              <span>{a.name || ''}</span>
+              <span class="mono muted">{a.slack_id || ''}</span>
+            </p>
           {/each}
         </div>
       {:else}

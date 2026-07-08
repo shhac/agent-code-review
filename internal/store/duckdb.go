@@ -138,9 +138,9 @@ func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error
 	return mapRows(rows, scanCandidate), nil
 }
 
-func (d *duckDB) Claim(ctx context.Context, repo string, number int, at time.Time) error {
+func (d *duckDB) Claim(ctx context.Context, repo string, number int, at time.Time, workDir string) error {
 	_, err := d.query(ctx, fmt.Sprintf(
-		"UPDATE queue SET claimed_at = %s WHERE repo = %s AND number = %d", ts(at), q(repo), number))
+		"UPDATE queue SET claimed_at = %s, work_dir = %s WHERE repo = %s AND number = %d", ts(at), q(workDir), q(repo), number))
 	return err
 }
 
@@ -152,11 +152,11 @@ func (d *duckDB) Claim(ctx context.Context, repo string, number int, at time.Tim
 // the next cycle reviews the newer commits.
 func (d *duckDB) Complete(ctx context.Context, r Review) error {
 	sql := fmt.Sprintf(`BEGIN;
-	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, reviewed_at) VALUES (%s, %d, %s, %s, %s, %s, %s, %s);
+	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, reviewed_at, duration_secs, work_dir) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %d, %s);
 	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha = %s;
 	UPDATE queue SET claimed_at = NULL WHERE repo = %s AND number = %d;
 	COMMIT;`,
-		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt),
+		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir),
 		q(r.Repo), r.Number, q(r.HeadSHA),
 		q(r.Repo), r.Number)
 	_, err := d.query(ctx, sql)
@@ -311,14 +311,16 @@ func (d *duckDB) FinishRun(ctx context.Context, id string, status string) error 
 
 func scanReview(r map[string]any) Review {
 	return Review{
-		Repo:       getString(r, "repo"),
-		Number:     getInt(r, "number"),
-		Title:      getString(r, "title"),
-		Author:     getString(r, "author"),
-		HeadSHA:    getString(r, "head_sha"),
-		Verdict:    getString(r, "verdict"),
-		Engine:     getString(r, "engine"),
-		ReviewedAt: getTime(r, "reviewed_at"),
+		Repo:         getString(r, "repo"),
+		Number:       getInt(r, "number"),
+		Title:        getString(r, "title"),
+		Author:       getString(r, "author"),
+		HeadSHA:      getString(r, "head_sha"),
+		Verdict:      getString(r, "verdict"),
+		Engine:       getString(r, "engine"),
+		ReviewedAt:   getTime(r, "reviewed_at"),
+		DurationSecs: getInt(r, "duration_secs"),
+		WorkDir:      getString(r, "work_dir"),
 	}
 }
 
@@ -360,6 +362,7 @@ func scanCandidate(r map[string]any) Candidate {
 		QueuePos:     getInt(r, "queue_pos"),
 		DiscoveredAt: getTime(r, "discovered_at"),
 		Source:       getString(r, "source"),
+		WorkDir:      getString(r, "work_dir"),
 	}
 	if t := getTime(r, "claimed_at"); !t.IsZero() {
 		c.ClaimedAt = &t

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
   import { fetchJSON } from '../lib/api';
-  import { feed, feedStale } from '../lib/feed';
+  import { feedLive, feedStale } from '../lib/feed';
   import { when } from '../lib/format';
+  import { poll } from '../lib/poll';
 
   let logsAvailable = true;
   let logEntries: any[] = [];
@@ -14,7 +14,7 @@
       const data = await fetchJSON('/api/logs');
       logsAvailable = !!data.available;
       logEntries = data.entries || [];
-      feed.set({ ok: true, detail: `${logEntries.length} lines` });
+      feedLive(`${logEntries.length} lines`);
       setTimeout(() => {
         if (pinned && logPane) logPane.scrollTop = logPane.scrollHeight;
       });
@@ -23,14 +23,7 @@
     }
   }
 
-  let timer: number | undefined;
-  onMount(() => {
-    refresh();
-    timer = window.setInterval(refresh, 5000);
-  });
-  onDestroy(() => {
-    if (timer) window.clearInterval(timer);
-  });
+  poll(refresh, 5000);
 </script>
 
 <section class="page-head">

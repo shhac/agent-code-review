@@ -59,20 +59,49 @@ type queueView struct {
 	Status string `json:"status"` // queued|reviewing
 }
 
-// viewQueue derives display statuses from the shared lease predicate
-// (store.Candidate.ClaimActive): a live claim renders "reviewing"; anything
-// else — including a stale claim the next cycle will reclaim — is "queued".
-// Pure — unit-tested.
+// claimStatus maps the shared lease predicate (store.Candidate.ClaimActive)
+// to the dashboard's status vocabulary: a live claim is "reviewing";
+// anything else — including a stale claim the next cycle will reclaim — is
+// "queued". The queue badges and the review-log header both derive from
+// this one helper so they cannot disagree on the lease boundary.
+func claimStatus(c store.Candidate, now time.Time, staleAfter time.Duration) string {
+	if c.ClaimActive(now, staleAfter) {
+		return "reviewing"
+	}
+	return "queued"
+}
+
+// viewQueue derives each candidate's display status. Pure — unit-tested.
 func viewQueue(candidates []store.Candidate, now time.Time, staleAfter time.Duration) []queueView {
 	out := make([]queueView, 0, len(candidates))
 	for _, c := range candidates {
-		status := "queued"
-		if c.ClaimActive(now, staleAfter) {
-			status = "reviewing"
-		}
-		out = append(out, queueView{Candidate: c, Status: status})
+		out = append(out, queueView{Candidate: c, Status: claimStatus(c, now, staleAfter)})
 	}
 	return out
+}
+
+// queueCounts is the fixed header-badge shape: waiting vs in-flight, always
+// summing to Total. A typed struct so a future status can't silently create
+// a key nobody reads.
+type queueCounts struct {
+	Total     int `json:"total"`
+	Queued    int `json:"queued"`
+	Reviewing int `json:"reviewing"`
+}
+
+// countQueue tallies views by display status. Pure — unit-tested with
+// viewQueue so the badge counts and per-row statuses cannot disagree.
+func countQueue(views []queueView) queueCounts {
+	counts := queueCounts{Total: len(views)}
+	for _, v := range views {
+		switch v.Status {
+		case "queued":
+			counts.Queued++
+		case "reviewing":
+			counts.Reviewing++
+		}
+	}
+	return counts
 }
 
 func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +112,8 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"candidates": viewQueue(candidates, time.Now(), s.config().LeaseWindow())})
+	views := viewQueue(candidates, time.Now(), s.config().LeaseWindow())
+	writeJSON(w, http.StatusOK, map[string]any{"candidates": views, "counts": countQueue(views)})
 }
 
 // prRefPattern matches a PR reference in URL syntax, with or without the

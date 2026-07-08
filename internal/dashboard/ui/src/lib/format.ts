@@ -22,13 +22,21 @@ export function ago(t: string) {
   return r ? `${r} ago` : '';
 }
 
-// Elapsed time between two timestamps ("42s", "8m", "1.5h").
-export function dur(a: string, b: string) {
-  if (!a || !b) return '';
-  const s = Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 1000);
+// Human duration from a seconds count ("42s", "8m", "1.5h"). Zero and
+// negative render as "" — history rows backfilled before duration tracking
+// carry 0, which means unknown, not instant.
+export function durSecs(s: number) {
+  if (!s || s <= 0) return '';
   if (s < 90) return `${Math.round(s)}s`;
   if (s < 5400) return `${Math.round(s / 60)}m`;
   return `${(s / 3600).toFixed(1)}h`;
+}
+
+// Elapsed time between two known timestamps; here a zero gap is a real
+// measurement, so it renders as "0s" rather than durSecs's unknown "".
+export function dur(a: string, b: string) {
+  if (!a || !b) return '';
+  return durSecs(Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 1000)) || '0s';
 }
 
 export function keyOf(c: Candidate) {

@@ -20,11 +20,13 @@ type fakeSchedStore struct {
 
 	allowed   bool
 	claims    []time.Time
+	workDirs  []string
 	completed []store.Review
 }
 
-func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, at time.Time) error {
+func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, at time.Time, workDir string) error {
 	f.claims = append(f.claims, at)
+	f.workDirs = append(f.workDirs, workDir)
 	return nil
 }
 
@@ -52,11 +54,19 @@ func (e *fakeEngine) Review(_ context.Context, req review.Request) (review.Verdi
 
 func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
-	s := New(cfg, fs, nil, fe, "the-gh-user", nil, nil)
+	s := New(func() config.Config { return cfg }, fs, nil, "the-gh-user", nil, nil)
+	// Tests drive a fixed fake engine instead of the per-cycle rebuild.
+	s.newEngine = func(config.Config) (review.Engine, error) { return fe, nil }
 	// Default the candidacy recheck to "still a candidate" so tests exercise
 	// the review path; precheck-specific tests override this.
 	s.stillCandidate = func(context.Context, string, int) (bool, string, error) { return true, "", nil }
 	return s
+}
+
+// reviewOne invokes Scheduler.reviewOne with the cycle inputs ReviewCycle
+// would thread: the current config snapshot and the injected engine.
+func reviewOne(s *Scheduler, fe *fakeEngine, c store.Candidate) error {
+	return s.reviewOne(context.Background(), c, s.cfg(), fe)
 }
 
 // TestReviewOneCompletesEveryOutcome: every decision — real reviews, skips,
@@ -77,11 +87,14 @@ func TestReviewOneCompletesEveryOutcome(t *testing.T) {
 			s := newTestScheduler(fs, fe)
 
 			c := store.Candidate{Repo: "o/r", Number: 5, Author: "alice", HeadSHA: "sha1"}
-			if err := s.reviewOne(context.Background(), c); err != nil {
+			if err := reviewOne(s, fe, c); err != nil {
 				t.Fatal(err)
 			}
 			if len(fs.claims) != 1 {
 				t.Errorf("candidate must be claimed exactly once, got %d", len(fs.claims))
+			}
+			if len(fs.workDirs) != 1 || fs.workDirs[0] == "" {
+				t.Errorf("claim must record the engine workdir, got %v", fs.workDirs)
 			}
 			if len(fs.completed) != 1 {
 				t.Fatalf("every outcome must Complete exactly once, got %d", len(fs.completed))
@@ -105,7 +118,7 @@ func TestReviewOneEngineErrorStillCompletes(t *testing.T) {
 	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionError}, err: errors.New("boom")}
 	s := newTestScheduler(fs, fe)
 
-	err := s.reviewOne(context.Background(), store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"})
+	err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"})
 	if err == nil {
 		t.Fatal("engine error must propagate")
 	}
@@ -121,7 +134,7 @@ func TestReviewOneAllowedFlagReachesPrompt(t *testing.T) {
 		fs := &fakeSchedStore{allowed: allowed}
 		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
 		s := newTestScheduler(fs, fe)
-		if err := s.reviewOne(context.Background(), store.Candidate{Repo: "o/r", Number: 5, Author: "alice"}); err != nil {
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, Author: "alice"}); err != nil {
 			t.Fatal(err)
 		}
 		return fe.prompt
@@ -167,7 +180,8 @@ func TestReviewCyclePausedByUsageFloor(t *testing.T) {
 			Primary:   &usage.Window{UsedPercent: 95, WindowMins: 300},
 		}
 	}
-	s := New(cfg, fs, nil, fe, "u", nil, tripped)
+	s := New(func() config.Config { return cfg }, fs, nil, "u", nil, tripped)
+	s.newEngine = func(config.Config) (review.Engine, error) { return fe, nil }
 	if err := s.ReviewCycle(context.Background()); err != nil {
 		t.Fatalf("paused cycle must return nil, got %v", err)
 	}
@@ -186,7 +200,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 			return false, "already approved", nil
 		}
 		c := store.Candidate{Repo: "o/r", Number: 7, HeadSHA: "sha1", Source: store.SourceDiscovered}
-		if err := s.reviewOne(context.Background(), c); err != nil {
+		if err := reviewOne(s, fe, c); err != nil {
 			t.Fatal(err)
 		}
 		if fe.prompt != "" {
@@ -206,7 +220,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 			return false, "", nil
 		}
 		c := store.Candidate{Repo: "o/r", Number: 8, HeadSHA: "sha1", Source: store.SourceManual}
-		if err := s.reviewOne(context.Background(), c); err != nil {
+		if err := reviewOne(s, fe, c); err != nil {
 			t.Fatal(err)
 		}
 		if len(fs.completed) != 1 || fs.completed[0].Verdict != review.DecisionCommented {
@@ -222,7 +236,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 			return false, "", errors.New("gh unavailable")
 		}
 		c := store.Candidate{Repo: "o/r", Number: 9, HeadSHA: "sha1", Source: store.SourceDiscovered}
-		if err := s.reviewOne(context.Background(), c); err == nil {
+		if err := reviewOne(s, fe, c); err == nil {
 			t.Fatal("recheck error must propagate")
 		}
 		if len(fs.completed) != 0 {

@@ -1,6 +1,9 @@
 package review
 
 import (
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -41,4 +44,40 @@ func TestBuildArgs(t *testing.T) {
 	if !strings.Contains(joined, "--sandbox workspace-write") {
 		t.Error("default sandbox must be workspace-write")
 	}
+}
+
+// TestNewAgentSink pins the tee contract: engine output lands in both the
+// buffer (Verdict.Raw) and the workdir's live agent log, and a workspace
+// that can't hold the log degrades to buffer-only instead of blanking out
+// error diagnostics.
+func TestNewAgentSink(t *testing.T) {
+	t.Run("tees into the live log", func(t *testing.T) {
+		dir := t.TempDir()
+		sink, buf, closeSink := newAgentSink(dir)
+		if _, err := io.WriteString(sink, "agent output\n"); err != nil {
+			t.Fatal(err)
+		}
+		closeSink()
+		if got := buf.String(); got != "agent output\n" {
+			t.Errorf("buffer = %q, want the written output", got)
+		}
+		logged, err := os.ReadFile(LogPath(dir))
+		if err != nil {
+			t.Fatalf("live log must exist: %v", err)
+		}
+		if string(logged) != buf.String() {
+			t.Errorf("log = %q, buffer = %q; the tee must keep them identical", logged, buf.String())
+		}
+	})
+
+	t.Run("unwritable workdir keeps the buffer", func(t *testing.T) {
+		sink, buf, closeSink := newAgentSink(filepath.Join(t.TempDir(), "missing", "nested"))
+		defer closeSink()
+		if _, err := io.WriteString(sink, "diagnostics"); err != nil {
+			t.Fatal(err)
+		}
+		if buf.String() != "diagnostics" {
+			t.Errorf("buffer = %q; Raw must survive a failed log create", buf.String())
+		}
+	})
 }

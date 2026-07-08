@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS queue (
   discovered_at TIMESTAMP,
   claimed_at    TIMESTAMP,                      -- set while an engine reviews it; NULL = unclaimed. Stale claims (crashed daemon) are reclaimed by the next cycle.
   source        TEXT NOT NULL DEFAULT 'discovered', -- 'discovered' | 'manual'. Manual adds bypass the pre-review candidacy check (drafts and explicit re-review requests must go through).
+  work_dir      TEXT,                           -- the engine's scratch workspace, set at claim time; its agent.log is the live review log
   PRIMARY KEY (repo, number)
 );
 
@@ -29,15 +30,25 @@ CREATE TABLE IF NOT EXISTS queue (
 -- the most recent row of ANY verdict at the PR's current head SHA suppresses
 -- re-enqueue.
 CREATE TABLE IF NOT EXISTS history (
-  repo        TEXT      NOT NULL,
-  number      INTEGER   NOT NULL,
-  title       TEXT,                             -- PR title at completion time, for display
-  author      TEXT,                             -- PR author at completion time, for display
-  head_sha    TEXT      NOT NULL,
-  verdict     TEXT      NOT NULL,               -- APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
-  engine      TEXT,
-  reviewed_at TIMESTAMP NOT NULL
+  repo          TEXT      NOT NULL,
+  number        INTEGER   NOT NULL,
+  title         TEXT,                           -- PR title at completion time, for display
+  author        TEXT,                           -- PR author at completion time, for display
+  head_sha      TEXT      NOT NULL,
+  verdict       TEXT      NOT NULL,             -- APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
+  engine        TEXT,
+  reviewed_at   TIMESTAMP NOT NULL,
+  duration_secs INTEGER   NOT NULL DEFAULT 0,   -- claim-to-completion elapsed; 0 for rows predating the column and for manual skips
+  work_dir      TEXT                            -- the engine workspace used, kept for postmortem log access
 );
+
+-- Idempotent migrations for stores created before these columns existed.
+-- Init applies this whole file on every boot; these are no-ops once applied.
+-- (No NOT NULL here: DuckDB can't add constrained columns; DEFAULT 0
+-- backfills the pre-existing rows, and Complete always writes a value.)
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS work_dir TEXT;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS duration_secs INTEGER DEFAULT 0;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS work_dir TEXT;
 
 -- Per-repo allowed authors: whose PRs WE (the reviewer) may approve — not who
 -- can approve. A PR may receive an APPROVE only when its author's handle is

@@ -98,10 +98,15 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		Discovery: !opts.noSchedule && !opts.noDiscovery && cfg.Discovery.Enabled,
 		Review:    !opts.noSchedule && !opts.noReviews && cfg.Schedule.Enabled,
 	}
-	// The scheduler reads the switches from config — apply the effective
-	// (flag-overridden) state so it starts exactly the loops shown above.
-	cfg.Discovery.Enabled = running.Discovery
-	cfg.Schedule.Enabled = running.Review
+	// The scheduler reads config live so dials reload without a restart, but
+	// the loop switches are pinned to this boot's flag-resolved state — a
+	// config edit must not resurrect a loop the --no-* flags disabled.
+	schedCfg := func() config.Config {
+		c := config.Read()
+		c.Discovery.Enabled = running.Discovery
+		c.Schedule.Enabled = running.Review
+		return c
+	}
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs)
 	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
 	go func() {
@@ -113,7 +118,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}()
 
 	if running.Discovery || running.Review {
-		sched, err := buildScheduler(ctx, cfg, s, logf, usageCache.Get)
+		sched, err := buildScheduler(ctx, schedCfg, s, logf, usageCache.Get)
 		if err != nil {
 			return err
 		}

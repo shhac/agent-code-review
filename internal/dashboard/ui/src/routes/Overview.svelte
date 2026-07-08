@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
   import { del, fetchJSON, post } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
   import { ago, dur, keyOf, rel, statusKind, statusLabel, when, windowName } from '../lib/format';
+  import { navigate } from '../lib/nav';
+  import { poll } from '../lib/poll';
   import PrIdentity from '../lib/PrIdentity.svelte';
   import type { Bucket, Candidate, Review, Run, UsageSnapshot, UsageWindow } from '../lib/types';
 
   let queue: Candidate[] = [];
+  let counts = { total: 0, queued: 0, reviewing: 0 };
   let reviews: Review[] = [];
   let runs: Run[] = [];
   let buckets: Bucket[] = [];
@@ -60,6 +62,7 @@
         fetchJSON('/api/stats'),
       ]);
       queue = q.candidates || [];
+      counts = q.counts || { total: queue.length, queued: 0, reviewing: 0 };
       reviews = rv.reviews || [];
       runs = rn.runs || [];
       usageAvailable = !!us.available;
@@ -149,14 +152,7 @@
     await refresh();
   }
 
-  let timer: number | undefined;
-  onMount(() => {
-    refresh();
-    timer = window.setInterval(refresh, 15000);
-  });
-  onDestroy(() => {
-    if (timer) window.clearInterval(timer);
-  });
+  poll(refresh, 15000);
 </script>
 
 <section class="hero">
@@ -217,7 +213,14 @@
               <span class="chev">{expanded.has(keyOf(c)) ? '⌄' : '›'}</span>
               <PrIdentity repo={c.repo} number={c.number} url={c.url} title={c.title} author={c.author} />
               <span class="tag">{c.type}</span>
-              {#if c.status !== 'queued'}
+              {#if c.status === 'reviewing'}
+                <a
+                  class="status {statusKind(c.status)} status-link"
+                  href={`/review/${c.repo}/${c.number}`}
+                  title="Open the live agent log"
+                  on:click|preventDefault|stopPropagation={() => navigate(`/review/${c.repo}/${c.number}`)}
+                ><i></i>{statusLabel(c.status)}{c.claimed_at ? ` · ${rel(c.claimed_at)}` : ''}</a>
+              {:else if c.status !== 'queued'}
                 <span class="status {statusKind(c.status)}"><i></i>{statusLabel(c.status)}</span>
               {/if}
             </div>
@@ -267,7 +270,7 @@
     <section>
       <h2>Now</h2>
       <div class="now-grid">
-        <div><strong>{queue.length}</strong><span>visible queue</span></div>
+        <div><strong>{counts.queued}</strong><span>waiting in queue</span></div>
         <div><strong>{totalReviews}</strong><span>24h reviews</span></div>
         <div><strong>{approvedReviews}</strong><span>approved</span></div>
         <div><strong>{lastRun ? rel(lastRun.started_at) || 'just' : '–'}</strong><span>last run</span></div>

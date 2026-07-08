@@ -243,9 +243,14 @@ func intOr(v *int, def int) int {
 // before it is treated as abandoned by a crashed daemon. One definition
 // serves the scheduler's reclaim logic, the run-lock staleness check, and
 // the dashboard's "reviewing" badge — they must agree or the UI and the
-// scheduler drift.
+// scheduler drift. The 2h floor keeps a short review interval (say 15m) from
+// shrinking the lease below a realistic cycle length: without it, a long
+// burst of reviews would look abandoned and get double-reviewed.
 func (c Config) LeaseWindow() time.Duration {
-	return c.Interval() * 4
+	if w := c.Interval() * 4; w > 2*time.Hour {
+		return w
+	}
+	return 2 * time.Hour
 }
 
 // Engine is the review engine id (default "codex").

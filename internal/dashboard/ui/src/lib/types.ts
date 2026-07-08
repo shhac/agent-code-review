@@ -13,6 +13,9 @@ export type Candidate = {
   created_at: string;
   updated_at: string;
   discovered_at: string;
+  claimed_at?: string;
+  source: string;
+  work_dir?: string;
 };
 
 export type Review = {
@@ -24,6 +27,8 @@ export type Review = {
   engine: string;
   head_sha: string;
   reviewed_at: string;
+  duration_secs: number;
+  work_dir?: string;
 };
 
 export type Run = {

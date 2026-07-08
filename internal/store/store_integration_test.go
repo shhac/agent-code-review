@@ -131,7 +131,7 @@ func TestQueueLifecycle(t *testing.T) {
 
 	// Claim marks it in-flight.
 	claimAt := time.Now().UTC().Truncate(time.Second)
-	if err := s.Claim(ctx, "o/r", 7, claimAt); err != nil {
+	if err := s.Claim(ctx, "o/r", 7, claimAt, "/tmp/example-workdir-7"); err != nil {
 		t.Fatal(err)
 	}
 	c, ok := getQueued(t, s, "o/r", 7)
@@ -173,7 +173,7 @@ func TestCompleteSHAGate(t *testing.T) {
 	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 8, Type: TypeNew, HeadSHA: "sha1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Claim(ctx, "o/r", 8, time.Now()); err != nil {
+	if err := s.Claim(ctx, "o/r", 8, time.Now(), "/tmp/example-workdir-8"); err != nil {
 		t.Fatal(err)
 	}
 	// Discovery updates the head mid-review.
@@ -264,7 +264,7 @@ func TestListQueueOrderingAndClaimVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A claimed row must remain visible.
-	if err := s.Claim(ctx, "o/r", 10, time.Now()); err != nil {
+	if err := s.Claim(ctx, "o/r", 10, time.Now(), "/tmp/example-workdir-10"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,7 +320,7 @@ func TestAbsentRowEdges(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	if err := s.Claim(ctx, "o/r", 99, time.Now()); err != nil {
+	if err := s.Claim(ctx, "o/r", 99, time.Now(), "/tmp/example-workdir-99"); err != nil {
 		t.Fatalf("Claim on missing row must no-op, got %v", err)
 	}
 	queue, err := s.ListQueue(ctx, "")
@@ -349,10 +349,12 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	if err := s.Enqueue(ctx, c); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Claim(ctx, "o/r", 21, time.Now()); err != nil {
+	if err := s.Claim(ctx, "o/r", 21, time.Now(), "/tmp/example-workdir-21"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Complete(ctx, ReviewFrom(c, "COMMENTED", "test-engine")); err != nil {
+	rec := ReviewFrom(c, "COMMENTED", "test-engine", time.Now().Add(-90*time.Second))
+	rec.WorkDir = "/tmp/example-workdir-21"
+	if err := s.Complete(ctx, rec); err != nil {
 		t.Fatal(err)
 	}
 	last, ok, err := s.LastOutcome(ctx, "o/r", 21)
@@ -364,6 +366,12 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	}
 	if last.Verdict != "COMMENTED" || last.Engine != "test-engine" || last.HeadSHA != "sha1" {
 		t.Errorf("columns misaligned: %+v", last)
+	}
+	if last.DurationSecs < 89 || last.DurationSecs > 95 {
+		t.Errorf("duration_secs = %d, want ~90", last.DurationSecs)
+	}
+	if last.WorkDir != "/tmp/example-workdir-21" {
+		t.Errorf("work_dir = %q, want the claimed workspace", last.WorkDir)
 	}
 	all, err := s.ListReviews(ctx, 5)
 	if err != nil || len(all) != 1 || all[0].Title != title {

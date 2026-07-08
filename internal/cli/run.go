@@ -23,7 +23,7 @@ func registerRun(root *cobra.Command) {
 			defer func() { _ = s.Close() }()
 
 			// nil usage getter: a manual one-shot run bypasses the usage floor.
-			sched, err := buildScheduler(ctx, cfg, s, stderrLogf, nil)
+			sched, err := buildScheduler(ctx, config.Read, s, stderrLogf, nil)
 			if err != nil {
 				return err
 			}

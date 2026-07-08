@@ -46,16 +46,19 @@ func stderrLogf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 }
 
-// buildScheduler wires the review engine, discoverer, and resolved gh user
-// around an already-open store. logf is the cycle log sink: plain stderr for
-// one-shot runs; serve tees it into the dashboard's log ring. usageFn feeds
-// the usage-floor pause; nil (one-shot runs) bypasses the floor.
-func buildScheduler(ctx context.Context, cfg config.Config, s store.Store, logf func(string, ...any), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
-	engine, err := review.NewEngine(cfg.Review)
-	if err != nil {
+// buildScheduler wires the discoverer and resolved gh user around an
+// already-open store. Config flows through the getter so cadence, dials, and
+// codex settings reload live (the engine itself is rebuilt each cycle); the
+// engine name is validated up front so a typo still fails at boot. logf is
+// the cycle log sink: plain stderr for one-shot runs; serve tees it into the
+// dashboard's log ring. usageFn feeds the usage-floor pause; nil (one-shot
+// runs) bypasses the floor.
+func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Store, logf func(string, ...any), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
+	cfg := cfgFn()
+	if _, err := review.NewEngine(cfg.Review); err != nil {
 		return nil, err
 	}
-	disc := discover.New(cfg, s, logf)
+	disc := discover.New(cfgFn, s, logf)
 
 	ghUser := cfg.GHUser
 	if ghUser == "" {
@@ -66,5 +69,5 @@ func buildScheduler(ctx context.Context, cfg config.Config, s store.Store, logf 
 		}
 	}
 
-	return scheduler.New(cfg, s, disc, engine, ghUser, logf, usageFn), nil
+	return scheduler.New(cfgFn, s, disc, ghUser, logf, usageFn), nil
 }

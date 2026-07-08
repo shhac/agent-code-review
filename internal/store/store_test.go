@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -44,4 +45,87 @@ func TestRealVerdictsSQLDerivation(t *testing.T) {
 			t.Errorf("IsRealVerdict(%q) must be true for every listed verdict", v)
 		}
 	}
+}
+
+// TestReviewFromDuration pins the duration contract: a zero started time
+// records an honest 0 (manual skips, backfilled rows), never a bogus
+// multi-year elapsed from the zero time; a real claim time records the
+// elapsed seconds. The identity fan-out must copy through either way.
+func TestReviewFromDuration(t *testing.T) {
+	c := Candidate{Repo: "o/r", Number: 5, Title: "T", Author: "a", HeadSHA: "sha1", WorkDir: "/wd"}
+
+	skip := ReviewFrom(c, "SKIPPED", EngineManual, time.Time{})
+	if skip.DurationSecs != 0 {
+		t.Errorf("zero started must record duration 0, got %d", skip.DurationSecs)
+	}
+
+	elapsed := ReviewFrom(c, "APPROVED", "codex", time.Now().Add(-90*time.Second))
+	if elapsed.DurationSecs < 89 || elapsed.DurationSecs > 92 {
+		t.Errorf("duration = %ds, want ~90", elapsed.DurationSecs)
+	}
+	if elapsed.Repo != "o/r" || elapsed.Number != 5 || elapsed.Title != "T" ||
+		elapsed.Author != "a" || elapsed.HeadSHA != "sha1" || elapsed.WorkDir != "/wd" {
+		t.Errorf("candidate identity must copy through, got %+v", elapsed)
+	}
+}
+
+// workspaceStore fakes the two reads FindWorkspace performs; every other
+// Store method panics via the embedded nil interface.
+type workspaceStore struct {
+	Store
+
+	queue  []Candidate
+	last   Review
+	lastOK bool
+}
+
+func (f *workspaceStore) ListQueue(context.Context, string) ([]Candidate, error) {
+	return f.queue, nil
+}
+
+func (f *workspaceStore) LastOutcome(context.Context, string, int) (Review, bool, error) {
+	return f.last, f.lastOK, nil
+}
+
+// TestFindWorkspace pins the shared queue-then-history resolution behind
+// `queue log` and the dashboard's review-log endpoint.
+func TestFindWorkspace(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("queued row wins over history", func(t *testing.T) {
+		s := &workspaceStore{
+			queue:  []Candidate{{Number: 4}, {Number: 5, WorkDir: "/live"}},
+			last:   Review{WorkDir: "/old"},
+			lastOK: true,
+		}
+		ws, found, err := FindWorkspace(ctx, s, "o/r", 5)
+		if err != nil || !found {
+			t.Fatalf("found=%v err=%v", found, err)
+		}
+		if ws.Dir != "/live" || ws.Queued == nil || ws.Finished != nil {
+			t.Errorf("want the live queue row, got %+v", ws)
+		}
+	})
+
+	t.Run("queued row without a workdir falls back to history", func(t *testing.T) {
+		s := &workspaceStore{
+			queue:  []Candidate{{Number: 5}},
+			last:   Review{WorkDir: "/old", Verdict: "APPROVED"},
+			lastOK: true,
+		}
+		ws, found, err := FindWorkspace(ctx, s, "o/r", 5)
+		if err != nil || !found {
+			t.Fatalf("found=%v err=%v", found, err)
+		}
+		if ws.Dir != "/old" || ws.Finished == nil || ws.Queued != nil {
+			t.Errorf("want the history row, got %+v", ws)
+		}
+	})
+
+	t.Run("no workspace ever recorded", func(t *testing.T) {
+		s := &workspaceStore{last: Review{}, lastOK: true}
+		if _, found, err := FindWorkspace(ctx, s, "o/r", 5); err != nil || found {
+			t.Errorf("pre-feature reviews have no workspace; found=%v err=%v", found, err)
+		}
+	})
 }

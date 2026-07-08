@@ -42,6 +42,7 @@ type Server struct {
 	running Running
 	usage   *usage.Cache // nil when the daemon isn't polling usage
 	logs    *logbuf.Ring // nil when the process doesn't capture logs
+	version string       // ldflags-injected build version; "dev" outside releases
 
 	// ghUser resolves the login the gh CLI acts as; resolved once, lazily —
 	// the Config page shows "reviewing as @…" so visitors know whose reviews
@@ -51,8 +52,8 @@ type Server struct {
 	ghUserVal  string
 }
 
-func NewServer(s store.Store, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring) *Server {
-	return &Server{store: s, config: cfg, running: running, usage: u, ghUser: ghUser, logs: logs}
+func NewServer(s store.Store, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring, version string) *Server {
+	return &Server{store: s, config: cfg, running: running, usage: u, ghUser: ghUser, logs: logs, version: version}
 }
 
 // reviewingAs returns the identity reviews are posted as: the configured
@@ -107,7 +108,7 @@ func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
-	runs, err := s.store.ListRuns(ctx, 20)
+	runs, err := s.store.ListRuns(ctx, queryInt(r, "limit", 20, 200))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -148,15 +149,31 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"review_running":    s.running.Review,
 		"discovery_running": s.running.Discovery,
 		"engine":            cfg.Engine(),
+		"version":           s.version,
 	})
 }
 
 // handleUsage returns the cached Codex rate-limit snapshot (refreshed by the
 // daemon on dashboard.usage_poll_interval) plus the usage-floor verdict the
-// scheduler applies to it, so the UI can show why reviews are paused.
-func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request) {
+// scheduler applies to it, so the UI can show why reviews are paused. It
+// also carries the history's token-spend sums (all time and the last 24h);
+// unlike the rate-limit windows those come from the store, so they're
+// present even when the daemon isn't polling usage.
+func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r, 10*time.Second)
+	defer cancel()
+	tokensTotal, err := s.store.TokensUsed(ctx, time.Time{})
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	tokens24h, err := s.store.TokensUsed(ctx, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	if s.usage == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"available": false})
+		writeJSON(w, http.StatusOK, map[string]any{"available": false, "tokens_total": tokensTotal, "tokens_24h": tokens24h})
 		return
 	}
 	snap := s.usage.Get()
@@ -167,6 +184,8 @@ func (s *Server) handleUsage(w http.ResponseWriter, _ *http.Request) {
 		"usage":         snap,
 		"review_paused": paused,
 		"paused_reason": reason,
+		"tokens_total":  tokensTotal,
+		"tokens_24h":    tokens24h,
 	})
 }
 

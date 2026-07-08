@@ -29,6 +29,7 @@ export type Review = {
   reviewed_at: string;
   duration_secs: number;
   work_dir?: string;
+  tokens_used?: number;
 };
 
 export type Run = {

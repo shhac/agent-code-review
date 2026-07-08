@@ -43,6 +43,7 @@
       <div class="section-head"><h2>Settings</h2></div>
       <div class="settings">
         {#each [
+          ['Daemon version', configData.version || 'dev'],
           ['Reviewing as', configData.reviewing_as ? `@${configData.reviewing_as}` : 'unknown (gh not authenticated?)'],
           ['Review engine', configData.engine],
           ['Review loop (this daemon)', configData.review_running ? 'running' : configData.schedule.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],

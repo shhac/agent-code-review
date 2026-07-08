@@ -32,6 +32,7 @@ type prInfo struct {
 	ClaimedAt    *time.Time `json:"claimed_at,omitempty"`
 	Verdict      string     `json:"verdict,omitempty"`
 	DurationSecs int        `json:"duration_secs,omitempty"`
+	TokensUsed   int        `json:"tokens_used,omitempty"`
 	ReviewedAt   *time.Time `json:"reviewed_at,omitempty"`
 }
 
@@ -61,6 +62,7 @@ func reviewLogView(repo string, number int, ws store.Workspace, now time.Time, l
 	last := ws.Finished
 	pr.Title, pr.Author, pr.Verdict = last.Title, last.Author, last.Verdict
 	pr.DurationSecs = last.DurationSecs
+	pr.TokensUsed = last.TokensUsed
 	pr.ReviewedAt = &last.ReviewedAt
 	return "finished", pr
 }

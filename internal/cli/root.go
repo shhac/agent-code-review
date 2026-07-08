@@ -20,9 +20,17 @@ type rootFlags struct {
 	libcli.Globals
 }
 
+// buildVersion is the ldflags-injected release version ("dev" builds keep
+// the default); serve passes it to the dashboard so the Config page shows
+// which build is running.
+var buildVersion = "dev"
+
 func newRootCmd(version string) *cobra.Command {
 	g := &rootFlags{}
 	globals = &g.Globals // emit() resolves -f/--format from here
+	if version != "" {
+		buildVersion = version
+	}
 	root := libcli.NewRoot(libcli.Options{
 		Use:           "agent-code-review",
 		Short:         "PR review queue + scheduler for AI agents",

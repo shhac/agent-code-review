@@ -107,7 +107,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		c.Schedule.Enabled = running.Review
 		return c
 	}
-	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs)
+	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, buildVersion)
 	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
 	go func() {
 		logf("dashboard: listening on %s", opts.addr)

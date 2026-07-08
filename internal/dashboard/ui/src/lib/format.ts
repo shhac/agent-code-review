@@ -39,6 +39,14 @@ export function dur(a: string, b: string) {
   return durSecs(Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 1000)) || '0s';
 }
 
+// Compact token count ("850", "3.4k", "193k"). Zero means unknown, not free.
+export function tokens(n: number | undefined) {
+  if (!n || n <= 0) return '';
+  if (n < 1000) return `${n}`;
+  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n / 1000)}k`;
+}
+
 export function keyOf(c: Candidate) {
   return `${c.repo}#${c.number}`;
 }

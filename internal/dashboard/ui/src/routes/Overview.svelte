@@ -1,7 +1,7 @@
 <script lang="ts">
   import { del, fetchJSON, post } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
-  import { ago, dur, keyOf, rel, statusKind, statusLabel, when, windowName } from '../lib/format';
+  import { ago, dur, keyOf, rel, statusKind, statusLabel, tokens, when, windowName } from '../lib/format';
   import { navigate } from '../lib/nav';
   import { poll } from '../lib/poll';
   import PrIdentity from '../lib/PrIdentity.svelte';
@@ -15,6 +15,10 @@
   let usageAvailable = false;
   let usage: UsageSnapshot | null = null;
   let usagePaused = false;
+  let tokensTotal = 0;
+  let tokens24h = 0;
+  let runsPage = 0;
+  const runsPerPage = 5;
   let pausedReason = '';
   let addInput = '';
   let addErr = '';
@@ -57,7 +61,7 @@
       const [q, rv, rn, us, st] = await Promise.all([
         fetchJSON('/api/queue'),
         fetchJSON('/api/reviews?limit=100'),
-        fetchJSON('/api/runs'),
+        fetchJSON('/api/runs?limit=100'),
         fetchJSON('/api/usage'),
         fetchJSON('/api/stats'),
       ]);
@@ -65,9 +69,12 @@
       counts = q.counts || { total: queue.length, queued: 0, reviewing: 0 };
       reviews = rv.reviews || [];
       runs = rn.runs || [];
+      runsPage = Math.min(runsPage, Math.max(0, Math.ceil(runs.length / runsPerPage) - 1));
       usageAvailable = !!us.available;
       usage = us.usage || null;
       usagePaused = !!us.review_paused;
+      tokensTotal = us.tokens_total || 0;
+      tokens24h = us.tokens_24h || 0;
       pausedReason = us.paused_reason || '';
       buckets = st.buckets || [];
       feedLive();
@@ -304,6 +311,9 @@
           {/if}
         {/each}
       {/if}
+      {#if tokensTotal}
+        <div class="tokens-line"><span>Tokens spent</span><b>{tokens(tokens24h) || '0'} last 24h · {tokens(tokensTotal)} all time</b></div>
+      {/if}
     </section>
 
     <section>
@@ -325,10 +335,19 @@
     </section>
 
     <section>
-      <h2>Recent runs</h2>
+      <div class="section-head compact">
+        <h2>Recent runs</h2>
+        {#if runs.length > runsPerPage}
+          <span class="pager">
+            <button type="button" disabled={runsPage === 0} on:click={() => (runsPage -= 1)}>‹</button>
+            {runsPage + 1}/{Math.ceil(runs.length / runsPerPage)}
+            <button type="button" disabled={(runsPage + 1) * runsPerPage >= runs.length} on:click={() => (runsPage += 1)}>›</button>
+          </span>
+        {/if}
+      </div>
       {#if runs.length}
         <div class="mini-table">
-          {#each runs as r}
+          {#each runs.slice(runsPage * runsPerPage, (runsPage + 1) * runsPerPage) as r}
             <p><time title={when(r.started_at)}>{ago(r.started_at)}</time><span>{dur(r.started_at, r.finished_at)}</span><span class="status {statusKind(r.status)}"><i></i>{statusLabel(r.status)}</span><span>{r.host}</span></p>
           {/each}
         </div>

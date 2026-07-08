@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ago, dur, statusKind, statusLabel, when } from './format';
+  import { ago, dur, when } from './format';
+  import StatusBadge from './StatusBadge.svelte';
   import type { Run } from './types';
 
   export let runs: Run[] = [];
@@ -27,7 +28,7 @@
   {#if runs.length}
     <div class="mini-table">
       {#each runs.slice(runsPage * runsPerPage, (runsPage + 1) * runsPerPage) as r}
-        <p><time title={when(r.started_at)}>{ago(r.started_at)}</time><span>{dur(r.started_at, r.finished_at)}</span><span class="status {statusKind(r.status)}"><i></i>{statusLabel(r.status)}</span><span>{r.host}</span></p>
+        <p><time title={when(r.started_at)}>{ago(r.started_at)}</time><span>{dur(r.started_at, r.finished_at)}</span><StatusBadge status={r.status} /><span>{r.host}</span></p>
       {/each}
     </div>
   {:else}

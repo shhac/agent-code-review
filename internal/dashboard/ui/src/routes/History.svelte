@@ -1,9 +1,10 @@
 <script lang="ts">
   import { fetchJSON } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
-  import { ago, durSecs, statusKind, statusLabel, tokens, when } from '../lib/format';
+  import { ago, durSecs, tokens, when } from '../lib/format';
   import { navigate } from '../lib/nav';
   import { poll } from '../lib/poll';
+  import StatusBadge from '../lib/StatusBadge.svelte';
   import PrIdentity from '../lib/PrIdentity.svelte';
   import type { Review } from '../lib/types';
 
@@ -47,7 +48,7 @@
         {#each reviews as r}
           <p>
             <PrIdentity repo={r.repo} number={r.number} title={r.title} author={r.author} />
-            <span class="status {statusKind(r.verdict)}"><i></i>{statusLabel(r.verdict)}</span>
+            <StatusBadge status={r.verdict} />
             <span class="mono">{r.engine} · {r.head_sha?.slice(0, 8)}</span>
             <span class="dur">{durSecs(r.duration_secs)}{r.tokens_used ? ` · ${tokens(r.tokens_used)} tok` : ''}</span>
             <time title={when(r.reviewed_at)}>{ago(r.reviewed_at)}</time>

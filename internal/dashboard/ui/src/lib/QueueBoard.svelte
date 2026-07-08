@@ -3,6 +3,8 @@
   import { ago, keyOf, rel, statusKind, statusLabel, when } from './format';
   import { navigate } from './nav';
   import PrIdentity from './PrIdentity.svelte';
+  import { moveByKey, reorderPayload } from './queueorder';
+  import StatusBadge from './StatusBadge.svelte';
   import type { Candidate, Review } from './types';
 
   export let queue: Candidate[] = [];
@@ -56,21 +58,8 @@
   let dragKey: string | null = null;
   $: dragging = dragKey !== null;
 
-  function moveByKey(list: Candidate[], fromKey: string, toKey: string) {
-    const from = list.findIndex((c) => keyOf(c) === fromKey);
-    const to = list.findIndex((c) => keyOf(c) === toKey);
-    if (from < 0 || to < 0 || from === to) return list;
-    const next = [...list];
-    next.splice(to, 0, ...next.splice(from, 1));
-    return next;
-  }
-
-  function reorderPayload(list: Candidate[]) {
-    return list.filter((c) => c.status !== 'reviewing').map((c) => ({ repo: c.repo, number: c.number }));
-  }
-
   function dragStart(e: DragEvent, c: Candidate) {
-    draft = [...reviewingItems, ...queuedItems];
+    draft = [...displayQueue]; // begin dragging from what's on screen
     dragKey = keyOf(c);
     e.dataTransfer?.setData('text/plain', dragKey);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
@@ -150,7 +139,7 @@
                 on:click|preventDefault|stopPropagation={() => navigate(`/review/${c.repo}/${c.number}`)}
               ><i></i>{statusLabel(c.status)}{c.claimed_at ? ` · ${rel(c.claimed_at)}` : ''}</a>
             {:else if c.status !== 'queued'}
-              <span class="status {statusKind(c.status)}"><i></i>{statusLabel(c.status)}</span>
+              <StatusBadge status={c.status} />
             {/if}
           </div>
           <div class="ticket-actions">
@@ -172,7 +161,7 @@
                 {#if historyFor(reviews, c).length}
                   {#each historyFor(reviews, c) as r}
                     <p>
-                      <span class="status {statusKind(r.verdict)}"><i></i>{statusLabel(r.verdict)}</span>
+                      <StatusBadge status={r.verdict} />
                       <span class="mono">{r.engine} · {r.head_sha?.slice(0, 8)}</span>
                       {#if r.head_sha === c.head_sha}<span class="tag">current head</span>{/if}
                       <time title={when(r.reviewed_at)}>{ago(r.reviewed_at)}</time>

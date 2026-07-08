@@ -2,8 +2,9 @@
   import { fetchJSON } from '../lib/api';
   import { parseCodexLog, verdictShaped } from '../lib/codexlog';
   import { feedLive, feedStale } from '../lib/feed';
-  import { durSecs, prHref, rel, statusKind, statusLabel, tokens, when } from '../lib/format';
+  import { durSecs, prHref, rel, tokens, when } from '../lib/format';
   import { poll } from '../lib/poll';
+  import StatusBadge from '../lib/StatusBadge.svelte';
 
   export let repo: string;
   export let number: number;
@@ -78,7 +79,7 @@
   <p>
     {repo}{pr?.author ? ` · @${pr.author}` : ''}
     {#if state}
-      · <span class="status {statusKind(displayStatus)}"><i></i>{statusLabel(displayStatus)}</span>
+      · <StatusBadge status={displayStatus} />
     {/if}
     {#if state === 'reviewing' && pr?.claimed_at}
       · running for {rel(pr.claimed_at)}

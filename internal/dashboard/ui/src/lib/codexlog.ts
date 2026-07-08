@@ -62,7 +62,7 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
       if (kind !== 'exec') flushProse();
       command = null;
       output = null;
-      kind = line === 'tokens used' ? 'tokens' : (line as typeof kind);
+      kind = line === 'tokens used' ? 'tokens' : (line as 'user' | 'thinking' | 'codex' | 'exec');
       if (kind === 'exec') {
         command = { kind: 'exec', command: '', output: '' };
         events.push(command);

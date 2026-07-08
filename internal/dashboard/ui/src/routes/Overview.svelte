@@ -2,10 +2,11 @@
   import ActivityChart from '../lib/ActivityChart.svelte';
   import { fetchJSON, post } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
-  import { dur, rel, statusKind, statusLabel, tokens, windowName } from '../lib/format';
+  import { dur, rel, tokens, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
   import QueueBoard from '../lib/QueueBoard.svelte';
   import RecentRuns from '../lib/RecentRuns.svelte';
+  import StatusBadge from '../lib/StatusBadge.svelte';
   import type { Bucket, Candidate, Review, Run, UsageSnapshot, UsageWindow } from '../lib/types';
 
   let queue: Candidate[] = [];
@@ -101,7 +102,7 @@
         <div><strong>{lastRun ? rel(lastRun.started_at) || 'just' : '–'}</strong><span>last run</span></div>
       </div>
       {#if lastRun}
-        <p class="run-line"><span class="status {statusKind(lastRun.status)}"><i></i>{statusLabel(lastRun.status)}</span> {dur(lastRun.started_at, lastRun.finished_at)} on {lastRun.host}</p>
+        <p class="run-line"><StatusBadge status={lastRun.status} /> {dur(lastRun.started_at, lastRun.finished_at)} on {lastRun.host}</p>
       {:else}
         <p class="muted">No runs yet.</p>
       {/if}

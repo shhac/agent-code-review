@@ -3,9 +3,11 @@
 
   export let buckets: Bucket[] = [];
 
-  $: chart = chartBars(buckets);
+  $: chart = chartScale(buckets);
 
-  function chartBars(bs: Bucket[]) {
+  // The chart's scale: total feeds the header caption, max is the bar-height
+  // denominator. The bars themselves render inline from buckets.
+  function chartScale(bs: Bucket[]) {
     const total = bs.reduce((n, b) => n + b.approved + b.commented + b.requested_changes, 0);
     const max = Math.max(1, ...bs.map((b) => b.approved + b.commented + b.requested_changes));
     return { total, max };

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fetchJSON } from '../lib/api';
+  import { getPrompt } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
+  import type { PromptResponse } from '../lib/types';
 
-  let promptData: any = null;
+  let promptData: PromptResponse | null = null;
   let previewVariant = 'allowed_author';
 
   $: activePreview = promptData?.previews?.[previewVariant] || '';
@@ -11,7 +12,7 @@
 
   async function load() {
     try {
-      promptData = await fetchJSON('/api/prompt');
+      promptData = await getPrompt();
       feedLive('read-only');
     } catch {
       feedStale();

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fetchJSON } from '../lib/api';
+  import { getLogs } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
   import { when } from '../lib/format';
   import { poll } from '../lib/poll';
@@ -11,7 +11,7 @@
   async function refresh() {
     try {
       const pinned = logPane ? logPane.scrollHeight - logPane.scrollTop - logPane.clientHeight < 40 : true;
-      const data = await fetchJSON('/api/logs');
+      const data = await getLogs();
       logsAvailable = !!data.available;
       logEntries = data.entries || [];
       feedLive(`${logEntries.length} lines`);

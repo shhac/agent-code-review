@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fetchJSON } from '../lib/api';
+  import { getReviews } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
   import { ago, durSecs, tokens, when } from '../lib/format';
   import { navigate } from '../lib/nav';
@@ -16,7 +16,7 @@
 
   async function refresh() {
     try {
-      const rv = await fetchJSON('/api/reviews?limit=500');
+      const rv = await getReviews(500);
       reviews = rv.reviews || [];
       feedLive();
     } catch {

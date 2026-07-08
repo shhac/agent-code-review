@@ -1,43 +1,29 @@
 <script lang="ts">
-  import { fetchJSON } from '../lib/api';
+  import { getReviewLog } from '../lib/api';
   import { parseCodexLog, verdictShaped } from '../lib/codexlog';
   import { feedLive, feedStale } from '../lib/feed';
   import { durSecs, prHref, rel, tokens, when } from '../lib/format';
   import { poll } from '../lib/poll';
   import StatusBadge from '../lib/StatusBadge.svelte';
+  import type { ReviewLogPr } from '../lib/types';
 
   export let repo: string;
   export let number: number;
   export let reviewKey = '';
-
-  type PrInfo = {
-    repo: string;
-    number: number;
-    title?: string;
-    author?: string;
-    url?: string;
-    verdict?: string;
-    claimed_at?: string;
-    reviewed_at?: string;
-    duration_secs?: number;
-    tokens_used?: number;
-  };
 
   let available = false;
   let loaded = false;
   let state = '';
   let content = '';
   let truncated = false;
-  let pr: PrInfo | null = null;
+  let pr: ReviewLogPr | null = null;
   let pane: HTMLDivElement;
   let showRaw = false;
 
   async function refresh() {
     try {
       const pinned = pane ? pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40 : true;
-      let url = `/api/review-log?repo=${encodeURIComponent(repo)}&number=${number}`;
-      if (reviewKey) url += `&review=${encodeURIComponent(reviewKey)}`;
-      const data = await fetchJSON(url);
+      const data = await getReviewLog(repo, number, reviewKey);
       available = !!data.available;
       state = data.state || '';
       content = data.content || '';

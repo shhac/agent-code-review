@@ -29,6 +29,11 @@ export type QueueCounts = {
   held: number;
 };
 
+export type QueueResponse = {
+  candidates: Candidate[];
+  counts: QueueCounts;
+};
+
 export type Review = {
   repo: string;
   number: number;
@@ -51,11 +56,23 @@ export type Run = {
   host: string;
 };
 
+export type ReviewsResponse = {
+  reviews: Review[];
+};
+
+export type RunsResponse = {
+  runs: Run[];
+};
+
 export type Bucket = {
   hour: string;
   approved: number;
   commented: number;
   requested_changes: number;
+};
+
+export type StatsResponse = {
+  buckets: Bucket[];
 };
 
 export type UsageWindow = {
@@ -70,6 +87,15 @@ export type UsageSnapshot = {
   fetched_at?: string;
   primary?: UsageWindow;
   secondary?: UsageWindow;
+};
+
+export type UsageResponse = {
+  available: boolean;
+  usage?: UsageSnapshot;
+  review_paused?: boolean;
+  paused_reason?: string;
+  tokens_total?: number;
+  tokens_24h?: number;
 };
 
 export type ConfigRepo = {
@@ -109,4 +135,50 @@ export type AllowedAuthor = {
   name?: string;
   email?: string;
   slack_id?: string;
+};
+
+export type AuthorsResponse = {
+  authors: AllowedAuthor[];
+};
+
+export type PromptResponse = {
+  main_prompt?: string;
+  outcomes?: Record<string, string>;
+  rules?: any[];
+  previews?: Record<string, string>;
+  note?: string;
+};
+
+export type LogEntry = {
+  at: string;
+  line: string;
+};
+
+export type LogsResponse = {
+  available: boolean;
+  entries: LogEntry[];
+};
+
+export type ReviewLogPr = {
+  repo: string;
+  number: number;
+  title?: string;
+  author?: string;
+  url?: string;
+  verdict?: string;
+  claimed_at?: string;
+  reviewed_at?: string;
+  duration_secs?: number;
+  tokens_used?: number;
+};
+
+export type ReviewLogResponse = {
+  available: boolean;
+  state?: string;
+  pr?: ReviewLogPr;
+  work_dir?: string;
+  size?: number;
+  truncated?: boolean;
+  content?: string;
+  error?: string;
 };

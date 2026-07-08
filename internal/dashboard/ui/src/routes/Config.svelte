@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fetchJSON } from '../lib/api';
+  import { getAuthors, getConfig } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
   import type { AllowedAuthor, ConfigResponse } from '../lib/types';
 
@@ -36,8 +36,8 @@
   async function load() {
     try {
       const [cfg, au] = await Promise.all([
-        fetchJSON<ConfigResponse>('/api/config'),
-        fetchJSON<{ authors: AllowedAuthor[] }>('/api/authors'),
+        getConfig(),
+        getAuthors(),
       ]);
       configData = cfg;
       authors = au.authors || [];

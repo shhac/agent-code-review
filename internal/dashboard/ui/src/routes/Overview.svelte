@@ -1,6 +1,6 @@
 <script lang="ts">
   import ActivityChart from '../lib/ActivityChart.svelte';
-  import { fetchJSON, post } from '../lib/api';
+  import { getQueue, getReviews, getRuns, getStats, getUsage, queuePR } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
   import { dur, rel, tokens, when, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
@@ -39,11 +39,11 @@
     if (dragging) return; // never yank the list out from under a drag
     try {
       const [q, rv, rn, us, st] = await Promise.all([
-        fetchJSON('/api/queue'),
-        fetchJSON('/api/reviews?limit=100'),
-        fetchJSON('/api/runs?limit=100'),
-        fetchJSON('/api/usage'),
-        fetchJSON('/api/stats'),
+        getQueue(),
+        getReviews(100),
+        getRuns(100),
+        getUsage(),
+        getStats(),
       ]);
       queue = q.candidates || [];
       counts = q.counts || { total: queue.length, queued: 0, reviewing: 0, held: 0 };
@@ -65,7 +65,7 @@
   async function addToQueue() {
     addErr = '';
     try {
-      await post('/api/queue', { url: addInput.trim() });
+      await queuePR(addInput.trim());
       addInput = '';
       await refresh();
     } catch (e: any) {

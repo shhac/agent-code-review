@@ -1,6 +1,6 @@
 <script lang="ts">
   import { flip } from 'svelte/animate';
-  import { del, post } from './api';
+  import { promoteQueuedPR, removeQueuedPR, reorderQueue } from './api';
   import { ago, keyOf, rel, statusKind, statusLabel, untilRel, when } from './format';
   import { navigate } from './nav';
   import PrIdentity from './PrIdentity.svelte';
@@ -47,12 +47,12 @@
     }
   }
 
-  const removeCandidate = (c: Candidate) => mutate(() => del('/api/queue', { repo: c.repo, number: c.number }));
+  const removeCandidate = (c: Candidate) => mutate(() => removeQueuedPR(c));
 
   // The "review now" escape hatch for held rows: clears the hold, floats the
   // PR to the top, and treats it as a manual add. Distinct from drag-reorder,
   // which only moves positions and never lifts a hold.
-  const promoteCandidate = (c: Candidate) => mutate(() => post('/api/queue/promote', { repo: c.repo, number: c.number }));
+  const promoteCandidate = (c: Candidate) => mutate(() => promoteQueuedPR(c));
 
   function toggleCandidate(c: Candidate) {
     const next = new Set(expanded);
@@ -102,7 +102,7 @@
     dragKey = null;
     draft = null;
     if (!order.length) return;
-    await mutate(() => post('/api/queue/reorder', { order }));
+    await mutate(() => reorderQueue(order));
   }
 </script>
 

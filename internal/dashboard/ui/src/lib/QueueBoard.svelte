@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { flip } from 'svelte/animate';
   import { del, post } from './api';
   import { ago, keyOf, rel, statusKind, statusLabel, untilRel, when } from './format';
   import { navigate } from './nav';
@@ -70,13 +71,25 @@
   // dragOverRow only accepts queued targets, which all sit below).
   let draft: Candidate[] | null = null;
   let dragKey: string | null = null;
+  let settledKey: string | null = null; // row that just landed — flashes once
   $: dragging = dragKey !== null;
 
   function dragStart(e: DragEvent, c: Candidate) {
     draft = [...displayQueue]; // begin dragging from what's on screen
     dragKey = keyOf(c);
     e.dataTransfer?.setData('text/plain', dragKey);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      // The grip is the drag source, so by default the browser's floating
+      // ghost would be a screenshot of the tiny glyph. Point it at the whole
+      // row instead: a semi-transparent copy of the ticket follows the
+      // cursor while the in-list row becomes the placeholder slot.
+      const row = (e.target as HTMLElement).closest('article');
+      if (row) {
+        const r = row.getBoundingClientRect();
+        e.dataTransfer.setDragImage(row, e.clientX - r.left, e.clientY - r.top);
+      }
+    }
   }
 
   function dragOverRow(e: DragEvent, target: Candidate) {
@@ -88,6 +101,8 @@
   async function dragEnd() {
     if (!dragKey || !draft) return;
     const order = reorderPayload(draft);
+    settledKey = dragKey;
+    setTimeout(() => (settledKey = null), 700);
     dragKey = null;
     draft = null;
     if (!order.length) return;
@@ -113,13 +128,13 @@
   {#if displayQueue.length}
     <div class="queue-list">
       {#each displayQueue as c, i (keyOf(c))}
-        {#if i === reviewingItems.length && reviewingItems.length && queuedItems.length}
-          <div class="list-divider"><span>up next</span></div>
-        {/if}
         <article
           class:open={expanded.has(keyOf(c))}
           class:dragging={dragKey === keyOf(c)}
+          class:settled={settledKey === keyOf(c)}
+          class:up-next={i === reviewingItems.length && reviewingItems.length > 0 && queuedItems.length > 0}
           class="ticket"
+          animate:flip={{ duration: 160 }}
           on:dragover={(e) => dragOverRow(e, c)}
         >
           <div

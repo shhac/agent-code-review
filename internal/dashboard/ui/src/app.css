@@ -110,19 +110,39 @@ button:hover, .show:hover { transform: translateY(-1px); }
   padding: 16px 18px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; box-shadow: none;
   cursor: pointer;
 }
+/* "up next" divider between pinned reviewing rows and the reorderable rest —
+   a pseudo-element (not a sibling node) because animate:flip requires the
+   ticket to be the each-block's sole child. */
+.ticket.up-next::before {
+  grid-column: 1 / -1;
+  content: "up next";
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px 0;
+  color: var(--dim); font-size: 11px; font-weight: 800;
+  letter-spacing: .14em; text-transform: uppercase;
+}
 .grip {
   color: var(--faint); font-size: 15px; line-height: 1; text-align: center;
   cursor: grab; user-select: none; touch-action: none;
 }
 .grip:active { cursor: grabbing; }
 .grip.pinned { cursor: default; }
-.ticket.dragging { opacity: .45; }
-.list-divider {
-  display: flex; align-items: center; gap: 10px; padding: 7px 18px;
-  border-bottom: 1px solid var(--line); background: var(--paper-2);
-  color: var(--faint); font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+/* The dragged row's in-list slot: a dashed placeholder showing where it will
+   land, while the browser's semi-transparent drag image (the whole ticket —
+   see dragStart's setDragImage) floats with the cursor. */
+.ticket.dragging {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -3px;
+  border-radius: 6px;
+  background: transparent;
 }
-.list-divider::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.ticket.dragging > * { opacity: .3; }
+/* Landing confirmation: one brief accent wash on the row that just moved. */
+.ticket.settled { animation: settle .7s ease-out; }
+@keyframes settle {
+  0% { background: rgba(158, 221, 82, .16); }
+  100% { background: transparent; }
+}
 .ticket-main:hover { transform: none; background: #31372f; }
 .chev { color: var(--faint); font-size: 24px; line-height: 1; }
 .ticket-pr { min-width: 64px; font-weight: 850; font-size: 18px; color: var(--accent); white-space: nowrap; }

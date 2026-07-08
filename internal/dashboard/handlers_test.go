@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -22,6 +25,7 @@ type handlerStore struct {
 	queue     []store.Candidate
 	reviews   []store.Review
 	runs      []store.Run
+	logReview store.Review
 	enqueued  []store.Candidate
 	dequeued  []prRef
 	positions []prRef        // SetQueuePos calls in order
@@ -35,6 +39,20 @@ func (f *handlerStore) ListQueue(context.Context, string) ([]store.Candidate, er
 
 func (f *handlerStore) ListReviews(context.Context, int) ([]store.Review, error) {
 	return f.reviews, nil
+}
+
+func (f *handlerStore) LastOutcome(context.Context, string, int) (store.Review, bool, error) {
+	if f.logReview.WorkDir == "" {
+		return store.Review{}, false, nil
+	}
+	return f.logReview, true, nil
+}
+
+func (f *handlerStore) ReviewByLogKey(_ context.Context, _ string, _ int, key string) (store.Review, bool, error) {
+	if f.logReview.WorkDir == "" || store.ReviewLogKey(f.logReview) != key {
+		return store.Review{}, false, nil
+	}
+	return f.logReview, true, nil
 }
 
 func (f *handlerStore) ListReviewsSince(context.Context, time.Time) ([]store.Review, error) {
@@ -93,9 +111,92 @@ func serveJSON[T any](t *testing.T, h http.HandlerFunc, method, target, body str
 	return w.Code, resp
 }
 
+func serveHandlerJSON[T any](t *testing.T, h http.Handler, method, target, body string) (int, T) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(method, target, strings.NewReader(body)))
+	var resp T
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("non-JSON response: %v (%s)", err, w.Body.String())
+	}
+	return w.Code, resp
+}
+
 func doJSON(t *testing.T, h http.HandlerFunc, method, target, body string) (int, map[string]any) {
 	t.Helper()
 	return serveJSON[map[string]any](t, h, method, target, body)
+}
+
+func TestDashboardAPISmoke(t *testing.T) {
+	now := time.Date(2026, 7, 8, 18, 30, 0, 0, time.UTC)
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Dir(review.LogPath(workDir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(review.LogPath(workDir), []byte("agent log tail\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	finished := store.Review{
+		Repo:       "o/r",
+		Number:     7,
+		Title:      "Smoke review",
+		Author:     "dev",
+		HeadSHA:    "abc123",
+		Verdict:    "COMMENTED",
+		Engine:     "codex",
+		ReviewedAt: now,
+		WorkDir:    workDir,
+	}
+	finished.LogKey = store.ReviewLogKey(finished)
+	fs := &handlerStore{
+		queue: []store.Candidate{{
+			Repo:         "o/r",
+			Number:       8,
+			Type:         store.TypeNew,
+			Title:        "Queued review",
+			Author:       "dev",
+			HeadSHA:      "def456",
+			DiscoveredAt: now,
+		}},
+		reviews:   []store.Review{finished},
+		runs:      []store.Run{{ID: "run-1", StartedAt: now, Status: "done"}},
+		logReview: finished,
+	}
+	s := newTestServer(fs, config.Config{Repos: []string{"o/r"}, Schedule: config.ScheduleSettings{Enabled: true}})
+	s.version = "smoke"
+	h := s.Handler()
+
+	if code, resp := serveHandlerJSON[map[string]string](t, h, http.MethodGet, "/api/healthz", ""); code != http.StatusOK || resp["status"] != "ok" {
+		t.Fatalf("healthz = %d %v", code, resp)
+	}
+	code, queue := serveHandlerJSON[struct {
+		Candidates []queueView  `json:"candidates"`
+		Counts     queueCounts `json:"counts"`
+	}](t, h, http.MethodGet, "/api/queue", "")
+	if code != http.StatusOK || len(queue.Candidates) != 1 || queue.Counts.Total != 1 {
+		t.Fatalf("queue smoke = %d %+v", code, queue)
+	}
+	code, reviews := serveHandlerJSON[struct {
+		Reviews []store.Review `json:"reviews"`
+	}](t, h, http.MethodGet, "/api/reviews?limit=5", "")
+	if code != http.StatusOK || len(reviews.Reviews) != 1 || reviews.Reviews[0].LogKey == "" {
+		t.Fatalf("reviews smoke = %d %+v", code, reviews)
+	}
+	code, runs := serveHandlerJSON[struct {
+		Runs []store.Run `json:"runs"`
+	}](t, h, http.MethodGet, "/api/runs", "")
+	if code != http.StatusOK || len(runs.Runs) != 1 {
+		t.Fatalf("runs smoke = %d %+v", code, runs)
+	}
+	code, cfg := serveHandlerJSON[map[string]any](t, h, http.MethodGet, "/api/config", "")
+	if code != http.StatusOK || cfg["version"] != "smoke" {
+		t.Fatalf("config smoke = %d %v", code, cfg)
+	}
+	logPath := "/api/review-log?repo=o/r&number=7&review=" + store.ReviewLogKey(finished)
+	code, logResp := serveHandlerJSON[reviewLogResp](t, h, http.MethodGet, logPath, "")
+	if code != http.StatusOK || !logResp.Available || logResp.Content != "agent log tail\n" || logResp.PR == nil || logResp.PR.Title != "Smoke review" {
+		t.Fatalf("review-log smoke = %d %+v", code, logResp)
+	}
 }
 
 // TestHandleQueue pins the queue surface end-to-end over a fake store: the

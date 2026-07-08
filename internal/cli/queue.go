@@ -186,7 +186,7 @@ func reviewWorkDir(ctx context.Context, s store.Store, repo string, number int) 
 		return "", err
 	}
 	if !found {
-		return "", output.New("no review log recorded for "+prKey(repo, number)+" (reviews before this feature have none)", output.FixableByHuman)
+		return "", output.New("no review log recorded for "+prKey(repo, number), output.FixableByHuman)
 	}
 	return ws.Dir, nil
 }

@@ -122,6 +122,18 @@ func TestRepoPredicates(t *testing.T) {
 	}
 }
 
+func TestSortedRepos(t *testing.T) {
+	in := []string{"zeta/api", "Alpha/web", "alpha/admin"}
+	got := SortedRepos(in)
+	want := []string{"alpha/admin", "Alpha/web", "zeta/api"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("SortedRepos = %v, want %v", got, want)
+	}
+	if strings.Join(in, ",") != "zeta/api,Alpha/web,alpha/admin" {
+		t.Errorf("SortedRepos must not mutate input, got %v", in)
+	}
+}
+
 func TestValidRepoName(t *testing.T) {
 	for _, ok := range []string{"owner/repo", "o-w.n_er/r.e-p_o1"} {
 		if !ValidRepoName(ok) {

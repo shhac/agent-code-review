@@ -29,7 +29,7 @@ func reposLsCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := config.Read()
-			for _, r := range cfg.Repos {
+			for _, r := range config.SortedRepos(cfg.Repos) {
 				scope := "any"
 				if cfg.AuthorScopedRepo(r) {
 					scope = "allowed-authors-only"

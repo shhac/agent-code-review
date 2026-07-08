@@ -75,7 +75,10 @@
 
 <section class="page-head">
   <p class="eyebrow">Review agent</p>
-  <h1><a class="plain-link" href={prHref(repo, number, pr?.url)} target="_blank" rel="noopener">#{number}</a> {pr?.title || ''}</h1>
+  <h1 class="review-log-heading">
+    <a class="plain-link" href={prHref(repo, number, pr?.url)} target="_blank" rel="noopener">#{number}</a>
+    {#if pr?.title}<span>{pr.title}</span>{/if}
+  </h1>
   <p>
     {repo}{pr?.author ? ` · @${pr.author}` : ''}
     {#if state}
@@ -148,7 +151,7 @@
   {:else if content}
     <pre class="raw">{content}</pre>
   {:else if loaded && !available}
-    <div class="empty">No log recorded for this review (reviews before the live-log feature have none).</div>
+    <div class="empty">No log recorded for this review.</div>
   {:else if loaded}
     <div class="empty">The agent has not written anything yet.</div>
   {/if}

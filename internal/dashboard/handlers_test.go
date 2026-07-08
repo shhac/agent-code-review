@@ -223,7 +223,10 @@ func TestHandleUsage(t *testing.T) {
 // build version and the boot-pinned loop states.
 func TestHandleConfig(t *testing.T) {
 	fs := &handlerStore{}
-	s := newTestServer(fs, config.Config{Repos: []string{"o/r"}})
+	s := newTestServer(fs, config.Config{
+		Repos:                   []string{"zeta/api", "Alpha/web", "alpha/admin"},
+		AllowedAuthorsOnlyRepos: []string{"Alpha/web"},
+	})
 	s.version = "1.2.3"
 	s.running = Running{Review: true}
 	code, resp := doJSON(t, s.handleConfig, http.MethodGet, "/api/config", "")
@@ -235,6 +238,19 @@ func TestHandleConfig(t *testing.T) {
 	}
 	if resp["review_running"] != true || resp["discovery_running"] != false {
 		t.Errorf("running flags = %v / %v", resp["review_running"], resp["discovery_running"])
+	}
+	repos := resp["repos"].([]any)
+	got := make([]string, 0, len(repos))
+	for _, raw := range repos {
+		row := raw.(map[string]any)
+		got = append(got, row["name"].(string))
+		if row["name"] == "Alpha/web" && row["allowed_authors_only"] != true {
+			t.Errorf("scoped repo lost allowed_authors_only flag: %v", row)
+		}
+	}
+	want := []string{"alpha/admin", "Alpha/web", "zeta/api"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("repos = %v, want %v", got, want)
 	}
 }
 

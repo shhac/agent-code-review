@@ -43,7 +43,9 @@ internal/
   workflow embeds as-is via `go build`. After ANY change under `ui/src`,
   run `make dashboard` and commit the regenerated assets — CI's
   `dashboard-fresh` job rebuilds and diffs to enforce this. Release ritual:
-  `make dashboard` → commit → tag.
+  `make release VERSION=vX.Y.Z` (verifies tag availability, clean tree,
+  dashboard freshness, Go tests, `go vet`, and frontend tests) → `git tag
+  vX.Y.Z` → `git push origin main vX.Y.Z`.
 
 - **Family libraries**: `lib-agent-cli` (root scaffolding, XDG paths, creds
   store), `lib-agent-output` (NDJSON contract, `{error, fixable_by, hint}`),

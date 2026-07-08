@@ -77,7 +77,7 @@ func ReviewLogRefFromReview(r Review) ReviewLogRef {
 // ReviewLogKey is the stable, non-secret URL token for a history row's log.
 func ReviewLogKey(r Review) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%d\x00%s\x00%s\x00%s\x00%s\x00%d\x00%s\x00%d",
+	_, _ = fmt.Fprintf(h, "%s\x00%d\x00%s\x00%s\x00%s\x00%s\x00%d\x00%s\x00%d",
 		r.Repo, r.Number, r.HeadSHA, r.Verdict, r.Engine,
 		r.ReviewedAt.UTC().Format(time.RFC3339Nano), r.DurationSecs, r.WorkDir, r.TokensUsed)
 	return hex.EncodeToString(h.Sum(nil))[:16]

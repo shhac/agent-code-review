@@ -18,18 +18,23 @@ import (
 // performs the approve/comment on GitHub itself; this is the read-back so the
 // store can record history and update status.
 type Verdict struct {
-	Decision string `json:"decision"` // APPROVED | COMMENTED | SKIPPED | ERROR
-	Summary  string `json:"summary,omitempty"`
-	Raw      string `json:"raw,omitempty"` // full engine transcript, for debugging
+	Decision   string `json:"decision"` // APPROVED | COMMENTED | REQUESTED_CHANGES | SKIPPED | ERROR
+	Summary    string `json:"summary,omitempty"`
+	Raw        string `json:"raw,omitempty"` // full engine transcript, for debugging
+	TokensUsed int    `json:"-"`             // stream metadata, not part of the agent's report
 }
 
-// Verdict decisions. The first four are reported by the agent; ERROR is the
+// Verdict decisions. The first four are the agent's final outcomes; WORKING
+// is the agent's intermediate progress marker (the output schema constrains
+// EVERY message, so progress notes need an honest value that doesn't
+// overload SKIPPED — it is never a valid final report); ERROR is the
 // driver's own value for "the invocation failed / no usable report".
 const (
 	DecisionApproved         = "APPROVED"
 	DecisionCommented        = "COMMENTED"
 	DecisionRequestedChanges = "REQUESTED_CHANGES" // the "reject" outcome
 	DecisionSkipped          = "SKIPPED"
+	DecisionWorking          = "WORKING"
 	DecisionError            = "ERROR"
 )
 

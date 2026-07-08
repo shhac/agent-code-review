@@ -303,7 +303,9 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	// block a future re-review: store.LastReview filters them out of
 	// Refreshed detection, and new commits change the SHA that discovery's
 	// same-SHA suppression keys on.
-	if err := s.store.Complete(ctx, store.ReviewFrom(c, verdict.Decision, engine.Name(), claimedAt)); err != nil {
+	rec := store.ReviewFrom(c, verdict.Decision, engine.Name(), claimedAt)
+	rec.TokensUsed = verdict.TokensUsed
+	if err := s.store.Complete(ctx, rec); err != nil {
 		return err
 	}
 	return reviewErr

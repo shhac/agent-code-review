@@ -29,9 +29,10 @@ func TestBuildArgs(t *testing.T) {
 			t.Errorf("args missing %q: %v", want, args)
 		}
 	}
-	// The prompt is the final arg and carries the reporting instruction.
+	// The prompt is the final arg and carries the reporting instruction:
+	// WORKING for intermediate progress, a real outcome as the final message.
 	last := args[len(args)-1]
-	if !strings.HasPrefix(last, "PROMPT") || !strings.Contains(last, "FINAL message must be a JSON object") {
+	if !strings.HasPrefix(last, "PROMPT") || !strings.Contains(last, `"WORKING"`) || !strings.Contains(last, "FINAL message must report the outcome") {
 		t.Errorf("prompt arg malformed: %.120s", last)
 	}
 

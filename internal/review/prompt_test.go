@@ -136,4 +136,25 @@ func TestParseVerdict(t *testing.T) {
 	if _, err := parseVerdict([]byte(`{"decision":"ERROR","summary":"x"}`)); err == nil {
 		t.Error("agent must not be able to report ERROR")
 	}
+	// WORKING is the intermediate progress marker — a run that ends on it
+	// was cut short and must not record an outcome.
+	if _, err := parseVerdict([]byte(`{"decision":"WORKING","summary":"still reading the diff"}`)); err == nil {
+		t.Error("a final WORKING report must be rejected")
+	}
+}
+
+// TestParseTokensUsed pins the "tokens used" trailer extraction from the
+// engine transcript, including the comma-grouped count and the repeated
+// final message that follows it.
+func TestParseTokensUsed(t *testing.T) {
+	raw := "codex\n{\"decision\":\"APPROVED\",\"summary\":\"done\"}\ntokens used\n192,575\n{\"decision\":\"APPROVED\",\"summary\":\"done\"}"
+	if got := parseTokensUsed(raw); got != 192575 {
+		t.Errorf("tokens = %d, want 192575", got)
+	}
+	if got := parseTokensUsed("no trailer here"); got != 0 {
+		t.Errorf("missing trailer must yield 0, got %d", got)
+	}
+	if got := parseTokensUsed("tokens used\n941"); got != 941 {
+		t.Errorf("ungrouped count must parse, got %d", got)
+	}
 }

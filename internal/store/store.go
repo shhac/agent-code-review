@@ -92,6 +92,7 @@ type Review struct {
 	ReviewedAt   time.Time `json:"reviewed_at"`
 	DurationSecs int       `json:"duration_secs"`      // claim-to-completion elapsed; 0 when unknown
 	WorkDir      string    `json:"work_dir,omitempty"` // engine workspace used, kept for postmortem log access
+	TokensUsed   int       `json:"tokens_used"`        // engine-reported token spend; 0 when unknown
 }
 
 // Workspace is where a PR's review agent ran, resolved by FindWorkspace.
@@ -220,6 +221,9 @@ type Store interface {
 	ListReviews(ctx context.Context, limit int) ([]Review, error)
 	// ListReviewsSince returns all outcomes at or after since, oldest first.
 	ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error)
+	// TokensUsed sums the engine-reported token spend of outcomes at or
+	// after since; the zero time sums all history.
+	TokensUsed(ctx context.Context, since time.Time) (int64, error)
 
 	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.
 	AllowAuthor(ctx context.Context, a AllowedAuthor) error

@@ -152,11 +152,11 @@ func (d *duckDB) Claim(ctx context.Context, repo string, number int, at time.Tim
 // the next cycle reviews the newer commits.
 func (d *duckDB) Complete(ctx context.Context, r Review) error {
 	sql := fmt.Sprintf(`BEGIN;
-	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, reviewed_at, duration_secs, work_dir) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %d, %s);
+	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, reviewed_at, duration_secs, work_dir, tokens_used) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %d, %s, %d);
 	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha = %s;
 	UPDATE queue SET claimed_at = NULL WHERE repo = %s AND number = %d;
 	COMMIT;`,
-		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir),
+		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed,
 		q(r.Repo), r.Number, q(r.HeadSHA),
 		q(r.Repo), r.Number)
 	_, err := d.query(ctx, sql)
@@ -223,6 +223,21 @@ func (d *duckDB) ListReviewsSince(ctx context.Context, since time.Time) ([]Revie
 		return nil, err
 	}
 	return mapRows(rows, scanReview), nil
+}
+
+func (d *duckDB) TokensUsed(ctx context.Context, since time.Time) (int64, error) {
+	sql := "SELECT COALESCE(SUM(tokens_used), 0) AS total FROM history"
+	if !since.IsZero() {
+		sql += fmt.Sprintf(" WHERE reviewed_at >= %s", ts(since))
+	}
+	rows, err := d.query(ctx, sql)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return int64(getInt(rows[0], "total")), nil
 }
 
 func (d *duckDB) ListRuns(ctx context.Context, limit int) ([]Run, error) {
@@ -321,6 +336,7 @@ func scanReview(r map[string]any) Review {
 		ReviewedAt:   getTime(r, "reviewed_at"),
 		DurationSecs: getInt(r, "duration_secs"),
 		WorkDir:      getString(r, "work_dir"),
+		TokensUsed:   getInt(r, "tokens_used"),
 	}
 }
 

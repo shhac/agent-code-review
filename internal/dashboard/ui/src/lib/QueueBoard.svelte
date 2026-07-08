@@ -135,7 +135,8 @@
             on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCandidate(c); } }}
           >
             {#if c.status !== 'reviewing'}
-              <span
+              <button
+                type="button"
                 class="grip"
                 draggable="true"
                 title="Drag to reorder"
@@ -143,7 +144,7 @@
                 on:click|stopPropagation
                 on:dragstart={(e) => dragStart(e, c)}
                 on:dragend={dragEnd}
-              >⠿</span>
+              >⠿</button>
             {:else}
               <span class="grip pinned"></span>
             {/if}

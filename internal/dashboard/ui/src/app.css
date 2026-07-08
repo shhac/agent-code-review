@@ -127,9 +127,12 @@ button:hover, .show:hover { transform: translateY(-1px); }
   letter-spacing: .14em; text-transform: uppercase;
 }
 .grip {
-  color: var(--faint); font-size: 15px; line-height: 1; text-align: center;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px;
+  background: transparent; box-shadow: none; color: var(--faint); font-size: 15px; line-height: 1; text-align: center;
   cursor: grab; user-select: none; touch-action: none;
 }
+.grip:hover { transform: none; color: var(--ink); background: transparent; }
 .grip:active { cursor: grabbing; }
 .grip.pinned { cursor: default; }
 /* The dragged row's in-list slot: a dashed placeholder showing where it will

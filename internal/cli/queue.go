@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"strconv"
 	"time"
 
 	output "github.com/shhac/lib-agent-output"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/discover"
+	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -220,7 +220,7 @@ func streamFile(ctx context.Context, path string, follow bool, out io.Writer) er
 // prKey renders the canonical "owner/repo#N" reference used in emit keys and
 // error messages.
 func prKey(repo string, number int) string {
-	return repo + "#" + strconv.Itoa(number)
+	return prref.Ref{Repo: repo, Number: number}.String()
 }
 
 // findQueued locates one queue row by number within an already repo-scoped
@@ -249,16 +249,12 @@ func withStore(fn func(store.Store) error) error {
 }
 
 func parseRepoNumber(args []string) (string, int, error) {
-	repo := args[0]
-	if !config.ValidRepoName(repo) {
-		return "", 0, output.New("Repo must be owner/name, got "+repo, output.FixableByAgent)
-	}
-	number, err := strconv.Atoi(args[1])
+	ref, err := prref.ParseArgs(args)
 	if err != nil {
+		if !config.ValidRepoName(args[0]) {
+			return "", 0, output.New("Repo must be owner/name, got "+args[0], output.FixableByAgent)
+		}
 		return "", 0, output.New("PR number must be an integer, got "+args[1], output.FixableByAgent)
 	}
-	if number <= 0 {
-		return "", 0, output.New("PR number must be positive, got "+args[1], output.FixableByAgent)
-	}
-	return repo, number, nil
+	return ref.Repo, ref.Number, nil
 }

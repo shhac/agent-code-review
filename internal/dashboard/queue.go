@@ -9,11 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -46,7 +45,7 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"removed": true})
+	writeJSON(w, http.StatusOK, queueRemoveResp{Removed: true})
 }
 
 // queueView is a Candidate plus the display status the frontend keys its
@@ -93,6 +92,29 @@ type queueCounts struct {
 	Held      int `json:"held"`
 }
 
+type queueResp struct {
+	Candidates []queueView `json:"candidates"`
+	Counts     queueCounts `json:"counts"`
+}
+
+type queueAddResp struct {
+	Queued bool   `json:"queued"`
+	Title  string `json:"title"`
+	Author string `json:"author"`
+}
+
+type queueRemoveResp struct {
+	Removed bool `json:"removed"`
+}
+
+type queuePromoteResp struct {
+	Promoted bool `json:"promoted"`
+}
+
+type queueReorderResp struct {
+	Reordered bool `json:"reordered"`
+}
+
 // countQueue tallies views by display status. Pure — unit-tested with
 // viewQueue so the badge counts and per-row statuses cannot disagree.
 func countQueue(views []queueView) queueCounts {
@@ -119,7 +141,7 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	views := viewQueue(candidates, time.Now(), s.config().LeaseWindow())
-	writeJSON(w, http.StatusOK, map[string]any{"candidates": views, "counts": countQueue(views)})
+	writeJSON(w, http.StatusOK, queueResp{Candidates: views, Counts: countQueue(views)})
 }
 
 // addToQueue accepts {"url": "<PR reference>"} — a full GitHub PR URL or the
@@ -170,7 +192,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"queued": true, "title": c.Title, "author": c.Author})
+	writeJSON(w, http.StatusOK, queueAddResp{Queued: true, Title: c.Title, Author: c.Author})
 }
 
 // repoWatched defers to the config-layer predicate — one definition of
@@ -181,34 +203,20 @@ func (s *Server) repoWatched(repo string) bool {
 
 // prRef is the queue-row wire shape shared by the remove, add, promote, and
 // reorder request bodies (and the reorder validator's set key).
-type prRef struct {
-	Repo   string `json:"repo"`
-	Number int    `json:"number"`
-}
+type prRef = prref.Ref
 
 func decodePRRef(r *http.Request) (prRef, bool) {
 	var req prRef
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return prRef{}, false
 	}
-	return req, config.ValidRepoName(req.Repo) && req.Number > 0
+	return req, req.Valid()
 }
 
 // parsePRRef accepts GitHub PR URLs and the bare owner/repo/pull/N form,
 // delegating owner/name validation to config.ValidRepoName.
 func parsePRRef(raw string) (prRef, bool) {
-	ref := strings.TrimSpace(raw)
-	ref = strings.TrimPrefix(ref, "https://github.com/")
-	parts := strings.Split(ref, "/")
-	if len(parts) < 4 || parts[2] != "pull" {
-		return prRef{}, false
-	}
-	repo := parts[0] + "/" + parts[1]
-	number, err := strconv.Atoi(parts[3])
-	if err != nil || !config.ValidRepoName(repo) || number <= 0 {
-		return prRef{}, false
-	}
-	return prRef{Repo: repo, Number: number}, true
+	return prref.ParseGitHubPull(raw)
 }
 
 // handleQueuePromote is the explicit "review this now" action: float the row
@@ -232,7 +240,7 @@ func (s *Server) handleQueuePromote(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"promoted": true})
+	writeJSON(w, http.StatusOK, queuePromoteResp{Promoted: true})
 }
 
 // handleQueueReorder replaces the queued ordering in one write: the drag-and-
@@ -269,7 +277,7 @@ func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"reordered": true})
+	writeJSON(w, http.StatusOK, queueReorderResp{Reordered: true})
 }
 
 // validateReorder checks that order is exactly the set of reorderable rows:

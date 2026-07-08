@@ -36,6 +36,15 @@ func TestAuthorsCommands(t *testing.T) {
 	if err := run("authors", "ls", "--repo", "o/r"); err != nil {
 		t.Fatal(err)
 	}
+	for _, args := range [][]string{
+		{"authors", "allow", "not-a-repo", "Mallory"},
+		{"authors", "deny", "not-a-repo", "Mallory"},
+		{"authors", "ls", "--repo", "not-a-repo"},
+	} {
+		if err := run(args...); err == nil {
+			t.Fatalf("%v must reject invalid repo scope", args)
+		}
+	}
 
 	s, err := openStore(config.Read())
 	if err != nil {

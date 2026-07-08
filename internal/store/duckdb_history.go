@@ -32,12 +32,8 @@ func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT * FROM history ORDER BY reviewed_at DESC LIMIT %d", limit))
-	if err != nil {
-		return nil, err
-	}
-	return mapRows(rows, scanReview), nil
+	return queryMany(ctx, d, fmt.Sprintf(
+		"SELECT * FROM history ORDER BY reviewed_at DESC LIMIT %d", limit), scanReview)
 }
 
 func (d *duckDB) ReviewByLogKey(ctx context.Context, repo string, number int, logKey string) (Review, bool, error) {
@@ -56,12 +52,8 @@ func (d *duckDB) ReviewByLogKey(ctx context.Context, repo string, number int, lo
 }
 
 func (d *duckDB) ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error) {
-	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT * FROM history WHERE reviewed_at >= %s ORDER BY reviewed_at", ts(since)))
-	if err != nil {
-		return nil, err
-	}
-	return mapRows(rows, scanReview), nil
+	return queryMany(ctx, d, fmt.Sprintf(
+		"SELECT * FROM history WHERE reviewed_at >= %s ORDER BY reviewed_at", ts(since)), scanReview)
 }
 
 func (d *duckDB) TokensUsed(ctx context.Context, since time.Time) (int64, error) {

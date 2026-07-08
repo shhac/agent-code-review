@@ -19,7 +19,7 @@ test:
 # Drives the real codex CLI (needs codex on PATH + auth; spends quota) and, if
 # AGENT_CODE_REVIEW_TEST_REPO is set, live gh discovery against that repo.
 test-integration:
-	go test ./internal/review/ ./internal/discover/ -count=1 -tags=integration -v -timeout 10m
+	go test ./internal/review/ ./internal/discover/ ./internal/store/ -count=1 -tags=integration -v -timeout 10m
 
 lint:
 	golangci-lint run ./...

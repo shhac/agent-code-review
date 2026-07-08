@@ -542,22 +542,22 @@ func TestEnqueueHoldSemantics(t *testing.T) {
 
 	// Fresh row with a settling hold.
 	enq(at(15*time.Minute), HoldSettling, SourceDiscovered)
-	if e, r := hold(); e == nil || !e.Equal(*at(15*time.Minute)) || r != HoldSettling {
+	if e, r := hold(); e == nil || !e.Equal(*at(15 * time.Minute)) || r != HoldSettling {
 		t.Fatalf("fresh hold not recorded: eligible=%v reason=%q", e, r)
 	}
 	// A later hold extends (and its reason wins).
 	enq(at(90*time.Minute), HoldCooldown, SourceDiscovered)
-	if e, r := hold(); e == nil || !e.Equal(*at(90*time.Minute)) || r != HoldCooldown {
+	if e, r := hold(); e == nil || !e.Equal(*at(90 * time.Minute)) || r != HoldCooldown {
 		t.Fatalf("later hold must extend: eligible=%v reason=%q", e, r)
 	}
 	// An earlier hold must not shrink it.
 	enq(at(5*time.Minute), HoldSettling, SourceDiscovered)
-	if e, r := hold(); e == nil || !e.Equal(*at(90*time.Minute)) || r != HoldCooldown {
+	if e, r := hold(); e == nil || !e.Equal(*at(90 * time.Minute)) || r != HoldCooldown {
 		t.Fatalf("earlier hold must not shrink: eligible=%v reason=%q", e, r)
 	}
 	// A hold-free sweep must not clear an existing hold either.
 	enq(nil, "", SourceDiscovered)
-	if e, _ := hold(); e == nil || !e.Equal(*at(90*time.Minute)) {
+	if e, _ := hold(); e == nil || !e.Equal(*at(90 * time.Minute)) {
 		t.Fatalf("hold-free sweep must keep the hold: eligible=%v", e)
 	}
 	// A manual enqueue clears the hold.

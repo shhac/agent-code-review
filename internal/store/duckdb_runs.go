@@ -10,20 +10,12 @@ func (d *duckDB) ListRuns(ctx context.Context, limit int) ([]Run, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT * FROM runs ORDER BY started_at DESC LIMIT %d", limit))
-	if err != nil {
-		return nil, err
-	}
-	return mapRows(rows, scanRun), nil
+	return queryMany(ctx, d, fmt.Sprintf(
+		"SELECT * FROM runs ORDER BY started_at DESC LIMIT %d", limit), scanRun)
 }
 
 func (d *duckDB) RunningRuns(ctx context.Context) ([]Run, error) {
-	rows, err := d.query(ctx, "SELECT * FROM runs WHERE status = 'running' ORDER BY started_at")
-	if err != nil {
-		return nil, err
-	}
-	return mapRows(rows, scanRun), nil
+	return queryMany(ctx, d, "SELECT * FROM runs WHERE status = 'running' ORDER BY started_at", scanRun)
 }
 
 func (d *duckDB) ActiveRun(ctx context.Context, staleAfter time.Duration) (Run, bool, error) {

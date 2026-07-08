@@ -3,9 +3,29 @@ package dashboard
 import (
 	"net/http"
 
+	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
+
+type promptOutcomesResp struct {
+	OnApprove string `json:"on_approve"`
+	OnComment string `json:"on_comment"`
+	OnReject  string `json:"on_reject"`
+}
+
+type promptPreviewsResp struct {
+	AllowedAuthor    string `json:"allowed_author"`
+	NotAllowedAuthor string `json:"not_allowed_author"`
+}
+
+type promptResp struct {
+	MainPrompt string             `json:"main_prompt"`
+	Outcomes   promptOutcomesResp `json:"outcomes"`
+	Rules      []config.Rule      `json:"rules"`
+	Previews   promptPreviewsResp `json:"previews"`
+	Note       string             `json:"note"`
+}
 
 // handlePrompt exposes the review prompt read-only: the main prompt, the rule
 // fragments, and two fully assembled previews (allowed vs not-allowed author)
@@ -21,18 +41,18 @@ func (s *Server) handlePrompt(w http.ResponseWriter, _ *http.Request) {
 		URL:     "https://github.com/example-org/example-repo/pull/123",
 		HeadSHA: "0000000000000000000000000000000000000000",
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"main_prompt": review.MainPrompt(cfg.Review),
-		"outcomes": map[string]string{
-			"on_approve": cfg.Review.OnApprove,
-			"on_comment": cfg.Review.OnComment,
-			"on_reject":  cfg.Review.OnReject,
+	writeJSON(w, http.StatusOK, promptResp{
+		MainPrompt: review.MainPrompt(cfg.Review),
+		Outcomes: promptOutcomesResp{
+			OnApprove: cfg.Review.OnApprove,
+			OnComment: cfg.Review.OnComment,
+			OnReject:  cfg.Review.OnReject,
 		},
-		"rules": cfg.Review.Rules,
-		"previews": map[string]string{
-			"allowed_author":     review.BuildPrompt(cfg, sample, review.Facts{AuthorAllowed: true}),
-			"not_allowed_author": review.BuildPrompt(cfg, sample, review.Facts{}),
+		Rules: cfg.Review.Rules,
+		Previews: promptPreviewsResp{
+			AllowedAuthor:    review.BuildPrompt(cfg, sample, review.Facts{AuthorAllowed: true}),
+			NotAllowedAuthor: review.BuildPrompt(cfg, sample, review.Facts{}),
 		},
-		"note": "Previews use a synthetic candidate. The engine driver appends a reporting instruction (final message = JSON verdict) on top of this.",
+		Note: "Previews use a synthetic candidate. The engine driver appends a reporting instruction (final message = JSON verdict) on top of this.",
 	})
 }

@@ -3,7 +3,17 @@ package dashboard
 import (
 	"net/http"
 	"time"
+
+	"github.com/shhac/agent-code-review/internal/store"
 )
+
+type reviewsResp struct {
+	Reviews []store.Review `json:"reviews"`
+}
+
+type runsResp struct {
+	Runs []store.Run `json:"runs"`
+}
 
 func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
@@ -13,7 +23,7 @@ func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"reviews": reviews})
+	writeJSON(w, http.StatusOK, reviewsResp{Reviews: reviews})
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
@@ -24,5 +34,5 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	writeJSON(w, http.StatusOK, runsResp{Runs: runs})
 }

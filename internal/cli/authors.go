@@ -1,6 +1,7 @@
 package cli
 
 import (
+	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/store"
@@ -29,6 +30,9 @@ func authorsLsCmd() *cobra.Command {
 		Short: "List allowed authors (NDJSON), optionally for one repo",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if repo != "" && !store.ValidAllowedAuthorRepo(repo) {
+				return invalidAuthorRepo(repo)
+			}
 			return withStore(func(s store.Store) error {
 				authors, err := s.ListAllowedAuthors(cmd.Context(), repo)
 				if err != nil {
@@ -54,6 +58,9 @@ func authorsAllowCmd() *cobra.Command {
 		Short: "Allow an author's PRs to be approved for a repo (upserts)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !store.ValidAllowedAuthorRepo(args[0]) {
+				return invalidAuthorRepo(args[0])
+			}
 			return withStore(func(s store.Store) error {
 				a := store.AllowedAuthor{
 					Repo:         args[0],
@@ -82,6 +89,9 @@ func authorsDenyCmd() *cobra.Command {
 		Short: "Remove an author from the allowed list (their PRs become comment-only)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !store.ValidAllowedAuthorRepo(args[0]) {
+				return invalidAuthorRepo(args[0])
+			}
 			return withStore(func(s store.Store) error {
 				if err := s.DenyAuthor(cmd.Context(), args[0], args[1]); err != nil {
 					return err
@@ -90,4 +100,8 @@ func authorsDenyCmd() *cobra.Command {
 			})
 		},
 	}
+}
+
+func invalidAuthorRepo(repo string) error {
+	return output.New(`Repo must be owner/name or "*", got `+repo, output.FixableByAgent)
 }

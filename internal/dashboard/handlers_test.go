@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,6 +30,7 @@ type handlerStore struct {
 	enqueued  []store.Candidate
 	dequeued  []prRef
 	positions []prRef        // SetQueuePos calls in order
+	setPosErr error          // optional SetQueuePos failure
 	promoted  []prRef        // Promote calls in order
 	tokens    map[bool]int64 // keyed by since.IsZero()
 }
@@ -74,6 +76,9 @@ func (f *handlerStore) Dequeue(_ context.Context, repo string, number int) error
 }
 
 func (f *handlerStore) SetQueuePos(_ context.Context, repo string, number, _ int) error {
+	if f.setPosErr != nil {
+		return f.setPosErr
+	}
 	f.positions = append(f.positions, prRef{Repo: repo, Number: number})
 	return nil
 }
@@ -170,7 +175,7 @@ func TestDashboardAPISmoke(t *testing.T) {
 		t.Fatalf("healthz = %d %v", code, resp)
 	}
 	code, queue := serveHandlerJSON[struct {
-		Candidates []queueView  `json:"candidates"`
+		Candidates []queueView `json:"candidates"`
 		Counts     queueCounts `json:"counts"`
 	}](t, h, http.MethodGet, "/api/queue", "")
 	if code != http.StatusOK || len(queue.Candidates) != 1 || queue.Counts.Total != 1 {
@@ -304,6 +309,20 @@ func TestHandleQueueReorder(t *testing.T) {
 
 	if code, _ := doJSON(t, s.handleQueueReorder, http.MethodPost, "/api/queue/reorder", `{"order":[{"repo":"o/r","number":1}]}`); code != http.StatusBadRequest {
 		t.Errorf("incomplete order must 400, got %d", code)
+	}
+
+	fail := &handlerStore{
+		queue: []store.Candidate{
+			{Repo: "o/r", Number: 1},
+			{Repo: "o/r", Number: 2},
+		},
+		setPosErr: errors.New("write failed"),
+	}
+	if code, _ := doJSON(t, newTestServer(fail, config.Config{}).handleQueueReorder, http.MethodPost, "/api/queue/reorder", `{"order":[{"repo":"o/r","number":2},{"repo":"o/r","number":1}]}`); code != http.StatusInternalServerError {
+		t.Errorf("SetQueuePos failure must 500, got %d", code)
+	}
+	if len(fail.positions) != 0 {
+		t.Errorf("failed SetQueuePos should stop before recording positions, got %v", fail.positions)
 	}
 }
 

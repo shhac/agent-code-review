@@ -19,6 +19,10 @@ type statsBucket struct {
 	RequestedChanges int    `json:"requested_changes"`
 }
 
+type statsResp struct {
+	Buckets []statsBucket `json:"buckets"`
+}
+
 // bucketReviews aggregates reviews into 24 hourly buckets starting at start
 // (which must be hour-aligned). Reviews outside [start, start+24h) are
 // dropped; SKIPPED/ERROR verdicts don't count as outcomes. Pure — the
@@ -62,5 +66,5 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"buckets": bucketReviews(reviews, start)})
+	writeJSON(w, http.StatusOK, statsResp{Buckets: bucketReviews(reviews, start)})
 }

@@ -54,11 +54,7 @@ func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error
 	// Refreshed and PR number only break ties within one sweep instant.
 	// NULLS FIRST: rows predating discovered_at tracking have waited longest.
 	sql += " ORDER BY queue_pos, discovered_at ASC NULLS FIRST, CASE type WHEN 'new' THEN 0 ELSE 1 END, number"
-	rows, err := d.query(ctx, sql)
-	if err != nil {
-		return nil, err
-	}
-	return mapRows(rows, scanCandidate), nil
+	return queryMany(ctx, d, sql, scanCandidate)
 }
 
 // Claim is a compare-and-swap: the WHERE clause only matches an unclaimed

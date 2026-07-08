@@ -90,6 +90,14 @@ func queryOne[T any](ctx context.Context, d *duckDB, sql string, scan func(map[s
 	return scan(rows[0]), true, nil
 }
 
+func queryMany[T any](ctx context.Context, d *duckDB, sql string, scan func(map[string]any) T) ([]T, error) {
+	rows, err := d.query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, scan), nil
+}
+
 func parseNDJSON(stdout string) ([]map[string]any, error) {
 	var rows []map[string]any
 	for _, line := range strings.Split(stdout, "\n") {

@@ -270,6 +270,12 @@ func mustSub() fs.FS {
 // spaHandler serves built dashboard assets and lets the frontend own page
 // routes such as /config, /prompt, and /logs. Real missing asset files still
 // return 404 so broken script/style URLs are visible during development.
+//
+// Caching: Vite's assets/ filenames are content-hashed, so they may cache
+// forever; everything else (the index.html shell above all) must revalidate
+// every load, or a browser keeps running a pre-upgrade bundle against a new
+// daemon — embed.FS files carry no modtime, so without an explicit header
+// browsers heuristically cache the shell indefinitely.
 func spaHandler(files fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
@@ -277,6 +283,7 @@ func spaHandler(files fs.FS) http.Handler {
 			name = "index.html"
 		}
 		if _, err := fs.Stat(files, name); err == nil {
+			setSPACaching(w, name)
 			http.ServeFileFS(w, r, files, name)
 			return
 		}
@@ -284,8 +291,17 @@ func spaHandler(files fs.FS) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		setSPACaching(w, "index.html")
 		http.ServeFileFS(w, r, files, "index.html")
 	})
+}
+
+func setSPACaching(w http.ResponseWriter, name string) {
+	if strings.HasPrefix(name, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

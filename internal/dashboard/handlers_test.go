@@ -265,3 +265,32 @@ func TestSPAHandler(t *testing.T) {
 		t.Errorf("SPA route = %d %q, want the shell", code, body)
 	}
 }
+
+// TestSPACaching pins the upgrade-visibility contract: the unhashed shell
+// must revalidate every load (a cached pre-upgrade bundle against a new
+// daemon hides new UI — the "no promote button on held rows" bug), while
+// content-hashed assets/ may cache forever.
+func TestSPACaching(t *testing.T) {
+	files := fstest.MapFS{
+		"index.html":       &fstest.MapFile{Data: []byte("SHELL")},
+		"mascot.webp":      &fstest.MapFile{Data: []byte("IMG")},
+		"assets/index.js":  &fstest.MapFile{Data: []byte("JS")},
+		"assets/index.css": &fstest.MapFile{Data: []byte("CSS")},
+	}
+	h := spaHandler(files)
+	cacheOf := func(path string) string {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		return w.Header().Get("Cache-Control")
+	}
+	for _, p := range []string{"/", "/index.html", "/mascot.webp", "/config"} {
+		if got := cacheOf(p); got != "no-cache" {
+			t.Errorf("%s Cache-Control = %q, want no-cache", p, got)
+		}
+	}
+	for _, p := range []string{"/assets/index.js", "/assets/index.css"} {
+		if got := cacheOf(p); got != "public, max-age=31536000, immutable" {
+			t.Errorf("%s Cache-Control = %q, want immutable", p, got)
+		}
+	}
+}

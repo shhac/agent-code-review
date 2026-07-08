@@ -323,7 +323,10 @@ func (d *duckDB) ListAllowedAuthors(ctx context.Context, repo string) ([]Allowed
 	if repo != "" {
 		sql += " WHERE repo = " + q(repo)
 	}
-	sql += " ORDER BY repo, github_handle"
+	// Alphabetical by author (the entity this list is about), case-insensitive
+	// — DuckDB's default TEXT ordering would sort "Zed" before "alice". Repo
+	// breaks ties for handles allowed in several places.
+	sql += " ORDER BY lower(github_handle), lower(repo)"
 	rows, err := d.query(ctx, sql)
 	if err != nil {
 		return nil, err

@@ -462,6 +462,39 @@ func TestEnqueueSourceEscalation(t *testing.T) {
 	}
 }
 
+// TestListAllowedAuthorsAlphabetical: the list is about authors, so it comes
+// back alphabetical by handle, case-insensitively (DuckDB's raw TEXT order
+// would put "Zed" before "alice"), with repo as the tiebreak.
+func TestListAllowedAuthorsAlphabetical(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	for _, a := range []AllowedAuthor{
+		{Repo: "org/b", GitHubHandle: "Zed"},
+		{Repo: "org/a", GitHubHandle: "alice"},
+		{Repo: WildcardRepo, GitHubHandle: "Bob"},
+		{Repo: "org/a", GitHubHandle: "Bob"},
+	} {
+		if err := s.AllowAuthor(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	authors, err := s.ListAllowedAuthors(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, a := range authors {
+		got = append(got, a.GitHubHandle+"@"+a.Repo)
+	}
+	want := []string{"alice@org/a", "Bob@*", "Bob@org/a", "Zed@org/b"}
+	for i := range want {
+		if i >= len(got) || got[i] != want[i] {
+			t.Fatalf("authors order = %v, want %v", got, want)
+		}
+	}
+}
+
 // TestEnqueueDiscoveredAtFirstSeen: a sweep re-seeing pending work is not a
 // new discovery — discovered_at must keep its first-seen value, not track the
 // latest sweep.

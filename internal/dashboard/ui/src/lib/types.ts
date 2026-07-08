@@ -16,6 +16,8 @@ export type Candidate = {
   claimed_at?: string;
   source: string;
   work_dir?: string;
+  eligible_at?: string;
+  hold_reason?: string;
 };
 
 export type Review = {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { del, post } from './api';
-  import { ago, keyOf, rel, statusKind, statusLabel, when } from './format';
+  import { ago, keyOf, rel, statusKind, statusLabel, untilRel, when } from './format';
   import { navigate } from './nav';
   import PrIdentity from './PrIdentity.svelte';
   import { moveByKey, reorderPayload } from './queueorder';
@@ -22,6 +22,7 @@
 
   $: queued = queue.filter((c) => c.status === 'queued').length;
   $: reviewing = queue.filter((c) => c.status === 'reviewing').length;
+  $: held = queue.filter((c) => c.status === 'held').length;
   $: visibleQueue = queueShowAll ? queue : queue.slice(0, 100);
   $: reviewingItems = visibleQueue.filter((c) => c.status === 'reviewing');
   $: queuedItems = visibleQueue.filter((c) => c.status !== 'reviewing');
@@ -37,6 +38,19 @@
     onerror('');
     try {
       await del('/api/queue', { repo: c.repo, number: c.number });
+      await onchanged();
+    } catch (e: any) {
+      onerror(e.message);
+    }
+  }
+
+  // The "review now" escape hatch for held rows: clears the hold, floats the
+  // PR to the top, and treats it as a manual add. Distinct from drag-reorder,
+  // which only moves positions and never lifts a hold.
+  async function promoteCandidate(c: Candidate) {
+    onerror('');
+    try {
+      await post('/api/queue/promote', { repo: c.repo, number: c.number });
       await onchanged();
     } catch (e: any) {
       onerror(e.message);
@@ -93,7 +107,7 @@
       <p class="eyebrow">Worklist</p>
       <h2>Pull requests</h2>
     </div>
-    <span>{queue.length ? `${queued} queued · ${reviewing} reviewing` : 'empty'}</span>
+    <span>{queue.length ? `${queued} queued · ${reviewing} reviewing${held ? ` · ${held} on hold` : ''}` : 'empty'}</span>
   </div>
 
   {#if displayQueue.length}
@@ -138,11 +152,26 @@
                 title="Open the live agent log"
                 on:click|preventDefault|stopPropagation={() => navigate(`/review/${c.repo}/${c.number}`)}
               ><i></i>{statusLabel(c.status)}{c.claimed_at ? ` · ${rel(c.claimed_at)}` : ''}</a>
+            {:else if c.status === 'held'}
+              <span
+                class="status {statusKind(c.status)}"
+                title={c.hold_reason === 'cooldown'
+                  ? `Reviewed recently — cooling down until ${when(c.eligible_at ?? '')}`
+                  : `Updated recently — settling until ${when(c.eligible_at ?? '')}`}
+              ><i></i>on hold · {statusLabel(c.hold_reason ?? '')}{untilRel(c.eligible_at) ? ` · ${untilRel(c.eligible_at)}` : ''}</span>
             {:else if c.status !== 'queued'}
               <StatusBadge status={c.status} />
             {/if}
           </div>
           <div class="ticket-actions">
+            {#if c.status === 'held'}
+              <button
+                class="go"
+                aria-label="Review now"
+                title="Review now: clears the hold and floats to the top (treated as a manual add)"
+                on:click={() => promoteCandidate(c)}
+              >▶</button>
+            {/if}
             {#if c.status !== 'reviewing'}
               <button class="danger" aria-label="Remove from queue" title="Remove from queue" on:click={() => removeCandidate(c)}>×</button>
             {/if}
@@ -154,6 +183,9 @@
                 <div><dt>PR created</dt><dd title={when(c.created_at)}>{ago(c.created_at) || 'unknown'}</dd></div>
                 <div><dt>PR updated</dt><dd title={when(c.updated_at)}>{ago(c.updated_at) || 'unknown'}</dd></div>
                 <div><dt>Discovered</dt><dd title={when(c.discovered_at)}>{ago(c.discovered_at) || 'unknown'}</dd></div>
+                {#if c.status === 'held'}
+                  <div><dt>Eligible</dt><dd title={when(c.eligible_at ?? '')}>{untilRel(c.eligible_at) ? `in ${untilRel(c.eligible_at)} (${statusLabel(c.hold_reason ?? '')})` : 'now'}</dd></div>
+                {/if}
                 <div><dt>Queue position</dt><dd>{c.queue_pos}</dd></div>
               </dl>
               <div class="review-history">

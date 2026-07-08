@@ -84,12 +84,13 @@ func (s *Server) reviewingAs(ctx context.Context) string {
 }
 
 // Handler returns the dashboard's HTTP routes. Config and prompt are
-// read-only; the queue supports add and reorder (the same operations the
-// `queue` CLI offers).
+// read-only; the queue supports add, reorder, remove, and promote (the same
+// operations the `queue` CLI offers).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/queue", s.handleQueue)
 	mux.HandleFunc("/api/queue/reorder", s.handleQueueReorder)
+	mux.HandleFunc("/api/queue/promote", s.handleQueuePromote)
 	mux.HandleFunc("/api/reviews", s.handleReviews)
 	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/config", s.handleConfig)

@@ -109,14 +109,18 @@ func TestViewQueue(t *testing.T) {
 	fresh := now.Add(-time.Hour)
 	boundary := now.Add(-staleAfter) // exactly one window old — still reviewing
 	stale := now.Add(-3 * time.Hour)
+	holdUntil := now.Add(30 * time.Minute)
+	holdOver := now.Add(-time.Minute)
 	in := []store.Candidate{
-		{Number: 1},                       // unclaimed
-		{Number: 2, ClaimedAt: &fresh},    // engine on it right now
-		{Number: 3, ClaimedAt: &stale},    // abandoned lease — next cycle reclaims
-		{Number: 4, ClaimedAt: &boundary}, // boundary — must agree with the scheduler
+		{Number: 1},                          // unclaimed
+		{Number: 2, ClaimedAt: &fresh},       // engine on it right now
+		{Number: 3, ClaimedAt: &stale},       // abandoned lease — next cycle reclaims
+		{Number: 4, ClaimedAt: &boundary},    // boundary — must agree with the scheduler
+		{Number: 5, EligibleAt: &holdUntil},  // eligibility hold — visible but skipped
+		{Number: 6, EligibleAt: &holdOver},   // expired hold — plain queued again
 	}
 	got := viewQueue(in, now, staleAfter)
-	want := []string{"queued", "reviewing", "queued", "reviewing"}
+	want := []string{"queued", "reviewing", "queued", "reviewing", "held", "queued"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d rows, want %d", len(got), len(want))
 	}
@@ -152,22 +156,24 @@ func TestQueryInt(t *testing.T) {
 }
 
 // TestCountQueue keeps the header-badge counts consistent with the per-row
-// statuses viewQueue assigns: queued + reviewing always sums to total.
+// statuses viewQueue assigns: queued + reviewing + held always sums to total.
 func TestCountQueue(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	lease := 2 * time.Hour
 	fresh := now.Add(-time.Hour)
 	stale := now.Add(-3 * time.Hour)
+	holdUntil := now.Add(time.Hour)
 	views := viewQueue([]store.Candidate{
 		{Number: 1},
 		{Number: 2, ClaimedAt: &fresh},
 		{Number: 3, ClaimedAt: &stale},
+		{Number: 4, EligibleAt: &holdUntil},
 	}, now, lease)
 	got := countQueue(views)
-	if got.Total != 3 || got.Queued != 2 || got.Reviewing != 1 {
-		t.Errorf("counts = %+v, want total 3 / queued 2 / reviewing 1", got)
+	if got.Total != 4 || got.Queued != 2 || got.Reviewing != 1 || got.Held != 1 {
+		t.Errorf("counts = %+v, want total 4 / queued 2 / reviewing 1 / held 1", got)
 	}
-	if got.Queued+got.Reviewing != got.Total {
+	if got.Queued+got.Reviewing+got.Held != got.Total {
 		t.Errorf("counts must sum to total, got %+v", got)
 	}
 }

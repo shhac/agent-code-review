@@ -101,7 +101,7 @@ func queueRmCmd() *cobra.Command {
 func queuePromoteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "promote <owner/repo> <number>",
-		Short: "Float a PR to the top of the queue",
+		Short: "Review a queued PR now: float it to the top, clear any eligibility hold, treat as a manual add",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, number, err := parseRepoNumber(args)
@@ -109,8 +109,10 @@ func queuePromoteCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				// Negative position sorts ahead of the default 0 — true top of queue.
-				if err := s.SetQueuePos(cmd.Context(), repo, number, -1); err != nil {
+				// The explicit "review this now" escape hatch — unlike a drag
+				// reorder, this clears cooldown/settling holds and escalates
+				// the row to manual (bypassing the pre-review recheck).
+				if err := s.Promote(cmd.Context(), repo, number); err != nil {
 					return err
 				}
 				return emit(map[string]any{"promoted": prKey(repo, number)})

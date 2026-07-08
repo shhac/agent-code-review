@@ -150,6 +150,7 @@ a.status-link:hover { text-decoration: underline; text-underline-offset: 3px; }
   padding: 0 9px; border-color: var(--line-strong); background: transparent; color: var(--ink);
 }
 .ticket-actions .danger:hover { color: var(--red); border-color: var(--red); }
+.ticket-actions .go:hover { color: var(--ok-ink); border-color: var(--ok-ink); }
 .ticket-detail {
   grid-column: 1 / -1; display: grid; grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr); gap: 20px;
   padding: 0 18px 18px 100px;

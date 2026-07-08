@@ -28,6 +28,18 @@ export function ago(t: string) {
   return r ? `${r} ago` : '';
 }
 
+// Relative time until a FUTURE timestamp ("42m"); "" once it has passed
+// (or was never set) — the countdown shown on held queue rows.
+export function untilRel(t: string | undefined) {
+  if (!t || new Date(t).getFullYear() < 2000) return '';
+  const s = (new Date(t).getTime() - Date.now()) / 1000;
+  if (s <= 0) return '';
+  if (s < 60) return `${Math.ceil(s)}s`;
+  if (s < 3600) return `${Math.ceil(s / 60)}m`;
+  if (s < 86400) return `${(s / 3600).toFixed(1)}h`;
+  return `${Math.ceil(s / 86400)}d`;
+}
+
 // Human duration from a seconds count ("42s", "8m", "1.5h"). Zero and
 // negative render as "" — history rows backfilled before duration tracking
 // carry 0, which means unknown, not instant.
@@ -69,6 +81,7 @@ export function statusLabel(s: string) {
 // `live` states pulse their dot.
 const kinds: Record<string, string> = {
   queued: 'dim',
+  held: 'warn',
   reviewing: 'info live',
   reviewed: 'ok',
   skipped: 'warn',

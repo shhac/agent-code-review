@@ -52,20 +52,25 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 
 // queueView is a Candidate plus the display status the frontend keys its
 // badges on. The store has no status column anymore — "reviewing" is derived
-// from a live claim; everything else in the queue is "queued".
+// from a live claim, "held" from the eligibility hold; everything else in
+// the queue is "queued".
 type queueView struct {
 	store.Candidate
-	Status string `json:"status"` // queued|reviewing
+	Status string `json:"status"` // queued|reviewing|held
 }
 
-// claimStatus maps the shared lease predicate (store.Candidate.ClaimActive)
-// to the dashboard's status vocabulary: a live claim is "reviewing";
-// anything else — including a stale claim the next cycle will reclaim — is
-// "queued". The queue badges and the review-log header both derive from
-// this one helper so they cannot disagree on the lease boundary.
+// claimStatus maps the shared predicates (store.Candidate.ClaimActive and
+// .Held) to the dashboard's status vocabulary: a live claim is "reviewing",
+// an eligibility hold is "held", anything else — including a stale claim the
+// next cycle will reclaim — is "queued". The queue badges and the review-log
+// header both derive from this one helper so they cannot disagree on the
+// lease boundary.
 func claimStatus(c store.Candidate, now time.Time, staleAfter time.Duration) string {
 	if c.ClaimActive(now, staleAfter) {
 		return "reviewing"
+	}
+	if c.Held(now) {
+		return "held"
 	}
 	return "queued"
 }
@@ -79,13 +84,14 @@ func viewQueue(candidates []store.Candidate, now time.Time, staleAfter time.Dura
 	return out
 }
 
-// queueCounts is the fixed header-badge shape: waiting vs in-flight, always
-// summing to Total. A typed struct so a future status can't silently create
-// a key nobody reads.
+// queueCounts is the fixed header-badge shape: waiting vs in-flight vs on
+// hold, always summing to Total. A typed struct so a future status can't
+// silently create a key nobody reads.
 type queueCounts struct {
 	Total     int `json:"total"`
 	Queued    int `json:"queued"`
 	Reviewing int `json:"reviewing"`
+	Held      int `json:"held"`
 }
 
 // countQueue tallies views by display status. Pure — unit-tested with
@@ -98,6 +104,8 @@ func countQueue(views []queueView) queueCounts {
 			counts.Queued++
 		case "reviewing":
 			counts.Reviewing++
+		case "held":
+			counts.Held++
 		}
 	}
 	return counts
@@ -178,11 +186,35 @@ func (s *Server) repoWatched(repo string) bool {
 	return s.config().WatchesRepo(repo)
 }
 
-// prRef is the queue-row wire shape shared by the remove, add, and reorder
-// request bodies (and the reorder validator's set key).
+// prRef is the queue-row wire shape shared by the remove, add, promote, and
+// reorder request bodies (and the reorder validator's set key).
 type prRef struct {
 	Repo   string `json:"repo"`
 	Number int    `json:"number"`
+}
+
+// handleQueuePromote is the explicit "review this now" action: float the row
+// to the top, clear any eligibility hold, and escalate it to a manual add
+// (bypassing the pre-review candidacy recheck) — the same semantics as
+// `queue promote`. Deliberately distinct from reorder: a drag changes only
+// positions and never lifts a hold.
+func (s *Server) handleQueuePromote(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var req prRef
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !config.ValidRepoName(req.Repo) || req.Number <= 0 {
+		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
+		return
+	}
+	ctx, cancel := reqCtx(r, 10*time.Second)
+	defer cancel()
+	if err := s.store.Promote(ctx, req.Repo, req.Number); err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"promoted": true})
 }
 
 // handleQueueReorder replaces the queued ordering in one write: the drag-and-

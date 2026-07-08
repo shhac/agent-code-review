@@ -24,7 +24,7 @@ COMMANDS:
   queue ls [--repo R]                                List pending candidates (NDJSON)
   queue add <owner/repo> <number>                    Add a PR to the queue
   queue rm <owner/repo> <number>                     Remove a PR
-  queue promote <owner/repo> <number>                Float a PR to the top
+  queue promote <owner/repo> <number>                Review now: top of queue, clears holds, treated as manual
   queue skip <owner/repo> <number>                   Record a SKIPPED outcome (re-eligible on new commits)
   queue log <owner/repo> <number> [-f]               Stream the review agent's log (live or postmortem)
 
@@ -59,6 +59,11 @@ CANDIDATES (discovery is deterministic: gh + rules, never the LLM):
   Repos in allowed_authors_only_repos additionally require the PR author to be
   on the allowed-authors list. Manual adds (queue add / dashboard) fetch live
   metadata via gh and reject closed/merged PRs.
+  Discovered candidates can carry an eligibility hold: settling (PR updated
+  within candidates.quiet_period) or cooldown (we reviewed it within
+  candidates.rereview_cooldown). Held rows sit visibly in the queue but are
+  skipped by review cycles until eligible_at; queue promote or a manual add
+  bypasses holds.
 
 APPROVAL: allowed authors (whose PRs WE may approve; we are the reviewer) are
   stored in DuckDB, per repo (manage with 'authors'). The assembled prompt always
@@ -87,8 +92,12 @@ const queueUsageText = `queue: The review queue (stored in DuckDB)
 COMMANDS:
   queue ls [--repo owner/name]
     List pending candidates in review order: explicit queue positions first,
-    then New before Refreshed, then lowest PR number. One NDJSON record per
-    candidate. A row with claimed_at set is being reviewed right now.
+    then FIFO by first discovery (New before Refreshed, then lowest PR number
+    as same-sweep tiebreaks). One NDJSON record per candidate. A row with
+    claimed_at set is being reviewed right now; a row with eligible_at in the
+    future is on hold (hold_reason: cooldown = we reviewed it recently,
+    settling = the PR was pushed/edited too recently) and is skipped by
+    review cycles until then.
 
   queue add <owner/repo> <number>
     Add a PR by hand: live metadata (title/author/SHA) is fetched via gh, and
@@ -99,7 +108,10 @@ COMMANDS:
     re-review requests and draft reviews go through.
 
   queue promote <owner/repo> <number>
-    Float a PR to the very top of the queue (across types).
+    "Review this now": float the PR to the very top, clear any eligibility
+    hold (cooldown/settling), and escalate it to a manual add (bypassing the
+    pre-review candidacy recheck). Reordering in the dashboard does NONE of
+    that — a drag changes only the position and respects holds.
 
   queue skip <owner/repo> <number>
     Record a SKIPPED outcome and drop the PR from the queue. It becomes
@@ -207,7 +219,7 @@ COMMANDS:
 KEYS:
   gh_user                              self-review detection (empty = derive via gh)
   schedule.enabled                     true|false: daemon runs review cycles
-  schedule.interval                    review cadence, e.g. 30m
+  schedule.interval                    review cadence, e.g. 1m (idle cycles are no-ops)
   discovery.enabled                    true|false: daemon scrapes for candidates
   discovery.interval                   scrape cadence, e.g. 10m (gh only, no LLM)
   schedule.max_parallel                1..32 concurrent reviews per cycle
@@ -216,6 +228,10 @@ KEYS:
   schedule.usage_floor.weekly_percent  same for the weekly window (default 10, 0 off)
   candidates.new_max_age_days          New candidate window (default 14)
   candidates.refreshed_max_age_days    Refreshed candidate window (default 21)
+  candidates.rereview_cooldown         hold after our own review before re-discovery
+                                       (default 90m, 0s disables)
+  candidates.quiet_period              PR must go untouched this long before discovery
+                                       accepts it (default 15m, 0s disables)
   review.engine                        codex
   codex.bin | codex.model | codex.sandbox
   dashboard.addr                       listen address (default :8330)

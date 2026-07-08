@@ -25,6 +25,7 @@ type handlerStore struct {
 	enqueued  []store.Candidate
 	dequeued  []prRef
 	positions []prRef        // SetQueuePos calls in order
+	promoted  []prRef        // Promote calls in order
 	tokens    map[bool]int64 // keyed by since.IsZero()
 }
 
@@ -56,6 +57,11 @@ func (f *handlerStore) Dequeue(_ context.Context, repo string, number int) error
 
 func (f *handlerStore) SetQueuePos(_ context.Context, repo string, number, _ int) error {
 	f.positions = append(f.positions, prRef{Repo: repo, Number: number})
+	return nil
+}
+
+func (f *handlerStore) Promote(_ context.Context, repo string, number int) error {
+	f.promoted = append(f.promoted, prRef{Repo: repo, Number: number})
 	return nil
 }
 
@@ -147,6 +153,34 @@ func TestHandleQueue(t *testing.T) {
 		code, _ := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodDelete, "/api/queue", `{"repo":"o/r","number":3}`)
 		if code != http.StatusOK || len(fs.dequeued) != 1 || fs.dequeued[0].Number != 3 {
 			t.Errorf("remove must dequeue o/r#3, got %d %v", code, fs.dequeued)
+		}
+	})
+}
+
+// TestHandleQueuePromote pins the "review this now" endpoint: it delegates
+// to Store.Promote (top of queue + hold cleared + manual escalation) and
+// validates its input like the other queue writes.
+func TestHandleQueuePromote(t *testing.T) {
+	t.Run("POST promotes", func(t *testing.T) {
+		fs := &handlerStore{}
+		code, resp := doJSON(t, newTestServer(fs, config.Config{}).handleQueuePromote, http.MethodPost, "/api/queue/promote", `{"repo":"o/r","number":9}`)
+		if code != http.StatusOK || resp["promoted"] != true {
+			t.Fatalf("code = %d resp = %v", code, resp)
+		}
+		if len(fs.promoted) != 1 || fs.promoted[0] != (prRef{Repo: "o/r", Number: 9}) {
+			t.Errorf("promote calls = %v", fs.promoted)
+		}
+	})
+	t.Run("rejects garbage and non-POST", func(t *testing.T) {
+		fs := &handlerStore{}
+		if code, _ := doJSON(t, newTestServer(fs, config.Config{}).handleQueuePromote, http.MethodPost, "/api/queue/promote", `{"repo":"nonsense","number":0}`); code != http.StatusBadRequest {
+			t.Errorf("garbage body must 400, got %d", code)
+		}
+		if code, _ := doJSON(t, newTestServer(fs, config.Config{}).handleQueuePromote, http.MethodGet, "/api/queue/promote", ""); code != http.StatusMethodNotAllowed {
+			t.Errorf("GET must 405, got %d", code)
+		}
+		if len(fs.promoted) != 0 {
+			t.Error("nothing may be promoted on invalid input")
 		}
 	})
 }

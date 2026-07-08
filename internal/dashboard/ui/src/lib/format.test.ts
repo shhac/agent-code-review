@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dur, durSecs, prHref, statusKind, statusLabel, tokens, when } from './format';
+import { dur, durSecs, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
 
 describe('when', () => {
   it('renders the house YYYY-MM-DD @ HH:MM:SS style in local time', () => {
@@ -46,9 +46,20 @@ describe('tokens', () => {
 describe('status vocabulary', () => {
   it('maps known states and dims unknown ones', () => {
     expect(statusKind('reviewing')).toBe('info live');
+    expect(statusKind('held')).toBe('warn');
     expect(statusKind('APPROVED')).toBe('ok');
     expect(statusKind('whatever')).toBe('dim');
     expect(statusLabel('REQUESTED_CHANGES')).toBe('REQUESTED CHANGES');
+  });
+});
+
+describe('untilRel', () => {
+  it('counts down to future timestamps and empties once passed', () => {
+    expect(untilRel(new Date(Date.now() + 42_000).toISOString())).toBe('42s');
+    expect(untilRel(new Date(Date.now() + 40 * 60_000).toISOString())).toBe('40m');
+    expect(untilRel(new Date(Date.now() - 60_000).toISOString())).toBe('');
+    expect(untilRel(undefined)).toBe('');
+    expect(untilRel('0001-01-01T00:00:00Z')).toBe(''); // Go zero time = not set
   });
 });
 

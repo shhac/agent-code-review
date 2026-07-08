@@ -18,6 +18,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/dashboard"
 	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/logbuf"
+	"github.com/shhac/agent-code-review/internal/scheduler"
 	"github.com/shhac/agent-code-review/internal/usage"
 )
 
@@ -61,9 +62,6 @@ func registerServe(root *cobra.Command) {
 }
 
 func runServe(ctx context.Context, opts serveOpts) error {
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	cfg := config.Read()
 	s, err := openStore(cfg)
 	if err != nil {
@@ -80,8 +78,34 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	logf("serve: starting (pid %d)", os.Getpid())
 
+	gracefulCtx, gracefulStop := context.WithCancel(ctx)
+	reviewCtx, forceStop := context.WithCancel(ctx)
+	defer gracefulStop()
+	defer forceStop()
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case <-ctx.Done():
+			gracefulStop()
+			forceStop()
+		case sig := <-sigCh:
+			logf("shutdown: received %s — stopping discovery and review scheduling; waiting for in-flight reviewers. Press Ctrl-C again to force exit.", sig)
+			gracefulStop()
+			select {
+			case <-ctx.Done():
+				forceStop()
+			case sig := <-sigCh:
+				logf("shutdown: received %s again — force shutdown", sig)
+				forceStop()
+			case <-reviewCtx.Done():
+			}
+		}
+	}()
+
 	// Bring up the Tailscale tunnel (if requested) and derive the public URL.
-	publicURL, tsDown, err := tailscale.Wire(ctx, opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
+	publicURL, tsDown, err := tailscale.Wire(reviewCtx, opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
 	if err != nil {
 		return err
 	}
@@ -96,7 +120,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// Poll Codex usage in the background so the dashboard can show remaining
 	// quota without a subprocess per request.
 	usageCache := usage.NewCache()
-	go usageCache.Poll(ctx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
+	go usageCache.Poll(gracefulCtx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
 
 	// Config sets the default per loop; flags override for this process only.
 	// --no-schedule remains the "neither loop" shorthand.
@@ -127,29 +151,51 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		logf("dashboard: listening on %s", opts.addr)
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logf("dashboard error: %v", err)
-			stop()
+			gracefulStop()
 		}
 	}()
 
+	var schedDone chan error
 	if running.Discovery || running.Review {
 		sched, err := buildScheduler(ctx, schedCfg, s, logf, usageCache.Get)
 		if err != nil {
 			return err
 		}
+		schedDone = make(chan error, 1)
 		go func() {
-			if err := sched.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			err := sched.StartGraceful(gracefulCtx, reviewCtx)
+			if err != nil && !errors.Is(err, context.Canceled) {
 				logf("scheduler stopped: %v", err)
 			}
+			schedDone <- err
 		}()
 	} else {
 		logf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
 	}
 
-	<-ctx.Done()
+	<-gracefulCtx.Done()
+	forced := waitForScheduler(schedDone, reviewCtx, logf)
+	if forced {
+		_ = srv.Close()
+		return nil
+	}
 	logf("shutting down…")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+func waitForScheduler(done <-chan error, forceCtx context.Context, logf scheduler.Logf) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return false
+	case <-forceCtx.Done():
+		logf("shutdown: force shutdown without waiting for in-flight reviewers")
+		return true
+	}
 }
 
 func tailscalePortOr(port int) int {

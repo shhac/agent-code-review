@@ -73,30 +73,65 @@ func New(cfg func() config.Config, s store.Store, d *discover.Discoverer, ghUser
 	}
 }
 
-// Start runs the enabled loops until ctx is cancelled: discovery (cheap,
-// deterministic gh scraping, discovery.enabled/interval) and review cycles
-// (LLM invocations, schedule.enabled/interval) switch and tick independently.
-// Enabled loops fire immediately on start.
+// Start runs the enabled loops until ctx is cancelled. Cancellation is forceful:
+// in-flight reviewers receive ctx too. The serve daemon uses StartGraceful so
+// its first Ctrl-C can stop scheduling while letting claimed reviewers finish.
 func (s *Scheduler) Start(ctx context.Context) error {
+	return s.StartGraceful(ctx, ctx)
+}
+
+// StartGraceful runs the enabled loops until stopCtx is cancelled: discovery
+// receives stopCtx and is cancelled immediately, while in-flight reviewers
+// receive reviewCtx and drain unless that second context is cancelled too.
+// Enabled loops fire immediately on start.
+func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context) error {
 	// A crashed daemon leaves a running run row (which would block cycles
 	// for the whole lease window) and claimed queue rows (which would wait
 	// it out too). Reconcile before the first tick so a restart resumes
 	// immediately. Failure is logged, not fatal — the lease window is the
 	// fallback that always works.
-	if err := s.Reconcile(ctx); err != nil {
+	if err := s.Reconcile(reviewCtx); err != nil {
 		s.logf("reconcile: %v", err)
 	}
 	boot := s.cfg()
+	var wg sync.WaitGroup
+	started := false
 	if boot.Discovery.Enabled {
 		s.logf("scheduler: discovery every %s (config reloads live)", boot.DiscoverInterval())
-		go s.loop(ctx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
+		started = true
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.loop(stopCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
+		}()
 	}
 	if boot.Schedule.Enabled {
 		s.logf("scheduler: reviews every %s, max parallel %d (config reloads live)", boot.Interval(), boot.MaxParallel())
-		go s.loop(ctx, func() time.Duration { return s.cfg().Interval() }, "review", s.ReviewCycle)
+		started = true
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.loop(stopCtx, func() time.Duration { return s.cfg().Interval() }, "review", func(context.Context) error {
+				return s.reviewCycle(stopCtx, reviewCtx)
+			})
+		}()
 	}
-	<-ctx.Done()
-	return ctx.Err()
+	if !started {
+		<-stopCtx.Done()
+		return stopCtx.Err()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return stopCtx.Err()
+	case <-reviewCtx.Done():
+		return reviewCtx.Err()
+	}
 }
 
 // loopHeartbeat is how often a loop re-reads its interval, so a cadence edit
@@ -115,6 +150,11 @@ func due(last, now time.Time, interval time.Duration) bool {
 // last run started.
 func (s *Scheduler) loop(ctx context.Context, interval func() time.Duration, name string, fn func(context.Context) error) {
 	run := func() {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		if err := fn(ctx); err != nil {
 			s.logf("%s error: %v", name, err)
 		}
@@ -161,9 +201,18 @@ func (s *Scheduler) Discover(ctx context.Context) error {
 // records nothing: with the default 1m cadence, anything else would flood the
 // runs table and the log with empty ticks.
 func (s *Scheduler) ReviewCycle(ctx context.Context) error {
+	return s.reviewCycle(ctx, ctx)
+}
+
+func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
 	// Usage floor: leave headroom in the Codex windows for interactive work.
 	// Checked before the run-lock so a paused cycle records no run. The loop
 	// keeps ticking, so reviews resume as soon as the window refills.
+	select {
+	case <-stopCtx.Done():
+		return nil
+	default:
+	}
 	cfg := s.cfg()
 	if paused, reason := usage.BelowFloor(s.usageFn(), cfg.UsageFloor5h(), cfg.UsageFloorWeekly()); paused {
 		s.logf("cycle: paused by usage floor (%s)", reason)
@@ -171,7 +220,7 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 	}
 
 	staleAfter := cfg.LeaseWindow()
-	queue, err := s.store.ListQueue(ctx, "")
+	queue, err := s.store.ListQueue(reviewCtx, "")
 	if err != nil {
 		return err
 	}
@@ -187,7 +236,7 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 
 	s.logf("cycle: started at %s", time.Now().Format(time.RFC3339))
 
-	if _, active, err := s.store.ActiveRun(ctx, staleAfter); err != nil {
+	if _, active, err := s.store.ActiveRun(reviewCtx, staleAfter); err != nil {
 		return err
 	} else if active {
 		s.logf("cycle: a previous run is still active — skipping")
@@ -195,19 +244,19 @@ func (s *Scheduler) ReviewCycle(ctx context.Context) error {
 	}
 
 	run := store.Run{ID: newRunID(), StartedAt: time.Now(), Host: hostname(), PID: os.Getpid()}
-	if err := s.store.StartRun(ctx, run); err != nil {
+	if err := s.store.StartRun(reviewCtx, run); err != nil {
 		return err
 	}
 	status := "done"
 	defer func() {
-		if err := s.store.FinishRun(ctx, run.ID, status); err != nil {
+		if err := s.store.FinishRun(reviewCtx, run.ID, status); err != nil {
 			s.logf("cycle: finish run: %v", err)
 		}
 		s.logf("cycle: finished at %s (%s)", time.Now().Format(time.RFC3339), status)
 	}()
 
 	s.logf("cycle: %d candidate(s) to review", len(available))
-	s.processQueue(ctx, available, cfg, engine)
+	s.processQueue(stopCtx, reviewCtx, available, cfg, engine)
 	return nil
 }
 
@@ -299,16 +348,32 @@ func pidAlive(pid int) bool {
 // store. The cycle's config snapshot and engine travel as parameters so
 // every goroutine works from one coherent config — nothing cycle-scoped
 // lives on the long-lived Scheduler struct.
-func (s *Scheduler) processQueue(ctx context.Context, candidates []store.Candidate, cfg config.Config, engine review.Engine) {
+func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates []store.Candidate, cfg config.Config, engine review.Engine) {
 	sem := make(chan struct{}, cfg.MaxParallel())
 	var wg sync.WaitGroup
 	for _, c := range candidates {
+		select {
+		case <-stopCtx.Done():
+			s.logf("cycle: shutdown requested — waiting for in-flight reviewer(s)")
+			wg.Wait()
+			return
+		default:
+		}
+		select {
+		case sem <- struct{}{}:
+		case <-stopCtx.Done():
+			s.logf("cycle: shutdown requested — waiting for in-flight reviewer(s)")
+			wg.Wait()
+			return
+		case <-reviewCtx.Done():
+			wg.Wait()
+			return
+		}
 		wg.Add(1)
-		sem <- struct{}{}
 		go func(c store.Candidate) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := s.reviewOne(ctx, c, cfg, engine); err != nil {
+			if err := s.reviewOne(reviewCtx, c, cfg, engine); err != nil {
 				s.logf("review %s#%d: %v", c.Repo, c.Number, err)
 			}
 		}(c)

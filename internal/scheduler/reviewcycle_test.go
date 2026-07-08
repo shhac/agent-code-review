@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,6 +49,68 @@ func newCycleScheduler(fs *fakeCycleStore, fe *fakeEngine) *Scheduler {
 	s.newEngine = func(config.Config) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int) (bool, string, error) { return true, "", nil }
 	return s
+}
+
+type blockingEngine struct {
+	started chan int
+	release chan struct{}
+	once    sync.Once
+}
+
+func (e *blockingEngine) Name() string { return "blocking" }
+
+func (e *blockingEngine) Review(ctx context.Context, req review.Request) (review.Verdict, error) {
+	e.started <- req.Candidate.Number
+	e.once.Do(func() {
+		<-e.release
+	})
+	select {
+	case <-ctx.Done():
+		return review.Verdict{Decision: review.DecisionError}, ctx.Err()
+	default:
+		return review.Verdict{Decision: review.DecisionCommented}, nil
+	}
+}
+
+// TestProcessQueueGracefulStop pins serve's first-Ctrl-C behavior: stop
+// launching new reviewers, but let already-started reviewers finish.
+func TestProcessQueueGracefulStop(t *testing.T) {
+	fs := &fakeCycleStore{}
+	fe := &blockingEngine{started: make(chan int, 2), release: make(chan struct{})}
+	s := New(func() config.Config {
+		return config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
+	}, fs, nil, "the-gh-user", nil, nil)
+	s.stillCandidate = func(context.Context, string, int) (bool, string, error) { return true, "", nil }
+	stopCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.processQueue(stopCtx, context.Background(), []store.Candidate{
+			{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+			{Repo: "o/r", Number: 2, HeadSHA: "s2"},
+		}, config.Config{Schedule: config.ScheduleSettings{MaxParallel: 1}, Review: config.ReviewSettings{MainPrompt: "MAIN"}}, fe)
+	}()
+
+	if got := <-fe.started; got != 1 {
+		t.Fatalf("first reviewer = #%d, want #1", got)
+	}
+	stop()
+	select {
+	case got := <-fe.started:
+		t.Fatalf("graceful stop must not launch a second reviewer, launched #%d", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(fe.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("processQueue did not drain the in-flight reviewer")
+	}
+	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
+		t.Errorf("only the in-flight reviewer should complete, got %+v", fs.completed)
+	}
 }
 
 // TestReviewCycle pins the cycle orchestration: take the run-lock, review

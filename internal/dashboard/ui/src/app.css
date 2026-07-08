@@ -186,8 +186,12 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
   margin: 0; display: grid; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line);
 }
 .mini-table p { grid-template-columns: 52px 48px 94px minmax(0, 1fr); }
-.review-list p { grid-template-columns: max-content minmax(200px, 1fr) 170px minmax(0, max-content) 48px 70px 34px; gap: 14px; }
-.review-list .dur { color: var(--dim); text-align: right; }
+/* Fixed widths on the trailing columns: each row is its own grid, so an
+   auto-sized column (e.g. "precheck" vs "codex") would drift per row. */
+.review-list p { grid-template-columns: max-content minmax(200px, 1fr) 170px 172px 74px 70px 34px; gap: 14px; }
+.review-list .mono { white-space: nowrap; }
+.review-list .dur { color: var(--dim); text-align: right; white-space: nowrap; }
+.review-list .dur small { display: block; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
 .log-link { color: var(--accent); font-size: 12px; font-weight: 750; }
 .log-link:hover { text-decoration: underline; }
 .review-list .ticket-pr { font-size: 15px; }
@@ -231,6 +235,14 @@ time { color: var(--dim); }
 .terminal { height: calc(100vh - 210px); overflow-y: auto; border-radius: 12px; box-shadow: var(--shadow); }
 .terminal p { margin: 0; display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 16px; }
 .terminal.review-log pre.raw { margin: 0; padding: 0; background: transparent; border: 0; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
+.head-tools { display: inline-flex; align-items: center; gap: 14px; }
+.head-tools input.filter {
+  width: 300px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-warm); color: var(--ink); font: inherit; font-size: 12.5px;
+}
+.head-tools input.filter::placeholder { color: var(--faint); }
+.head-tools input.filter:focus { outline: none; border-color: var(--accent); }
 
 .tokens-line {
   display: flex; justify-content: space-between; gap: 12px; margin-top: 12px;

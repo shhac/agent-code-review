@@ -2,8 +2,14 @@
 
 import type { Candidate, UsageWindow } from './types';
 
-export function when(t: string) {
-  return t ? new Date(t).toLocaleString() : '';
+const pad = (n: number) => String(n).padStart(2, '0');
+
+// Absolute local timestamp in the house style: "YYYY-MM-DD @ HH:MM:SS".
+// Accepts anything Date can parse (ISO strings, epoch millis, Dates).
+export function when(t: string | number | Date) {
+  if (!t) return '';
+  const d = new Date(t);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} @ ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 // Relative time value ("5m", "3h"). Go zero times serialize as year 1;

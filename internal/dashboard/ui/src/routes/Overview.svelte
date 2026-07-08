@@ -2,7 +2,7 @@
   import ActivityChart from '../lib/ActivityChart.svelte';
   import { fetchJSON, post } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
-  import { dur, rel, tokens, windowName } from '../lib/format';
+  import { dur, rel, tokens, when, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
   import QueueBoard from '../lib/QueueBoard.svelte';
   import RecentRuns from '../lib/RecentRuns.svelte';
@@ -125,7 +125,7 @@
             <div class:hot={window.used_percent >= 90} class="meter">
               <div><span>{windowName(window, label)}</span><b>{Math.round(window.used_percent)}%</b></div>
               <i style={`width:${Math.min(100, Math.max(0, window.used_percent))}%`}></i>
-              {#if window.resets_at}<small>resets {new Date(window.resets_at * 1000).toLocaleString()}</small>{/if}
+              {#if window.resets_at}<small>resets {when(window.resets_at * 1000)}</small>{/if}
             </div>
           {/if}
         {/each}

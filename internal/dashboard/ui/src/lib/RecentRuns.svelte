@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ago, dur, when } from './format';
+  import Pager from './Pager.svelte';
   import StatusBadge from './StatusBadge.svelte';
   import type { Run } from './types';
 
@@ -17,13 +18,7 @@
 <section>
   <div class="section-head compact">
     <h2>Recent runs</h2>
-    {#if runs.length > runsPerPage}
-      <span class="pager">
-        <button type="button" disabled={runsPage === 0} on:click={() => (runsPage -= 1)}>‹</button>
-        {runsPage + 1}/{pageCount}
-        <button type="button" disabled={runsPage >= pageCount - 1} on:click={() => (runsPage += 1)}>›</button>
-      </span>
-    {/if}
+    <Pager bind:page={runsPage} {pageCount} />
   </div>
   {#if runs.length}
     <div class="mini-table">

@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { dur, durSecs, prHref, statusKind, statusLabel, tokens } from './format';
+import { dur, durSecs, prHref, statusKind, statusLabel, tokens, when } from './format';
+
+describe('when', () => {
+  it('renders the house YYYY-MM-DD @ HH:MM:SS style in local time', () => {
+    expect(when(new Date(2026, 6, 8, 15, 13, 53))).toBe('2026-07-08 @ 15:13:53');
+    expect(when(new Date(2026, 0, 2, 3, 4, 5))).toBe('2026-01-02 @ 03:04:05');
+  });
+
+  it('treats empty input as unknown', () => {
+    expect(when('')).toBe('');
+  });
+});
 
 describe('durSecs', () => {
   it('renders the seconds/minutes/hours ladder', () => {

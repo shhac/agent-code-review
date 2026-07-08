@@ -127,6 +127,23 @@ type Review struct {
 	TokensUsed   int       `json:"tokens_used"`        // engine-reported token spend; 0 when unknown
 }
 
+// ReviewLogRef identifies the review-log view for a PR. LogKey empty means
+// the live queue row if present, else the latest recorded outcome; LogKey set
+// means one exact history row.
+type ReviewLogRef struct {
+	Repo   string
+	Number int
+	LogKey string
+}
+
+func ReviewLogRefFromReview(r Review) ReviewLogRef {
+	key := r.LogKey
+	if key == "" {
+		key = ReviewLogKey(r)
+	}
+	return ReviewLogRef{Repo: r.Repo, Number: r.Number, LogKey: key}
+}
+
 // ReviewLogKey is the stable, non-secret URL token for a history row's log.
 func ReviewLogKey(r Review) string {
 	h := sha256.New()
@@ -152,30 +169,31 @@ type Workspace struct {
 // `queue log` and the dashboard's review-log endpoint share this resolution
 // so the two surfaces cannot drift.
 func FindWorkspace(ctx context.Context, s Store, repo string, number int) (Workspace, bool, error) {
-	return FindReviewWorkspace(ctx, s, repo, number, "")
+	return FindReviewWorkspace(ctx, s, ReviewLogRef{Repo: repo, Number: number})
 }
 
-// FindReviewWorkspace resolves a review log workspace. With reviewKey set, it
-// selects that exact history row and never falls back to the live/latest PR log.
-// With reviewKey empty, it preserves the normal live-then-latest behavior.
-func FindReviewWorkspace(ctx context.Context, s Store, repo string, number int, reviewKey string) (Workspace, bool, error) {
-	if reviewKey != "" {
-		r, ok, err := s.ReviewByLogKey(ctx, repo, number, reviewKey)
+// FindReviewWorkspace resolves a review log workspace. With ref.LogKey set,
+// it selects that exact history row and never falls back to the live/latest PR
+// log. With ref.LogKey empty, it preserves the normal live-then-latest
+// behavior.
+func FindReviewWorkspace(ctx context.Context, s Store, ref ReviewLogRef) (Workspace, bool, error) {
+	if ref.LogKey != "" {
+		r, ok, err := s.ReviewByLogKey(ctx, ref.Repo, ref.Number, ref.LogKey)
 		if err != nil || !ok || r.WorkDir == "" {
 			return Workspace{}, false, err
 		}
 		return Workspace{Dir: r.WorkDir, Finished: &r}, true, nil
 	}
-	queue, err := s.ListQueue(ctx, repo)
+	queue, err := s.ListQueue(ctx, ref.Repo)
 	if err != nil {
 		return Workspace{}, false, err
 	}
 	for _, c := range queue {
-		if c.Number == number && c.WorkDir != "" {
+		if c.Number == ref.Number && c.WorkDir != "" {
 			return Workspace{Dir: c.WorkDir, Queued: &c}, true, nil
 		}
 	}
-	last, ok, err := s.LastOutcome(ctx, repo, number)
+	last, ok, err := s.LastOutcome(ctx, ref.Repo, ref.Number)
 	if err != nil {
 		return Workspace{}, false, err
 	}

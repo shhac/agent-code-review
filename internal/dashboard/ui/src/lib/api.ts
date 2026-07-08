@@ -11,6 +11,7 @@ import type {
   PromptResponse,
   StatsResponse,
   UsageResponse,
+  ReviewLogRef,
 } from './types';
 
 export async function fetchJSON<T = any>(path: string): Promise<T> {
@@ -50,9 +51,9 @@ export const getAuthors = () => fetchJSON<AuthorsResponse>('/api/authors');
 export const getPrompt = () => fetchJSON<PromptResponse>('/api/prompt');
 export const getLogs = () => fetchJSON<LogsResponse>('/api/logs');
 
-export function getReviewLog(repo: string, number: number, reviewKey = '') {
-  let url = `/api/review-log?repo=${encodeURIComponent(repo)}&number=${number}`;
-  if (reviewKey) url += `&review=${encodeURIComponent(reviewKey)}`;
+export function getReviewLog(ref: ReviewLogRef) {
+  let url = `/api/review-log?repo=${encodeURIComponent(ref.repo)}&number=${ref.number}`;
+  if (ref.logKey) url += `&review=${encodeURIComponent(ref.logKey)}`;
   return fetchJSON<ReviewLogResponse>(url);
 }
 

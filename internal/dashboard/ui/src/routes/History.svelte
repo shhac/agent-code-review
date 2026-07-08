@@ -6,6 +6,7 @@
   import Pager from '../lib/Pager.svelte';
   import { poll } from '../lib/poll';
   import PrIdentity from '../lib/PrIdentity.svelte';
+  import { reviewLogPathFromReview } from '../lib/reviewlog';
   import StatusBadge from '../lib/StatusBadge.svelte';
   import type { Review } from '../lib/types';
 
@@ -68,8 +69,8 @@
             <span class="dur">{durSecs(r.duration_secs)}{#if r.tokens_used}<small>{tokens(r.tokens_used)} tok</small>{/if}</span>
             <time title={when(r.reviewed_at)}>{ago(r.reviewed_at)}</time>
             <span>
-              {#if r.work_dir && r.log_key}
-                <a class="log-link" href={`/review/${r.repo}/${r.number}/${r.log_key}`} on:click|preventDefault={() => navigate(`/review/${r.repo}/${r.number}/${r.log_key}`)}>log</a>
+              {#if reviewLogPathFromReview(r)}
+                <a class="log-link" href={reviewLogPathFromReview(r)} on:click|preventDefault={() => navigate(reviewLogPathFromReview(r))}>log</a>
               {/if}
             </span>
           </p>

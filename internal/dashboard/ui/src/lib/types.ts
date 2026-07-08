@@ -172,6 +172,12 @@ export type ReviewLogPr = {
   tokens_used?: number;
 };
 
+export type ReviewLogRef = {
+  repo: string;
+  number: number;
+  logKey?: string;
+};
+
 export type ReviewLogResponse = {
   available: boolean;
   state?: string;

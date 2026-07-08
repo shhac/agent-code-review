@@ -5,6 +5,7 @@
   import { navigate } from './nav';
   import PrIdentity from './PrIdentity.svelte';
   import { moveByKey, reorderPayload } from './queueorder';
+  import { liveReviewLogRef, reviewLogPath } from './reviewlog';
   import StatusBadge from './StatusBadge.svelte';
   import type { Candidate, QueueCounts, Review } from './types';
 
@@ -152,11 +153,12 @@
             <PrIdentity repo={c.repo} number={c.number} url={c.url} title={c.title} author={c.author} />
             <span class="tag">{c.type}</span>
             {#if c.status === 'reviewing'}
+              {@const logRef = liveReviewLogRef(c)}
               <a
                 class="status {statusKind(c.status)} status-link"
-                href={`/review/${c.repo}/${c.number}`}
+                href={reviewLogPath(logRef)}
                 title="Open the live agent log"
-                on:click|preventDefault|stopPropagation={() => navigate(`/review/${c.repo}/${c.number}`)}
+                on:click|preventDefault|stopPropagation={() => navigate(reviewLogPath(logRef))}
               ><i></i>{statusLabel(c.status)}{c.claimed_at ? ` · ${rel(c.claimed_at)}` : ''}</a>
             {:else if c.status === 'held'}
               <span

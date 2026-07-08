@@ -174,7 +174,7 @@ func TestFindReviewWorkspaceByLogKey(t *testing.T) {
 	}
 	s.byKey = map[string]Review{chosen.LogKey: chosen}
 
-	ws, found, err := FindReviewWorkspace(ctx, s, "o/r", 5, chosen.LogKey)
+	ws, found, err := FindReviewWorkspace(ctx, s, ReviewLogRefFromReview(chosen))
 	if err != nil || !found {
 		t.Fatalf("found=%v err=%v", found, err)
 	}

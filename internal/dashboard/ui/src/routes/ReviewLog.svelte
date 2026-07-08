@@ -5,11 +5,9 @@
   import { durSecs, prHref, rel, tokens, when } from '../lib/format';
   import { poll } from '../lib/poll';
   import StatusBadge from '../lib/StatusBadge.svelte';
-  import type { ReviewLogPr } from '../lib/types';
+  import type { ReviewLogPr, ReviewLogRef } from '../lib/types';
 
-  export let repo: string;
-  export let number: number;
-  export let reviewKey = '';
+  export let reviewRef: ReviewLogRef;
 
   let available = false;
   let loaded = false;
@@ -23,7 +21,7 @@
   async function refresh() {
     try {
       const pinned = pane ? pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40 : true;
-      const data = await getReviewLog(repo, number, reviewKey);
+      const data = await getReviewLog(reviewRef);
       available = !!data.available;
       state = data.state || '';
       content = data.content || '';
@@ -65,11 +63,11 @@
 <section class="page-head">
   <p class="eyebrow">Review agent</p>
   <h1 class="review-log-heading">
-    <a class="plain-link" href={prHref(repo, number, pr?.url)} target="_blank" rel="noopener">#{number}</a>
+    <a class="plain-link" href={prHref(reviewRef.repo, reviewRef.number, pr?.url)} target="_blank" rel="noopener">#{reviewRef.number}</a>
     {#if pr?.title}<span>{pr.title}</span>{/if}
   </h1>
   <p>
-    {repo}{pr?.author ? ` · @${pr.author}` : ''}
+    {reviewRef.repo}{pr?.author ? ` · @${pr.author}` : ''}
     {#if state}
       · <StatusBadge status={displayStatus} />
     {/if}

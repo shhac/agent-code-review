@@ -1,6 +1,8 @@
 <script lang="ts">
   import { feed } from './lib/feed';
   import { navigate } from './lib/nav';
+  import { parseReviewLogPath, reviewLogRouteKey } from './lib/reviewlog';
+  import type { ReviewLogRef } from './lib/types';
   import Config from './routes/Config.svelte';
   import History from './routes/History.svelte';
   import Logs from './routes/Logs.svelte';
@@ -10,10 +12,7 @@
 
   type Route = 'overview' | 'history' | 'config' | 'prompt' | 'logs' | 'review';
 
-  const reviewPath = /^\/review\/([^/]+\/[^/]+)\/(\d+)(?:\/([^/]+))?$/;
-  let reviewRepo = '';
-  let reviewNumber = 0;
-  let reviewKey = '';
+  let reviewRef: ReviewLogRef = { repo: '', number: 0 };
 
   const nav: { route: Route; label: string; path: string }[] = [
     { route: 'overview', label: 'Queue', path: '/' },
@@ -26,11 +25,9 @@
   let route: Route = routeFromPath(location.pathname);
 
   function routeFromPath(path: string): Route {
-    const m = reviewPath.exec(path);
-    if (m) {
-      reviewRepo = m[1];
-      reviewNumber = Number(m[2]);
-      reviewKey = m[3] || '';
+    const ref = parseReviewLogPath(path);
+    if (ref) {
+      reviewRef = ref;
       return 'review';
     }
     if (path === '/history') return 'history';
@@ -46,7 +43,7 @@
 </script>
 
 <svelte:head>
-  <title>agent-code-review · {route === 'review' ? `review #${reviewNumber}` : nav.find((n) => n.route === route)?.label}</title>
+  <title>agent-code-review · {route === 'review' ? `review #${reviewRef.number}` : nav.find((n) => n.route === route)?.label}</title>
 </svelte:head>
 
 <div class="shell">
@@ -82,8 +79,8 @@
     {:else if route === 'logs'}
       <Logs />
     {:else if route === 'review'}
-      {#key `${reviewRepo}#${reviewNumber}#${reviewKey}`}
-        <ReviewLog repo={reviewRepo} number={reviewNumber} {reviewKey} />
+      {#key reviewLogRouteKey(reviewRef)}
+        <ReviewLog {reviewRef} />
       {/key}
     {/if}
   </main>

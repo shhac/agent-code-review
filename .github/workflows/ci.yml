@@ -13,21 +13,24 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      # Some CLI tests exercise the real store path, and the store's
+      # integration tests below deliberately fail loud if the CLI is absent.
+      # Install DuckDB before any Go test step so unit and integration tests
+      # see the same runtime dependency.
+      - name: Install DuckDB CLI
+        run: |
+          curl -fsSL https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
+      - run: duckdb --version
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./... -count=1
       # The store's DuckDB round-trips (hold-upsert CASE, Promote, queue
       # ordering) only run under the integration tag and self-skip without
-      # the duckdb CLI — install it so the queue's most intricate SQL is
-      # actually exercised in CI. Only the store package: review/discover
+      # the duckdb CLI — the version check above keeps that dependency loud
+      # so the queue's most intricate SQL is actually exercised in CI. Only
+      # the store package runs here: review/discover
       # integration tests need codex/gh auth, which CI doesn't have.
-      - name: Install DuckDB CLI
-        run: |
-          curl -fsSL https://install.duckdb.org | sh
-          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
-      # Fail loudly if the CLI isn't reachable — the integration tests
-      # self-skip without it, which would read as green.
-      - run: duckdb --version
       - run: go test ./internal/store/ -count=1 -tags=integration
       - uses: golangci/golangci-lint-action@v9
         with:

@@ -27,6 +27,7 @@ type serveOpts struct {
 	noSchedule    bool
 	noDiscovery   bool
 	noReviews     bool
+	version       string // the root command's ldflags-injected build version
 }
 
 func registerServe(root *cobra.Command) {
@@ -39,6 +40,9 @@ func registerServe(root *cobra.Command) {
 			"expose the dashboard on your tailnet or the public internet.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// cobra already holds the build version; the dashboard's Config
+			// page shows it so a browser can tell which daemon is serving.
+			opts.version = cmd.Root().Version
 			return runServe(cmd.Context(), *opts)
 		},
 	}
@@ -107,7 +111,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		c.Schedule.Enabled = running.Review
 		return c
 	}
-	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, buildVersion)
+	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
 	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
 	go func() {
 		logf("dashboard: listening on %s", opts.addr)

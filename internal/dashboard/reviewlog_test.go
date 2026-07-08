@@ -2,9 +2,7 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -142,13 +140,7 @@ func (f *reviewLogStore) LastOutcome(context.Context, string, int) (store.Review
 func TestHandleReviewLog(t *testing.T) {
 	get := func(t *testing.T, s *Server, target string) (int, reviewLogResp) {
 		t.Helper()
-		w := httptest.NewRecorder()
-		s.handleReviewLog(w, httptest.NewRequest(http.MethodGet, target, nil))
-		var resp reviewLogResp
-		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("response is not a review-log envelope: %v (%s)", err, w.Body.String())
-		}
-		return w.Code, resp
+		return serveJSON[reviewLogResp](t, s.handleReviewLog, http.MethodGet, target, "")
 	}
 	newServer := func(queue []store.Candidate) *Server {
 		return &Server{

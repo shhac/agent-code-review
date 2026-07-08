@@ -52,16 +52,9 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
   let output: ExecEvent | null = null; // exec whose output is being read
 
   const flushProse = () => {
-    let text = body.join('\n').trim();
+    const text = kind === 'tokens' ? dropRepeatedFinalMessage(body.join('\n').trim(), events) : body.join('\n').trim();
     body = [];
-    if (kind === 'tokens') {
-      // The stream ends with "tokens used", the count, then a repeat of the
-      // final agent message — drop the repeat, it's already its own bubble.
-      const prev = [...events].reverse().find((e) => e.kind === 'codex');
-      const [count, ...rest] = text.split('\n');
-      if (prev && 'body' in prev && rest.join('\n').trim() === prev.body) text = count;
-    }
-    if (text) events.push({ kind: kind as 'meta' | 'user' | 'thinking' | 'codex' | 'tokens', body: text });
+    if (kind !== 'exec' && text) events.push({ kind, body: text });
   };
 
   for (const line of lines) {
@@ -106,6 +99,16 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
     }
   }
   return events;
+}
+
+// dropRepeatedFinalMessage trims the tokens trailer: the stream ends with
+// "tokens used", the count, then a repeat of the final agent message — the
+// repeat is already its own bubble, so only the count survives.
+function dropRepeatedFinalMessage(text: string, events: LogEvent[]): string {
+  const prev = [...events].reverse().find((e) => e.kind === 'codex');
+  const [count, ...rest] = text.split('\n');
+  if (prev && 'body' in prev && rest.join('\n').trim() === prev.body) return count;
+  return text;
 }
 
 // verdictShaped extracts {decision, summary} from an agent message when the

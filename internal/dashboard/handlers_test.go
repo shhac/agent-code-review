@@ -73,21 +73,23 @@ func newTestServer(fs *handlerStore, cfg config.Config) *Server {
 	}
 }
 
-func doJSON(t *testing.T, h http.HandlerFunc, method, target, body string) (int, map[string]any) {
+// serveJSON drives one handler call and decodes its JSON body — the shared
+// httptest shape for every dashboard handler test. T picks the decode
+// target: a typed response struct where one exists, map[string]any otherwise.
+func serveJSON[T any](t *testing.T, h http.HandlerFunc, method, target, body string) (int, T) {
 	t.Helper()
-	var rdr *strings.Reader
-	if body == "" {
-		rdr = strings.NewReader("")
-	} else {
-		rdr = strings.NewReader(body)
-	}
 	w := httptest.NewRecorder()
-	h(w, httptest.NewRequest(method, target, rdr))
-	var resp map[string]any
+	h(w, httptest.NewRequest(method, target, strings.NewReader(body)))
+	var resp T
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("non-JSON response: %v (%s)", err, w.Body.String())
 	}
 	return w.Code, resp
+}
+
+func doJSON(t *testing.T, h http.HandlerFunc, method, target, body string) (int, map[string]any) {
+	t.Helper()
+	return serveJSON[map[string]any](t, h, method, target, body)
 }
 
 // TestHandleQueue pins the queue surface end-to-end over a fake store: the

@@ -65,7 +65,11 @@
     user: 'prompt',
     thinking: 'thinking',
     codex: 'agent',
+    tokens: 'tokens used',
   };
+  // The tokens trailer renders as a meta-styled bubble; everything else wears
+  // its own kind as the style class.
+  const bubbleClass: Record<string, string> = { tokens: 'meta' };
 </script>
 
 <section class="page-head">
@@ -130,9 +134,9 @@
           </article>
         {:else}
           {@const verdict = ev.kind === 'codex' ? verdictShaped(ev.body) : null}
-          <article class="log-bubble {ev.kind === 'tokens' ? 'meta' : ev.kind}">
+          <article class="log-bubble {bubbleClass[ev.kind] ?? ev.kind}">
             <header>
-              <span class="kind">{ev.kind === 'tokens' ? 'tokens used' : kindLabel[ev.kind]}</span>
+              <span class="kind">{kindLabel[ev.kind]}</span>
               {#if verdict && verdict.decision !== 'WORKING'}<span class="decision">decision: {verdict.decision}</span>{/if}
             </header>
             <p>{verdict ? verdict.summary : ev.body}</p>

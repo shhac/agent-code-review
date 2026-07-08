@@ -95,7 +95,7 @@ func TestReviewOneCompletesEveryOutcome(t *testing.T) {
 	for _, decision := range decisions {
 		t.Run(decision, func(t *testing.T) {
 			fs := &fakeSchedStore{}
-			fe := &fakeEngine{verdict: review.Verdict{Decision: decision, Summary: "s"}}
+			fe := &fakeEngine{verdict: review.Verdict{Decision: decision, Summary: "s", TokensUsed: 4242}}
 			s := newTestScheduler(fs, fe)
 
 			c := store.Candidate{Repo: "o/r", Number: 5, Author: "alice", HeadSHA: "sha1"}
@@ -117,6 +117,9 @@ func TestReviewOneCompletesEveryOutcome(t *testing.T) {
 			}
 			if r.HeadSHA != "sha1" {
 				t.Errorf("history must carry the reviewed SHA, got %q", r.HeadSHA)
+			}
+			if r.TokensUsed != 4242 {
+				t.Errorf("the engine's token count must reach history, got %d", r.TokensUsed)
 			}
 		})
 	}

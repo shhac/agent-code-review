@@ -13,18 +13,24 @@ internal/
 │   ├── deps.go                 # buildScheduler (engine + discoverer + gh user); emit()
 │   ├── serve.go                # `serve` daemon: scheduler + dashboard + tailscale.Wire
 │   ├── run.go                  # `run --once`: single review cycle
-│   ├── queue.go                # `queue ls/add/rm/promote/skip`
+│   ├── queue.go                # `queue ls/add/rm/promote/skip/log`
 │   ├── authors.go              # `authors allow/deny/ls` — whose PRs we may approve
 │   ├── repos.go                # `repos ls/add/rm` — the watched repos (config)
 │   ├── prompts.go              # `prompts show/set/unset/preview` — review prompts
-│   ├── configcmd.go            # `config path/show`
+│   ├── configcmd.go            # `config init/path/show/list/get/set/unset`
 │   └── usage.go                # top-level LLM reference card
 ├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults
 ├── store/                      # Store interface + DuckDB subprocess driver + schema.sql
 ├── discover/                   # gh pr list → New/Refreshed classification
 ├── review/                     # Engine interface + codex driver + prompt/rule assembly
-├── scheduler/                  # run-lock, ordering, parallelism cap, cycle orchestration
+├── scheduler/                  # run-lock, heartbeat loops, parallelism cap, cycle orchestration
+├── usage/                      # codex app-server rate-limit polling + usage-floor predicate
+├── logbuf/                     # in-memory ring for the daemon's own log tail
 └── dashboard/                  # embedded web UI + JSON API over the store
+    ├── dashboard.go            # server core + thin read handlers
+    ├── queue.go                # queue write surface (add/reorder/remove) + statuses
+    ├── reviewlog.go            # /api/review-log: live/postmortem agent-log tail
+    ├── stats.go                # /api/stats: last-24h outcome buckets
     ├── ui/                     # Svelte + Vite source (npm; not embedded)
     └── assets/                 # BUILT bundle, committed + go:embed'd
 ```
@@ -53,6 +59,15 @@ internal/
 - **DuckDB via subprocess.** CGO-free so the binary cross-compiles through the
   family release pipeline. Mirrors `agent-sql`'s driver. Requires the `duckdb`
   CLI at runtime.
+- **Config reloads live via getters.** Scheduler, discoverer, and dashboard
+  hold `func() config.Config` and re-read per cycle/sweep/request (each
+  operation snapshots ONCE and threads the snapshot). The serve daemon pins
+  the loop on/off switches to the boot flags (`schedCfg` in serve.go) so a
+  config edit can't resurrect a loop `--no-*` disabled.
+- **Queue row ⇔ pending work.** Completion moves a candidate into append-only
+  history atomically (SHA-gated `Complete`); "reviewing" is derived from a
+  claim lease (`ClaimActive`, window `LeaseWindow()`), never stored as a
+  status column.
 - **Nothing environment-specific in code.** Repos, prompts, and cadence are
   config; the allowed-authors list (whose PRs we may approve) is per-repo
   runtime data in the store (managed via `authors`). Never hardcode a GitHub
@@ -63,4 +78,12 @@ internal/
 - `const`/early-return, avoid `as`-style casts (see `CLAUDE.local.md`).
 - Tests colocated as `_test.go`. `make test` runs everything; discovery,
   prompt/rules, and config defaults are unit-tested without external deps.
+  `make test-integration` adds the DuckDB round-trips and (env-gated) live
+  codex/gh paths.
+- **Test via injection, not subprocesses.** Extract pure cores and table-test
+  them; for effectful code, fake the narrow dependency (embed `store.Store`
+  in a struct that overrides only the methods under test, so an unexpected
+  call panics loudly). Scheduler tests inject the engine via `newEngine` and
+  the recheck via `stillCandidate`; discovery fakes its four-method
+  `candidateStore`.
 - Errors: `output.New(msg, output.FixableByAgent|Human|Retry)`.

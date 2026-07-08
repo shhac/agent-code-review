@@ -176,3 +176,56 @@ example config.
   (`repos add --allowed-authors-only`) only discover PRs from allowed authors.
 - **Dashboard rows gained ✕ removal** (DELETE /api/queue), completing the
   add/reorder/remove management loop from the UI.
+
+## Addendum 3 — observability + hot config (2026-07-07/08, v0.6.0–v0.7.x)
+
+- **The dashboard became a mission-control app** (Svelte + Vite SPA, bundle
+  committed and go:embed'd; CI's `dashboard-fresh` job rebuilds and diffs to
+  keep it honest). Dark theme on a user-picked palette (Heavy Metal /
+  Atlantis / Gallery / Edward; chart triad validated with the dataviz
+  six-checks). Pages: Queue (drag-reorder worklist + usage meters + 24h
+  outcome chart + paginated runs), History, per-review log, Config, Prompt,
+  Logs (daemon log ring).
+- **Queue/history split landed**: a queue row exists exactly while work is
+  pending; `Complete` moves it into append-only history atomically in one
+  DuckDB batch, DELETE gated on the reviewed head SHA so mid-review pushes
+  survive for the next cycle. "Reviewing" is derived from a claim lease
+  (`ClaimActive`, window `max(4×interval, 2h)` — the floor stops short
+  intervals from shrinking the lease under a long review), never stored.
+- **Usage floors**: the review loop pauses itself when a Codex rate-limit
+  window has under `schedule.usage_floor.*` percent remaining (default 10,
+  0 disables; fail-open on missing snapshots), checked before the run-lock so
+  paused cycles record nothing.
+- **Pre-review candidacy recheck**: discovered candidates are re-validated
+  just before the engine spend (approved/closed/merged while queued →
+  precheck SKIPPED); manual adds bypass it, so explicit requests always run.
+- **Config went hot**: components hold `func() config.Config` getters; loops
+  run on a 30s heartbeat evaluating a `due()` predicate against the LIVE
+  interval, and the engine is rebuilt per cycle from that cycle's snapshot.
+  Each operation snapshots config once and threads it (no torn reads). The
+  boot `--no-*` flags stay pinned via a serve-level wrapper so a config edit
+  cannot resurrect a disabled loop.
+- **Live review logs**: the codex driver tees stdout+stderr into
+  `<workdir>/agent.log` as the run progresses (buffer-only fallback keeps
+  Verdict.Raw when the file can't be created). The claim records the workdir;
+  history snapshots it. One resolver (`store.FindWorkspace`, queue row then
+  last outcome) backs both `queue log [-f]` and `/api/review-log`, which
+  serves the last 128KB tail. The dashboard's review-log page renders the
+  stream as one bubble per event, parsed client-side from the codex exec
+  format (marker lines `user`/`codex`/`exec`/`thinking`; parallel tool calls
+  interleave result lines with no ids, so results pair FIFO — best-effort,
+  with a raw view as ground truth). Format pinned at codex 0.138.0.
+- **The output schema constrains EVERY assistant message**, not just the
+  final one — observed live: all 17 intermediate messages of a real run were
+  forced into verdict JSON, with the model overloading `SKIPPED` as "still
+  working". The schema gained a `WORKING` decision for intermediate progress
+  notes; the driver rejects a run that ENDS on WORKING (truncated) instead of
+  recording a bogus outcome.
+- **History grew metrics**: `duration_secs` (claim→completion; 0 = unknown,
+  pre-feature rows backfilled) and `tokens_used` (parsed from codex's
+  "tokens used" trailer; summed as all-time/24h on the usage panel). Columns
+  arrive via idempotent trailing `ALTER TABLE ... IF NOT EXISTS` migrations
+  applied at every Init — DuckDB can't add constrained columns, so the ALTERs
+  carry DEFAULTs and the CREATEs keep NOT NULL for fresh stores.
+- **The ldflags build version reached the Config page** so a browser can tell
+  which daemon build is serving.

@@ -25,18 +25,22 @@ thresholds, schedule, and the review prompt + rules.
 ## Inspect the queue
 
 ```bash
-agent-code-review queue ls                 # all candidates, NDJSON
-agent-code-review queue ls --status queued # only those awaiting review
+agent-code-review queue ls                   # all pending candidates, NDJSON
 agent-code-review queue ls --repo owner/name
 ```
+
+The queue holds only pending work; a row with `claimed_at` set is being
+reviewed right now. Completed outcomes live in history (see the dashboard's
+History page).
 
 ## Manage candidates
 
 ```bash
-agent-code-review queue add     owner/name 1234   # add a PR
+agent-code-review queue add     owner/name 1234   # add a PR (fetches live metadata; rejects closed/merged)
 agent-code-review queue promote owner/name 1234   # float to the top
-agent-code-review queue skip    owner/name 1234   # skip this cycle
-agent-code-review queue rm      owner/name 1234   # remove
+agent-code-review queue skip    owner/name 1234   # record SKIPPED and drop (re-eligible on new commits)
+agent-code-review queue rm      owner/name 1234   # remove, recording nothing
+agent-code-review queue log     owner/name 1234 -f # stream the review agent's log (live or postmortem)
 ```
 
 ## Manage allowed authors (whose PRs we may approve — per repo, in DuckDB)
@@ -76,7 +80,12 @@ hardcodes repos or GitHub handles — everything is config.
 - Requires `gh` (authenticated), the `duckdb` CLI, and `codex` on `$PATH`.
 - Candidate rules: **NEW** (never reviewed, ≤14d) and **REFRESHED** (head SHA
   changed since our last review, ≤21d). Processed New-first, oldest-first, up to
-  4 in parallel.
+  4 in parallel. Already-approved PRs are skipped, and any recorded outcome at
+  the current head SHA suppresses re-enqueueing.
+- Most config edits reload live within ~30s (cadence, parallelism, usage
+  floors, repos, prompts); only the loop switches and dashboard/Tailscale
+  settings need a daemon restart. The review loop pauses itself when a Codex
+  window drops below `schedule.usage_floor.*` percent remaining.
 - The agent does the actual review and GitHub actions, then reports back what
   it did (APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED). The assembled prompt
   carries a built-in approval directive that defaults to comment-only; approval

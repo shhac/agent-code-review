@@ -9,15 +9,23 @@ you can expose over Tailscale.
   on its own cadence (`discovery.interval`, with its own `discovery.enabled` switch), never involving the LLM;
   already-approved PRs are skipped, and repos can be scoped to allowed authors
   only (`repos add --allowed-authors-only`).
-- **Durable queue**: candidates, positions, and review history in DuckDB, so
-  "we already reviewed this at SHA X" survives restarts (that's what powers
-  Refreshed detection).
+- **Durable queue**: candidates, positions, and review history (verdict,
+  duration, token spend, workspace) in DuckDB, so "we already reviewed this at
+  SHA X" survives restarts (that's what powers Refreshed detection).
 - **Pluggable review engine**: `codex` today; the agent does the actual
   review, posts to GitHub, and reports back what it did. The tool assumes only
   the `gh` and `codex` CLIs; your prompts may direct the agent to use anything
   else you have set up (skills, extra CLIs), but the tool never assumes it.
+- **Live review logs**: the engine tees its output into the review workspace,
+  so an in-flight review can be watched via `queue log -f` or the dashboard's
+  per-review page (and read back after it finishes).
 - **Serve + dashboard**: an always-on daemon with a web UI, optionally exposed
-  via `--tailscale serve|funnel`.
+  via `--tailscale serve|funnel`. Most config edits (cadence, parallelism,
+  usage floors, repos, prompts, codex settings) reload live within ~30s; only
+  the loop on/off switches and the listen/Tailscale settings need a restart.
+- **Usage floors**: the review loop pauses itself when a Codex rate-limit
+  window has less than `schedule.usage_floor.*` percent remaining (default
+  10), and resumes when the window refills.
 - **Everything is config**: repos, allow-list, thresholds, cadence, prompt, and
   rules all live in `config.json`. No GitHub handles or repos are hardcoded.
 
@@ -88,8 +96,9 @@ queue add     <owner/repo> <number>
 queue rm      <owner/repo> <number>
 queue promote <owner/repo> <number>
 queue skip    <owner/repo> <number>
+queue log     <owner/repo> <number> [-f|--follow]
 
-repos ls | add <owner/repo> | rm <owner/repo>
+repos ls | add <owner/repo> [--allowed-authors-only] | rm <owner/repo>
 
 prompts show | set <slot> <text> | unset <slot> | preview [--author-not-allowed]
 
@@ -114,8 +123,16 @@ Global flags come from `lib-agent-cli`: `-f/--format`, `-t/--timeout`,
   SHA we last recorded a review at, at most `candidates.refreshed_max_age_days`
   old (default 21).
 
+In both cases the PR must not be currently approved (it's already unblocked),
+and any recorded outcome — review, skip, or error — at the PR's current head
+SHA suppresses re-enqueueing until new commits change the SHA.
+
 Candidates are processed New-before-Refreshed, oldest PR first, up to
-`schedule.max_parallel` (default 4) at a time.
+`schedule.max_parallel` (default 4) at a time. Just before the engine runs,
+discovered candidates are re-checked: PRs approved, closed, or merged while
+waiting in the queue complete as a precheck SKIPPED instead of spending a
+review. Manual adds (`queue add`, dashboard) bypass that recheck — an explicit
+request always goes through.
 
 ## Allowed authors
 
@@ -141,7 +158,10 @@ built-in **approval directive**, your post-outcome instructions, plus every
 matching `review.rules` fragment) and hands it to the engine along with a tmp
 workspace. The agent performs the review itself, takes all the GitHub actions,
 and reports back what it did (`APPROVED`, `COMMENTED`, `REQUESTED_CHANGES`, or
-`SKIPPED`) so the queue and history stay accurate.
+`SKIPPED`) so the queue and history stay accurate. History records the
+verdict, how long the review took, and the token spend; the engine tees its
+output into the workspace's `agent.log`, watchable live with
+`queue log <owner/repo> <n> --follow` or the dashboard's per-review page.
 
 The approval directive is always present and **defaults to comment-only**. An
 `APPROVE` is only ever permitted when the author is on the allowed-authors list
@@ -166,18 +186,26 @@ the store; manage it with `authors`.
 
 ## Dashboard
 
-`serve` hosts a small web UI (default `:8330`) with three pages:
+`serve` hosts a small web UI (default `:8330`):
 
-- **Overview**: a two-panel hero with the queue (add via pasted PR URL or
+- **Queue**: the pending worklist (add via pasted PR URL or
   `owner/repo/pull/N`; live title/author fetched on add, closed/merged PRs
-  and unwatched repos rejected; drag-to-reorder; ✕ removal) beside **Codex usage meters** (5h + weekly windows, polled
-  every `dashboard.usage_poll_interval`, default 10m) and a **last-24h chart**
-  of approved / commented / changes-requested outcomes per hour. Recent
-  reviews and runs below. Auto-refreshes.
-- **Config**: watched repos, resolved settings, and the allowed-authors list.
-  Read-only.
+  and unwatched repos rejected; drag-to-reorder; ✕ removal). A reviewing
+  badge links to that review's live log page. Beside it: **Codex usage
+  meters** (5h + weekly windows, polled every `dashboard.usage_poll_interval`,
+  default 10m) with total token spend, a **last-24h chart** of
+  approved / commented / changes-requested outcomes per hour, and paginated
+  recent runs. Auto-refreshes.
+- **History**: every recorded outcome (approvals, comments, change requests,
+  skips, errors) with duration, token spend, and a link to each review's log.
+- **Review log** (`/review/<owner>/<repo>/<n>`): the agent's output as one
+  bubble per event — prompt, agent messages, commands with status and
+  duration — tailing live while the review runs, with a raw view toggle.
+- **Config**: daemon version, watched repos, resolved settings, and the
+  allowed-authors list. Read-only.
 - **Prompt**: the main prompt, the rules, and a fully assembled preview of
   what the agent receives (allowed vs not-allowed author variants). Read-only.
+- **Logs**: a live tail of the daemon's own log.
 
 Queue add/reorder are also available as JSON endpoints (`POST /api/queue`,
 `POST /api/queue/reorder`). The dashboard has no auth, so keep it on your tailnet

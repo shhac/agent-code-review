@@ -68,14 +68,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			QuietPeriod:         cfg.QuietPeriod().String(),
 		},
 		Schedule: configScheduleResp{
-			Enabled:                 cfg.Schedule.Enabled,
+			Enabled:                 cfg.ScheduleEnabled(),
 			Interval:                cfg.Interval().String(),
 			MaxParallel:             cfg.MaxParallel(),
 			UsageFloor5hPercent:     cfg.UsageFloor5h(),
 			UsageFloorWeeklyPercent: cfg.UsageFloorWeekly(),
 		},
 		Discovery: configDiscoveryResp{
-			Enabled:  cfg.Discovery.Enabled,
+			Enabled:  cfg.DiscoveryEnabled(),
 			Interval: cfg.DiscoverInterval().String(),
 		},
 		// The effective state of THIS daemon: config may say enabled while the

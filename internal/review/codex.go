@@ -25,6 +25,7 @@ import (
 type codexEngine struct {
 	bin     string
 	model   string
+	effort  string
 	sandbox string
 	args    []string
 }
@@ -40,7 +41,7 @@ func newCodex(c config.CodexSettings) *codexEngine {
 		// scopes that to the per-PR workdir.
 		sandbox = "workspace-write"
 	}
-	return &codexEngine{bin: bin, model: c.Model, sandbox: sandbox, args: c.Args}
+	return &codexEngine{bin: bin, model: c.Model, effort: c.Effort, sandbox: sandbox, args: c.Args}
 }
 
 func (e *codexEngine) Name() string { return "codex" }
@@ -157,6 +158,12 @@ func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string)
 		"--output-last-message", lastMsgPath,
 	)
 	args = append(args, e.args...)
+	if e.effort != "" {
+		// JSON string syntax is valid TOML basic-string syntax, which keeps this
+		// config override safe even when a future effort name contains punctuation.
+		effort, _ := json.Marshal(e.effort)
+		args = append(args, "-c", "model_reasoning_effort="+string(effort))
+	}
 	return append(args, prompt+reportingInstruction)
 }
 

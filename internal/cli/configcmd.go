@@ -55,12 +55,12 @@ func configKeys() []libcli.ConfigKey {
 	return []libcli.ConfigKey{
 		stringKey("gh_user", "GitHub login used for the self-review rule (empty = derive via `gh api user`)",
 			func(c *config.Config) *string { return &c.GHUser }, nil),
-		boolKey("schedule.enabled", "Whether the serve daemon runs review cycles",
-			func(c *config.Config) *bool { return &c.Schedule.Enabled }),
+		optionalBoolKey("schedule.enabled", "Whether the serve daemon runs review cycles (default true)",
+			func(c *config.Config) **bool { return &c.Schedule.Enabled }),
 		stringKey("schedule.interval", "Review cadence as a Go duration (default 1m; idle cycles are no-ops)",
 			func(c *config.Config) *string { return &c.Schedule.Interval }, validateDuration),
-		boolKey("discovery.enabled", "Whether the serve daemon scrapes repos for candidates",
-			func(c *config.Config) *bool { return &c.Discovery.Enabled }),
+		optionalBoolKey("discovery.enabled", "Whether the serve daemon scrapes repos for candidates (default true)",
+			func(c *config.Config) **bool { return &c.Discovery.Enabled }),
 		stringKey("discovery.interval", "Candidate-scraping cadence as a Go duration (default 10m; deterministic gh calls, no LLM)",
 			func(c *config.Config) *string { return &c.Discovery.Interval }, validateDuration),
 		intKey("schedule.max_parallel", "Max PRs reviewed concurrently per cycle (default 4)",
@@ -79,6 +79,8 @@ func configKeys() []libcli.ConfigKey {
 			func(c *config.Config) *string { return &c.Review.Codex.Bin }, nil),
 		stringKey("codex.model", "Model passed to codex exec --model",
 			func(c *config.Config) *string { return &c.Review.Codex.Model }, nil),
+		stringKey("codex.effort", "Reasoning effort passed as Codex model_reasoning_effort (empty = model default)",
+			func(c *config.Config) *string { return &c.Review.Codex.Effort }, nil),
 		stringKey("codex.sandbox", "Codex sandbox mode (default workspace-write)",
 			func(c *config.Config) *string { return &c.Review.Codex.Sandbox }, validateSandbox),
 		stringKey("dashboard.addr", "Dashboard listen address (default :8330)",
@@ -124,13 +126,17 @@ func stringKey(name, desc string, field func(*config.Config) *string, validate f
 	}
 }
 
-func boolKey(name, desc string, field func(*config.Config) *bool) libcli.ConfigKey {
+func optionalBoolKey(name, desc string, field func(*config.Config) **bool) libcli.ConfigKey {
 	return libcli.ConfigKey{
 		Name:        name,
 		Description: desc,
 		Get: func() (string, bool) {
 			cfg := config.Read()
-			return strconv.FormatBool(*field(&cfg)), true
+			p := *field(&cfg)
+			if p == nil {
+				return "", false
+			}
+			return strconv.FormatBool(*p), true
 		},
 		Set: func(value string) error {
 			b, err := strconv.ParseBool(value)
@@ -138,12 +144,12 @@ func boolKey(name, desc string, field func(*config.Config) *bool) libcli.ConfigK
 				return output.New("Value must be true or false, got "+value, output.FixableByAgent)
 			}
 			cfg := config.Read()
-			*field(&cfg) = b
+			*field(&cfg) = &b
 			return config.Write(cfg)
 		},
 		Unset: func() error {
 			cfg := config.Read()
-			*field(&cfg) = false
+			*field(&cfg) = nil
 			return config.Write(cfg)
 		},
 	}
@@ -156,7 +162,10 @@ func intKey(name, desc string, field func(*config.Config) *int, min, max int) li
 		Get: func() (string, bool) {
 			cfg := config.Read()
 			v := *field(&cfg)
-			return strconv.Itoa(v), v != 0
+			if v == 0 {
+				return "", false
+			}
+			return strconv.Itoa(v), true
 		},
 		Set: func(value string) error {
 			n, err := parseBoundedInt(value, min, max)

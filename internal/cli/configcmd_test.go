@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -50,9 +53,8 @@ func TestConfigKeyValidators(t *testing.T) {
 }
 
 // TestConfigKeysRoundTrip drives every registered key's Set→Get→Unset against
-// an isolated config dir (XDG_CONFIG_HOME) — the same read-modify-write path
-// `config set` uses, so a broken field pointer or a validator regression on
-// any key fails here.
+// an isolated config dir (XDG_CONFIG_HOME). It verifies unset both reports as
+// absent and removes the persisted leaf, not merely that it returned no error.
 func TestConfigKeysRoundTrip(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
@@ -70,6 +72,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"review.engine":                       "codex",
 		"codex.bin":                           "codex",
 		"codex.model":                         "some-model",
+		"codex.effort":                        "high",
 		"codex.sandbox":                       "read-only",
 		"dashboard.addr":                      ":9999",
 		"dashboard.tailscale.mode":            "serve",
@@ -93,7 +96,12 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		}
 		if err := key.Unset(); err != nil {
 			t.Errorf("%s: unset: %v", key.Name, err)
+			continue
 		}
+		if got, set := key.Get(); set || got != "" {
+			t.Errorf("%s: after unset get = (%q, %v), want (\"\", false)", key.Name, got, set)
+		}
+		assertPersistedKeyUnset(t, key.Name)
 	}
 
 	// The file holds only what's still set; resolved defaults fill the rest.
@@ -104,4 +112,32 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 	if cfg.Interval().String() != "1m0s" {
 		t.Errorf("cleared interval must resolve to the default, got %s", cfg.Interval())
 	}
+	if !cfg.ScheduleEnabled() || !cfg.DiscoveryEnabled() {
+		t.Errorf("cleared enabled flags must resolve to true, got schedule=%t discovery=%t", cfg.ScheduleEnabled(), cfg.DiscoveryEnabled())
+	}
+}
+
+func assertPersistedKeyUnset(t *testing.T, key string) {
+	t.Helper()
+	data, err := os.ReadFile(config.Path())
+	if err != nil {
+		t.Fatalf("read persisted config: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("parse persisted config: %v", err)
+	}
+	var current any = doc
+	for _, segment := range strings.Split(key, ".") {
+		fields, ok := current.(map[string]any)
+		if !ok {
+			return
+		}
+		value, ok := fields[segment]
+		if !ok {
+			return
+		}
+		current = value
+	}
+	t.Errorf("%s remains in persisted config after unset: %s", key, data)
 }

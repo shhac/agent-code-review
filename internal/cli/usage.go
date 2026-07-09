@@ -233,7 +233,7 @@ KEYS:
   candidates.quiet_period              PR must go untouched this long before discovery
                                        accepts it (default 15m, 0s disables)
   review.engine                        codex
-  codex.bin | codex.model | codex.sandbox
+  codex.bin | codex.model | codex.effort | codex.sandbox
   dashboard.addr                       listen address (default :8330)
   dashboard.tailscale.mode             "" | serve | funnel
   dashboard.usage_poll_interval        Codex usage refresh cadence (default 10m)

@@ -29,7 +29,7 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context) error {
 	boot := s.cfg()
 	var wg sync.WaitGroup
 	started := false
-	if boot.Discovery.Enabled {
+	if boot.DiscoveryEnabled() {
 		s.logf("scheduler: discovery every %s (config reloads live)", boot.DiscoverInterval())
 		started = true
 		wg.Add(1)
@@ -38,7 +38,7 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context) error {
 			s.loop(stopCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
 		}()
 	}
-	if boot.Schedule.Enabled {
+	if boot.ScheduleEnabled() {
 		s.logf("scheduler: reviews every %s, max parallel %d (config reloads live)", boot.Interval(), boot.MaxParallel())
 		started = true
 		wg.Add(1)

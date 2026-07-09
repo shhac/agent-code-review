@@ -32,15 +32,20 @@ func TestDefaults(t *testing.T) {
 	if got := c.Engine(); got != "codex" {
 		t.Errorf("Engine default = %q, want codex", got)
 	}
+	if !c.ScheduleEnabled() || !c.DiscoveryEnabled() {
+		t.Errorf("loop defaults = schedule:%t discovery:%t, want both true", c.ScheduleEnabled(), c.DiscoveryEnabled())
+	}
 	if got := c.DashboardAddr(); got != ":8330" {
 		t.Errorf("DashboardAddr default = %q, want :8330", got)
 	}
 }
 
 func TestOverrides(t *testing.T) {
+	no := Bool(false)
 	c := Config{
 		Candidates: CandidateSettings{NewMaxAgeDays: 7, RefreshedMaxAgeDays: 10},
-		Schedule:   ScheduleSettings{Interval: "5m", MaxParallel: 2},
+		Schedule:   ScheduleSettings{Enabled: no, Interval: "5m", MaxParallel: 2},
+		Discovery:  DiscoverySettings{Enabled: no},
 		Review:     ReviewSettings{Engine: "claude"},
 	}
 	if got := c.NewMaxAge(); got != 7*24*time.Hour {
@@ -54,6 +59,9 @@ func TestOverrides(t *testing.T) {
 	}
 	if got := c.Engine(); got != "claude" {
 		t.Errorf("Engine = %q, want claude", got)
+	}
+	if c.ScheduleEnabled() || c.DiscoveryEnabled() {
+		t.Errorf("explicit false loop settings must override defaults")
 	}
 }
 

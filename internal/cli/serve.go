@@ -105,16 +105,16 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// Config sets the default per loop; flags override for this process only.
 	// --no-schedule remains the "neither loop" shorthand.
 	running := dashboard.Running{
-		Discovery: !opts.noSchedule && !opts.noDiscovery && cfg.Discovery.Enabled,
-		Review:    !opts.noSchedule && !opts.noReviews && cfg.Schedule.Enabled,
+		Discovery: !opts.noSchedule && !opts.noDiscovery && cfg.DiscoveryEnabled(),
+		Review:    !opts.noSchedule && !opts.noReviews && cfg.ScheduleEnabled(),
 	}
 	// The scheduler reads config live so dials reload without a restart, but
 	// the loop switches are pinned to this boot's flag-resolved state — a
 	// config edit must not resurrect a loop the --no-* flags disabled.
 	schedCfg := func() config.Config {
 		c := config.Read()
-		c.Discovery.Enabled = running.Discovery
-		c.Schedule.Enabled = running.Review
+		c.Discovery.Enabled = config.Bool(running.Discovery)
+		c.Schedule.Enabled = config.Bool(running.Review)
 		return c
 	}
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)

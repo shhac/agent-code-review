@@ -167,7 +167,7 @@ func TestDashboardAPISmoke(t *testing.T) {
 		runs:      []store.Run{{ID: "run-1", StartedAt: now, Status: "done"}},
 		logReview: finished,
 	}
-	s := newTestServer(fs, config.Config{Repos: []string{"o/r"}, Schedule: config.ScheduleSettings{Enabled: true}})
+	s := newTestServer(fs, config.Config{Repos: []string{"o/r"}, Schedule: config.ScheduleSettings{Enabled: config.Bool(true)}})
 	s.version = "smoke"
 	h := s.Handler()
 

@@ -68,7 +68,7 @@ type CandidateSettings struct {
 // ScheduleSettings drives the review loop: LLM invocations, so it carries the
 // parallelism cap. Discovery has its own independent settings (DiscoverySettings).
 type ScheduleSettings struct {
-	Enabled     bool             `json:"enabled,omitempty"`
+	Enabled     *bool            `json:"enabled,omitempty"`
 	Interval    string           `json:"interval,omitempty"`     // review cadence, e.g. "30m"
 	MaxParallel int              `json:"max_parallel,omitempty"` // default 4
 	UsageFloor  UsageFloorLimits `json:"usage_floor,omitempty"`
@@ -87,14 +87,15 @@ type UsageFloorLimits struct {
 // gh calls — no LLM, hence no parallelism dial — with its own on/off switch so
 // scraping can run without reviews (or vice versa).
 type DiscoverySettings struct {
-	Enabled  bool   `json:"enabled,omitempty"`
+	Enabled  *bool  `json:"enabled,omitempty"`
 	Interval string `json:"interval,omitempty"` // e.g. "10m"
 }
 
 // CodexSettings configures the default review engine (codex exec).
 type CodexSettings struct {
 	Bin     string   `json:"bin,omitempty"`     // default "codex"
-	Model   string   `json:"model,omitempty"`   // e.g. "gpt-5.5-codex"
+	Model   string   `json:"model,omitempty"`   // e.g. "gpt-5.6"
+	Effort  string   `json:"effort,omitempty"`  // Codex model_reasoning_effort; empty = model default
 	Sandbox string   `json:"sandbox,omitempty"` // codex sandbox mode
 	Args    []string `json:"args,omitempty"`    // extra args appended to `codex exec`
 }
@@ -243,6 +244,12 @@ func (c Config) Interval() time.Duration {
 	return durationOr(c.Schedule.Interval, time.Minute)
 }
 
+// ScheduleEnabled reports whether the review loop runs (default true).
+func (c Config) ScheduleEnabled() bool { return boolOr(c.Schedule.Enabled, true) }
+
+// DiscoveryEnabled reports whether the discovery loop runs (default true).
+func (c Config) DiscoveryEnabled() bool { return boolOr(c.Discovery.Enabled, true) }
+
 // UsageFloor5h and UsageFloorWeekly are the remaining-percentage floors below
 // which the review loop pauses (default 10; explicit 0 disables).
 func (c Config) UsageFloor5h() int {
@@ -259,6 +266,16 @@ func intOr(v *int, def int) int {
 	}
 	return *v
 }
+
+func boolOr(v *bool, def bool) bool {
+	if v == nil {
+		return def
+	}
+	return *v
+}
+
+// Bool returns a pointer to v for optional boolean config fields.
+func Bool(v bool) *bool { return &v }
 
 // LeaseWindow is how long a claim (or an unfinished run) stays authoritative
 // before it is treated as abandoned by a crashed daemon. One definition

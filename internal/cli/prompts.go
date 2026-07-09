@@ -73,7 +73,7 @@ func promptsShowCmd() *cobra.Command {
 }
 
 func promptsSetCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "set <main|on-approve|on-comment|on-reject> <text>",
 		Short: "Set a prompt slot",
 		Args:  cobra.MinimumNArgs(2),
@@ -95,10 +95,17 @@ func promptsSetCmd() *cobra.Command {
 			return emit(map[string]any{"slot": slot, "value": text})
 		},
 	}
+	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return noFile(completePrefix(promptSlots, toComplete))
+		}
+		return noFile(nil)
+	}
+	return cmd
 }
 
 func promptsUnsetCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "unset <main|on-approve|on-comment|on-reject>",
 		Short: "Clear a prompt slot",
 		Args:  cobra.ExactArgs(1),
@@ -116,6 +123,10 @@ func promptsUnsetCmd() *cobra.Command {
 			return emit(map[string]any{"slot": slot, "value": ""})
 		},
 	}
+	cmd.ValidArgsFunction = func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return noFile(completePrefix(promptSlots, toComplete))
+	}
+	return cmd
 }
 
 func promptsPreviewCmd() *cobra.Command {

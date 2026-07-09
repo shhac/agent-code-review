@@ -48,6 +48,7 @@ func authorsLsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", "", `Filter by repo ("owner/name" or "*")`)
+	_ = cmd.RegisterFlagCompletionFunc("repo", completeAllowedAuthorRepo)
 	return cmd
 }
 
@@ -80,11 +81,17 @@ func authorsAllowCmd() *cobra.Command {
 	f.StringVar(&name, "name", "", "Display name")
 	f.StringVar(&email, "email", "", "Email")
 	f.StringVar(&slackID, "slack-id", "", "Slack user ID")
+	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return completeAllowedAuthorRepo(cmd, args, toComplete)
+		}
+		return noFile(nil)
+	}
 	return cmd
 }
 
 func authorsDenyCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "deny <owner/repo|*> <github-handle>",
 		Short: "Remove an author from the allowed list (their PRs become comment-only)",
 		Args:  cobra.ExactArgs(2),
@@ -100,6 +107,13 @@ func authorsDenyCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return completeAllowedAuthorRepo(cmd, args, toComplete)
+		}
+		return completeAllowedAuthorHandle(cmd, args, toComplete)
+	}
+	return cmd
 }
 
 func invalidAuthorRepo(repo string) error {

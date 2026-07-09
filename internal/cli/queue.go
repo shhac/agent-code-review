@@ -49,11 +49,12 @@ func queueLsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", "", "Filter by repo (owner/name)")
+	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
 	return cmd
 }
 
 func queueAddCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "add <owner/repo> <number>",
 		Short: "Manually add a PR to the queue",
 		Args:  cobra.ExactArgs(2),
@@ -76,10 +77,12 @@ func queueAddCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.ValidArgsFunction = completeRepoThenNumber(false)
+	return cmd
 }
 
 func queueRmCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "rm <owner/repo> <number>",
 		Short: "Remove a PR from the queue",
 		Args:  cobra.ExactArgs(2),
@@ -96,10 +99,12 @@ func queueRmCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.ValidArgsFunction = completeRepoThenNumber(true)
+	return cmd
 }
 
 func queuePromoteCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "promote <owner/repo> <number>",
 		Short: "Review a queued PR now: float it to the top, clear any eligibility hold, treat as a manual add",
 		Args:  cobra.ExactArgs(2),
@@ -119,10 +124,12 @@ func queuePromoteCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.ValidArgsFunction = completeRepoThenNumber(true)
+	return cmd
 }
 
 func queueSkipCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "skip <owner/repo> <number>",
 		Short: "Skip a queued PR: record a SKIPPED outcome (re-eligible on new commits)",
 		Args:  cobra.ExactArgs(2),
@@ -149,6 +156,8 @@ func queueSkipCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.ValidArgsFunction = completeRepoThenNumber(true)
+	return cmd
 }
 
 func queueLogCmd() *cobra.Command {
@@ -174,7 +183,20 @@ func queueLogCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Keep streaming as the agent writes (Ctrl-C to stop)")
+	cmd.ValidArgsFunction = completeRepoThenNumber(true)
 	return cmd
+}
+
+func completeRepoThenNumber(queuedOnly bool) cobra.CompletionFunc {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return completeRepos(cmd, args, toComplete)
+		}
+		if queuedOnly {
+			return completeQueuedNumber(cmd, args, toComplete)
+		}
+		return noFile(nil)
+	}
 }
 
 // reviewWorkDir resolves a PR's engine workspace via the shared queue-then-

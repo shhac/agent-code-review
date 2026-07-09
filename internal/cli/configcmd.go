@@ -12,7 +12,9 @@ import (
 )
 
 func registerConfig(root *cobra.Command) {
-	cmd := libcli.ConfigCommand(globals, configKeys())
+	keys := configKeys()
+	cmd := libcli.ConfigCommand(globals, keys)
+	attachConfigCompletions(cmd, keys)
 	cmd.Short = "Get and set configuration (also: init, path, show)"
 	cmd.AddCommand(
 		&cobra.Command{

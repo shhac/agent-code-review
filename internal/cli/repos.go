@@ -101,7 +101,7 @@ func removeFold(list []string, repo string) []string {
 }
 
 func reposRmCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "rm <owner/repo>",
 		Short: "Remove a repo from the watch list",
 		Args:  cobra.ExactArgs(1),
@@ -129,4 +129,6 @@ func reposRmCmd() *cobra.Command {
 			return emit(map[string]any{"removed": repo})
 		},
 	}
+	cmd.ValidArgsFunction = completeRepos
+	return cmd
 }

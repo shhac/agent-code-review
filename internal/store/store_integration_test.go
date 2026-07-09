@@ -367,6 +367,8 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	rec := ReviewFrom(c, "COMMENTED", "test-engine", time.Now().Add(-90*time.Second))
 	rec.WorkDir = "/tmp/example-workdir-21"
 	rec.TokensUsed = 192575
+	rec.Model = "gpt-5.6-terra"
+	rec.Effort = "high"
 	if err := s.Complete(ctx, rec); err != nil {
 		t.Fatal(err)
 	}
@@ -388,6 +390,9 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	}
 	if last.TokensUsed != 192575 {
 		t.Errorf("tokens_used = %d, want 192575", last.TokensUsed)
+	}
+	if last.Model != "gpt-5.6-terra" || last.Effort != "high" {
+		t.Errorf("model/effort = %q/%q, want gpt-5.6-terra/high", last.Model, last.Effort)
 	}
 	all, err := s.ListReviews(ctx, 5)
 	if err != nil || len(all) != 1 || all[0].Title != title {

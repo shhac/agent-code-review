@@ -146,6 +146,31 @@ func TestReviewOneEngineErrorStillCompletes(t *testing.T) {
 	}
 }
 
+func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
+	fs := &fakeSchedStore{}
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+	s := newTestScheduler(fs, fe)
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		Codex:      config.CodexSettings{Model: "gpt-5.6-terra", Effort: "high"},
+	}}
+
+	if err := s.reviewOne(context.Background(), store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}, cfg, &codexNamedEngine{fakeEngine: fe}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.completed) != 1 {
+		t.Fatalf("completed = %d, want 1", len(fs.completed))
+	}
+	got := fs.completed[0]
+	if got.Model != "gpt-5.6-terra" || got.Effort != "high" {
+		t.Errorf("model/effort = %q/%q, want gpt-5.6-terra/high", got.Model, got.Effort)
+	}
+}
+
+type codexNamedEngine struct{ *fakeEngine }
+
+func (e *codexNamedEngine) Name() string { return "codex" }
+
 // TestReviewOneClaimRace: losing the compare-and-swap claim to another
 // worker (e.g. a second daemon instance sharing the store) must be a clean
 // no-op — no engine spend, no outcome recorded, no error.

@@ -89,11 +89,11 @@ func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error 
 // the next cycle reviews the newer commits.
 func (d *duckDB) Complete(ctx context.Context, r Review) error {
 	sql := fmt.Sprintf(`BEGIN;
-	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, reviewed_at, duration_secs, work_dir, tokens_used) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %d, %s, %d);
+	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, reviewed_at, duration_secs, work_dir, tokens_used) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d);
 	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha = %s;
 	UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE repo = %s AND number = %d;
 	COMMIT;`,
-		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed,
+		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), q(r.Model), q(r.Effort), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed,
 		q(r.Repo), r.Number, q(r.HeadSHA),
 		q(r.Repo), r.Number)
 	_, err := d.query(ctx, sql)

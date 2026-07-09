@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS history (
   head_sha      TEXT      NOT NULL,
   verdict       TEXT      NOT NULL,             -- APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
   engine        TEXT,
+  model         TEXT,                           -- managed Codex model; NULL when the engine/default selected it
+  effort        TEXT,                           -- managed Codex reasoning effort; NULL when the model/default selected it
   reviewed_at   TIMESTAMP NOT NULL,
   duration_secs INTEGER   NOT NULL DEFAULT 0,   -- claim-to-completion elapsed; 0 for rows predating the column and for manual skips
   work_dir      TEXT,                           -- the engine workspace used, kept for postmortem log access
@@ -59,6 +61,8 @@ ALTER TABLE queue ADD COLUMN IF NOT EXISTS claim_pid INTEGER;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS duration_secs INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS work_dir TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS tokens_used INTEGER DEFAULT 0;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS model TEXT;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS effort TEXT;
 
 -- Per-repo allowed authors: whose PRs WE (the reviewer) may approve — not who
 -- can approve. A PR may receive an APPROVE only when its author's handle is

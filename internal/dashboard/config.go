@@ -32,6 +32,11 @@ type configDiscoveryResp struct {
 	Interval string `json:"interval"`
 }
 
+type configCodexResp struct {
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+}
+
 type configResp struct {
 	ReviewingAs      string              `json:"reviewing_as"`
 	Repos            []configRepoResp    `json:"repos"`
@@ -41,6 +46,7 @@ type configResp struct {
 	ReviewRunning    bool                `json:"review_running"`
 	DiscoveryRunning bool                `json:"discovery_running"`
 	Engine           string              `json:"engine"`
+	Codex            configCodexResp     `json:"codex"`
 	Version          string              `json:"version"`
 }
 
@@ -83,7 +89,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		ReviewRunning:    s.running.Review,
 		DiscoveryRunning: s.running.Discovery,
 		Engine:           cfg.Engine(),
-		Version:          s.version,
+		Codex: configCodexResp{
+			Model:  cfg.Review.Codex.Model,
+			Effort: cfg.Review.Codex.Effort,
+		},
+		Version: s.version,
 	})
 }
 

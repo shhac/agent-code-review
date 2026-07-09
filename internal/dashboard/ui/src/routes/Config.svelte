@@ -16,6 +16,8 @@
     ['Review loop', [
       ['State (this daemon)', configData.review_running ? 'running' : configData.schedule.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
       ['Engine', configData.engine],
+      ['Codex model', configData.codex.model || 'Codex default'],
+      ['Codex effort', configData.codex.effort || 'model default'],
       ['Interval', configData.schedule.interval],
       ['Max parallel', String(configData.schedule.max_parallel)],
       ['Usage floor (5h)', configData.schedule.usage_floor_5h_percent ? `pause below ${configData.schedule.usage_floor_5h_percent}% remaining` : 'disabled'],

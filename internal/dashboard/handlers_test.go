@@ -346,6 +346,9 @@ func TestHandleConfig(t *testing.T) {
 	s := newTestServer(fs, config.Config{
 		Repos:                   []string{"zeta/api", "Alpha/web", "alpha/admin"},
 		AllowedAuthorsOnlyRepos: []string{"Alpha/web"},
+		Review: config.ReviewSettings{Codex: config.CodexSettings{
+			Model: "gpt-5.6-terra", Effort: "high",
+		}},
 	})
 	s.version = "1.2.3"
 	s.running = Running{Review: true}
@@ -358,6 +361,10 @@ func TestHandleConfig(t *testing.T) {
 	}
 	if resp["review_running"] != true || resp["discovery_running"] != false {
 		t.Errorf("running flags = %v / %v", resp["review_running"], resp["discovery_running"])
+	}
+	codex := resp["codex"].(map[string]any)
+	if codex["model"] != "gpt-5.6-terra" || codex["effort"] != "high" {
+		t.Errorf("codex config = %v", codex)
 	}
 	repos := resp["repos"].([]any)
 	got := make([]string, 0, len(repos))

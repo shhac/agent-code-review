@@ -126,6 +126,10 @@ export type ConfigResponse = {
   review_running: boolean;
   discovery_running: boolean;
   engine: string;
+  codex: {
+    model: string;
+    effort: string;
+  };
   version?: string;
 };
 

@@ -16,6 +16,8 @@ func scanReview(r map[string]any) Review {
 		HeadSHA:      getString(r, "head_sha"),
 		Verdict:      getString(r, "verdict"),
 		Engine:       getString(r, "engine"),
+		Model:        getString(r, "model"),
+		Effort:       getString(r, "effort"),
 		ReviewedAt:   getTime(r, "reviewed_at"),
 		DurationSecs: getInt(r, "duration_secs"),
 		WorkDir:      getString(r, "work_dir"),

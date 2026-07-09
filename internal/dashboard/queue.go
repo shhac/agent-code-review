@@ -271,11 +271,13 @@ func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	positions := make([]store.QueuePosition, 0, len(req.Order))
 	for pos, ref := range req.Order {
-		if err := s.store.SetQueuePos(ctx, ref.Repo, ref.Number, pos+1); err != nil {
-			s.fail(w, err)
-			return
-		}
+		positions = append(positions, store.QueuePosition{Repo: ref.Repo, Number: ref.Number, Position: pos + 1})
+	}
+	if err := s.store.Reorder(ctx, positions); err != nil {
+		s.fail(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, queueReorderResp{Reordered: true})
 }

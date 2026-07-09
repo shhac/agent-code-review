@@ -48,7 +48,10 @@ type Store interface {
 	// Dequeue drops a candidate without recording an outcome — the "changed
 	// our mind" path.
 	Dequeue(ctx context.Context, repo string, number int) error
-	SetQueuePos(ctx context.Context, repo string, number int, pos int) error
+	// Reorder updates every supplied queue position atomically. Dashboard drag
+	// requests are validated against the current queue before reaching here;
+	// one statement prevents a failed request from leaving a partial ordering.
+	Reorder(ctx context.Context, positions []QueuePosition) error
 	// Promote is the "review this now" action: float the row to the top of
 	// the queue, clear any eligibility hold, and escalate source to manual —
 	// equivalent to a manual add, so the pre-review candidacy check is

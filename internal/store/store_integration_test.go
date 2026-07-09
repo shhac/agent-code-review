@@ -127,7 +127,7 @@ func TestQueueLifecycle(t *testing.T) {
 	}
 	// Re-enqueue refreshes metadata but must not duplicate (PK) nor touch
 	// claim/queue_pos.
-	if err := s.SetQueuePos(ctx, "o/r", 7, -1); err != nil {
+	if err := s.Reorder(ctx, []QueuePosition{{Repo: "o/r", Number: 7, Position: -1}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 7, Type: TypeNew, Title: "Real Title", Author: "alice", URL: "u", HeadSHA: "sha1"}); err != nil {
@@ -174,6 +174,31 @@ func TestQueueLifecycle(t *testing.T) {
 	}
 	if c, ok := getQueued(t, s, "o/r", 7); !ok || c.HeadSHA != "sha2" || c.ClaimedAt != nil {
 		t.Errorf("re-enqueue after completion wrong: ok=%v %+v", ok, c)
+	}
+}
+
+func TestReorderAppliesEveryPositionTogether(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, number := range []int{1, 2, 3} {
+		if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: number, Type: TypeNew, DiscoveredAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Reorder(ctx, []QueuePosition{
+		{Repo: "o/r", Number: 3, Position: 1},
+		{Repo: "o/r", Number: 1, Position: 2},
+		{Repo: "o/r", Number: 2, Position: 3},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	queue, err := s.ListQueue(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []int{queue[0].Number, queue[1].Number, queue[2].Number}
+	if got[0] != 3 || got[1] != 1 || got[2] != 2 {
+		t.Errorf("order = %v, want [3 1 2]", got)
 	}
 }
 
@@ -275,7 +300,7 @@ func TestListQueueOrderingAndClaimVisibility(t *testing.T) {
 		}
 	}
 	// Manual position floats #40 to the very top, across everything.
-	if err := s.SetQueuePos(ctx, "o/r", 40, -1); err != nil {
+	if err := s.Reorder(ctx, []QueuePosition{{Repo: "o/r", Number: 40, Position: -1}}); err != nil {
 		t.Fatal(err)
 	}
 	// A claimed row must remain visible.

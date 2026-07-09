@@ -25,6 +25,13 @@ type Candidate struct {
 	HoldReason   string     `json:"hold_reason,omitempty"` // HoldCooldown | HoldSettling while a hold is set
 }
 
+// QueuePosition is one member of a complete queue ordering.
+type QueuePosition struct {
+	Repo     string
+	Number   int
+	Position int
+}
+
 // Lease identifies one claim attempt: when, by whom (host+pid, for crash
 // reconciliation), the engine workspace, and how old an existing claim must
 // be before it counts as abandoned and may be taken over.

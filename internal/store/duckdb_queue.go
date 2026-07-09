@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // Enqueue inserts or refreshes a queue row. On conflict:
@@ -101,8 +102,21 @@ func (d *duckDB) Dequeue(ctx context.Context, repo string, number int) error {
 	return d.exec(ctx, fmt.Sprintf("DELETE FROM queue WHERE repo = %s AND number = %d", q(repo), number))
 }
 
-func (d *duckDB) SetQueuePos(ctx context.Context, repo string, number int, pos int) error {
-	return d.exec(ctx, fmt.Sprintf("UPDATE queue SET queue_pos = %d WHERE repo = %s AND number = %d", pos, q(repo), number))
+func (d *duckDB) Reorder(ctx context.Context, positions []QueuePosition) error {
+	if len(positions) == 0 {
+		return nil
+	}
+	updates := make([]string, 0, len(positions))
+	where := make([]string, 0, len(positions))
+	for _, p := range positions {
+		match := fmt.Sprintf("repo = %s AND number = %d", q(p.Repo), p.Number)
+		updates = append(updates, fmt.Sprintf("WHEN %s THEN %d", match, p.Position))
+		where = append(where, "("+match+")")
+	}
+	// A single UPDATE either applies every position or none, so a dashboard
+	// reorder can never leave a partially reordered queue after an error.
+	sql := "UPDATE queue SET queue_pos = CASE " + strings.Join(updates, " ") + " ELSE queue_pos END WHERE " + strings.Join(where, " OR ")
+	return d.exec(ctx, sql)
 }
 
 // Promote floats the row to the top (negative queue_pos sorts ahead of the

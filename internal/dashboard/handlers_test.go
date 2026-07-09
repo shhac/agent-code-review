@@ -23,16 +23,16 @@ import (
 type handlerStore struct {
 	store.Store
 
-	queue     []store.Candidate
-	reviews   []store.Review
-	runs      []store.Run
-	logReview store.Review
-	enqueued  []store.Candidate
-	dequeued  []prRef
-	positions []prRef        // SetQueuePos calls in order
-	setPosErr error          // optional SetQueuePos failure
-	promoted  []prRef        // Promote calls in order
-	tokens    map[bool]int64 // keyed by since.IsZero()
+	queue      []store.Candidate
+	reviews    []store.Review
+	runs       []store.Run
+	logReview  store.Review
+	enqueued   []store.Candidate
+	dequeued   []prRef
+	positions  []store.QueuePosition // Reorder's complete position list
+	reorderErr error                 // optional Reorder failure
+	promoted   []prRef               // Promote calls in order
+	tokens     map[bool]int64        // keyed by since.IsZero()
 }
 
 func (f *handlerStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
@@ -75,11 +75,11 @@ func (f *handlerStore) Dequeue(_ context.Context, repo string, number int) error
 	return nil
 }
 
-func (f *handlerStore) SetQueuePos(_ context.Context, repo string, number, _ int) error {
-	if f.setPosErr != nil {
-		return f.setPosErr
+func (f *handlerStore) Reorder(_ context.Context, positions []store.QueuePosition) error {
+	if f.reorderErr != nil {
+		return f.reorderErr
 	}
-	f.positions = append(f.positions, prRef{Repo: repo, Number: number})
+	f.positions = append(f.positions, positions...)
 	return nil
 }
 
@@ -292,7 +292,7 @@ func TestHandleQueuePromote(t *testing.T) {
 }
 
 // TestHandleQueueReorder pins the write path above the (already-tested)
-// validator: a valid full ordering lands one SetQueuePos per row, in order.
+// validator: a valid full ordering lands in one atomic store call, in order.
 func TestHandleQueueReorder(t *testing.T) {
 	fs := &handlerStore{queue: []store.Candidate{
 		{Repo: "o/r", Number: 1},
@@ -303,7 +303,7 @@ func TestHandleQueueReorder(t *testing.T) {
 	if code != http.StatusOK || resp["reordered"] != true {
 		t.Fatalf("reorder must succeed, got %d %v", code, resp)
 	}
-	if len(fs.positions) != 2 || fs.positions[0].Number != 2 || fs.positions[1].Number != 1 {
+	if len(fs.positions) != 2 || fs.positions[0] != (store.QueuePosition{Repo: "o/r", Number: 2, Position: 1}) || fs.positions[1] != (store.QueuePosition{Repo: "o/r", Number: 1, Position: 2}) {
 		t.Errorf("positions = %v, want 2 then 1", fs.positions)
 	}
 
@@ -316,13 +316,13 @@ func TestHandleQueueReorder(t *testing.T) {
 			{Repo: "o/r", Number: 1},
 			{Repo: "o/r", Number: 2},
 		},
-		setPosErr: errors.New("write failed"),
+		reorderErr: errors.New("write failed"),
 	}
 	if code, _ := doJSON(t, newTestServer(fail, config.Config{}).handleQueueReorder, http.MethodPost, "/api/queue/reorder", `{"order":[{"repo":"o/r","number":2},{"repo":"o/r","number":1}]}`); code != http.StatusInternalServerError {
-		t.Errorf("SetQueuePos failure must 500, got %d", code)
+		t.Errorf("Reorder failure must 500, got %d", code)
 	}
 	if len(fail.positions) != 0 {
-		t.Errorf("failed SetQueuePos should stop before recording positions, got %v", fail.positions)
+		t.Errorf("failed Reorder should not record positions, got %v", fail.positions)
 	}
 }
 

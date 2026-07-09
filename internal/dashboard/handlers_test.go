@@ -33,6 +33,8 @@ type handlerStore struct {
 	reorderErr error                 // optional Reorder failure
 	promoted   []prRef               // Promote calls in order
 	tokens     map[bool]int64        // keyed by since.IsZero()
+	since      time.Time
+	sinceErr   error
 }
 
 func (f *handlerStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
@@ -57,8 +59,9 @@ func (f *handlerStore) ReviewByLogKey(_ context.Context, _ string, _ int, key st
 	return f.logReview, true, nil
 }
 
-func (f *handlerStore) ListReviewsSince(context.Context, time.Time) ([]store.Review, error) {
-	return f.reviews, nil
+func (f *handlerStore) ListReviewsSince(_ context.Context, since time.Time) ([]store.Review, error) {
+	f.since = since
+	return f.reviews, f.sinceErr
 }
 
 func (f *handlerStore) ListRuns(context.Context, int) ([]store.Run, error) {

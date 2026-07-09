@@ -1,9 +1,47 @@
 package usage
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func fakeCodex(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestFetchReadsAppServerRateLimits(t *testing.T) {
+	bin := fakeCodex(t, `printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"planType":"pro","primary":{"usedPercent":25,"windowDurationMins":300,"resetsAt":123},"secondary":{"usedPercent":50,"windowDurationMins":10080,"resetsAt":456}}}}'`)
+	snap, err := Fetch(context.Background(), bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Plan != "pro" || snap.Primary == nil || snap.Primary.UsedPercent != 25 || snap.Secondary == nil || snap.Secondary.WindowMins != 10080 {
+		t.Errorf("snapshot = %+v", snap)
+	}
+}
+
+func TestCachePollRecordsFetchFailures(t *testing.T) {
+	cache := NewCache()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cache.Poll(ctx, time.Hour, fakeCodex(t, "exit 12"))
+	deadline := time.Now().Add(time.Second)
+	for cache.Get().Error == "" && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if snap := cache.Get(); snap.Error == "" || snap.FetchedAt.IsZero() {
+		t.Errorf("failed poll snapshot = %+v", snap)
+	}
+}
 
 func TestParseRateLimits(t *testing.T) {
 	// A realistic stream: init response (id=1), a notification, then the

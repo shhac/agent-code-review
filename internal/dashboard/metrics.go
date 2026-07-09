@@ -45,6 +45,24 @@ type metricsResp struct {
 	Scatter  []metricsPoint `json:"scatter"`
 }
 
+type metricGroupKey struct{ model, effort, version string }
+type metricGroup struct {
+	metric    modelMetric
+	durations []int
+}
+
+func matchesMetricsFilter(r store.Review, model, effort string) bool {
+	return (model == "" || r.Model == model) && (effort == "" || r.Effort == effort)
+}
+
+func medianDuration(durations []int) int {
+	if len(durations) == 0 {
+		return 0
+	}
+	sort.Ints(durations)
+	return durations[len(durations)/2]
+}
+
 func metricsSince(raw string, now time.Time) time.Time {
 	days := map[string]int{"7d": 7, "30d": 30, "90d": 90}[raw]
 	if days == 0 {
@@ -56,10 +74,10 @@ func metricsSince(raw string, now time.Time) time.Time {
 func metricsFor(reviews []store.Review, model, effort string) metricsResp {
 	resp := metricsResp{Verdicts: map[string]int{}, Activity: []metricsDay{}, Models: []modelMetric{}, Scatter: []metricsPoint{}}
 	days := map[string]*metricsDay{}
-	groups := map[string]*modelMetric{}
+	groups := map[metricGroupKey]*metricGroup{}
 	durations := []int{}
 	for _, r := range reviews {
-		if model != "" && r.Model != model || effort != "" && r.Effort != effort {
+		if !matchesMetricsFilter(r, model, effort) {
 			continue
 		}
 		resp.Summary.Reviews++
@@ -74,35 +92,26 @@ func metricsFor(reviews []store.Review, model, effort string) metricsResp {
 		}
 		days[day].Reviews++
 		days[day].TokensUsed += r.TokensUsed
-		key := r.Model + "\x00" + r.Effort + "\x00" + r.CodexVersion
+		key := metricGroupKey{r.Model, r.Effort, r.CodexVersion}
 		if groups[key] == nil {
-			groups[key] = &modelMetric{Model: r.Model, Effort: r.Effort, CodexVersion: r.CodexVersion}
+			groups[key] = &metricGroup{metric: modelMetric{Model: r.Model, Effort: r.Effort, CodexVersion: r.CodexVersion}}
 		}
 		g := groups[key]
-		g.Reviews++
-		g.TokensUsed += r.TokensUsed
+		g.metric.Reviews++
+		g.metric.TokensUsed += r.TokensUsed
+		if r.DurationSecs > 0 {
+			g.durations = append(g.durations, r.DurationSecs)
+		}
 		resp.Scatter = append(resp.Scatter, metricsPoint{Model: r.Model, Effort: r.Effort, Verdict: r.Verdict, TokensUsed: r.TokensUsed, DurationSec: r.DurationSecs})
 	}
-	sort.Ints(durations)
-	if len(durations) > 0 {
-		resp.Summary.MedianDuration = durations[len(durations)/2]
-	}
+	resp.Summary.MedianDuration = medianDuration(durations)
 	for _, d := range days {
 		resp.Activity = append(resp.Activity, *d)
 	}
 	sort.Slice(resp.Activity, func(i, j int) bool { return resp.Activity[i].Day < resp.Activity[j].Day })
 	for _, g := range groups {
-		var ds []int
-		for _, r := range reviews {
-			if r.Model == g.Model && r.Effort == g.Effort && r.CodexVersion == g.CodexVersion && r.DurationSecs > 0 {
-				ds = append(ds, r.DurationSecs)
-			}
-		}
-		sort.Ints(ds)
-		if len(ds) > 0 {
-			g.MedianDuration = ds[len(ds)/2]
-		}
-		resp.Models = append(resp.Models, *g)
+		g.metric.MedianDuration = medianDuration(g.durations)
+		resp.Models = append(resp.Models, g.metric)
 	}
 	sort.Slice(resp.Models, func(i, j int) bool { return resp.Models[i].Reviews > resp.Models[j].Reviews })
 	return resp

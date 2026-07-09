@@ -26,13 +26,28 @@ type Logf func(format string, args ...any)
 // usage.BelowFloor, which never pauses on an empty snapshot.
 type UsageFn func() usage.Snapshot
 
+// SchedulerStore is the subset of persistence the scheduler owns. Keeping it
+// here makes scheduler tests declare only the effects they exercise instead
+// of depending on the application's whole storage surface.
+type SchedulerStore interface {
+	ListQueue(context.Context, string) ([]store.Candidate, error)
+	Claim(context.Context, string, int, store.Lease) (bool, error)
+	ClearClaim(context.Context, string, int) error
+	Complete(context.Context, store.Review) error
+	IsAuthorAllowed(context.Context, string, string) (bool, error)
+	ActiveRun(context.Context, time.Duration) (store.Run, bool, error)
+	RunningRuns(context.Context) ([]store.Run, error)
+	StartRun(context.Context, store.Run) error
+	FinishRun(context.Context, string, string) error
+}
+
 // Scheduler wires the deterministic machinery around a review engine. Config
 // comes through a getter so edits to config.json (cadence, parallelism,
 // usage floors, codex settings) apply without a restart; only the loop
 // on/off switches are fixed at boot, because the --no-* flags own them.
 type Scheduler struct {
 	cfg         func() config.Config
-	store       store.Store
+	store       SchedulerStore
 	disc        *discover.Discoverer
 	ghUser      string
 	logf        Logf
@@ -56,7 +71,7 @@ type Scheduler struct {
 	reconcile  func(context.Context) error
 }
 
-func New(cfg func() config.Config, s store.Store, d *discover.Discoverer, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
+func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}

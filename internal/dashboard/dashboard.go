@@ -34,10 +34,28 @@ type Running struct {
 	Review    bool
 }
 
+// dashboardStore is the dashboard's read/write view of persistence. The web
+// server deliberately does not know about scheduler claims, run locks, or
+// author mutations it never performs.
+type dashboardStore interface {
+	ListQueue(context.Context, string) ([]store.Candidate, error)
+	Enqueue(context.Context, store.Candidate) error
+	Dequeue(context.Context, string, int) error
+	Promote(context.Context, string, int) error
+	Reorder(context.Context, []store.QueuePosition) error
+	LastOutcome(context.Context, string, int) (store.Review, bool, error)
+	ReviewByLogKey(context.Context, string, int, string) (store.Review, bool, error)
+	ListReviews(context.Context, int) ([]store.Review, error)
+	ListReviewsSince(context.Context, time.Time) ([]store.Review, error)
+	ListRuns(context.Context, int) ([]store.Run, error)
+	TokensUsed(context.Context, time.Time) (int64, error)
+	ListAllowedAuthors(context.Context, string) ([]store.AllowedAuthor, error)
+}
+
 // Server renders the queue, config, and prompt views. Config comes through a
 // getter so edits to config.json show up without restarting the daemon.
 type Server struct {
-	store   store.Store
+	store   dashboardStore
 	config  func() config.Config
 	running Running
 	usage   *usage.Cache // nil when the daemon isn't polling usage
@@ -57,7 +75,7 @@ type Server struct {
 	manualCandidate func(ctx context.Context, repo string, number int) (store.Candidate, error)
 }
 
-func NewServer(s store.Store, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring, version string) *Server {
+func NewServer(s dashboardStore, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring, version string) *Server {
 	return &Server{
 		store: s, config: cfg, running: running, usage: u, ghUser: ghUser,
 		logs: logs, version: version,

@@ -2,6 +2,15 @@ package store
 
 import "context"
 
+// ReviewWorkspaceStore is the narrow history/queue view needed to resolve a
+// review log. Both the CLI and dashboard use it without depending on unrelated
+// queue mutation or run-lock operations.
+type ReviewWorkspaceStore interface {
+	ListQueue(context.Context, string) ([]Candidate, error)
+	LastOutcome(context.Context, string, int) (Review, bool, error)
+	ReviewByLogKey(context.Context, string, int, string) (Review, bool, error)
+}
+
 // Workspace is where a PR's review agent ran, resolved by FindWorkspace.
 // Exactly one of Queued/Finished is set: Queued while the PR still has a
 // queue row (in-flight review or reclaimable claim), Finished for a
@@ -17,7 +26,7 @@ type Workspace struct {
 // ever recorded (reviews predating workdir tracking have none). The CLI's
 // `queue log` and the dashboard's review-log endpoint share this resolution
 // so the two surfaces cannot drift.
-func FindWorkspace(ctx context.Context, s Store, repo string, number int) (Workspace, bool, error) {
+func FindWorkspace(ctx context.Context, s ReviewWorkspaceStore, repo string, number int) (Workspace, bool, error) {
 	return FindReviewWorkspace(ctx, s, ReviewLogRef{Repo: repo, Number: number})
 }
 
@@ -25,7 +34,7 @@ func FindWorkspace(ctx context.Context, s Store, repo string, number int) (Works
 // it selects that exact history row and never falls back to the live/latest PR
 // log. With ref.LogKey empty, it preserves the normal live-then-latest
 // behavior.
-func FindReviewWorkspace(ctx context.Context, s Store, ref ReviewLogRef) (Workspace, bool, error) {
+func FindReviewWorkspace(ctx context.Context, s ReviewWorkspaceStore, ref ReviewLogRef) (Workspace, bool, error) {
 	if ref.LogKey != "" {
 		r, ok, err := s.ReviewByLogKey(ctx, ref.Repo, ref.Number, ref.LogKey)
 		if err != nil || !ok || r.WorkDir == "" {

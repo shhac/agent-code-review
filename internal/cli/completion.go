@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	libcli "github.com/shhac/lib-agent-cli/cli"
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -43,10 +42,10 @@ func completeConfigKeys(keys []string) cobra.CompletionFunc {
 	}
 }
 
-func attachConfigCompletions(cmd *cobra.Command, keys []libcli.ConfigKey) {
-	keyNames := make([]string, 0, len(keys))
-	for _, key := range keys {
-		keyNames = append(keyNames, key.Name)
+func attachConfigCompletions(cmd *cobra.Command, specs []configKeySpec) {
+	keyNames := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		keyNames = append(keyNames, spec.key.Name)
 	}
 	for _, verb := range []string{"get", "unset"} {
 		findCommand(cmd, verb).ValidArgsFunction = completeConfigKeys(keyNames)
@@ -63,22 +62,16 @@ func attachConfigCompletions(cmd *cobra.Command, keys []libcli.ConfigKey) {
 }
 
 func completeConfigValue(ctx context.Context, key, prefix string) []string {
-	switch key {
-	case "schedule.enabled", "discovery.enabled":
-		return completePrefix([]string{"true", "false"}, prefix)
-	case "review.engine":
-		return completePrefix([]string{"codex"}, prefix)
-	case "codex.sandbox":
-		return completePrefix([]string{"read-only", "workspace-write", "danger-full-access"}, prefix)
-	case "dashboard.tailscale.mode":
-		return completePrefix([]string{"serve", "funnel"}, prefix)
-	case "codex.model":
-		return completePrefix(codexModelSlugs(ctx), prefix)
-	case "codex.effort":
-		return completePrefix(codexModelEfforts(ctx, config.Read().Review.Codex.Model), prefix)
-	default:
-		return nil
+	for _, spec := range configKeySpecs() {
+		if spec.key.Name == key && spec.complete != nil {
+			return completePrefix(spec.complete(ctx), prefix)
+		}
 	}
+	return nil
+}
+
+func completeConfiguredCodexEfforts(ctx context.Context) []string {
+	return codexModelEfforts(ctx, config.Read().Review.Codex.Model)
 }
 
 func findCommand(parent *cobra.Command, name string) *cobra.Command {

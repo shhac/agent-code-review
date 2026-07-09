@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/shhac/agent-code-review/internal/config"
 )
 
 type testLogs struct {
@@ -107,4 +109,22 @@ func TestWaitForScheduler(t *testing.T) {
 			t.Fatalf("missing force-wait log: %#v", logs.lines)
 		}
 	})
+}
+
+func TestRunningLoopsPinsFlagsOverConfig(t *testing.T) {
+	cfg := config.Config{}
+	if got := runningLoops(serveOpts{}, cfg); !got.Discovery || !got.Review {
+		t.Errorf("default loops = %+v, want both running", got)
+	}
+	if got := runningLoops(serveOpts{noReviews: true}, cfg); !got.Discovery || got.Review {
+		t.Errorf("--no-reviews loops = %+v", got)
+	}
+	if got := runningLoops(serveOpts{noSchedule: true}, cfg); got.Discovery || got.Review {
+		t.Errorf("--no-schedule loops = %+v", got)
+	}
+	cfg.Discovery.Enabled = config.Bool(false)
+	cfg.Schedule.Enabled = config.Bool(false)
+	if got := runningLoops(serveOpts{}, cfg); got.Discovery || got.Review {
+		t.Errorf("disabled config loops = %+v", got)
+	}
 }

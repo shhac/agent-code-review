@@ -19,6 +19,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/logbuf"
 	"github.com/shhac/agent-code-review/internal/scheduler"
+	"github.com/shhac/agent-code-review/internal/store"
 	"github.com/shhac/agent-code-review/internal/usage"
 )
 
@@ -102,55 +103,20 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	usageCache := usage.NewCache()
 	go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
 
-	// Config sets the default per loop; flags override for this process only.
-	// --no-schedule remains the "neither loop" shorthand.
-	running := dashboard.Running{
-		Discovery: !opts.noSchedule && !opts.noDiscovery && cfg.DiscoveryEnabled(),
-		Review:    !opts.noSchedule && !opts.noReviews && cfg.ScheduleEnabled(),
-	}
-	// The scheduler reads config live so dials reload without a restart, but
-	// the loop switches are pinned to this boot's flag-resolved state — a
-	// config edit must not resurrect a loop the --no-* flags disabled.
-	schedCfg := func() config.Config {
-		c := config.Read()
-		c.Discovery.Enabled = config.Bool(running.Discovery)
-		c.Schedule.Enabled = config.Bool(running.Review)
-		return c
-	}
+	running := runningLoops(opts, cfg)
+	schedCfg := pinnedLoopConfig(running)
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
-	srv := &http.Server{Addr: opts.addr, Handler: dash.Handler()}
 	// Bind BEFORE the scheduler starts: the port doubles as the "one daemon
 	// per address" guard, and the loops fire immediately on start — an
 	// accidental second instance must die here, not after it has already
 	// claimed a PR and spent an engine invocation.
-	ln, err := net.Listen("tcp", opts.addr)
+	srv, err := startDashboard(opts.addr, dash, logf, shutdown.graceful)
 	if err != nil {
-		return fmt.Errorf("dashboard: %w (is another serve instance already running?)", err)
+		return err
 	}
-	go func() {
-		logf("dashboard: listening on %s", opts.addr)
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logf("dashboard error: %v", err)
-			shutdown.graceful()
-		}
-	}()
-
-	var schedDone chan error
-	if running.Discovery || running.Review {
-		sched, err := buildScheduler(ctx, schedCfg, s, logf, usageCache.Get)
-		if err != nil {
-			return err
-		}
-		schedDone = make(chan error, 1)
-		go func() {
-			err := sched.StartGraceful(shutdown.gracefulCtx, shutdown.reviewCtx)
-			if err != nil && !errors.Is(err, context.Canceled) {
-				logf("scheduler stopped: %v", err)
-			}
-			schedDone <- err
-		}()
-	} else {
-		logf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
+	schedDone, err := startScheduler(ctx, running, schedCfg, s, logf, usageCache.Get, shutdown)
+	if err != nil {
+		return err
 	}
 
 	<-shutdown.gracefulCtx.Done()
@@ -163,6 +129,62 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// runningLoops resolves the per-boot switch state. Config supplies defaults;
+// command flags only ever turn a loop off for this daemon process.
+func runningLoops(opts serveOpts, cfg config.Config) dashboard.Running {
+	return dashboard.Running{
+		Discovery: !opts.noSchedule && !opts.noDiscovery && cfg.DiscoveryEnabled(),
+		Review:    !opts.noSchedule && !opts.noReviews && cfg.ScheduleEnabled(),
+	}
+}
+
+// pinnedLoopConfig keeps the two loop switches stable for one daemon boot,
+// while every other scheduler dial continues to reload from config.json.
+func pinnedLoopConfig(running dashboard.Running) func() config.Config {
+	return func() config.Config {
+		c := config.Read()
+		c.Discovery.Enabled = config.Bool(running.Discovery)
+		c.Schedule.Enabled = config.Bool(running.Review)
+		return c
+	}
+}
+
+func startDashboard(addr string, dash *dashboard.Server, logf scheduler.Logf, stop func()) (*http.Server, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("dashboard: %w (is another serve instance already running?)", err)
+	}
+	srv := &http.Server{Addr: addr, Handler: dash.Handler()}
+	go func() {
+		logf("dashboard: listening on %s", addr)
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logf("dashboard error: %v", err)
+			stop()
+		}
+	}()
+	return srv, nil
+}
+
+func startScheduler(ctx context.Context, running dashboard.Running, cfg func() config.Config, s store.Store, logf scheduler.Logf, usageFn scheduler.UsageFn, shutdown shutdownController) (<-chan error, error) {
+	if !running.Discovery && !running.Review {
+		logf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
+		return nil, nil
+	}
+	sched, err := buildScheduler(ctx, cfg, s, logf, usageFn)
+	if err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	go func() {
+		err := sched.StartGraceful(shutdown.gracefulCtx, shutdown.reviewCtx)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			logf("scheduler stopped: %v", err)
+		}
+		done <- err
+	}()
+	return done, nil
 }
 
 type shutdownController struct {

@@ -8,6 +8,7 @@ package scheduler
 import (
 	"context"
 	"sync/atomic"
+	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/discover"
@@ -48,6 +49,11 @@ type Scheduler struct {
 	// signal-0 probe in production; swapped in tests). Reconcile uses it to
 	// tell a crashed daemon's leftovers from a sibling instance's live work.
 	pidAlive func(pid int) bool
+	// loopRunner and reconcile are narrow lifecycle seams: production uses the
+	// real methods, while tests can assert StartGraceful's orchestration without
+	// starting timers or requiring a fully populated Store.
+	loopRunner func(context.Context, func() time.Duration, string, func(context.Context) error)
+	reconcile  func(context.Context) error
 }
 
 func New(cfg func() config.Config, s store.Store, d *discover.Discoverer, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
@@ -63,6 +69,8 @@ func New(cfg func() config.Config, s store.Store, d *discover.Discoverer, ghUser
 		newEngine:      func(c config.Config) (review.Engine, error) { return review.NewEngine(c.Review) },
 		stillCandidate: discover.StillCandidate,
 		pidAlive:       pidAlive,
+		loopRunner:     nil,
+		reconcile:      nil,
 	}
 }
 

@@ -23,10 +23,18 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context) error {
 	// it out too). Reconcile before the first tick so a restart resumes
 	// immediately. Failure is logged, not fatal — the lease window is the
 	// fallback that always works.
-	if err := s.Reconcile(reviewCtx); err != nil {
+	reconcile := s.reconcile
+	if reconcile == nil {
+		reconcile = s.Reconcile
+	}
+	if err := reconcile(reviewCtx); err != nil {
 		s.logf("reconcile: %v", err)
 	}
 	boot := s.cfg()
+	loopRunner := s.loopRunner
+	if loopRunner == nil {
+		loopRunner = s.loop
+	}
 	var wg sync.WaitGroup
 	started := false
 	if boot.DiscoveryEnabled() {
@@ -35,7 +43,7 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.loop(stopCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
+			loopRunner(stopCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
 		}()
 	}
 	if boot.ScheduleEnabled() {
@@ -44,7 +52,7 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.loop(stopCtx, func() time.Duration { return s.cfg().Interval() }, "review", func(context.Context) error {
+			loopRunner(stopCtx, func() time.Duration { return s.cfg().Interval() }, "review", func(context.Context) error {
 				return s.reviewCycle(stopCtx, reviewCtx)
 			})
 		}()

@@ -23,13 +23,6 @@ func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates 
 	var wg sync.WaitGroup
 	for _, c := range candidates {
 		select {
-		case <-stopCtx.Done():
-			s.logf("cycle: shutdown requested — waiting for in-flight reviewer(s)")
-			wg.Wait()
-			return
-		default:
-		}
-		select {
 		case sem <- struct{}{}:
 		case <-stopCtx.Done():
 			s.logf("cycle: shutdown requested — waiting for in-flight reviewer(s)")

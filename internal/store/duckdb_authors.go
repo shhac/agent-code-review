@@ -11,14 +11,12 @@ func (d *duckDB) AllowAuthor(ctx context.Context, a AllowedAuthor) error {
 	ON CONFLICT (repo, github_handle) DO UPDATE SET
 	  name = excluded.name, email = excluded.email, slack_id = excluded.slack_id`,
 		q(a.Repo), q(a.GitHubHandle), q(a.Name), q(a.Email), q(a.SlackID))
-	_, err := d.query(ctx, sql)
-	return err
+	return d.exec(ctx, sql)
 }
 
 func (d *duckDB) DenyAuthor(ctx context.Context, repo, handle string) error {
-	_, err := d.query(ctx, fmt.Sprintf(
+	return d.exec(ctx, fmt.Sprintf(
 		"DELETE FROM allowed_authors WHERE repo = %s AND lower(github_handle) = lower(%s)", q(repo), q(handle)))
-	return err
 }
 
 func (d *duckDB) ListAllowedAuthors(ctx context.Context, repo string) ([]AllowedAuthor, error) {

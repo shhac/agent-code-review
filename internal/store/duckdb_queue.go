@@ -39,8 +39,7 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
 		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), q(orDefault(c.Source, SourceDiscovered)),
 		tsp(c.EligibleAt), q(c.HoldReason))
-	_, err := d.query(ctx, sql)
-	return err
+	return d.exec(ctx, sql)
 }
 
 func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error) {
@@ -75,10 +74,9 @@ func (d *duckDB) Claim(ctx context.Context, repo string, number int, l Lease) (b
 }
 
 func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error {
-	_, err := d.query(ctx, fmt.Sprintf(
+	return d.exec(ctx, fmt.Sprintf(
 		"UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE repo = %s AND number = %d",
 		q(repo), number))
-	return err
 }
 
 // Complete runs as one multi-statement batch — a single duckdb invocation is
@@ -96,18 +94,15 @@ func (d *duckDB) Complete(ctx context.Context, r Review) error {
 		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), q(r.Model), q(r.Effort), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed,
 		q(r.Repo), r.Number, q(r.HeadSHA),
 		q(r.Repo), r.Number)
-	_, err := d.query(ctx, sql)
-	return err
+	return d.exec(ctx, sql)
 }
 
 func (d *duckDB) Dequeue(ctx context.Context, repo string, number int) error {
-	_, err := d.query(ctx, fmt.Sprintf("DELETE FROM queue WHERE repo = %s AND number = %d", q(repo), number))
-	return err
+	return d.exec(ctx, fmt.Sprintf("DELETE FROM queue WHERE repo = %s AND number = %d", q(repo), number))
 }
 
 func (d *duckDB) SetQueuePos(ctx context.Context, repo string, number int, pos int) error {
-	_, err := d.query(ctx, fmt.Sprintf("UPDATE queue SET queue_pos = %d WHERE repo = %s AND number = %d", pos, q(repo), number))
-	return err
+	return d.exec(ctx, fmt.Sprintf("UPDATE queue SET queue_pos = %d WHERE repo = %s AND number = %d", pos, q(repo), number))
 }
 
 // Promote floats the row to the top (negative queue_pos sorts ahead of the
@@ -115,8 +110,7 @@ func (d *duckDB) SetQueuePos(ctx context.Context, repo string, number int, pos i
 // the pre-review candidacy check is bypassed — one write, same semantics as
 // removing and manually re-adding the PR at the front.
 func (d *duckDB) Promote(ctx context.Context, repo string, number int) error {
-	_, err := d.query(ctx, fmt.Sprintf(
+	return d.exec(ctx, fmt.Sprintf(
 		"UPDATE queue SET queue_pos = -1, eligible_at = NULL, hold_reason = NULL, source = 'manual' WHERE repo = %s AND number = %d",
 		q(repo), number))
-	return err
 }

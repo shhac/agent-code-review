@@ -44,8 +44,7 @@ func newDuckDB(path string) (*duckDB, error) {
 }
 
 func (d *duckDB) Init(ctx context.Context) error {
-	_, err := d.query(ctx, schemaSQL)
-	return err
+	return d.exec(ctx, schemaSQL)
 }
 
 func (d *duckDB) Close() error { return nil }
@@ -69,6 +68,14 @@ func (d *duckDB) query(ctx context.Context, sql string) ([]map[string]any, error
 		return nil, stderrors.New(msg)
 	}
 	return parseNDJSON(string(out))
+}
+
+// exec runs a statement whose result rows are deliberately ignored. Keeping
+// that intent at the call site separates mutations from queries, while query
+// remains available for the few writes (such as Claim) that use RETURNING.
+func (d *duckDB) exec(ctx context.Context, sql string) error {
+	_, err := d.query(ctx, sql)
+	return err
 }
 
 // mapRows scans every result row through one scanner — the shared tail of all

@@ -28,12 +28,10 @@ func (d *duckDB) StartRun(ctx context.Context, r Run) error {
 	sql := fmt.Sprintf(
 		"INSERT INTO runs (id, started_at, status, host, pid) VALUES (%s, %s, 'running', %s, %d)",
 		q(r.ID), ts(r.StartedAt), q(r.Host), r.PID)
-	_, err := d.query(ctx, sql)
-	return err
+	return d.exec(ctx, sql)
 }
 
 func (d *duckDB) FinishRun(ctx context.Context, id string, status string) error {
-	_, err := d.query(ctx, fmt.Sprintf(
+	return d.exec(ctx, fmt.Sprintf(
 		"UPDATE runs SET status = %s, finished_at = %s WHERE id = %s", q(status), ts(time.Now()), q(id)))
-	return err
 }

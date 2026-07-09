@@ -1,10 +1,42 @@
 package store
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func fakeDuckDB(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "duckdb")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestParseNDJSON(t *testing.T) {
+	rows, err := parseNDJSON("\n{\n{\"repo\":\"o/r\",\"number\":7}\n{\"repo\":\"x/y\",\"number\":8}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0]["repo"] != "o/r" || getInt(rows[1], "number") != 8 {
+		t.Errorf("rows = %#v", rows)
+	}
+	if _, err := parseNDJSON("not json\n"); err == nil {
+		t.Error("malformed JSON must report a parse error")
+	}
+}
+
+func TestQueryReturnsDuckDBStderr(t *testing.T) {
+	d := &duckDB{bin: fakeDuckDB(t, "echo 'bad SQL' >&2; exit 12"), path: t.TempDir()}
+	if _, err := d.query(context.Background(), "BROKEN"); err == nil || err.Error() != "bad SQL" {
+		t.Errorf("query error = %v, want DuckDB stderr", err)
+	}
+}
 
 // q is the only defense between GitHub-controlled strings (PR titles, author
 // handles) and the SQL we build by interpolation — pin its behavior hard.

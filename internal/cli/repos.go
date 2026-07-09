@@ -58,19 +58,21 @@ func reposAddCmd() *cobra.Command {
 			if !config.ValidRepoName(repo) {
 				return output.New("Repo must be owner/name, got "+repo, output.FixableByAgent)
 			}
-			cfg := config.Read()
-			watched := cfg.WatchesRepo(repo)
-			if !watched {
-				cfg.Repos = append(cfg.Repos, repo)
-			}
-			// Reconcile the scope list with the flag (add or remove membership).
-			scoped := cfg.AuthorScopedRepo(repo)
-			if allowedOnly && !scoped {
-				cfg.AllowedAuthorsOnlyRepos = append(cfg.AllowedAuthorsOnlyRepos, repo)
-			} else if !allowedOnly && scoped {
-				cfg.AllowedAuthorsOnlyRepos = removeFold(cfg.AllowedAuthorsOnlyRepos, repo)
-			}
-			if err := config.Write(cfg); err != nil {
+			watched := false
+			if err := config.Update(func(cfg *config.Config) error {
+				watched = cfg.WatchesRepo(repo)
+				if !watched {
+					cfg.Repos = append(cfg.Repos, repo)
+				}
+				// Reconcile the scope list with the flag (add or remove membership).
+				scoped := cfg.AuthorScopedRepo(repo)
+				if allowedOnly && !scoped {
+					cfg.AllowedAuthorsOnlyRepos = append(cfg.AllowedAuthorsOnlyRepos, repo)
+				} else if !allowedOnly && scoped {
+					cfg.AllowedAuthorsOnlyRepos = removeFold(cfg.AllowedAuthorsOnlyRepos, repo)
+				}
+				return nil
+			}); err != nil {
 				return err
 			}
 			scope := "any"
@@ -107,23 +109,24 @@ func reposRmCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			repo := args[0]
-			cfg := config.Read()
-			kept := cfg.Repos[:0]
 			found := false
-			for _, r := range cfg.Repos {
-				if strings.EqualFold(r, repo) {
-					found = true
-					continue
+			if err := config.Update(func(cfg *config.Config) error {
+				kept := cfg.Repos[:0]
+				for _, r := range cfg.Repos {
+					if strings.EqualFold(r, repo) {
+						found = true
+						continue
+					}
+					kept = append(kept, r)
 				}
-				kept = append(kept, r)
-			}
-			if !found {
-				return output.New("Not a watched repo: "+repo, output.FixableByAgent).
-					WithHint("run 'agent-code-review repos ls' to see the watch list")
-			}
-			cfg.Repos = kept
-			cfg.AllowedAuthorsOnlyRepos = removeFold(cfg.AllowedAuthorsOnlyRepos, repo)
-			if err := config.Write(cfg); err != nil {
+				if !found {
+					return output.New("Not a watched repo: "+repo, output.FixableByAgent).
+						WithHint("run 'agent-code-review repos ls' to see the watch list")
+				}
+				cfg.Repos = kept
+				cfg.AllowedAuthorsOnlyRepos = removeFold(cfg.AllowedAuthorsOnlyRepos, repo)
+				return nil
+			}); err != nil {
 				return err
 			}
 			return emit(map[string]any{"removed": repo})

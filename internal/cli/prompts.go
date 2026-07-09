@@ -79,17 +79,18 @@ func promptsSetCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
 			slot, text := args[0], strings.TrimSpace(strings.Join(args[1:], " "))
-			cfg := config.Read()
-			_, set := slotAccess(&cfg.Review, slot)
-			if set == nil {
-				return unknownSlotError(slot)
-			}
-			if slot == "main" && cfg.Review.MainPromptPath != "" {
-				return output.New("main_prompt_path is set ("+cfg.Review.MainPromptPath+") and overrides main_prompt", output.FixableByHuman).
-					WithHint("edit that file instead, or clear main_prompt_path in config.json first")
-			}
-			set(text)
-			if err := config.Write(cfg); err != nil {
+			if err := config.Update(func(cfg *config.Config) error {
+				_, set := slotAccess(&cfg.Review, slot)
+				if set == nil {
+					return unknownSlotError(slot)
+				}
+				if slot == "main" && cfg.Review.MainPromptPath != "" {
+					return output.New("main_prompt_path is set ("+cfg.Review.MainPromptPath+") and overrides main_prompt", output.FixableByHuman).
+						WithHint("edit that file instead, or clear main_prompt_path in config.json first")
+				}
+				set(text)
+				return nil
+			}); err != nil {
 				return err
 			}
 			return emit(map[string]any{"slot": slot, "value": text})
@@ -111,13 +112,14 @@ func promptsUnsetCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			slot := args[0]
-			cfg := config.Read()
-			_, set := slotAccess(&cfg.Review, slot)
-			if set == nil {
-				return unknownSlotError(slot)
-			}
-			set("")
-			if err := config.Write(cfg); err != nil {
+			if err := config.Update(func(cfg *config.Config) error {
+				_, set := slotAccess(&cfg.Review, slot)
+				if set == nil {
+					return unknownSlotError(slot)
+				}
+				set("")
+				return nil
+			}); err != nil {
 				return err
 			}
 			return emit(map[string]any{"slot": slot, "value": ""})

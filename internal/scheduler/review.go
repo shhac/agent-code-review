@@ -118,14 +118,11 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	// block a future re-review: store.LastReview filters them out of
 	// Refreshed detection, and new commits change the SHA that discovery's
 	// same-SHA suppression keys on.
-	rec := store.ReviewFrom(c, verdict.Decision, engine.Name(), claimedAt)
-	if engine.Name() == "codex" {
-		rec.Model = cfg.Review.Codex.Model
-		rec.Effort = cfg.Review.Codex.Effort
-		if versioned, ok := engine.(review.VersionedEngine); ok {
-			rec.CodexVersion = versioned.Version(ctx)
-		}
-	}
+	provenance := engine.Provenance(ctx)
+	rec := store.ReviewFrom(c, verdict.Decision, provenance.Engine, claimedAt)
+	rec.Model = provenance.Model
+	rec.Effort = provenance.Effort
+	rec.CodexVersion = provenance.CodexVersion
 	rec.TokensUsed = verdict.TokensUsed
 	if err := s.store.Complete(ctx, rec); err != nil {
 		return err

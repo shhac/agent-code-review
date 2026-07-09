@@ -60,12 +60,14 @@ type fakeEngine struct {
 	prompt string
 }
 
-func (e *fakeEngine) Name() string { return "fake" }
 func (e *fakeEngine) Review(_ context.Context, req review.Request) (review.Verdict, error) {
 	e.mu.Lock()
 	e.prompt = req.Prompt
 	e.mu.Unlock()
 	return e.verdict, e.err
+}
+func (e *fakeEngine) Provenance(context.Context) review.Provenance {
+	return review.Provenance{Engine: "fake"}
 }
 
 func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
@@ -150,26 +152,23 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 	fs := &fakeSchedStore{}
 	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
 	s := newTestScheduler(fs, fe)
-	cfg := config.Config{Review: config.ReviewSettings{
-		MainPrompt: "MAIN",
-		Codex:      config.CodexSettings{Model: "gpt-5.6-terra", Effort: "high"},
-	}}
-
-	if err := s.reviewOne(context.Background(), store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}, cfg, &codexNamedEngine{fakeEngine: fe}); err != nil {
+	if err := s.reviewOne(context.Background(), store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}, config.Config{}, &codexNamedEngine{fakeEngine: fe}); err != nil {
 		t.Fatal(err)
 	}
 	if len(fs.completed) != 1 {
 		t.Fatalf("completed = %d, want 1", len(fs.completed))
 	}
 	got := fs.completed[0]
-	if got.Model != "gpt-5.6-terra" || got.Effort != "high" {
-		t.Errorf("model/effort = %q/%q, want gpt-5.6-terra/high", got.Model, got.Effort)
+	if got.Model != "gpt-5.6-terra" || got.Effort != "high" || got.CodexVersion != "Codex CLI 0.144.0" {
+		t.Errorf("provenance = %+v", got)
 	}
 }
 
 type codexNamedEngine struct{ *fakeEngine }
 
-func (e *codexNamedEngine) Name() string { return "codex" }
+func (e *codexNamedEngine) Provenance(context.Context) review.Provenance {
+	return review.Provenance{Engine: "codex", Model: "gpt-5.6-terra", Effort: "high", CodexVersion: "Codex CLI 0.144.0"}
+}
 
 // TestReviewOneClaimRace: losing the compare-and-swap claim to another
 // worker (e.g. a second daemon instance sharing the store) must be a clean

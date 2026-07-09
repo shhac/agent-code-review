@@ -179,7 +179,7 @@ func TestParseTokensUsed(t *testing.T) {
 func TestNewEngine(t *testing.T) {
 	for _, name := range []string{"", "codex"} {
 		e, err := NewEngine(config.ReviewSettings{Engine: name})
-		if err != nil || e.Name() != "codex" {
+		if _, ok := e.(*codexEngine); err != nil || !ok {
 			t.Errorf("NewEngine(%q) = %v, %v; want the codex engine", name, e, err)
 		}
 	}

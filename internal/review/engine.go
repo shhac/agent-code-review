@@ -45,16 +45,20 @@ type Request struct {
 	WorkDir   string // tmp workspace the engine may use
 }
 
-// Engine reviews a single PR.
-type Engine interface {
-	Name() string
-	Review(ctx context.Context, req Request) (Verdict, error)
+// Provenance identifies the engine configuration that produced an outcome.
+// Empty fields mean that an engine does not expose that detail.
+type Provenance struct {
+	Engine       string
+	Model        string
+	Effort       string
+	CodexVersion string
 }
 
-// VersionedEngine reports the executable version that produced a review.
-// Provenance is optional so future engines need not manufacture a value.
-type VersionedEngine interface {
-	Version(context.Context) string
+// Engine reviews a single PR and owns the provenance recorded for it. This
+// keeps driver-specific settings out of the scheduler's lifecycle code.
+type Engine interface {
+	Review(ctx context.Context, req Request) (Verdict, error)
+	Provenance(ctx context.Context) Provenance
 }
 
 // NewEngine builds the configured engine. Only "codex" is wired today.

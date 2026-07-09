@@ -394,6 +394,7 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	rec.TokensUsed = 192575
 	rec.Model = "gpt-5.6-terra"
 	rec.Effort = "high"
+	rec.CodexVersion = "Codex CLI 0.144.0"
 	if err := s.Complete(ctx, rec); err != nil {
 		t.Fatal(err)
 	}
@@ -418,6 +419,9 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	}
 	if last.Model != "gpt-5.6-terra" || last.Effort != "high" {
 		t.Errorf("model/effort = %q/%q, want gpt-5.6-terra/high", last.Model, last.Effort)
+	}
+	if last.CodexVersion != "Codex CLI 0.144.0" {
+		t.Errorf("codex_version = %q", last.CodexVersion)
 	}
 	all, err := s.ListReviews(ctx, 5)
 	if err != nil || len(all) != 1 || all[0].Title != title {

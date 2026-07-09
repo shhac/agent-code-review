@@ -57,7 +57,9 @@ type blockingEngine struct {
 	once    sync.Once
 }
 
-func (e *blockingEngine) Name() string { return "blocking" }
+func (e *blockingEngine) Provenance(context.Context) review.Provenance {
+	return review.Provenance{Engine: "blocking"}
+}
 
 func (e *blockingEngine) Review(ctx context.Context, req review.Request) (review.Verdict, error) {
 	e.started <- req.Candidate.Number

@@ -46,12 +46,13 @@ func newCodex(c config.CodexSettings) *codexEngine {
 
 func (e *codexEngine) Name() string { return "codex" }
 
-func (e *codexEngine) Version(ctx context.Context) string {
+func (e *codexEngine) Provenance(ctx context.Context) Provenance {
 	out, err := exec.CommandContext(ctx, e.bin, "--version").Output()
-	if err != nil {
-		return ""
+	version := ""
+	if err == nil {
+		version = strings.TrimSpace(string(out))
 	}
-	return strings.TrimSpace(string(out))
+	return Provenance{Engine: e.Name(), Model: e.model, Effort: e.effort, CodexVersion: version}
 }
 
 // verdictSchema constrains the agent's messages. codex applies the schema to

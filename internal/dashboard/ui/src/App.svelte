@@ -6,17 +6,19 @@
   import Config from './routes/Config.svelte';
   import History from './routes/History.svelte';
   import Logs from './routes/Logs.svelte';
+  import Metrics from './routes/Metrics.svelte';
   import Overview from './routes/Overview.svelte';
   import Prompt from './routes/Prompt.svelte';
   import ReviewLog from './routes/ReviewLog.svelte';
 
-  type Route = 'overview' | 'history' | 'config' | 'prompt' | 'logs' | 'review';
+  type Route = 'overview' | 'history' | 'metrics' | 'config' | 'prompt' | 'logs' | 'review';
 
   let reviewRef: ReviewLogRef = { repo: '', number: 0 };
 
   const nav: { route: Route; label: string; path: string }[] = [
     { route: 'overview', label: 'Queue', path: '/' },
     { route: 'history', label: 'History', path: '/history' },
+    { route: 'metrics', label: 'Metrics', path: '/metrics' },
     { route: 'config', label: 'Config', path: '/config' },
     { route: 'prompt', label: 'Prompt', path: '/prompt' },
     { route: 'logs', label: 'Logs', path: '/logs' },
@@ -31,6 +33,7 @@
       return 'review';
     }
     if (path === '/history') return 'history';
+    if (path === '/metrics') return 'metrics';
     if (path === '/config' || path === '/config.html') return 'config';
     if (path === '/prompt' || path === '/prompt.html') return 'prompt';
     if (path === '/logs' || path === '/logs.html') return 'logs';
@@ -72,6 +75,8 @@
       <Overview />
     {:else if route === 'history'}
       <History />
+    {:else if route === 'metrics'}
+      <Metrics />
     {:else if route === 'config'}
       <Config />
     {:else if route === 'prompt'}

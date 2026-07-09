@@ -18,6 +18,7 @@ func scanReview(r map[string]any) Review {
 		Engine:       getString(r, "engine"),
 		Model:        getString(r, "model"),
 		Effort:       getString(r, "effort"),
+		CodexVersion: getString(r, "codex_version"),
 		ReviewedAt:   getTime(r, "reviewed_at"),
 		DurationSecs: getInt(r, "duration_secs"),
 		WorkDir:      getString(r, "work_dir"),

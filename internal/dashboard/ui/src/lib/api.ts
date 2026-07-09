@@ -8,6 +8,7 @@ import type {
   ReviewsResponse,
   RunsResponse,
   LogsResponse,
+  MetricsResponse,
   PromptResponse,
   StatsResponse,
   UsageResponse,
@@ -46,6 +47,12 @@ export const getReviews = (limit = 100) => fetchJSON<ReviewsResponse>(`/api/revi
 export const getRuns = (limit = 100) => fetchJSON<RunsResponse>(`/api/runs?limit=${limit}`);
 export const getUsage = () => fetchJSON<UsageResponse>('/api/usage');
 export const getStats = () => fetchJSON<StatsResponse>('/api/stats');
+export const getMetrics = (range: string, model: string, effort: string) => {
+  const params = new URLSearchParams({ range });
+  if (model) params.set('model', model);
+  if (effort) params.set('effort', effort);
+  return fetchJSON<MetricsResponse>(`/api/metrics?${params}`);
+};
 export const getConfig = () => fetchJSON<ConfigResponse>('/api/config');
 export const getAuthors = () => fetchJSON<AuthorsResponse>('/api/authors');
 export const getPrompt = () => fetchJSON<PromptResponse>('/api/prompt');

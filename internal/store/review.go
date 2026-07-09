@@ -29,6 +29,7 @@ type Review struct {
 	Engine       string    `json:"engine"`
 	Model        string    `json:"model,omitempty"`  // managed Codex model; empty means Codex selected its default
 	Effort       string    `json:"effort,omitempty"` // managed Codex reasoning effort; empty means model default
+	CodexVersion string    `json:"codex_version,omitempty"`
 	ReviewedAt   time.Time `json:"reviewed_at"`
 	DurationSecs int       `json:"duration_secs"`      // claim-to-completion elapsed; 0 when unknown
 	WorkDir      string    `json:"work_dir,omitempty"` // engine workspace used, kept for postmortem log access

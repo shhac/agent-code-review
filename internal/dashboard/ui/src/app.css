@@ -246,6 +246,23 @@ time { color: var(--dim); }
 .empty { padding: 30px 20px; color: var(--dim); text-align: center; }
 
 .stack { display: grid; gap: 18px; margin-top: 22px; max-width: 1180px; }
+.metrics-hero { align-items: center; }
+.metrics-filters { display: flex; gap: 10px; flex-wrap: wrap; }
+.metrics-filters label, .colour-control { display: grid; gap: 4px; color: var(--dim); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px; background: var(--surface); color: var(--ink); font: inherit; text-transform: none; letter-spacing: normal; }
+.metrics-stack { display: grid; gap: 18px; margin-top: 22px; max-width: 1180px; }
+.metric-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.metric-kpis > div { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
+.metric-kpis strong { display: block; font-size: 34px; line-height: 1; }.metric-kpis span { display: block; margin-top: 7px; color: var(--dim); font-size: 13px; }
+.metrics-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .8fr); gap: 18px; }.metric-panel { border-radius: 12px; overflow: hidden; }
+.activity-plot { display: grid; grid-template-columns: repeat(auto-fit, minmax(7px, 1fr)); gap: 5px; height: 200px; padding: 24px 20px 18px; align-items: end; border-bottom: 1px solid var(--line); background: repeating-linear-gradient(to bottom, transparent 0, transparent 49px, var(--line) 50px); }
+.activity-day { position: relative; height: 100%; }.review-bar { position: absolute; left: 20%; right: 20%; bottom: 0; display: block; background: var(--green); border-radius: 4px 4px 0 0; }.token-line { position: absolute; left: 0; width: 100%; height: 3px; background: var(--blue); border-radius: 4px; }
+.verdict-panel { display: grid; align-content: start; }.ring { width: 150px; aspect-ratio: 1; margin: 26px auto 18px; border-radius: 50%; display: grid; place-items: center; position: relative; }.ring::after { content: ''; width: 108px; aspect-ratio: 1; border-radius: 50%; background: var(--surface); position: absolute; }.ring b { position: relative; z-index: 1; font-size: 27px; }
+.verdict-list { display: grid; gap: 10px; padding: 0 20px 20px; }.verdict-list span { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; color: var(--dim); font-size: 13px; }.verdict-list i { width: 9px; height: 9px; border-radius: 2px; }.verdict-list b { color: var(--ink); }
+.scatter-panel .section-head { align-items: start; }.scatter { position: relative; height: 310px; margin: 18px 22px 28px; border-left: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); background: repeating-linear-gradient(to bottom, transparent 0, transparent 60px, var(--line) 61px); }.scatter > i { position: absolute; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, 50%); opacity: .88; }.scatter .approved, .scatter .model-0 { background: var(--green); }.scatter .commented, .scatter .model-1 { background: var(--blue); }.scatter .rejected, .scatter .model-2 { background: var(--red); }.scatter .other, .scatter .model-3 { background: var(--amber); }.axis { position: absolute; color: var(--faint); font-size: 11px; }.axis.x { right: 0; bottom: -21px; }.axis.y { left: -5px; top: -20px; }
+.metric-table { display: grid; }.metric-table p { margin: 0; display: grid; grid-template-columns: minmax(150px, 2fr) minmax(100px, 1fr) repeat(3, 90px) minmax(110px, 1fr); gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); align-items: center; font-size: 13px; }.metric-table-head { color: var(--faint); font-size: 11px !important; letter-spacing: .08em; text-transform: uppercase; }
+@media (max-width: 860px) { .metrics-grid { grid-template-columns: 1fr; }.metric-table { overflow-x: auto; }.metric-table p { min-width: 720px; }.metrics-filters { width: 100%; }.metrics-filters label { flex: 1; }.metrics-filters select { width: 100%; } }
+@media (max-width: 600px) { .metric-kpis { grid-template-columns: 1fr; }.metrics-hero { align-items: start; }.scatter { height: 230px; } }
 .surface { border-radius: 12px; overflow: hidden; }
 .surface pre, .terminal {
   margin: 0; padding: 18px 20px; white-space: pre-wrap; word-break: break-word;

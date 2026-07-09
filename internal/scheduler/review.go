@@ -122,6 +122,9 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	if engine.Name() == "codex" {
 		rec.Model = cfg.Review.Codex.Model
 		rec.Effort = cfg.Review.Codex.Effort
+		if versioned, ok := engine.(review.VersionedEngine); ok {
+			rec.CodexVersion = versioned.Version(ctx)
+		}
 	}
 	rec.TokensUsed = verdict.TokensUsed
 	if err := s.store.Complete(ctx, rec); err != nil {

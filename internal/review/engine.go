@@ -51,6 +51,12 @@ type Engine interface {
 	Review(ctx context.Context, req Request) (Verdict, error)
 }
 
+// VersionedEngine reports the executable version that produced a review.
+// Provenance is optional so future engines need not manufacture a value.
+type VersionedEngine interface {
+	Version(context.Context) string
+}
+
 // NewEngine builds the configured engine. Only "codex" is wired today.
 func NewEngine(cfg config.ReviewSettings) (Engine, error) {
 	engine := cfg.Engine

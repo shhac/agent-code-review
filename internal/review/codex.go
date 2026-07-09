@@ -46,6 +46,14 @@ func newCodex(c config.CodexSettings) *codexEngine {
 
 func (e *codexEngine) Name() string { return "codex" }
 
+func (e *codexEngine) Version(ctx context.Context) string {
+	out, err := exec.CommandContext(ctx, e.bin, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // verdictSchema constrains the agent's messages. codex applies the schema to
 // EVERY assistant message in the run, not just the final report, so WORKING
 // exists as the honest value for intermediate progress notes — without it

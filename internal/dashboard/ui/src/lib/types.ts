@@ -42,6 +42,9 @@ export type Review = {
   author: string;
   verdict: string;
   engine: string;
+  model?: string;
+  effort?: string;
+  codex_version?: string;
   head_sha: string;
   reviewed_at: string;
   duration_secs: number;
@@ -73,6 +76,14 @@ export type Bucket = {
 
 export type StatsResponse = {
   buckets: Bucket[];
+};
+
+export type MetricsResponse = {
+  summary: { reviews: number; tokens_used: number; median_duration_secs: number };
+  verdicts: Record<string, number>;
+  activity: { day: string; reviews: number; tokens_used: number }[];
+  models: { model: string; effort: string; codex_version: string; reviews: number; tokens_used: number; median_duration_secs: number }[];
+  scatter: { model: string; effort: string; verdict: string; tokens_used: number; duration_secs: number }[];
 };
 
 export type UsageWindow = {

@@ -181,6 +181,17 @@ func Read() Config {
 // Write persists the config (0600 file, 0700 dirs, via creds.Store).
 func Write(cfg Config) error { return store().Save(cfg) }
 
+// Update applies mutate to one current config snapshot, then persists it. It
+// keeps every config command on the same read-once/write-once transaction
+// shape without implying cross-process locking.
+func Update(mutate func(*Config) error) error {
+	cfg := Read()
+	if err := mutate(&cfg); err != nil {
+		return err
+	}
+	return Write(cfg)
+}
+
 // Path exposes the config file location for the `config path` command.
 func Path() string { return filePath() }
 

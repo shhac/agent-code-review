@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -37,6 +38,26 @@ func TestDefaults(t *testing.T) {
 	}
 	if got := c.DashboardAddr(); got != ":8330" {
 		t.Errorf("DashboardAddr default = %q, want :8330", got)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := Update(func(c *Config) error {
+		c.GHUser = "alice"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Read().GHUser; got != "alice" {
+		t.Errorf("Update persisted GHUser = %q, want alice", got)
+	}
+	want := errors.New("stop")
+	if err := Update(func(*Config) error { return want }); !errors.Is(err, want) {
+		t.Errorf("Update callback error = %v, want %v", err, want)
+	}
+	if got := Read().GHUser; got != "alice" {
+		t.Errorf("failed Update must not write, GHUser = %q", got)
 	}
 }
 

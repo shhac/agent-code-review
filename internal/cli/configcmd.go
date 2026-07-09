@@ -116,14 +116,16 @@ func stringKey(name, desc string, field func(*config.Config) *string, validate f
 					return err
 				}
 			}
-			cfg := config.Read()
-			*field(&cfg) = value
-			return config.Write(cfg)
+			return config.Update(func(cfg *config.Config) error {
+				*field(cfg) = value
+				return nil
+			})
 		},
 		Unset: func() error {
-			cfg := config.Read()
-			*field(&cfg) = ""
-			return config.Write(cfg)
+			return config.Update(func(cfg *config.Config) error {
+				*field(cfg) = ""
+				return nil
+			})
 		},
 	}
 }
@@ -145,14 +147,16 @@ func optionalBoolKey(name, desc string, field func(*config.Config) **bool) libcl
 			if err != nil {
 				return output.New("Value must be true or false, got "+value, output.FixableByAgent)
 			}
-			cfg := config.Read()
-			*field(&cfg) = &b
-			return config.Write(cfg)
+			return config.Update(func(cfg *config.Config) error {
+				*field(cfg) = &b
+				return nil
+			})
 		},
 		Unset: func() error {
-			cfg := config.Read()
-			*field(&cfg) = nil
-			return config.Write(cfg)
+			return config.Update(func(cfg *config.Config) error {
+				*field(cfg) = nil
+				return nil
+			})
 		},
 	}
 }
@@ -174,14 +178,16 @@ func intKey(name, desc string, field func(*config.Config) *int, min, max int) li
 			if err != nil {
 				return err
 			}
-			cfg := config.Read()
-			*field(&cfg) = n
-			return config.Write(cfg)
+			return config.Update(func(cfg *config.Config) error {
+				*field(cfg) = n
+				return nil
+			})
 		},
 		Unset: func() error {
-			cfg := config.Read()
-			*field(&cfg) = 0
-			return config.Write(cfg)
+			return config.Update(func(cfg *config.Config) error {
+				*field(cfg) = 0
+				return nil
+			})
 		},
 	}
 }
@@ -205,14 +211,16 @@ func optionalIntKey(name, desc string, field func(*config.Config) **int, min, ma
 			if err != nil {
 				return err
 			}
-			cfg := config.Read()
-			*field(&cfg) = &n
-			return config.Write(cfg)
+			return config.Update(func(cfg *config.Config) error {
+				*field(cfg) = &n
+				return nil
+			})
 		},
 		Unset: func() error {
-			cfg := config.Read()
-			*field(&cfg) = nil
-			return config.Write(cfg)
+			return config.Update(func(cfg *config.Config) error {
+				*field(cfg) = nil
+				return nil
+			})
 		},
 	}
 }

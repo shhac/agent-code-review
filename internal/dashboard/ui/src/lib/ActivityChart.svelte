@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { maxOf } from './format';
   import type { Bucket } from './types';
 
   export let buckets: Bucket[] = [];
@@ -9,7 +10,7 @@
   // denominator. The bars themselves render inline from buckets.
   function chartScale(bs: Bucket[]) {
     const total = bs.reduce((n, b) => n + b.approved + b.commented + b.requested_changes, 0);
-    const max = Math.max(1, ...bs.map((b) => b.approved + b.commented + b.requested_changes));
+    const max = maxOf(bs, (b) => b.approved + b.commented + b.requested_changes);
     return { total, max };
   }
 </script>

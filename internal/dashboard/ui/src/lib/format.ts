@@ -4,6 +4,12 @@ import type { Candidate, UsageWindow } from './types';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
+// Largest value `sel` pulls across rows, floored so the result stays a safe
+// divisor for bar/scatter scaling even when rows is empty.
+export function maxOf<T>(rows: T[], sel: (r: T) => number, floor = 1) {
+  return Math.max(floor, ...rows.map(sel));
+}
+
 // Absolute local timestamp in the house style: "YYYY-MM-DD @ HH:MM:SS".
 // Accepts anything Date can parse (ISO strings, epoch millis, Dates).
 export function when(t: string | number | Date) {

@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { dur, durSecs, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
+import { dur, durSecs, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
+
+describe('maxOf', () => {
+  it('takes the largest selected value', () => {
+    expect(maxOf([{ n: 3 }, { n: 7 }, { n: 5 }], (r) => r.n)).toBe(7);
+  });
+  it('floors the result so it stays a safe divisor when rows is empty', () => {
+    expect(maxOf([], (r: { n: number }) => r.n)).toBe(1);
+    expect(maxOf([{ n: 0 }], (r) => r.n)).toBe(1);
+    expect(maxOf([], (r: { n: number }) => r.n, 2)).toBe(2);
+  });
+});
 
 describe('when', () => {
   it('renders the house YYYY-MM-DD @ HH:MM:SS style in local time', () => {

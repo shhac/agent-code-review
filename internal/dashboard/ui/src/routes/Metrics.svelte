@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getMetrics } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
-  import { durSecs, tokens } from '../lib/format';
+  import { durSecs, maxOf, tokens } from '../lib/format';
   import { metricFacets, scatterClass, scatterPos, trendPoints, verdictRing } from '../lib/metrics';
   import type { MetricsResponse } from '../lib/types';
 
@@ -13,11 +13,11 @@
   let data: MetricsResponse | null = null;
 
   $: ({ models, efforts } = metricFacets(data));
-  $: maxReviews = Math.max(1, ...(data?.activity || []).map((d) => d.reviews));
-  $: maxTokens = Math.max(1, ...(data?.activity || []).map((d) => d.tokens_used));
+  $: maxReviews = maxOf(data?.activity || [], (d) => d.reviews);
+  $: maxTokens = maxOf(data?.activity || [], (d) => d.tokens_used);
   $: tokenPoints = trendPoints(data?.activity || [], maxTokens);
-  $: scatterX = Math.max(1, ...(data?.scatter || []).map((p) => p.tokens_used));
-  $: scatterY = Math.max(1, ...(data?.scatter || []).map((p) => p.duration_secs));
+  $: scatterX = maxOf(data?.scatter || [], (p) => p.tokens_used);
+  $: scatterY = maxOf(data?.scatter || [], (p) => p.duration_secs);
   $: verdictTotal = Object.values(data?.verdicts || {}).reduce((a, b) => a + b, 0);
   $: approved = data?.verdicts.APPROVED || 0;
   $: commented = data?.verdicts.COMMENTED || 0;

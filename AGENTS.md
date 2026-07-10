@@ -105,8 +105,9 @@ internal/
     needed since the daemon already holds `:8330`.
   - **Iterate on the frontend** (hot reload, no rebuild): `cd
     internal/dashboard/ui && npm run dev`. Vite serves `ui/src` and proxies
-    `/api` to a running daemon at `127.0.0.1:8330` (repoint in
-    `vite.config.ts`). Best loop for UI work — real data, instant reload.
+    `/api` to a running daemon (default `127.0.0.1:8330`; target another with
+    the `ACR_API` env var, e.g. `ACR_API=http://127.0.0.1:9000 npm run dev`).
+    Best loop for UI work: real data, instant reload.
   - **Exercise a loop**: `serve --no-schedule` (dashboard only), then opt into
     `--no-reviews` (discovery only) or a scratch store (`XDG_CONFIG_HOME`/
     `XDG_DATA_HOME` to a temp dir, or `store.path` in a scratch config) before

@@ -26,7 +26,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8330',
+      // Point the dev server at a running daemon's API. Defaults to the
+      // standard local address; override to target a daemon on another port.
+      '/api': process.env.ACR_API || 'http://127.0.0.1:8330',
     },
   },
 });

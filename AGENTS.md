@@ -93,12 +93,24 @@ internal/
 
 ## Conventions
 
-- **Dev boots: never point a second live instance at the real store.** Run
-  `make dev ARGS="serve --no-schedule"` (dashboard only) by default, opting
-  into exactly what you're testing with `--no-reviews` (discovery only) or a
-  scratch store (`XDG_CONFIG_HOME`/`XDG_DATA_HOME` to a temp dir, or
-  `store.path` in a scratch config) before enabling the review loop — a dev
-  instance with reviews on will claim real PRs and spend real tokens.
+- **Dev boots: never point a second live _read-write_ instance at the real
+  store.** A write-open fights the daemon for the DuckDB file and a review loop
+  claims real PRs / spends real tokens. Pick the launch that matches what
+  you're testing — no rediscovery needed:
+  - **Inspect real data safely** (charts, history, the built/embedded dashboard
+    against production data): `make dev ARGS="serve --read-only --http
+    127.0.0.1:8399"`. Opens the store read-only — safe _alongside_ the running
+    daemon because DuckDB here is subprocess-per-statement — forces both loops
+    off, and lets the DB refuse any write. A non-default `--http` port is
+    needed since the daemon already holds `:8330`.
+  - **Iterate on the frontend** (hot reload, no rebuild): `cd
+    internal/dashboard/ui && npm run dev`. Vite serves `ui/src` and proxies
+    `/api` to a running daemon at `127.0.0.1:8330` (repoint in
+    `vite.config.ts`). Best loop for UI work — real data, instant reload.
+  - **Exercise a loop**: `serve --no-schedule` (dashboard only), then opt into
+    `--no-reviews` (discovery only) or a scratch store (`XDG_CONFIG_HOME`/
+    `XDG_DATA_HOME` to a temp dir, or `store.path` in a scratch config) before
+    enabling reviews.
 
 - `const`/early-return, avoid `as`-style casts (see `CLAUDE.local.md`).
 - Tests colocated as `_test.go`. `make test` runs everything; discovery,

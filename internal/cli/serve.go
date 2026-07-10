@@ -31,6 +31,7 @@ type serveOpts struct {
 	noSchedule    bool
 	noDiscovery   bool
 	noReviews     bool
+	readOnly      bool
 	version       string // the root command's ldflags-injected build version
 }
 
@@ -59,12 +60,17 @@ func registerServe(root *cobra.Command) {
 	f.BoolVar(&opts.noSchedule, "no-schedule", false, "Serve the dashboard only; run neither loop")
 	f.BoolVar(&opts.noDiscovery, "no-discovery", false, "Don't run the discovery loop this boot (overrides discovery.enabled)")
 	f.BoolVar(&opts.noReviews, "no-reviews", false, "Don't run the review loop this boot (overrides schedule.enabled)")
+	f.BoolVar(&opts.readOnly, "read-only", false, "Inspect-only: open the store read-only (safe alongside a running daemon) and run neither loop")
 	root.AddCommand(cmd)
 }
 
 func runServe(ctx context.Context, opts serveOpts) error {
 	cfg := config.Read()
-	s, err := openStore(cfg)
+	openFn := openStore
+	if opts.readOnly {
+		openFn = openStoreReadOnly
+	}
+	s, err := openFn(cfg)
 	if err != nil {
 		return err
 	}
@@ -78,6 +84,9 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		logs.Addf(format, args...)
 	}
 	logf("serve: starting (pid %d)", os.Getpid())
+	if opts.readOnly {
+		logf("serve: read-only mode — store opened read-only, both loops disabled")
+	}
 
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -133,10 +142,13 @@ func runServe(ctx context.Context, opts serveOpts) error {
 
 // runningLoops resolves the per-boot switch state. Config supplies defaults;
 // command flags only ever turn a loop off for this daemon process.
+// --read-only forces both off — the loops can't claim or record against a
+// read-only store.
 func runningLoops(opts serveOpts, cfg config.Config) dashboard.Running {
+	off := opts.noSchedule || opts.readOnly
 	return dashboard.Running{
-		Discovery: !opts.noSchedule && !opts.noDiscovery && cfg.DiscoveryEnabled(),
-		Review:    !opts.noSchedule && !opts.noReviews && cfg.ScheduleEnabled(),
+		Discovery: !off && !opts.noDiscovery && cfg.DiscoveryEnabled(),
+		Review:    !off && !opts.noReviews && cfg.ScheduleEnabled(),
 	}
 }
 

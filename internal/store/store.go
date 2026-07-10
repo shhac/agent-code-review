@@ -99,9 +99,20 @@ type Store interface {
 // Open returns a Store for the given engine + path. Only "duckdb" (and its
 // empty-string default) is wired today.
 func Open(engine, path string) (Store, error) {
+	return open(engine, path, false)
+}
+
+// OpenReadOnly returns a Store that can only read: it attaches to an existing
+// DB without applying the schema, and refuses every write. Use it to inspect
+// the live daemon's data without risking a mutation or a lock fight.
+func OpenReadOnly(engine, path string) (Store, error) {
+	return open(engine, path, true)
+}
+
+func open(engine, path string, readOnly bool) (Store, error) {
 	switch engine {
 	case "", "duckdb":
-		return newDuckDB(path)
+		return newDuckDB(path, readOnly)
 	default:
 		return nil, fmt.Errorf("Unknown store engine: %q. Valid: duckdb", engine)
 	}

@@ -59,6 +59,48 @@ func getQueued(t *testing.T, s Store, repo string, number int) (Candidate, bool)
 	return Candidate{}, false
 }
 
+// TestReadOnlyStoreReadsButRefusesWrites covers the inspect-only store used by
+// `serve --read-only`: it attaches to an existing DB without applying the schema,
+// can read, and lets DuckDB refuse any write.
+func TestReadOnlyStoreReadsButRefusesWrites(t *testing.T) {
+	if _, err := exec.LookPath("duckdb"); err != nil {
+		t.Skip("duckdb CLI not on PATH")
+	}
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "ro.duckdb")
+
+	// Seed one queue row through a normal read-write store.
+	rw, err := Open("duckdb", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rw.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := rw.Enqueue(ctx, Candidate{Repo: "o/r", Number: 7, Type: TypeNew, URL: "u", HeadSHA: "sha1", DiscoveredAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	_ = rw.Close()
+
+	// A read-only store attaches (no schema write) and can read the seeded row.
+	ro, err := OpenReadOnly("duckdb", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ro.Close() })
+	if err := ro.Init(ctx); err != nil {
+		t.Fatalf("read-only Init should validate reachability, got %v", err)
+	}
+	if _, ok := getQueued(t, ro, "o/r", 7); !ok {
+		t.Fatal("read-only store did not see the seeded row")
+	}
+
+	// Writes are refused by DuckDB itself — no per-method guard needed.
+	if err := ro.Enqueue(ctx, Candidate{Repo: "o/r", Number: 8, Type: TypeNew}); err == nil {
+		t.Fatal("read-only store accepted a write")
+	}
+}
+
 // TestIsAuthorAllowed covers the store half of the approval gate — the single
 // query that decides whether a PR may be APPROVED at all.
 func TestIsAuthorAllowed(t *testing.T) {

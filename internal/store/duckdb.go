@@ -20,13 +20,19 @@ var schemaSQL string
 // process against the same file, exactly like agent-sql's driver. A mutex
 // serializes access because DuckDB is single-writer per file and the daemon
 // reviews up to N PRs concurrently.
+//
+// readOnly runs every statement with the CLI's -readonly flag: since each
+// statement is its own short-lived process, a read-only reader can safely
+// inspect the file alongside the live daemon, and any write is refused by
+// DuckDB itself rather than needing per-method guards.
 type duckDB struct {
-	bin  string
-	path string
-	mu   sync.Mutex
+	bin      string
+	path     string
+	readOnly bool
+	mu       sync.Mutex
 }
 
-func newDuckDB(path string) (*duckDB, error) {
+func newDuckDB(path string, readOnly bool) (*duckDB, error) {
 	if path == "" {
 		return nil, stderrors.New("store path is empty")
 	}
@@ -40,10 +46,15 @@ func newDuckDB(path string) (*duckDB, error) {
 	if _, err := exec.LookPath(bin); err != nil {
 		return nil, fmt.Errorf("DuckDB CLI not found (%s). Install with: brew install duckdb", bin)
 	}
-	return &duckDB{bin: bin, path: path}, nil
+	return &duckDB{bin: bin, path: path, readOnly: readOnly}, nil
 }
 
 func (d *duckDB) Init(ctx context.Context) error {
+	// Applying the schema is a write; a read-only store attaches to an existing
+	// DB, so validate reachability with a trivial read instead.
+	if d.readOnly {
+		return d.exec(ctx, "SELECT 1")
+	}
 	return d.exec(ctx, schemaSQL)
 }
 
@@ -55,7 +66,11 @@ func (d *duckDB) query(ctx context.Context, sql string) ([]map[string]any, error
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	args := []string{"-cmd", ".mode jsonlines", d.path, "-c", sql}
+	args := []string{"-cmd", ".mode jsonlines"}
+	if d.readOnly {
+		args = append(args, "-readonly")
+	}
+	args = append(args, d.path, "-c", sql)
 	cmd := exec.CommandContext(ctx, d.bin, args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

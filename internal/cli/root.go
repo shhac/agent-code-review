@@ -50,7 +50,17 @@ func Run(version string) { libcli.Run(newRootCmd(version)) }
 
 // openStore opens and initializes the configured store. Callers own Close.
 func openStore(cfg config.Config) (store.Store, error) {
-	s, err := store.Open(cfg.Store.Engine, cfg.StorePath())
+	return initStore(store.Open(cfg.Store.Engine, cfg.StorePath()))
+}
+
+// openStoreReadOnly opens the configured store for reading only — it attaches
+// to the existing DB without applying the schema and refuses writes, so it can
+// safely inspect data the live daemon owns.
+func openStoreReadOnly(cfg config.Config) (store.Store, error) {
+	return initStore(store.OpenReadOnly(cfg.Store.Engine, cfg.StorePath()))
+}
+
+func initStore(s store.Store, err error) (store.Store, error) {
 	if err != nil {
 		return nil, err
 	}

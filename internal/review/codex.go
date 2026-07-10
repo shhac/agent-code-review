@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 )
@@ -28,7 +30,18 @@ type codexEngine struct {
 	effort  string
 	sandbox string
 	args    []string
+
+	// codex --version is constant for a given install, so a burst of reviews
+	// shouldn't re-exec the probe for each one. codexVersion caches it briefly.
+	versionMu sync.Mutex
+	version   string
+	versionAt time.Time
 }
+
+// codexVersionTTL bounds how long a probed `codex --version` is reused. Short
+// enough that a CLI upgrade is picked up within seconds, long enough to collapse
+// the per-review probes during a review burst.
+const codexVersionTTL = 10 * time.Second
 
 func newCodex(c config.CodexSettings) *codexEngine {
 	bin := c.Bin
@@ -47,12 +60,24 @@ func newCodex(c config.CodexSettings) *codexEngine {
 func (e *codexEngine) Name() string { return "codex" }
 
 func (e *codexEngine) Provenance(ctx context.Context) Provenance {
-	out, err := exec.CommandContext(ctx, e.bin, "--version").Output()
-	version := ""
-	if err == nil {
-		version = strings.TrimSpace(string(out))
+	return Provenance{Engine: e.Name(), Model: e.model, Effort: e.effort, CodexVersion: e.codexVersion(ctx)}
+}
+
+// codexVersion returns the CLI version string, re-probing at most once per
+// codexVersionTTL. A failed probe is not cached, so the next call retries; the
+// previously cached value (or "") is returned meanwhile.
+func (e *codexEngine) codexVersion(ctx context.Context) string {
+	e.versionMu.Lock()
+	defer e.versionMu.Unlock()
+	if e.version != "" && time.Since(e.versionAt) < codexVersionTTL {
+		return e.version
 	}
-	return Provenance{Engine: e.Name(), Model: e.model, Effort: e.effort, CodexVersion: version}
+	out, err := exec.CommandContext(ctx, e.bin, "--version").Output()
+	if err == nil {
+		e.version = strings.TrimSpace(string(out))
+		e.versionAt = time.Now()
+	}
+	return e.version
 }
 
 // verdictSchema constrains the agent's messages. codex applies the schema to

@@ -26,7 +26,7 @@ type ghPR struct {
 	ReviewRequests []ghActor  `json:"reviewRequests"`
 	Reviews        []ghReview `json:"reviews"`
 	// ReviewDecision is GitHub's computed current state (APPROVED,
-	// CHANGES_REQUESTED, REVIEW_REQUIRED, or empty) — unlike the raw reviews
+	// CHANGES_REQUESTED, REVIEW_REQUIRED, or empty); unlike the raw reviews
 	// list, it accounts for stale/dismissed approvals.
 	ReviewDecision string `json:"reviewDecision"`
 	// State (OPEN | CLOSED | MERGED) is only populated by `gh pr view`; the
@@ -99,7 +99,7 @@ func StillCandidate(ctx context.Context, repo string, number int) (bool, string,
 }
 
 // stillCandidateFromJSON applies the live-state gate plus the shared
-// candidacy gates to a `gh pr view` payload. Pure — the state and gate
+// candidacy gates to a `gh pr view` payload. Pure: the state and gate
 // branches are table-tested from canned JSON, mirroring parsePRMetadata.
 func stillCandidateFromJSON(out []byte) (bool, string, error) {
 	var pr ghPR
@@ -114,7 +114,7 @@ func stillCandidateFromJSON(out []byte) (bool, string, error) {
 }
 
 // ManualCandidate fetches a PR's live metadata and shapes it as a queued
-// candidate — the manual-add path for both the CLI and the dashboard. Closed
+// candidate: the manual-add path for both the CLI and the dashboard. Closed
 // or merged PRs are rejected: there is nothing left to review.
 func ManualCandidate(ctx context.Context, repo string, number int) (store.Candidate, error) {
 	meta, err := FetchPR(ctx, repo, number)
@@ -125,11 +125,11 @@ func ManualCandidate(ctx context.Context, repo string, number int) (store.Candid
 }
 
 // candidateFromMetadata applies the manual-add gate (open PRs only) and shapes
-// the metadata as a queued candidate. Pure — the state gate and field mapping
+// the metadata as a queued candidate. Pure: the state gate and field mapping
 // are unit-tested without gh.
 func candidateFromMetadata(repo string, number int, meta PRMetadata) (store.Candidate, error) {
 	if meta.State != "OPEN" {
-		return store.Candidate{}, fmt.Errorf("PR %s#%d is %s — only open PRs can be queued", repo, number, meta.State)
+		return store.Candidate{}, fmt.Errorf("PR %s#%d is %s: only open PRs can be queued", repo, number, meta.State)
 	}
 	return store.Candidate{
 		Repo:         repo,
@@ -159,7 +159,7 @@ func FetchPR(ctx context.Context, repo string, number int) (PRMetadata, error) {
 	return parsePRMetadata(out)
 }
 
-// parsePRMetadata maps `gh pr view --json` output to PRMetadata. Pure — the
+// parsePRMetadata maps `gh pr view --json` output to PRMetadata. Pure: the
 // field mapping is unit-tested from canned JSON.
 func parsePRMetadata(out []byte) (PRMetadata, error) {
 	var raw struct {
@@ -199,7 +199,7 @@ func (p ghPR) hasAnyReview() bool {
 	return false
 }
 
-// isApproved reports whether GitHub's computed review decision is APPROVED —
+// isApproved reports whether GitHub's computed review decision is APPROVED:
 // an approved PR is already unblocked, so there's nothing for this tool to do.
 // Deliberately NOT derived from the raw reviews list: a past approval made
 // stale by new commits must not block a Refreshed re-review.

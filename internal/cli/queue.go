@@ -64,7 +64,7 @@ func queueAddCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				// Fetch real metadata up front — discovery only backfills PRs
+				// Fetch real metadata up front; discovery only backfills PRs
 				// that match the candidate rules, which a manual add may not.
 				c, err := discover.ManualCandidate(cmd.Context(), repo, number)
 				if err != nil {
@@ -114,7 +114,7 @@ func queuePromoteCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				// The explicit "review this now" escape hatch — unlike a drag
+				// The explicit "review this now" escape hatch: unlike a drag
 				// reorder, this clears cooldown/settling holds and escalates
 				// the row to manual (bypassing the pre-review recheck).
 				if err := s.Promote(cmd.Context(), repo, number); err != nil {
@@ -139,7 +139,7 @@ func queueSkipCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				// The history row needs the queued head SHA — and a skip of a
+				// The history row needs the queued head SHA, and a skip of a
 				// PR that isn't queued would leave a dangling outcome, so
 				// missing is an error rather than a silent no-op.
 				c, found, err := findQueued(cmd.Context(), s, repo, number)

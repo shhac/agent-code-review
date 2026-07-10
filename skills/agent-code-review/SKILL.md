@@ -12,14 +12,14 @@ allowed-tools: Bash(agent-code-review *) Read Grep Glob
 
 # PR review queue with `agent-code-review`
 
-`agent-code-review` is a CLI binary on `$PATH`. Default output is **NDJSON** —
+`agent-code-review` is a CLI binary on `$PATH`. Default output is **NDJSON**:
 one JSON record per line on stdout. Errors go to stderr as one JSON line
 `{"error": "...", "fixable_by": "agent"|"human"|"retry", "hint": "..."}` with a
 non-zero exit.
 
 It maintains a DuckDB-backed queue of candidate PRs and reviews them with a
 pluggable engine (default: Codex). Configuration lives at
-`~/.config/agent-code-review/config.json` — repos, the approval allow-list, age
+`~/.config/agent-code-review/config.json`: repos, the approval allow-list, age
 thresholds, schedule, and the review prompt + rules.
 
 ## Inspect the queue
@@ -33,7 +33,7 @@ The queue holds only pending work, FIFO by first discovery; a row with
 `claimed_at` set is being reviewed right now, and a row with `eligible_at` in
 the future is **on hold** (`hold_reason`: `settling` = the PR was pushed or
 edited within `candidates.quiet_period`; `cooldown` = we reviewed it within
-`candidates.rereview_cooldown`) — review cycles skip it until then. Completed
+`candidates.rereview_cooldown`); review cycles skip it until then. Completed
 outcomes live in history (see the dashboard's History page).
 
 ## Manage candidates
@@ -46,7 +46,7 @@ agent-code-review queue rm      owner/name 1234   # remove, recording nothing
 agent-code-review queue log     owner/name 1234 -f # stream the review agent's log (live or postmortem)
 ```
 
-## Manage allowed authors (whose PRs we may approve — per repo, in DuckDB)
+## Manage allowed authors (whose PRs we may approve, per repo, in DuckDB)
 
 ```bash
 agent-code-review authors allow owner/name alice --name "Alice" --slack-id U01
@@ -76,7 +76,7 @@ agent-code-review config show      # current config (NDJSON)
 ```
 
 See `config.example.json` in the repo for the full shape. The CLI never
-hardcodes repos or GitHub handles — everything is config.
+hardcodes repos or GitHub handles; everything is config.
 
 ## Notes
 

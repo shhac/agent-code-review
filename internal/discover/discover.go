@@ -67,7 +67,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 	for _, repo := range cfg.Repos {
 		prs, err := d.listPRs(ctx, repo)
 		if err != nil {
-			d.logf("discover %s: %v — skipping repo this cycle", repo, err)
+			d.logf("discover %s: %v, skipping repo this cycle", repo, err)
 			failed++
 			lastErr = err
 			continue
@@ -92,7 +92,7 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 	return found, nil
 }
 
-// ghListPRs fetches open PRs for one repo with the fields we classify on —
+// ghListPRs fetches open PRs for one repo with the fields we classify on:
 // the production listPRs.
 func (d *Discoverer) ghListPRs(ctx context.Context, repo string) ([]ghPR, error) {
 	out, err := runGH(ctx, "pr", "list",
@@ -122,7 +122,7 @@ func candidacyGate(pr ghPR) (bool, string) {
 	if !pr.hasOpenReviewRequest() {
 		return false, "no open review request"
 	}
-	// An approved PR is already unblocked — nothing for this tool to do.
+	// An approved PR is already unblocked: nothing for this tool to do.
 	if pr.isApproved() {
 		return false, "already approved"
 	}
@@ -150,7 +150,7 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	}
 	now := d.now()
 
-	// Suppression: any recorded outcome — real review, skip, or error — at
+	// Suppression: any recorded outcome (real review, skip, or error) at
 	// the PR's CURRENT head SHA means there is nothing new to do; without
 	// this every sweep would re-enqueue skipped PRs (and re-enqueue reviewed
 	// ones whenever the engine's posted review hasn't landed on gh yet).
@@ -195,7 +195,7 @@ func classifyType(pr ghPR, cfg config.Config, now time.Time, last store.Review, 
 	// history (LastReview filters out SKIPPED/ERROR), not gh state. The SHA
 	// inequality is redundant while every real review also lands in history
 	// (classify's same-SHA suppression already returned for a current-SHA
-	// outcome) — kept as cheap insurance so Refreshed stays correct even if
+	// outcome), kept as cheap insurance so Refreshed stays correct even if
 	// that invariant ever breaks.
 	case reviewed && last.HeadSHA != pr.HeadRefOID && now.Sub(pr.CreatedAt) <= cfg.RefreshedMaxAge():
 		return store.TypeRefreshed, true
@@ -205,9 +205,9 @@ func classifyType(pr ghPR, cfg config.Config, now time.Time, last store.Review, 
 }
 
 // hold computes a discovered candidate's eligibility hold: the later of the
-// quiet-period bound (the PR must sit untouched before we review it — a PR
+// quiet-period bound (the PR must sit untouched before we review it; a PR
 // being actively pushed to or edited isn't done) and the cooldown bound (we
-// reviewed it recently — give the author room to finish responding). nil
+// reviewed it recently; give the author room to finish responding). nil
 // means eligible now. Manual adds never pass through here, which is exactly
 // the bypass: an explicit request is reviewed regardless of holds.
 func hold(now time.Time, cfg config.Config, updatedAt, lastReviewedAt time.Time) (*time.Time, string) {

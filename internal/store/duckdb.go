@@ -93,7 +93,7 @@ func (d *duckDB) exec(ctx context.Context, sql string) error {
 	return err
 }
 
-// mapRows scans every result row through one scanner — the shared tail of all
+// mapRows scans every result row through one scanner: the shared tail of all
 // List* methods, so none can forget the preallocation or empty-slice contract.
 func mapRows[T any](rows []map[string]any, scan func(map[string]any) T) []T {
 	out := make([]T, 0, len(rows))

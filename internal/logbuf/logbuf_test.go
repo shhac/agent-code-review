@@ -58,7 +58,7 @@ func TestCapacityClamp(t *testing.T) {
 }
 
 // The ring's reason to exist is concurrent writers (scheduler, discovery,
-// HTTP server) against a polling reader — exercise that under -race.
+// HTTP server) against a polling reader; exercise that under -race.
 func TestConcurrentAddAndTail(t *testing.T) {
 	r := New(16)
 	var wg sync.WaitGroup

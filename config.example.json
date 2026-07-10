@@ -28,22 +28,22 @@
   },
   "review": {
     "engine": "codex",
-    "//main_prompt_note": "The tool assumes only the gh and codex CLIs. Your prompt may direct the agent to use anything else you have set up (skills such as pr-issue-review, extra CLIs such as agent-* tools) — that is your prompt's business, and you grant any extra access via codex.args.",
+    "//main_prompt_note": "The tool assumes only the gh and codex CLIs. Your prompt may direct the agent to use anything else you have set up (skills such as pr-issue-review, extra CLIs such as agent-* tools); that is your prompt's business, and you grant any extra access via codex.args.",
     "main_prompt": "Act as a friendly PR unblocker. Review this pull request thoroughly: read the diff, the PR description, and any linked context via the gh CLI. Leave one GitHub review with inline comments that help the author move forward.",
-    "//post_outcome_note": "on_approve / on_comment / on_reject run after the agent lands on that outcome (reject = requested changes). Put your workspace-specific conventions here — team channels, emoji rituals, notification tooling — the tool ships none of that.",
+    "//post_outcome_note": "on_approve / on_comment / on_reject run after the agent lands on that outcome (reject = requested changes). Put your workspace-specific conventions here (team channels, emoji rituals, notification tooling); the tool ships none of that.",
     "on_approve": "",
     "on_comment": "",
     "on_reject": "",
-    "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is on the allowed-authors list for this repo and it isn't self-authored) — you do not need a rule for it. Rules add EXTRA instructions when their condition matches.",
+    "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is on the allowed-authors list for this repo and it isn't self-authored); you do not need a rule for it. Rules add EXTRA instructions when their condition matches.",
     "rules": [],
     "codex": {
       "bin": "codex",
-      "//model_note": "Leave empty to use codex's own default model. To pin one, pick a valid id from `codex debug models` — an invalid id fails every review with a 400.",
+      "//model_note": "Leave empty to use codex's own default model. To pin one, pick a valid id from `codex debug models`; an invalid id fails every review with a 400.",
       "model": "",
       "//effort_note": "Leave empty to use the selected model's default reasoning effort. To pin one, use an effort the selected model supports (today commonly low, medium, high, or xhigh).",
       "effort": "",
       "sandbox": "workspace-write",
-      "//args_note": "workspace-write disables network by default, but the agent must reach GitHub via gh — this override re-enables network while keeping writes scoped to the per-PR workdir.",
+      "//args_note": "workspace-write disables network by default, but the agent must reach GitHub via gh; this override re-enables network while keeping writes scoped to the per-PR workdir.",
       "args": ["-c", "sandbox_workspace_write.network_access=true"]
     }
   },

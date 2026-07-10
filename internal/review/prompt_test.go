@@ -151,7 +151,7 @@ func TestParseVerdict(t *testing.T) {
 	if _, err := parseVerdict([]byte(`{"decision":"ERROR","summary":"x"}`)); err == nil {
 		t.Error("agent must not be able to report ERROR")
 	}
-	// WORKING is the intermediate progress marker — a run that ends on it
+	// WORKING is the intermediate progress marker; a run that ends on it
 	// was cut short and must not record an outcome.
 	if _, err := parseVerdict([]byte(`{"decision":"WORKING","summary":"still reading the diff"}`)); err == nil {
 		t.Error("a final WORKING report must be rejected")

@@ -19,8 +19,8 @@ import (
 )
 
 // codexEngine invokes `codex exec` non-interactively with the assembled prompt.
-// The agent performs the review itself — posting the approve/comment to GitHub
-// and running any post-approve steps — and then REPORTS BACK what it did as a
+// The agent performs the review itself (posting the approve/comment to GitHub
+// and running any post-approve steps) and then REPORTS BACK what it did as a
 // schema-constrained final message (--output-schema + --output-last-message),
 // which this driver parses into a Verdict. The engine never posts the review;
 // it only launches the agent and reads the report.
@@ -82,7 +82,7 @@ func (e *codexEngine) codexVersion(ctx context.Context) string {
 
 // verdictSchema constrains the agent's messages. codex applies the schema to
 // EVERY assistant message in the run, not just the final report, so WORKING
-// exists as the honest value for intermediate progress notes — without it
+// exists as the honest value for intermediate progress notes; without it
 // the agent overloads SKIPPED for "I'm still investigating". ERROR is
 // deliberately absent: it is this driver's own value for "the invocation
 // failed", never something the agent reports.
@@ -118,7 +118,7 @@ func LogPath(workDir string) string {
 // message is a machine-read report, not prose.
 const reportingInstruction = `
 
-Every message you emit matches the provided output schema. While you are still working, use {"decision": "WORKING", "summary": "<progress note>"} for intermediate updates. When you are completely finished, your FINAL message must report the outcome: {"decision": "APPROVED"|"COMMENTED"|"REQUESTED_CHANGES"|"SKIPPED", "summary": "..."}. The final decision must reflect what you ACTUALLY did on GitHub — APPROVED only if you submitted an approving review, COMMENTED if you left a review or comments without approving, REQUESTED_CHANGES if you submitted a request-changes review, SKIPPED if you did not review this PR (explain why in the summary). Never end on WORKING.`
+Every message you emit matches the provided output schema. While you are still working, use {"decision": "WORKING", "summary": "<progress note>"} for intermediate updates. When you are completely finished, your FINAL message must report the outcome: {"decision": "APPROVED"|"COMMENTED"|"REQUESTED_CHANGES"|"SKIPPED", "summary": "..."}. The final decision must reflect what you ACTUALLY did on GitHub: APPROVED only if you submitted an approving review, COMMENTED if you left a review or comments without approving, REQUESTED_CHANGES if you submitted a request-changes review, SKIPPED if you did not review this PR (explain why in the summary). Never end on WORKING.`
 
 func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) {
 	workDir := req.WorkDir
@@ -146,7 +146,7 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 	runErr := cmd.Run()
 	raw := buf.String()
 
-	// Prefer the report file even when the process exited non-zero — a partial
+	// Prefer the report file even when the process exited non-zero; a partial
 	// run may still have written a valid final message.
 	tokens := parseTokensUsed(raw)
 	verdict, parseErr := parseVerdictFile(lastMsgPath)
@@ -165,7 +165,7 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 // buffer (it feeds Verdict.Raw for error surfacing) teed into the workdir's
 // live agent log (see LogPath) as the run progresses, so the CLI's
 // `queue log` and the dashboard's per-review page can watch it. A workspace
-// that can't hold the log file degrades to buffer-only — diagnostics must
+// that can't hold the log file degrades to buffer-only; diagnostics must
 // survive even when the live view can't.
 func newAgentSink(workDir string) (io.Writer, *bytes.Buffer, func()) {
 	buf := &bytes.Buffer{}
@@ -176,7 +176,7 @@ func newAgentSink(workDir string) (io.Writer, *bytes.Buffer, func()) {
 	return io.MultiWriter(buf, logFile), buf, func() { _ = logFile.Close() }
 }
 
-// buildArgs assembles the codex exec invocation. Pure — the CLI contract
+// buildArgs assembles the codex exec invocation. Pure. The CLI contract
 // (flag set, extra args, reporting instruction appended to the prompt) is
 // pinned by table tests instead of live codex runs.
 func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string) []string {

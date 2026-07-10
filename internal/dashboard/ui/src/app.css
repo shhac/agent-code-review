@@ -115,7 +115,7 @@ button:hover, .show:hover { transform: translateY(-1px); }
   padding: 16px 18px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; box-shadow: none;
   cursor: pointer;
 }
-/* "up next" divider between pinned reviewing rows and the reorderable rest —
+/* "up next" divider between pinned reviewing rows and the reorderable rest,
    a pseudo-element (not a sibling node) because animate:flip requires the
    ticket to be the each-block's sole child. */
 .ticket.up-next::before {
@@ -136,7 +136,7 @@ button:hover, .show:hover { transform: translateY(-1px); }
 .grip:active { cursor: grabbing; }
 .grip.pinned { cursor: default; }
 /* The dragged row's in-list slot: a dashed placeholder showing where it will
-   land, while the browser's semi-transparent drag image (the whole ticket —
+   land, while the browser's semi-transparent drag image (the whole ticket,
    see dragStart's setDragImage) floats with the cursor. */
 .ticket.dragging {
   outline: 1.5px dashed var(--accent);
@@ -334,7 +334,7 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
   margin: 0; padding: 0; background: transparent; border: 0;
   font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
 }
-/* escape .terminal p's two-column grid — bubbles own their layout */
+/* escape .terminal p's two-column grid; bubbles own their layout */
 .log-bubble p { display: block; margin: 0; white-space: pre-wrap; word-break: break-word; }
 .log-bubble.codex { border-left-color: var(--accent); }
 .log-bubble.codex .kind { color: var(--accent); }

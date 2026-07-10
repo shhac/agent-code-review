@@ -39,7 +39,7 @@ func TestMetricsForBucketsDaysAndSortsGroups(t *testing.T) {
 		{Model: "gpt-5.5", Effort: "high", CodexVersion: "v1", Verdict: "COMMENTED", TokensUsed: 100, DurationSecs: 30, ReviewedAt: time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)},
 		// group B (gpt-5.6/medium/v2): 1 review whose western-evening local time rolls into 07-09 UTC.
 		{Model: "gpt-5.6", Effort: "medium", CodexVersion: "v2", Verdict: "APPROVED", TokensUsed: 50, DurationSecs: 20, ReviewedAt: time.Date(2026, 7, 8, 22, 0, 0, 0, west)},
-		// group C (gpt-6/low/v3): 3 reviews on 07-10 — the largest group.
+		// group C (gpt-6/low/v3): 3 reviews on 07-10: the largest group.
 		{Model: "gpt-6", Effort: "low", CodexVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)},
 		{Model: "gpt-6", Effort: "low", CodexVersion: "v3", Verdict: "SKIPPED", TokensUsed: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 2, 0, 0, 0, time.UTC)},
 		{Model: "gpt-6", Effort: "low", CodexVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 3, 0, 0, 0, time.UTC)},

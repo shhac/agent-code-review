@@ -35,7 +35,7 @@ export function ago(t: string) {
 }
 
 // Relative time until a FUTURE timestamp ("42m", "1h42m", "2d3h"); "" once
-// it has passed (or was never set) — the countdown shown on held queue rows.
+// it has passed (or was never set): the countdown shown on held queue rows.
 // Compound units past the hour: "1.7h" reads like a measurement, "1h42m"
 // like a countdown.
 export function untilRel(t: string | undefined) {
@@ -52,7 +52,7 @@ export function untilRel(t: string | undefined) {
 }
 
 // Human duration from a seconds count ("42s", "8m", "1.5h"). Zero and
-// negative render as "" — history rows backfilled before duration tracking
+// negative render as ""; history rows backfilled before duration tracking
 // carry 0, which means unknown, not instant.
 export function durSecs(s: number) {
   if (!s || s <= 0) return '';

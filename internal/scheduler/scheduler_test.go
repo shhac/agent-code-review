@@ -86,7 +86,7 @@ func (f *reconcileStore) ClearClaim(_ context.Context, _ string, number int) err
 }
 
 // TestReconcile pins the crash-recovery boundary: only THIS host's dead-pid
-// leftovers are released — live pids (a sibling instance mid-review) and
+// leftovers are released; live pids (a sibling instance mid-review) and
 // other hosts' state are untouched.
 func TestReconcile(t *testing.T) {
 	host, err := os.Hostname()

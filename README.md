@@ -10,9 +10,9 @@ you can expose over Tailscale.
   already-approved PRs are skipped, and repos can be scoped to allowed authors
   only (`repos add --allowed-authors-only`).
 - **Eligibility holds**: discovered candidates wait out a **quiet period**
-  (`candidates.quiet_period`, default 15m — don't review a PR mid-rebase or
+  (`candidates.quiet_period`, default 15m: don't review a PR mid-rebase or
   mid-fix push) and a **re-review cooldown** (`candidates.rereview_cooldown`,
-  default 90m — give the author room to respond to the last review). Held PRs
+  default 90m: give the author room to respond to the last review). Held PRs
   sit visibly in the queue and are skipped by review cycles until eligible;
   `queue promote` or a manual add bypasses holds. This is what makes a tight
   review cadence cheap: only genuinely actionable work spends tokens.
@@ -131,19 +131,19 @@ Global flags come from `lib-agent-cli`: `-f/--format`, `-t/--timeout`,
   old (default 21).
 
 In both cases the PR must not be currently approved (it's already unblocked),
-and any recorded outcome — review, skip, or error — at the PR's current head
+and any recorded outcome (review, skip, or error) at the PR's current head
 SHA suppresses re-enqueueing until new commits change the SHA.
 
 Discovered candidates can carry an **eligibility hold**, computed at discovery
 time as the later of two bounds and stored on the queue row (`eligible_at` +
 `hold_reason`):
 
-- **settling** — the PR was pushed to or edited within
+- **settling**: the PR was pushed to or edited within
   `candidates.quiet_period` (default 15m). Authors often mark a PR ready and
   then rebase once more or fix the title; every update pushes the bound out.
-- **cooldown** — we posted a real review within
+- **cooldown**: we posted a real review within
   `candidates.rereview_cooldown` (default 90m). The common rhythm is "agent
-  requests changes, author fixes finding 1 of 3 and pushes" — without the
+  requests changes, author fixes finding 1 of 3 and pushes"; without the
   cooldown, that first push would immediately burn a re-review.
 
 Held rows stay visible in the queue (badged, with a countdown) but review
@@ -160,7 +160,7 @@ within one sweep), up to `schedule.max_parallel` (default 4) at a time. Just
 before the engine runs, discovered candidates are re-checked: PRs approved,
 closed, or merged while waiting in the queue complete as a precheck SKIPPED
 instead of spending a review. Manual adds (`queue add`, dashboard) bypass
-that recheck — an explicit request always goes through.
+that recheck; an explicit request always goes through.
 
 The review loop itself defaults to a tight `schedule.interval` of 1m: idle
 cycles (nothing eligible) are free no-ops that record nothing, so the cadence
@@ -233,8 +233,8 @@ the store; manage it with `authors`.
 - **History**: every recorded outcome (approvals, comments, change requests,
   skips, errors) with duration, token spend, and a link to each review's log.
 - **Review log** (`/review/<owner>/<repo>/<n>`): the agent's output as one
-  bubble per event — prompt, agent messages, commands with status and
-  duration — tailing live while the review runs, with a raw view toggle.
+  bubble per event (prompt, agent messages, commands with status and
+  duration) tailing live while the review runs, with a raw view toggle.
 - **Config**: daemon version, watched repos, resolved settings, and the
   allowed-authors list. Read-only.
 - **Prompt**: the main prompt, the rules, and a fully assembled preview of

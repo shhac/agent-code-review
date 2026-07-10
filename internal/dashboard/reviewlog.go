@@ -3,7 +3,7 @@ package dashboard
 // This file is the per-review log surface: /api/review-log resolves a PR's
 // engine workspace (live queue row or history postmortem) and serves the
 // tail of its agent.log. Kept apart from the thin read handlers the same way
-// queue.go is — it owns a response contract the ReviewLog page types against.
+// queue.go is; it owns a response contract the ReviewLog page types against.
 
 import (
 	"io"
@@ -51,7 +51,7 @@ type reviewLogResp struct {
 
 // reviewLogView derives the response's state and PR header from a resolved
 // workspace: a queued row wears claimStatus (reviewing under a live lease,
-// queued otherwise); a history row is "finished". Pure — the states are
+// queued otherwise); a history row is "finished". Pure: the states are
 // table-tested directly.
 func reviewLogView(repo string, number int, ws store.Workspace, now time.Time, lease time.Duration) (string, prInfo) {
 	pr := prInfo{Repo: repo, Number: number}

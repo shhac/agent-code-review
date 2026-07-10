@@ -27,7 +27,7 @@ jobs:
       - run: go test ./... -count=1
       # The store's DuckDB round-trips (hold-upsert CASE, Promote, queue
       # ordering) only run under the integration tag and self-skip without
-      # the duckdb CLI — the version check above keeps that dependency loud
+      # the duckdb CLI; the version check above keeps that dependency loud
       # so the queue's most intricate SQL is actually exercised in CI. Only
       # the store package runs here: review/discover
       # integration tests need codex/gh auth, which CI doesn't have.

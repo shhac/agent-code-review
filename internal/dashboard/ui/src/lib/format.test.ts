@@ -30,7 +30,7 @@ describe('durSecs', () => {
     expect(durSecs(5400)).toBe('1.5h');
   });
 
-  it('renders zero as unknown — backfilled history rows carry 0', () => {
+  it('renders zero as unknown: backfilled history rows carry 0', () => {
     expect(durSecs(0)).toBe('');
     expect(durSecs(-5)).toBe('');
   });
@@ -77,7 +77,7 @@ describe('untilRel', () => {
     expect(untilRel('0001-01-01T00:00:00Z')).toBe(''); // Go zero time = not set
   });
 
-  it('renders compound units past the hour — a countdown, not a measurement', () => {
+  it('renders compound units past the hour: a countdown, not a measurement', () => {
     expect(untilRel(new Date(Date.now() + 102 * 60_000).toISOString())).toBe('1h42m');
     expect(untilRel(new Date(Date.now() + 2 * 3600_000).toISOString())).toBe('2h');
     expect(untilRel(new Date(Date.now() + 51 * 3600_000).toISOString())).toBe('2d3h');

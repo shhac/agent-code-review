@@ -10,7 +10,7 @@
   import type { Candidate, QueueCounts, Review } from './types';
 
   export let queue: Candidate[] = [];
-  // Server-computed tallies (the same payload the Overview header reads) —
+  // Server-computed tallies (the same payload the Overview header reads):
   // one derivation, so the two headers cannot disagree.
   export let counts: QueueCounts = { total: 0, queued: 0, reviewing: 0, held: 0 };
   export let reviews: Review[] = [];
@@ -37,7 +37,7 @@
   }
 
   // Every queue mutation shares one lifecycle: clear the error slot, run the
-  // call, refetch, surface failures — so no handler can forget a step.
+  // call, refetch, surface failures, so no handler can forget a step.
   async function mutate(op: () => Promise<unknown>) {
     onerror('');
     try {
@@ -68,7 +68,7 @@
   // dragOverRow only accepts queued targets, which all sit below).
   let draft: Candidate[] | null = null;
   let dragKey: string | null = null;
-  let settledKey: string | null = null; // row that just landed — flashes once
+  let settledKey: string | null = null; // row that just landed: flashes once
   $: dragging = dragKey !== null;
 
   function dragStart(e: DragEvent, c: Candidate) {
@@ -164,8 +164,8 @@
               <span
                 class="status {statusKind(c.status)}"
                 title={c.hold_reason === 'cooldown'
-                  ? `Reviewed recently — cooling down until ${when(c.eligible_at ?? '')}`
-                  : `Updated recently — settling until ${when(c.eligible_at ?? '')}`}
+                  ? `Reviewed recently, cooling down until ${when(c.eligible_at ?? '')}`
+                  : `Updated recently, settling until ${when(c.eligible_at ?? '')}`}
               ><i></i>on hold · {statusLabel(c.hold_reason ?? '')}{untilRel(c.eligible_at) ? ` · ${untilRel(c.eligible_at)}` : ''}</span>
             {:else if c.status !== 'queued'}
               <StatusBadge status={c.status} />

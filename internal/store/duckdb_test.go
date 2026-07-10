@@ -39,7 +39,7 @@ func TestQueryReturnsDuckDBStderr(t *testing.T) {
 }
 
 // q is the only defense between GitHub-controlled strings (PR titles, author
-// handles) and the SQL we build by interpolation — pin its behavior hard.
+// handles) and the SQL we build by interpolation; pin its behavior hard.
 func TestQ(t *testing.T) {
 	cases := []struct {
 		name, in, want string
@@ -75,7 +75,7 @@ func TestQNeverBreaksOutOfLiteral(t *testing.T) {
 		got := q(in)
 		inner := strings.TrimSuffix(strings.TrimPrefix(got, "'"), "'")
 		if strings.Contains(strings.ReplaceAll(inner, "''", ""), "'") {
-			t.Errorf("q(%q) = %s — lone quote survives inside the literal", in, got)
+			t.Errorf("q(%q) = %s: lone quote survives inside the literal", in, got)
 		}
 	}
 }

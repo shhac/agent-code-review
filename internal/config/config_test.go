@@ -187,7 +187,7 @@ func TestStarterMatchesExample(t *testing.T) {
 		t.Fatalf("read config.example.json: %v", err)
 	}
 	if !bytes.Equal(bytes.TrimSpace(example), bytes.TrimSpace(StarterJSON())) {
-		t.Error("internal/config/starter.json and config.example.json have drifted — keep them identical")
+		t.Error("internal/config/starter.json and config.example.json have drifted: keep them identical")
 	}
 	// The starter must also parse as a Config (annotation keys like //rules_note
 	// are ignored by encoding/json, but the structure must be valid).
@@ -196,16 +196,16 @@ func TestStarterMatchesExample(t *testing.T) {
 		t.Fatalf("starter.json does not parse as Config: %v", err)
 	}
 	if len(cfg.Repos) != 0 {
-		t.Error("starter must ship with NO repos — watched repos are configured, never placeholder")
+		t.Error("starter must ship with NO repos; watched repos are configured, never placeholder")
 	}
 	if cfg.Review.MainPrompt == "" {
 		t.Error("starter should ship a generic main prompt")
 	}
-	// The shipped prompt must assume only gh + codex — no skills or extra CLIs.
+	// The shipped prompt must assume only gh + codex: no skills or extra CLIs.
 	lower := strings.ToLower(cfg.Review.MainPrompt + cfg.Review.OnApprove + cfg.Review.OnComment + cfg.Review.OnReject)
 	for _, banned := range []string{"pr-issue-review", "agent-slack", "slack", "emoji"} {
 		if strings.Contains(lower, banned) {
-			t.Errorf("starter prompts must not assume %q — that's user-config territory", banned)
+			t.Errorf("starter prompts must not assume %q: that's user-config territory", banned)
 		}
 	}
 }

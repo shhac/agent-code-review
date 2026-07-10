@@ -258,7 +258,7 @@ func optionalIntKey(name, desc string, field func(*config.Config) **int, min, ma
 	}
 }
 
-// parseBoundedInt is the shared validation for integer config keys — one
+// parseBoundedInt is the shared validation for integer config keys: one
 // source for the bounds check and its error wording.
 func parseBoundedInt(value string, min, max int) (int, error) {
 	n, err := strconv.Atoi(value)

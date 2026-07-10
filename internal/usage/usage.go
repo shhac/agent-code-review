@@ -136,7 +136,7 @@ func Fetch(ctx context.Context, bin string) (Snapshot, error) {
 }
 
 // parseRateLimits scans the app-server's stdout stream for the id=2 response
-// and maps it to a Snapshot. Pure over an io.Reader — the skip/error/mapping
+// and maps it to a Snapshot. Pure over an io.Reader: the skip/error/mapping
 // branches are tested from canned streams without spawning codex.
 func parseRateLimits(r io.Reader) (Snapshot, error) {
 	scanner := bufio.NewScanner(r)

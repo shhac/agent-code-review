@@ -10,8 +10,8 @@ import (
 // Reconcile cleans up after crashed processes on THIS host: run rows still
 // marked running and queue claims whose recorded pid is dead are released
 // immediately instead of waiting out the lease window (2h+ of "a previous
-// run is still active — skipping" after every mid-cycle crash, which bites
-// hardest during development). Another host's state — and any live pid's —
+// run is still active, skipping" after every mid-cycle crash, which bites
+// hardest during development). Another host's state (and any live pid's)
 // is left strictly alone: a sibling instance's in-flight work looks exactly
 // like this, minus the dead pid.
 func (s *Scheduler) Reconcile(ctx context.Context) error {
@@ -25,7 +25,7 @@ func (s *Scheduler) Reconcile(ctx context.Context) error {
 		if r.Host != host || s.pidAlive(r.PID) {
 			continue
 		}
-		s.logf("reconcile: run %s (pid %d) died mid-cycle — marking failed", r.ID, r.PID)
+		s.logf("reconcile: run %s (pid %d) died mid-cycle, marking failed", r.ID, r.PID)
 		if err := s.store.FinishRun(ctx, r.ID, "failed"); err != nil {
 			return err
 		}
@@ -39,7 +39,7 @@ func (s *Scheduler) Reconcile(ctx context.Context) error {
 		if c.ClaimedAt == nil || c.ClaimHost != host || s.pidAlive(c.ClaimPID) {
 			continue
 		}
-		s.logf("reconcile: %s#%d was claimed by dead pid %d — releasing", c.Repo, c.Number, c.ClaimPID)
+		s.logf("reconcile: %s#%d was claimed by dead pid %d, releasing", c.Repo, c.Number, c.ClaimPID)
 		if err := s.store.ClearClaim(ctx, c.Repo, c.Number); err != nil {
 			return err
 		}
@@ -48,7 +48,7 @@ func (s *Scheduler) Reconcile(ctx context.Context) error {
 }
 
 // pidAlive is the production liveness probe: signal 0 reaches any process we
-// can address. EPERM means "alive but not ours" — still alive. Non-positive
+// can address. EPERM means "alive but not ours": still alive. Non-positive
 // pids (missing data) count as dead rather than blocking reconciliation.
 func pidAlive(pid int) bool {
 	if pid <= 0 {

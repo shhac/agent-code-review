@@ -32,7 +32,7 @@ describe('parseCodexLog', () => {
   });
 
   it('pairs interleaved parallel results with pending commands FIFO', () => {
-    // Two exec markers arrive before either result line — the shape the
+    // Two exec markers arrive before either result line: the shape the
     // stream takes when the agent runs tool calls in parallel.
     const events = parseCodexLog(
       join(

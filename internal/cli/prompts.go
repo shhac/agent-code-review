@@ -40,7 +40,7 @@ func registerPrompts(root *cobra.Command) {
 		Short: "Inspect and edit the review prompts (stored in config.json)",
 		Long: "The prompts handed to the review agent: the main prompt plus the\n" +
 			"post-outcome instructions (on-approve / on-comment / on-reject). The\n" +
-			"approval directive and rules also feed the assembled prompt — see\n" +
+			"approval directive and rules also feed the assembled prompt; see\n" +
 			"'prompts preview' for exactly what the agent receives.",
 		Args: cobra.NoArgs,
 	}

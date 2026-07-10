@@ -3,7 +3,7 @@
 
 -- The work queue: a row exists if and only if the PR has pending review work.
 -- The primary key IS the "same PR queued once" guarantee, and completion
--- removes the row (atomically with its history insert) — there is no status
+-- removes the row (atomically with its history insert); there is no status
 -- column to go stale.
 CREATE TABLE IF NOT EXISTS queue (
   repo          TEXT    NOT NULL,
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS queue (
   queue_pos     INTEGER,
   discovered_at TIMESTAMP,                      -- first time discovery saw this pending work; NEVER bumped by later sweeps
   claimed_at    TIMESTAMP,                      -- set while an engine reviews it; NULL = unclaimed. Stale claims (crashed daemon) are reclaimed by the next cycle.
-  claim_host    TEXT,                           -- which daemon holds the claim (host + pid) — lets a rebooted daemon clear its own dead claims immediately instead of waiting out the lease
+  claim_host    TEXT,                           -- which daemon holds the claim (host + pid): lets a rebooted daemon clear its own dead claims immediately instead of waiting out the lease
   claim_pid     INTEGER,
   source        TEXT NOT NULL DEFAULT 'discovered', -- 'discovered' | 'manual'. Manual adds bypass the pre-review candidacy check (drafts and explicit re-review requests must go through).
   work_dir      TEXT,                           -- the engine's scratch workspace, set at claim time; its agent.log is the live review log
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS queue (
 );
 
 -- Append-only outcome history: one row per completed queue item, including
--- SKIPPED and ERROR outcomes. Duplicates per (repo, number) are expected —
+-- SKIPPED and ERROR outcomes. Duplicates per (repo, number) are expected;
 -- the same PR can be reviewed many times. The most recent REAL verdict
 -- (APPROVED|COMMENTED|REQUESTED_CHANGES) per PR drives Refreshed detection;
 -- the most recent row of ANY verdict at the PR's current head SHA suppresses
@@ -66,7 +66,7 @@ ALTER TABLE history ADD COLUMN IF NOT EXISTS model TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS effort TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS codex_version TEXT;
 
--- Per-repo allowed authors: whose PRs WE (the reviewer) may approve — not who
+-- Per-repo allowed authors: whose PRs WE (the reviewer) may approve, not who
 -- can approve. A PR may receive an APPROVE only when its author's handle is
 -- listed for that PR's repo (or for the wildcard repo '*'). Anyone not listed
 -- is comment-only. Managed via `agent-code-review authors allow|deny|ls`.
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS allowed_authors (
 );
 
 -- Run-lock: a row per review cycle. An unfinished, recent row means a cycle is
--- (or may still be) in flight, so a new cycle skips. Advisory — DuckDB's
+-- (or may still be) in flight, so a new cycle skips. Advisory: DuckDB's
 -- single-writer file lock is the hard backstop.
 CREATE TABLE IF NOT EXISTS runs (
   id          TEXT      PRIMARY KEY,

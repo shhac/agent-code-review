@@ -25,7 +25,7 @@ type statsResp struct {
 
 // bucketReviews aggregates reviews into 24 hourly buckets starting at start
 // (which must be hour-aligned). Reviews outside [start, start+24h) are
-// dropped; SKIPPED/ERROR verdicts don't count as outcomes. Pure — the
+// dropped; SKIPPED/ERROR verdicts don't count as outcomes. Pure: the
 // hour-index math and verdict mapping are unit-tested directly.
 func bucketReviews(reviews []store.Review, start time.Time) []statsBucket {
 	buckets := make([]statsBucket, 24)
@@ -35,7 +35,7 @@ func bucketReviews(reviews []store.Review, start time.Time) []statsBucket {
 	for _, rv := range reviews {
 		at := rv.ReviewedAt.UTC()
 		// Duration division truncates toward zero, so a negative sub-hour
-		// offset would land in bucket 0 — guard Before() explicitly.
+		// offset would land in bucket 0; guard Before() explicitly.
 		if at.Before(start) {
 			continue
 		}

@@ -45,7 +45,7 @@ func TestCachePollRecordsFetchFailures(t *testing.T) {
 
 func TestParseRateLimits(t *testing.T) {
 	// A realistic stream: init response (id=1), a notification, then the
-	// rate-limit response (id=2) — captured shape from codex 0.138.0.
+	// rate-limit response (id=2), captured shape from codex 0.138.0.
 	stream := `{"id":1,"result":{"userAgent":"x"}}
 {"jsonrpc":"2.0","method":"some/notification","params":{}}
 not even json

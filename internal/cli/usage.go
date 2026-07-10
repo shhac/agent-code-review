@@ -111,7 +111,7 @@ COMMANDS:
     "Review this now": float the PR to the very top, clear any eligibility
     hold (cooldown/settling), and escalate it to a manual add (bypassing the
     pre-review candidacy recheck). Reordering in the dashboard does NONE of
-    that — a drag changes only the position and respects holds.
+    that; a drag changes only the position and respects holds.
 
   queue skip <owner/repo> <number>
     Record a SKIPPED outcome and drop the PR from the queue. It becomes

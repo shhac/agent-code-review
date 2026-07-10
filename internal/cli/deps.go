@@ -40,7 +40,7 @@ func emit(v any) error {
 	return libcli.EmitItem(os.Stdout, format, normalized)
 }
 
-// stderrLogf is the daemon/cycle log sink — human-readable, on stderr, so
+// stderrLogf is the daemon/cycle log sink: human-readable, on stderr, so
 // stdout stays clean for any NDJSON a command emits.
 func stderrLogf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)

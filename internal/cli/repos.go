@@ -50,7 +50,7 @@ func reposAddCmd() *cobra.Command {
 		Short: "Add a repo to the watch list",
 		Long: "Watch a repo for candidate PRs. By default any open PR is discovered\n" +
 			"(the allowed-authors list then only governs approve vs comment-only);\n" +
-			"--allowed-authors-only scopes discovery itself to allowed authors — for\n" +
+			"--allowed-authors-only scopes discovery itself to allowed authors, for\n" +
 			"repos where reviewing every PR would be noise.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {

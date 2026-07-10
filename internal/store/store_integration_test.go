@@ -29,7 +29,7 @@ func newTestStore(t *testing.T) Store {
 }
 
 // mustClaim claims a row with a fresh test lease, failing the test if the
-// compare-and-swap loses — for tests where the claim is setup, not the
+// compare-and-swap loses: for tests where the claim is setup, not the
 // subject.
 func mustClaim(t *testing.T, s Store, repo string, number int, at time.Time, workDir string) {
 	t.Helper()
@@ -44,7 +44,7 @@ func mustClaim(t *testing.T, s Store, repo string, number int, at time.Time, wor
 	}
 }
 
-// getQueued finds one queue row — the Store contract has no single-row getter.
+// getQueued finds one queue row; the Store contract has no single-row getter.
 func getQueued(t *testing.T, s Store, repo string, number int) (Candidate, bool) {
 	t.Helper()
 	cands, err := s.ListQueue(context.Background(), repo)
@@ -95,13 +95,13 @@ func TestReadOnlyStoreReadsButRefusesWrites(t *testing.T) {
 		t.Fatal("read-only store did not see the seeded row")
 	}
 
-	// Writes are refused by DuckDB itself — no per-method guard needed.
+	// Writes are refused by DuckDB itself; no per-method guard needed.
 	if err := ro.Enqueue(ctx, Candidate{Repo: "o/r", Number: 8, Type: TypeNew}); err == nil {
 		t.Fatal("read-only store accepted a write")
 	}
 }
 
-// TestIsAuthorAllowed covers the store half of the approval gate — the single
+// TestIsAuthorAllowed covers the store half of the approval gate: the single
 // query that decides whether a PR may be APPROVED at all.
 func TestIsAuthorAllowed(t *testing.T) {
 	s := newTestStore(t)
@@ -158,7 +158,7 @@ func TestIsAuthorAllowed(t *testing.T) {
 }
 
 // TestQueueLifecycle drives one candidate through the whole flow: enqueue,
-// metadata refresh, claim, complete — asserting the queue/history invariants
+// metadata refresh, claim, complete, asserting the queue/history invariants
 // at each step.
 func TestQueueLifecycle(t *testing.T) {
 	s := newTestStore(t)
@@ -195,7 +195,7 @@ func TestQueueLifecycle(t *testing.T) {
 		t.Fatalf("claim not visible: %+v", c)
 	}
 
-	// Complete removes the row and records history — atomically.
+	// Complete removes the row and records history, atomically.
 	if err := s.Complete(ctx, Review{Repo: "o/r", Number: 7, HeadSHA: "sha1", Verdict: "APPROVED", Engine: "test", ReviewedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestLastReviewVsLastOutcome(t *testing.T) {
 // TestListQueueOrderingAndClaimVisibility pins the two contracts ListQueue's
 // consumers rely on: the scheduler-order ORDER BY (manual positions first,
 // then New before Refreshed, then lowest number) and the fact that claimed
-// rows are still returned — availableCandidates and viewQueue both filter
+// rows are still returned; availableCandidates and viewQueue both filter
 // claims themselves and would silently break if the driver hid them.
 func TestListQueueOrderingAndClaimVisibility(t *testing.T) {
 	s := newTestStore(t)
@@ -572,7 +572,7 @@ func TestListAllowedAuthorsAlphabetical(t *testing.T) {
 }
 
 // TestEnqueueDiscoveredAtFirstSeen: a sweep re-seeing pending work is not a
-// new discovery — discovered_at must keep its first-seen value, not track the
+// new discovery; discovered_at must keep its first-seen value, not track the
 // latest sweep.
 func TestEnqueueDiscoveredAtFirstSeen(t *testing.T) {
 	s := newTestStore(t)
@@ -672,7 +672,7 @@ func TestClaimCAS(t *testing.T) {
 		t.Errorf("claim identity not recorded: %+v", c)
 	}
 
-	// A second claimant loses while the lease is live — and must not clobber
+	// A second claimant loses while the lease is live, and must not clobber
 	// the holder's identity.
 	if ok, err := s.Claim(ctx, "o/r", 30, lease(now.Add(time.Minute), 200)); err != nil || ok {
 		t.Fatalf("live lease must not be stolen: ok=%v err=%v", ok, err)
@@ -698,7 +698,7 @@ func TestClaimCAS(t *testing.T) {
 	}
 }
 
-// TestRunningRuns: only status='running' rows surface — the reconciliation
+// TestRunningRuns: only status='running' rows surface; the reconciliation
 // input must not include finished runs.
 func TestRunningRuns(t *testing.T) {
 	s := newTestStore(t)
@@ -723,7 +723,7 @@ func TestRunningRuns(t *testing.T) {
 }
 
 // TestPromote: promote floats the row, clears the hold, and escalates source
-// to manual — the one-write "review this now" action.
+// to manual: the one-write "review this now" action.
 func TestPromote(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

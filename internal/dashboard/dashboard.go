@@ -26,7 +26,7 @@ import (
 //go:embed assets/*
 var assets embed.FS
 
-// Running is the effective loop state of THIS daemon — what config alone
+// Running is the effective loop state of THIS daemon, what config alone
 // can't tell after --no-schedule: whether the discovery and review loops are
 // actually running in this process.
 type Running struct {
@@ -62,8 +62,8 @@ type Server struct {
 	logs    *logbuf.Ring // nil when the process doesn't capture logs
 	version string       // ldflags-injected build version; "dev" outside releases
 
-	// ghUser resolves the login the gh CLI acts as; resolved once, lazily —
-	// the Config page shows "reviewing as @…" so visitors know whose reviews
+	// ghUser resolves the login the gh CLI acts as; resolved once, lazily.
+	// The Config page shows "reviewing as @…" so visitors know whose reviews
 	// these will be.
 	ghUser     func(ctx context.Context) (string, error)
 	ghUserOnce sync.Once
@@ -141,7 +141,7 @@ func mustSub() fs.FS {
 // Caching: Vite's assets/ filenames are content-hashed, so they may cache
 // forever; everything else (the index.html shell above all) must revalidate
 // every load, or a browser keeps running a pre-upgrade bundle against a new
-// daemon — embed.FS files carry no modtime, so without an explicit header
+// daemon; embed.FS files carry no modtime, so without an explicit header
 // browsers heuristically cache the shell indefinitely.
 func spaHandler(files fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

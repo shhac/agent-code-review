@@ -18,7 +18,7 @@ type Facts struct {
 
 // DeriveFacts computes the rule inputs for a candidate. ghUser is the resolved
 // current gh login; authorAllowed comes from the store's per-repo allowed-authors
-// list (see store.IsAuthorAllowed) — the caller looks it up, keeping this pure.
+// list (see store.IsAuthorAllowed); the caller looks it up, keeping this pure.
 func DeriveFacts(c store.Candidate, ghUser string, authorAllowed bool) Facts {
 	return Facts{
 		AuthorIsGHUser: ghUser != "" && strings.EqualFold(c.Author, ghUser),
@@ -29,7 +29,7 @@ func DeriveFacts(c store.Candidate, ghUser string, authorAllowed bool) Facts {
 // BuildPrompt assembles the engine instructions: the main prompt, then every
 // matching rule's fragment, in config order. This is where self-review and
 // non-allow-list authors get their comment-only instruction, and where the
-// post-approve Slack behavior is injected — all as prompt, never Go control flow.
+// post-approve Slack behavior is injected: all as prompt, never Go control flow.
 func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	var b strings.Builder
 	b.WriteString(MainPrompt(cfg.Review))
@@ -53,7 +53,7 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 // outcomeInstructions renders the configured post-outcome fragments. Only
 // configured outcomes appear; when none are set the section is omitted
 // entirely. The content is the user's own (their team conventions, their
-// tooling) — the tool just routes it to the right outcome.
+// tooling); the tool just routes it to the right outcome.
 func outcomeInstructions(r config.ReviewSettings) string {
 	type outcome struct{ label, prompt string }
 	outcomes := []outcome{
@@ -88,7 +88,7 @@ func MainPrompt(r config.ReviewSettings) string {
 
 // approvalDirective states the approval policy for THIS PR as a hard
 // instruction, so comment-only is the default and an APPROVE is only ever
-// permitted when explicitly allowed — never as a fallback when a rule is
+// permitted when explicitly allowed, never as a fallback when a rule is
 // missing. Approval is allowed only when the author is on the allowed-authors
 // list for this repo AND it isn't a self-authored PR (you can't approve your
 // own PR).
@@ -101,7 +101,7 @@ func approvalDirective(c store.Candidate, f Facts) string {
 		return "Approval policy: you MAY approve this PR if the review warrants it, " +
 			"or leave comments. @" + c.Author + " is an allowed author for " + c.Repo + "."
 	}
-	return "Approval policy: DO NOT approve this PR under any circumstances — only leave comments."
+	return "Approval policy: DO NOT approve this PR under any circumstances; only leave comments."
 }
 
 func candidateContext(c store.Candidate) string {

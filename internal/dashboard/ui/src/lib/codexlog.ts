@@ -9,7 +9,7 @@
 //
 // Parallel tool calls interleave: several exec markers can appear before any
 // result line, then the results arrive together. Results carry no id, so
-// they are paired with pending commands first-in-first-out — a best-effort
+// they are paired with pending commands first-in-first-out: a best-effort
 // read of an inherently ambiguous stream. Everything before the first marker
 // is the session banner, and the ReviewLog page keeps a raw view as the
 // ground truth.
@@ -102,7 +102,7 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
 }
 
 // dropRepeatedFinalMessage trims the tokens trailer: the stream ends with
-// "tokens used", the count, then a repeat of the final agent message — the
+// "tokens used", the count, then a repeat of the final agent message; the
 // repeat is already its own bubble, so only the count survives.
 function dropRepeatedFinalMessage(text: string, events: LogEvent[]): string {
   const prev = [...events].reverse().find((e) => e.kind === 'codex');
@@ -120,7 +120,7 @@ export function verdictShaped(body: string): { decision: string; summary: string
     const v = JSON.parse(body);
     if (typeof v.decision === 'string' && typeof v.summary === 'string') return v;
   } catch {
-    /* not JSON — render as-is */
+    /* not JSON: render as-is */
   }
   return null;
 }

@@ -11,7 +11,7 @@ import (
 )
 
 // fakeStore stubs the candidateStore consumer interface. `last` is the most
-// recent REAL review; `outcome` the most recent row of any verdict — when
+// recent REAL review; `outcome` the most recent row of any verdict; when
 // unset it falls back to `last`, mirroring the real store (a real review is
 // also the latest outcome unless a skip/error came after it).
 type fakeStore struct {
@@ -130,7 +130,7 @@ func TestClassifyApprovedRejected(t *testing.T) {
 		t.Error("a currently-approved PR is already unblocked and must not be a candidate")
 	}
 	// A STALE past approval (raw reviews list has APPROVED but the computed
-	// decision doesn't) must NOT block — that's exactly the Refreshed case.
+	// decision doesn't) must NOT block: that's exactly the Refreshed case.
 	stale := ghPR{
 		Number:         5,
 		HeadRefOID:     "new-sha",
@@ -192,7 +192,7 @@ func TestClassifyRefreshedSameSHARejected(t *testing.T) {
 }
 
 // Same-SHA suppression: any outcome at the PR's current head means nothing to
-// do — skips and errors don't thrash, and an engine-reported review that gh
+// do; skips and errors don't thrash, and an engine-reported review that gh
 // hasn't surfaced yet can't re-enqueue in a loop. New commits re-enqueue.
 func TestClassifySameSHASuppression(t *testing.T) {
 	pr := func(sha string) ghPR {
@@ -224,7 +224,7 @@ func TestClassifySameSHASuppression(t *testing.T) {
 }
 
 // The bug that motivated the queue/history split: a PR we reviewed at an old
-// SHA gets new commits — it must come back as a Refreshed candidate.
+// SHA gets new commits; it must come back as a Refreshed candidate.
 func TestClassifyRefreshedAfterNewCommits(t *testing.T) {
 	fs := &fakeStore{
 		hasLast:    true,
@@ -250,7 +250,7 @@ func TestClassifyRefreshedAfterNewCommits(t *testing.T) {
 }
 
 // TestClassifyType table-tests the pure New/Refreshed decision at its
-// boundaries — no fakes needed, which is why it was extracted.
+// boundaries; no fakes needed, which is why it was extracted.
 func TestClassifyType(t *testing.T) {
 	now := fixedNow()
 	cfg := config.Config{} // defaults: New ≤ 14d, Refreshed ≤ 21d
@@ -283,7 +283,7 @@ func TestClassifyType(t *testing.T) {
 // TestClassifyHolds pins the eligibility-hold computation: a freshly-updated
 // PR gets a settling hold (quiet period), a recently-reviewed PR gets a
 // cooldown hold, the later bound wins, and settled-and-cooled PRs carry no
-// hold. Held PRs are still candidates — they enqueue as visible-but-not-yet-
+// hold. Held PRs are still candidates; they enqueue as visible-but-not-yet-
 // eligible rows rather than being silently dropped.
 func TestClassifyHolds(t *testing.T) {
 	newPR := func(updated time.Time) ghPR {
@@ -336,7 +336,7 @@ func TestClassifyHolds(t *testing.T) {
 		reviewedAt := fixedNow().Add(-80 * time.Minute) // cooldown ends in 10m
 		fs := &fakeStore{hasLast: true, last: store.Review{HeadSHA: "old-sha", Verdict: "COMMENTED", ReviewedAt: reviewedAt}}
 		d := newDiscoverer(fs)
-		pr := newPR(fixedNow().Add(-time.Minute)) // settling ends in 14m — later than the cooldown
+		pr := newPR(fixedNow().Add(-time.Minute)) // settling ends in 14m, later than the cooldown
 		pr.Reviews = []ghReview{{State: "COMMENTED"}}
 		c, ok, err := d.classify(context.Background(), d.cfg(), "o/r", pr)
 		if err != nil || !ok {

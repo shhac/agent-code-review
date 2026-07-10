@@ -53,7 +53,7 @@ func openStore(cfg config.Config) (store.Store, error) {
 	return initStore(store.Open(cfg.Store.Engine, cfg.StorePath()))
 }
 
-// openStoreReadOnly opens the configured store for reading only — it attaches
+// openStoreReadOnly opens the configured store for reading only; it attaches
 // to the existing DB without applying the schema and refuses writes, so it can
 // safely inspect data the live daemon owns.
 func openStoreReadOnly(cfg config.Config) (store.Store, error) {

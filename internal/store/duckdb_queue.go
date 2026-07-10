@@ -7,14 +7,14 @@ import (
 )
 
 // Enqueue inserts or refreshes a queue row. On conflict:
-//   - discovered_at keeps its first-seen value — a sweep re-seeing pending
+//   - discovered_at keeps its first-seen value; a sweep re-seeing pending
 //     work is not a new discovery, and bumping it would hide how long the PR
 //     has actually been waiting.
 //   - source only ever escalates to manual: a discovery sweep must not
 //     downgrade a PR someone explicitly added (that would re-enable the
 //     precheck they meant to bypass).
 //   - the eligibility hold only ever extends. A later eligible_at from this
-//     sweep wins (the author is still active — push the hold out); an earlier
+//     sweep wins (the author is still active; push the hold out); an earlier
 //     one loses (a hold, once set, does not shrink). A manual-source enqueue
 //     clears the hold, and a hold is never re-imposed on a manual row.
 func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
@@ -49,7 +49,7 @@ func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error
 		sql += " WHERE repo = " + q(repo)
 	}
 	// Manual queue positions win outright; among the default 0s the queue is
-	// FIFO on first discovery — earlier-discovered work is actioned first, so
+	// FIFO on first discovery: earlier-discovered work is actioned first, so
 	// a fresh sweep can never leapfrog PRs already waiting. New-before-
 	// Refreshed and PR number only break ties within one sweep instant.
 	// NULLS FIRST: rows predating discovered_at tracking have waited longest.
@@ -58,7 +58,7 @@ func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error
 }
 
 // Claim is a compare-and-swap: the WHERE clause only matches an unclaimed
-// row or a stale (abandoned) claim, and RETURNING tells us whether we won —
+// row or a stale (abandoned) claim, and RETURNING tells us whether we won;
 // one statement is one duckdb invocation, so the check and the write are
 // atomic under DuckDB's file lock even across daemon instances.
 func (d *duckDB) Claim(ctx context.Context, repo string, number int, l Lease) (bool, error) {
@@ -80,7 +80,7 @@ func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error 
 		q(repo), number))
 }
 
-// Complete runs as one multi-statement batch — a single duckdb invocation is
+// Complete runs as one multi-statement batch; a single duckdb invocation is
 // one connection, so BEGIN/COMMIT is a real transaction and a crash cannot
 // leave the outcome recorded but the row still queued. The DELETE is gated on
 // the reviewed head SHA: if new commits arrived mid-review (discovery updates
@@ -121,7 +121,7 @@ func (d *duckDB) Reorder(ctx context.Context, positions []QueuePosition) error {
 
 // Promote floats the row to the top (negative queue_pos sorts ahead of the
 // default 0), clears any eligibility hold, and escalates source to manual so
-// the pre-review candidacy check is bypassed — one write, same semantics as
+// the pre-review candidacy check is bypassed: one write, same semantics as
 // removing and manually re-adding the PR at the front.
 func (d *duckDB) Promote(ctx context.Context, repo string, number int) error {
 	return d.exec(ctx, fmt.Sprintf(

@@ -8,7 +8,7 @@ type ActivityDay = MetricsResponse['activity'][number];
 // The primary review verdicts, in ring/legend order. Other values a review can
 // carry (SKIPPED, ERROR) are deliberately not "primary": they fall through to
 // the neutral scatter colour and the ring's trailing wedge. One source of truth
-// for which verdicts get their own colour — the mappings below must stay in step.
+// for which verdicts get their own colour; the mappings below must stay in step.
 export const VERDICTS = ['APPROVED', 'COMMENTED', 'REQUESTED_CHANGES'] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
@@ -36,7 +36,7 @@ export function metricFacets(data: MetricsResponse | null) {
 }
 
 // Stable name→palette-slot hash: summing char codes keeps a given model on the
-// same one of four scatter colours run to run. Collisions are fine — it's cosmetic.
+// same one of four scatter colours run to run. Collisions are fine; it's cosmetic.
 export function modelColourIndex(model: string): number {
   return [...model].reduce((n, c) => n + c.charCodeAt(0), 0) % 4;
 }

@@ -2,7 +2,7 @@
 // watch, the approval allow-list, candidate age thresholds, schedule cadence,
 // the review engine + prompt/rules, the DuckDB store location, and the
 // dashboard/Tailscale settings. Everything the CLI treats as tunable lives
-// here — no GitHub handles, repos, or prompts are hardcoded in code.
+// here; no GitHub handles, repos, or prompts are hardcoded in code.
 package config
 
 import (
@@ -20,7 +20,7 @@ import (
 
 const appName = "agent-code-review"
 
-// repoNamePattern is the one definition of the accepted "owner/name" shape —
+// repoNamePattern is the one definition of the accepted "owner/name" shape;
 // the CLI and dashboard validators both consume it via ValidRepoName.
 var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
@@ -47,7 +47,7 @@ type Condition struct {
 
 // Rule is a conditional prompt fragment: "when <condition>, add <prompt> to
 // the engine's instructions". This is how self-review and non-allow-list
-// authors get downgraded to comment-only — via prompt, not Go code.
+// authors get downgraded to comment-only, via prompt, not Go code.
 type Rule struct {
 	Name   string    `json:"name"`
 	When   Condition `json:"when"`
@@ -84,7 +84,7 @@ type UsageFloorLimits struct {
 }
 
 // DiscoverySettings drives the candidate-scraping loop: cheap, deterministic
-// gh calls — no LLM, hence no parallelism dial — with its own on/off switch so
+// gh calls (no LLM, hence no parallelism dial) with its own on/off switch so
 // scraping can run without reviews (or vice versa).
 type DiscoverySettings struct {
 	Enabled  *bool  `json:"enabled,omitempty"`
@@ -104,8 +104,8 @@ type CodexSettings struct {
 //
 // OnApprove/OnComment/OnReject are post-outcome prompt fragments: instructions
 // the agent follows after landing on that outcome (approve / comment without
-// approving / request changes). Workspace-specific knowledge — Slack channels,
-// emoji conventions, extra CLIs — belongs HERE, in the user's config, never in
+// approving / request changes). Workspace-specific knowledge (Slack channels,
+// emoji conventions, extra CLIs) belongs HERE, in the user's config, never in
 // the tool or its shipped defaults. The tool itself assumes only gh and codex.
 type ReviewSettings struct {
 	Engine         string        `json:"engine,omitempty"`           // "codex" (default) | "claude" (later)
@@ -146,12 +146,12 @@ type Config struct {
 	Repos []string `json:"repos,omitempty"`
 	// AllowedAuthorsOnlyRepos scopes discovery for the listed repos to PRs
 	// authored by allowed authors. Repos not listed discover any open PR (the
-	// default) — the allowed-authors list then only governs approve vs
+	// default); the allowed-authors list then only governs approve vs
 	// comment-only. Use for repos where reviewing every PR would be noise.
 	AllowedAuthorsOnlyRepos []string `json:"allowed_authors_only_repos,omitempty"`
 	GHUser                  string   `json:"gh_user,omitempty"` // optional; else derived via `gh api user`
 	// The allowed-authors list (whose PRs we may approve) lives in the store,
-	// per repo, not here — manage it with `agent-code-review authors`.
+	// per repo, not here; manage it with `agent-code-review authors`.
 	Candidates CandidateSettings `json:"candidates,omitempty"`
 	Schedule   ScheduleSettings  `json:"schedule,omitempty"`
 	Discovery  DiscoverySettings `json:"discovery,omitempty"`
@@ -168,7 +168,7 @@ func filePath() string { return filepath.Join(Dir(), "config.json") }
 func store() creds.Store { return creds.Store{Path: filePath()} }
 
 // Read returns the parsed config, or a zero Config when the file is missing or
-// unparseable — a corrupt file behaves like an empty one rather than wedging
+// unparseable; a corrupt file behaves like an empty one rather than wedging
 // every command.
 func Read() Config {
 	var cfg Config
@@ -196,11 +196,11 @@ func Update(mutate func(*Config) error) error {
 func Path() string { return filePath() }
 
 // Init writes the annotated starter config, refusing to overwrite an existing
-// file — `config init` must never clobber a live setup.
+// file; `config init` must never clobber a live setup.
 func Init() (string, error) {
 	path := filePath()
 	if _, err := os.Stat(path); err == nil {
-		return "", fmt.Errorf("Config already exists at %s — edit it directly, or remove it first", path)
+		return "", fmt.Errorf("Config already exists at %s: edit it directly, or remove it first", path)
 	}
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return "", err
@@ -291,7 +291,7 @@ func Bool(v bool) *bool { return &v }
 // LeaseWindow is how long a claim (or an unfinished run) stays authoritative
 // before it is treated as abandoned by a crashed daemon. One definition
 // serves the scheduler's reclaim logic, the run-lock staleness check, and
-// the dashboard's "reviewing" badge — they must agree or the UI and the
+// the dashboard's "reviewing" badge; they must agree or the UI and the
 // scheduler drift. The 2h floor keeps a short review interval (say 15m) from
 // shrinking the lease below a realistic cycle length: without it, a long
 // burst of reviews would look abandoned and get double-reviewed.
@@ -318,7 +318,7 @@ func (c Config) DashboardAddr() string {
 	return ":8330"
 }
 
-// DiscoverInterval is the candidate-scraping cadence (default 10m — discovery
+// DiscoverInterval is the candidate-scraping cadence (default 10m; discovery
 // is cheap gh calls, so it can run more often than reviews).
 func (c Config) DiscoverInterval() time.Duration {
 	return durationOr(c.Discovery.Interval, 10*time.Minute)
@@ -362,7 +362,7 @@ func (c Config) StorePath() string {
 	return filepath.Join(xdg.DataDir(appName), "queue.duckdb")
 }
 
-// durationOr parses s as a positive Go duration, else returns def — the one
+// durationOr parses s as a positive Go duration, else returns def: the one
 // parse-or-default rule for every interval dial.
 func durationOr(s string, def time.Duration) time.Duration {
 	if d, err := time.ParseDuration(s); err == nil && d > 0 {

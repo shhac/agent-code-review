@@ -51,7 +51,7 @@ func (f *fakeSchedStore) Complete(_ context.Context, r store.Review) error {
 }
 
 // fakeEngine returns a fixed verdict and captures the prompt it was given
-// (mutex-guarded — cycle tests run reviews concurrently).
+// (mutex-guarded: cycle tests run reviews concurrently).
 type fakeEngine struct {
 	verdict review.Verdict
 	err     error
@@ -87,8 +87,8 @@ func reviewOne(s *Scheduler, fe *fakeEngine, c store.Candidate) error {
 	return s.reviewOne(context.Background(), c, s.cfg(), fe)
 }
 
-// TestReviewOneCompletesEveryOutcome: every decision — real reviews, skips,
-// and errors alike — ends as exactly one history row via Complete, carrying
+// TestReviewOneCompletesEveryOutcome: every decision (real reviews, skips,
+// and errors alike) ends as exactly one history row via Complete, carrying
 // the reviewed SHA (Complete's delete is gated on it).
 func TestReviewOneCompletesEveryOutcome(t *testing.T) {
 	decisions := []string{
@@ -132,7 +132,7 @@ func TestReviewOneCompletesEveryOutcome(t *testing.T) {
 }
 
 // TestReviewOneEngineErrorStillCompletes: a failed invocation propagates its
-// error AND records an ERROR outcome — the queue row must not stay claimed
+// error AND records an ERROR outcome; the queue row must not stay claimed
 // forever (the old stuck-at-reviewing bug).
 func TestReviewOneEngineErrorStillCompletes(t *testing.T) {
 	fs := &fakeSchedStore{}
@@ -172,7 +172,7 @@ func (e *codexNamedEngine) Provenance(context.Context) review.Provenance {
 
 // TestReviewOneClaimRace: losing the compare-and-swap claim to another
 // worker (e.g. a second daemon instance sharing the store) must be a clean
-// no-op — no engine spend, no outcome recorded, no error.
+// no-op: no engine spend, no outcome recorded, no error.
 func TestReviewOneClaimRace(t *testing.T) {
 	fs := &fakeSchedStore{claimLost: true}
 	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionApproved}}
@@ -229,13 +229,13 @@ func TestAvailableCandidates(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	staleAfter := 2 * time.Hour
 	fresh := now.Add(-time.Hour)
-	boundary := now.Add(-staleAfter) // exactly one window old — still leased
+	boundary := now.Add(-staleAfter) // exactly one window old, still leased
 	stale := now.Add(-3 * time.Hour)
 	queue := []store.Candidate{
 		{Number: 1},                       // unclaimed
-		{Number: 2, ClaimedAt: &fresh},    // in flight — leave alone
-		{Number: 3, ClaimedAt: &stale},    // abandoned — reclaim
-		{Number: 4, ClaimedAt: &boundary}, // boundary — still in flight
+		{Number: 2, ClaimedAt: &fresh},    // in flight: leave alone
+		{Number: 3, ClaimedAt: &stale},    // abandoned: reclaim
+		{Number: 4, ClaimedAt: &boundary}, // boundary: still in flight
 	}
 	got := availableCandidates(queue, now, staleAfter)
 	if len(got) != 2 || got[0].Number != 1 || got[1].Number != 3 {

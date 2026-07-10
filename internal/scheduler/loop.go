@@ -21,7 +21,7 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context) error {
 	// A crashed daemon leaves a running run row (which would block cycles
 	// for the whole lease window) and claimed queue rows (which would wait
 	// it out too). Reconcile before the first tick so a restart resumes
-	// immediately. Failure is logged, not fatal — the lease window is the
+	// immediately. Failure is logged, not fatal; the lease window is the
 	// fallback that always works.
 	reconcile := s.reconcile
 	if reconcile == nil {

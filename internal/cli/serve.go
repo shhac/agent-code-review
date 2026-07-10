@@ -85,7 +85,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	logf("serve: starting (pid %d)", os.Getpid())
 	if opts.readOnly {
-		logf("serve: read-only mode — store opened read-only, both loops disabled")
+		logf("serve: read-only mode: store opened read-only, both loops disabled")
 	}
 
 	sigCh := make(chan os.Signal, 2)
@@ -102,7 +102,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	if tsDown != nil {
 		logf("tailscale %s: %s -> http://%s (will shut down on exit)", opts.tailscaleMode, publicURL, opts.addr)
 		if opts.tailscaleMode == "funnel" {
-			logf("warning: the dashboard has no auth — funnel exposes it (including queue add/reorder) to the public internet; prefer --tailscale serve unless that's intended")
+			logf("warning: the dashboard has no auth: funnel exposes it (including queue add/reorder) to the public internet; prefer --tailscale serve unless that's intended")
 		}
 		defer func() { _ = tsDown() }()
 	}
@@ -116,7 +116,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	schedCfg := pinnedLoopConfig(running)
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
 	// Bind BEFORE the scheduler starts: the port doubles as the "one daemon
-	// per address" guard, and the loops fire immediately on start — an
+	// per address" guard, and the loops fire immediately on start; an
 	// accidental second instance must die here, not after it has already
 	// claimed a PR and spent an engine invocation.
 	srv, err := startDashboard(opts.addr, dash, logf, shutdown.graceful)
@@ -142,7 +142,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 
 // runningLoops resolves the per-boot switch state. Config supplies defaults;
 // command flags only ever turn a loop off for this daemon process.
-// --read-only forces both off — the loops can't claim or record against a
+// --read-only forces both off: the loops can't claim or record against a
 // read-only store.
 func runningLoops(opts serveOpts, cfg config.Config) dashboard.Running {
 	off := opts.noSchedule || opts.readOnly
@@ -215,13 +215,13 @@ func newShutdownController(ctx context.Context, signals <-chan os.Signal, logf s
 			gracefulStop()
 			forceStop()
 		case sig := <-signals:
-			logf("shutdown: received %s — stopping discovery and review scheduling; waiting for in-flight reviewers. Press Ctrl-C again to force exit.", sig)
+			logf("shutdown: received %s: stopping discovery and review scheduling; waiting for in-flight reviewers. Press Ctrl-C again to force exit.", sig)
 			gracefulStop()
 			select {
 			case <-ctx.Done():
 				forceStop()
 			case sig := <-signals:
-				logf("shutdown: received %s again — force shutdown", sig)
+				logf("shutdown: received %s again: force shutdown", sig)
 				forceStop()
 			case <-reviewCtx.Done():
 			}

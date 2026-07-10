@@ -7,7 +7,7 @@ import (
 )
 
 // TestClaimActive pins the lease predicate both the scheduler (reclaim) and
-// the dashboard ("reviewing" badge) are defined in terms of — including the
+// the dashboard ("reviewing" badge) are defined in terms of, including the
 // exact-boundary case: a claim aged exactly one window is still live.
 func TestClaimActive(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
@@ -34,7 +34,7 @@ func TestClaimActive(t *testing.T) {
 }
 
 // TestHeld pins the hold predicate the scheduler's eligibility filter and
-// the dashboard's "on hold" badge are defined in terms of — including the
+// the dashboard's "on hold" badge are defined in terms of, including the
 // exact-boundary case: at eligible_at precisely, the hold is over.
 func TestHeld(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)

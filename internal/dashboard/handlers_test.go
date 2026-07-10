@@ -105,7 +105,7 @@ func newTestServer(fs *handlerStore, cfg config.Config) *Server {
 	}
 }
 
-// serveJSON drives one handler call and decodes its JSON body — the shared
+// serveJSON drives one handler call and decodes its JSON body: the shared
 // httptest shape for every dashboard handler test. T picks the decode
 // target: a typed response struct where one exists, map[string]any otherwise.
 func serveJSON[T any](t *testing.T, h http.HandlerFunc, method, target, body string) (int, T) {
@@ -414,7 +414,7 @@ func TestSPAHandler(t *testing.T) {
 
 // TestSPACaching pins the upgrade-visibility contract: the unhashed shell
 // must revalidate every load (a cached pre-upgrade bundle against a new
-// daemon hides new UI — the "no promote button on held rows" bug), while
+// daemon hides new UI: the "no promote button on held rows" bug), while
 // content-hashed assets/ may cache forever.
 func TestSPACaching(t *testing.T) {
 	files := fstest.MapFS{

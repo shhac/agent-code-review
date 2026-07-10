@@ -14,7 +14,7 @@ const (
 	EngineManual   = "manual"   // `queue skip` by a human
 )
 
-// Review records one completed outcome for a PR at a specific head SHA —
+// Review records one completed outcome for a PR at a specific head SHA,
 // including SKIPPED and ERROR, which live in history like everything else.
 // Title and Author are snapshots of the PR at completion time so the History
 // page can render outcomes like queue items without a gh round-trip.
@@ -36,7 +36,7 @@ type Review struct {
 	TokensUsed   int       `json:"tokens_used"`        // engine-reported token spend; 0 when unknown
 }
 
-// ReviewFrom snapshots a candidate's identity into a history record — the
+// ReviewFrom snapshots a candidate's identity into a history record: the
 // single place the Candidate→Review field fan-out lives, so a new snapshot
 // field cannot be added to one Complete call site and missed at another.
 // started is when the review began (the claim time); the zero value records
@@ -86,7 +86,7 @@ func ReviewLogKey(r Review) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// realVerdicts is the single source of the "actual posted review" set — the
+// realVerdicts is the single source of the "actual posted review" set: the
 // outcomes that count as "reviewed at this SHA" for Refreshed detection.
 // SKIPPED and ERROR deliberately aren't in it: new commits (or a manual
 // re-add) must be able to re-surface those PRs. Both IsRealVerdict and the
@@ -95,7 +95,7 @@ func ReviewLogKey(r Review) string {
 // store, so the vocabulary can't reference them from here.)
 var realVerdicts = []string{"APPROVED", "COMMENTED", "REQUESTED_CHANGES"}
 
-// IsRealVerdict reports whether v is an actual posted review — the predicate
+// IsRealVerdict reports whether v is an actual posted review: the predicate
 // behind LastReview's history filter.
 func IsRealVerdict(v string) bool {
 	for _, rv := range realVerdicts {

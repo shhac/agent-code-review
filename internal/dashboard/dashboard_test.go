@@ -108,17 +108,17 @@ func TestViewQueue(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	staleAfter := 2 * time.Hour
 	fresh := now.Add(-time.Hour)
-	boundary := now.Add(-staleAfter) // exactly one window old — still reviewing
+	boundary := now.Add(-staleAfter) // exactly one window old, still reviewing
 	stale := now.Add(-3 * time.Hour)
 	holdUntil := now.Add(30 * time.Minute)
 	holdOver := now.Add(-time.Minute)
 	in := []store.Candidate{
 		{Number: 1},                         // unclaimed
 		{Number: 2, ClaimedAt: &fresh},      // engine on it right now
-		{Number: 3, ClaimedAt: &stale},      // abandoned lease — next cycle reclaims
-		{Number: 4, ClaimedAt: &boundary},   // boundary — must agree with the scheduler
-		{Number: 5, EligibleAt: &holdUntil}, // eligibility hold — visible but skipped
-		{Number: 6, EligibleAt: &holdOver},  // expired hold — plain queued again
+		{Number: 3, ClaimedAt: &stale},      // abandoned lease: next cycle reclaims
+		{Number: 4, ClaimedAt: &boundary},   // boundary: must agree with the scheduler
+		{Number: 5, EligibleAt: &holdUntil}, // eligibility hold: visible but skipped
+		{Number: 6, EligibleAt: &holdOver},  // expired hold: plain queued again
 	}
 	got := viewQueue(in, now, staleAfter)
 	want := []string{"queued", "reviewing", "queued", "reviewing", "held", "queued"}

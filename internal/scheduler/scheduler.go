@@ -22,7 +22,7 @@ type Logf func(format string, args ...any)
 
 // UsageFn supplies the latest Codex usage snapshot. Callers with no usage
 // data (one-shot runs) pass nil; New normalizes that to an empty-snapshot
-// getter, so the fail-open rule lives in exactly one place —
+// getter, so the fail-open rule lives in exactly one place:
 // usage.BelowFloor, which never pauses on an empty snapshot.
 type UsageFn func() usage.Snapshot
 
@@ -89,12 +89,12 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 	}
 }
 
-// Discover scrapes the watched repos for candidates. Purely deterministic —
+// Discover scrapes the watched repos for candidates. Purely deterministic:
 // gh + classification rules, no LLM involved. A guard skips the sweep when
 // the previous one is still in flight.
 func (s *Scheduler) Discover(ctx context.Context) error {
 	if !s.discovering.CompareAndSwap(false, true) {
-		s.logf("discover: previous sweep still running — skipping")
+		s.logf("discover: previous sweep still running, skipping")
 		return nil
 	}
 	defer s.discovering.Store(false)

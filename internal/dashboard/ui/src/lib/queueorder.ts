@@ -16,7 +16,7 @@ export function moveByKey(list: Candidate[], fromKey: string, toKey: string) {
 }
 
 // reorderPayload is the /api/queue/reorder body: every reorderable row in
-// display order. Reviewing rows are pinned — the endpoint rejects any order
+// display order. Reviewing rows are pinned: the endpoint rejects any order
 // that mentions them, so they must be filtered out here.
 export function reorderPayload(list: Candidate[]) {
   return list.filter((c) => c.status !== 'reviewing').map((c) => ({ repo: c.repo, number: c.number }));

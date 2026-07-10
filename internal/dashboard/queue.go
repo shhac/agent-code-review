@@ -1,7 +1,7 @@
 package dashboard
 
 // This file is the queue write surface: add (URL or repo/number, gated to
-// watched repos) and reorder. Kept apart from the thin read handlers — this
+// watched repos) and reorder. Kept apart from the thin read handlers: this
 // is the one part of the dashboard that validates untrusted input and
 // mutates state.
 
@@ -16,7 +16,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// handleQueue lists on GET, adds a PR on POST, and removes one on DELETE —
+// handleQueue lists on GET, adds a PR on POST, and removes one on DELETE,
 // mirroring `queue ls`/`queue add`/`queue rm` so users can manage their own
 // PRs from the dashboard.
 func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +32,7 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// removeFromQueue drops a candidate entirely — the "changed our mind" path.
+// removeFromQueue drops a candidate entirely: the "changed our mind" path.
 func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePRRef(r)
 	if !ok {
@@ -49,7 +49,7 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 }
 
 // queueView is a Candidate plus the display status the frontend keys its
-// badges on. The store has no status column anymore — "reviewing" is derived
+// badges on. The store has no status column anymore; "reviewing" is derived
 // from a live claim, "held" from the eligibility hold; everything else in
 // the queue is "queued".
 type queueView struct {
@@ -59,8 +59,8 @@ type queueView struct {
 
 // claimStatus maps the shared predicates (store.Candidate.ClaimActive and
 // .Held) to the dashboard's status vocabulary: a live claim is "reviewing",
-// an eligibility hold is "held", anything else — including a stale claim the
-// next cycle will reclaim — is "queued". The queue badges and the review-log
+// an eligibility hold is "held", anything else (including a stale claim the
+// next cycle will reclaim) is "queued". The queue badges and the review-log
 // header both derive from this one helper so they cannot disagree on the
 // lease boundary.
 func claimStatus(c store.Candidate, now time.Time, staleAfter time.Duration) string {
@@ -73,7 +73,7 @@ func claimStatus(c store.Candidate, now time.Time, staleAfter time.Duration) str
 	return "queued"
 }
 
-// viewQueue derives each candidate's display status. Pure — unit-tested.
+// viewQueue derives each candidate's display status. Pure: unit-tested.
 func viewQueue(candidates []store.Candidate, now time.Time, staleAfter time.Duration) []queueView {
 	out := make([]queueView, 0, len(candidates))
 	for _, c := range candidates {
@@ -115,7 +115,7 @@ type queueReorderResp struct {
 	Reordered bool `json:"reordered"`
 }
 
-// countQueue tallies views by display status. Pure — unit-tested with
+// countQueue tallies views by display status. Pure: unit-tested with
 // viewQueue so the badge counts and per-row statuses cannot disagree.
 func countQueue(views []queueView) queueCounts {
 	counts := queueCounts{Total: len(views)}
@@ -144,9 +144,9 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, queueResp{Candidates: views, Counts: countQueue(views)})
 }
 
-// addToQueue accepts {"url": "<PR reference>"} — a full GitHub PR URL or the
-// bare "owner/repo/pull/N" form — or {"repo": "owner/name", "number": N}.
-// Either way the repo must be one of the configured watched repos — the
+// addToQueue accepts {"url": "<PR reference>"} (a full GitHub PR URL or the
+// bare "owner/repo/pull/N" form) or {"repo": "owner/name", "number": N}.
+// Either way the repo must be one of the configured watched repos; the
 // dashboard is the surface other people use, so it only takes PRs this tool is
 // actually set up to review.
 func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +161,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	if req.URL != "" {
 		ref, ok := parsePRRef(req.URL)
 		if !ok {
-			httpError(w, http.StatusBadRequest, "not a PR reference — expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
+			httpError(w, http.StatusBadRequest, "not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
 			return
 		}
 		req.prRef = ref
@@ -171,7 +171,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.repoWatched(req.Repo) {
-		httpError(w, http.StatusForbidden, req.Repo+" is not a watched repo — see the Config page for the allowed list")
+		httpError(w, http.StatusForbidden, req.Repo+" is not a watched repo; see the Config page for the allowed list")
 		return
 	}
 	// Fetching metadata involves a gh round-trip; give it room.
@@ -179,7 +179,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Fetch real metadata up front (title/author/SHA) and reject closed or
-	// merged PRs — discovery only backfills PRs that match the candidate
+	// merged PRs; discovery only backfills PRs that match the candidate
 	// rules, which a manual add may not.
 	c, err := s.manualCandidate(ctx, req.Repo, req.Number)
 	if err != nil {
@@ -195,7 +195,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, queueAddResp{Queued: true, Title: c.Title, Author: c.Author})
 }
 
-// repoWatched defers to the config-layer predicate — one definition of
+// repoWatched defers to the config-layer predicate: one definition of
 // watch-list membership.
 func (s *Server) repoWatched(repo string) bool {
 	return s.config().WatchesRepo(repo)
@@ -221,7 +221,7 @@ func parsePRRef(raw string) (prRef, bool) {
 
 // handleQueuePromote is the explicit "review this now" action: float the row
 // to the top, clear any eligibility hold, and escalate it to a manual add
-// (bypassing the pre-review candidacy recheck) — the same semantics as
+// (bypassing the pre-review candidacy recheck), the same semantics as
 // `queue promote`. Deliberately distinct from reorder: a drag changes only
 // positions and never lifts a hold.
 func (s *Server) handleQueuePromote(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +245,7 @@ func (s *Server) handleQueuePromote(w http.ResponseWriter, r *http.Request) {
 
 // handleQueueReorder replaces the queued ordering in one write: the drag-and-
 // drop UI sends the complete new order of the reorderable (unclaimed) rows.
-// Rows under a live review claim are pinned — they cannot be reordered, and
+// Rows under a live review claim are pinned: they cannot be reordered, and
 // the request must not mention them.
 func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -284,7 +284,7 @@ func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 
 // validateReorder checks that order is exactly the set of reorderable rows:
 // every unclaimed queue row once, no duplicates, no unknown PRs, and no rows
-// that are mid-review (their position is pinned while claimed). Pure —
+// that are mid-review (their position is pinned while claimed). Pure:
 // unit-tested directly.
 func validateReorder(queue []store.Candidate, order []prRef, now time.Time, staleAfter time.Duration) error {
 	reorderable := make(map[prRef]struct{}, len(queue))

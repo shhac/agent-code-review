@@ -84,7 +84,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 	for _, key := range configKeys() {
 		sample, ok := samples[key.Name]
 		if !ok {
-			t.Errorf("no sample value for key %q — add one so it stays covered", key.Name)
+			t.Errorf("no sample value for key %q: add one so it stays covered", key.Name)
 			continue
 		}
 		if err := key.Set(sample); err != nil {

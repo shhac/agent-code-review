@@ -11,7 +11,7 @@ import (
 )
 
 // ReviewCycle processes the queued candidates. It is a no-op (returns nil)
-// when another cycle is still in flight — the run-lock rule from the spec.
+// when another cycle is still in flight: the run-lock rule from the spec.
 // An idle cycle (nothing available to review) exits before the run-lock and
 // records nothing: with the default 1m cadence, anything else would flood the
 // runs table and the log with empty ticks.
@@ -54,7 +54,7 @@ func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
 	if _, active, err := s.store.ActiveRun(reviewCtx, staleAfter); err != nil {
 		return err
 	} else if active {
-		s.logf("cycle: a previous run is still active — skipping")
+		s.logf("cycle: a previous run is still active, skipping")
 		return nil
 	}
 
@@ -76,11 +76,11 @@ func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
 }
 
 // availableCandidates filters the queue to rows that are actually reviewable
-// right now: no live lease (see store.Candidate.ClaimActive — a fresh claim
+// right now: no live lease (see store.Candidate.ClaimActive: a fresh claim
 // is another worker mid-review; a stale one is a crashed daemon's abandoned
-// lease, reclaimed here) and no eligibility hold (store.Candidate.Held —
-// cooling down after a recent review, or settling after a fresh push). Pure —
-// the boundary is unit-tested directly.
+// lease, reclaimed here) and no eligibility hold (store.Candidate.Held:
+// cooling down after a recent review, or settling after a fresh push). Pure.
+// The boundary is unit-tested directly.
 func availableCandidates(queue []store.Candidate, now time.Time, staleAfter time.Duration) []store.Candidate {
 	out := make([]store.Candidate, 0, len(queue))
 	for _, c := range queue {

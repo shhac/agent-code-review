@@ -47,11 +47,13 @@ export function scatterClass(point: ScatterPoint, mode: ColourMode) {
 }
 
 // Absolute position of one scatter dot within its plot, inset from the axes.
-export function scatterPos(point: ScatterPoint, maxX: number, maxY: number) {
-  return {
-    left: `${SCATTER_INSET + (point.tokens_used / maxX) * SCATTER_SPAN_X}%`,
-    bottom: `${SCATTER_INSET + (point.duration_secs / maxY) * SCATTER_SPAN_Y}%`,
-  };
+// Duration is conventionally read on the horizontal axis; token spend is on
+// the vertical axis, so the caller passes duration then tokens as maxima.
+export function scatterPos(point: ScatterPoint, maxDuration: number, maxTokens: number) {
+	return {
+		left: `${SCATTER_INSET + (point.duration_secs / maxDuration) * SCATTER_SPAN_X}%`,
+		bottom: `${SCATTER_INSET + (point.tokens_used / maxTokens) * SCATTER_SPAN_Y}%`,
+	};
 }
 
 // conic-gradient stops for the verdict ring: one cumulative wedge per primary

@@ -31,6 +31,7 @@ describe('modelColourIndex', () => {
 describe('scatterPos', () => {
   it('insets dots from the axes, scaling to the plot maxima', () => {
     expect(scatterPos({ tokens_used: 100, duration_secs: 100 } as any, 100, 100)).toEqual({ left: '96%', bottom: '90%' });
+    expect(scatterPos({ tokens_used: 50, duration_secs: 100 } as any, 100, 100)).toEqual({ left: '96%', bottom: '49%' });
     expect(scatterPos({ tokens_used: 0, duration_secs: 0 } as any, 100, 100)).toEqual({ left: '8%', bottom: '8%' });
   });
 });

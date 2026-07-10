@@ -3,7 +3,7 @@
   import { getMetrics } from '../lib/api';
   import { feedLive, feedStale } from '../lib/feed';
   import { durSecs, tokens } from '../lib/format';
-  import { metricFacets, scatterClass } from '../lib/metrics';
+  import { metricFacets, scatterClass, scatterPos, trendPoints, verdictRing } from '../lib/metrics';
   import type { MetricsResponse } from '../lib/types';
 
   let range = '30d';
@@ -15,14 +15,14 @@
   $: ({ models, efforts } = metricFacets(data));
   $: maxReviews = Math.max(1, ...(data?.activity || []).map((d) => d.reviews));
   $: maxTokens = Math.max(1, ...(data?.activity || []).map((d) => d.tokens_used));
-	$: tokenPoints = (data?.activity || []).map((day, i, rows) => `${rows.length < 2 ? 50 : i / (rows.length - 1) * 100},${100 - day.tokens_used / maxTokens * 100}`).join(' ');
+  $: tokenPoints = trendPoints(data?.activity || [], maxTokens);
   $: scatterX = Math.max(1, ...(data?.scatter || []).map((p) => p.tokens_used));
   $: scatterY = Math.max(1, ...(data?.scatter || []).map((p) => p.duration_secs));
   $: verdictTotal = Object.values(data?.verdicts || {}).reduce((a, b) => a + b, 0);
   $: approved = data?.verdicts.APPROVED || 0;
   $: commented = data?.verdicts.COMMENTED || 0;
   $: rejected = data?.verdicts.REQUESTED_CHANGES || 0;
-  $: ring = `conic-gradient(var(--green) 0 ${(approved / Math.max(1, verdictTotal)) * 360}deg, var(--blue) 0 ${((approved + commented) / Math.max(1, verdictTotal)) * 360}deg, var(--red) 0 ${((approved + commented + rejected) / Math.max(1, verdictTotal)) * 360}deg, var(--amber) 0)`;
+  $: ring = verdictRing(data?.verdicts || {});
 
   async function load() {
     try {
@@ -54,7 +54,7 @@
       <section class="surface metric-panel activity-panel"><div class="section-head"><h2>Completed reviews + token spend</h2><span>daily</span></div><div class="activity-plot">{#each data.activity as day}<div class="activity-day" title={`${day.day}: ${day.reviews} reviews · ${day.tokens_used} tokens`}><i class="review-bar" style={`height:${Math.max(3, day.reviews / maxReviews * 100)}%`}></i></div>{/each}<svg class="token-trend" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Token spend trend"><polyline points={tokenPoints} /></svg></div><div class="legend"><span><i class="approved"></i>completed reviews</span><span><i class="commented"></i>tokens used</span></div></section>
       <section class="surface metric-panel verdict-panel"><div class="section-head"><h2>Verdicts</h2><span>{verdictTotal} total</span></div><div class="ring" style={`background:${ring}`}><b>{verdictTotal}</b></div><div class="verdict-list"><span><i class="approved"></i>Approved <b>{approved}</b></span><span><i class="commented"></i>Commented <b>{commented}</b></span><span><i class="changes"></i>Requested changes <b>{rejected}</b></span></div></section>
     </div>
-    <section class="surface metric-panel scatter-panel"><div class="section-head"><div><h2>Duration vs. tokens</h2><span>Each point is one completed review.</span></div><label class="colour-control">Colour by <select bind:value={colour}><option value="verdict">verdict</option><option value="model">model</option></select></label></div><div class="scatter" aria-label="Duration versus tokens scatter plot">{#each data.scatter as point}{@const pointClass = scatterClass(point, colour as 'verdict' | 'model')}<i class:approved={pointClass === 'approved'} class:commented={pointClass === 'commented'} class:rejected={pointClass === 'rejected'} class:other={pointClass === 'other'} class:model-0={pointClass === 'model-0'} class:model-1={pointClass === 'model-1'} class:model-2={pointClass === 'model-2'} class:model-3={pointClass === 'model-3'} style={`left:${8 + point.tokens_used / scatterX * 88}%; bottom:${8 + point.duration_secs / scatterY * 82}%`} title={`${point.model || 'Codex default'} / ${point.effort || 'default'} · ${point.verdict} · ${tokens(point.tokens_used) || 'unknown'} tokens · ${durSecs(point.duration_secs) || 'unknown duration'}`}></i>{/each}<span class="axis x">tokens →</span><span class="axis y">duration →</span></div></section>
+    <section class="surface metric-panel scatter-panel"><div class="section-head"><div><h2>Duration vs. tokens</h2><span>Each point is one completed review.</span></div><label class="colour-control">Colour by <select bind:value={colour}><option value="verdict">verdict</option><option value="model">model</option></select></label></div><div class="scatter" aria-label="Duration versus tokens scatter plot">{#each data.scatter as point}{@const pointClass = scatterClass(point, colour as 'verdict' | 'model')}{@const pos = scatterPos(point, scatterX, scatterY)}<i class={pointClass} style={`left:${pos.left}; bottom:${pos.bottom}`} title={`${point.model || 'Codex default'} / ${point.effort || 'default'} · ${point.verdict} · ${tokens(point.tokens_used) || 'unknown'} tokens · ${durSecs(point.duration_secs) || 'unknown duration'}`}></i>{/each}<span class="axis x">tokens →</span><span class="axis y">duration →</span></div></section>
     <section class="surface metric-panel"><div class="section-head"><h2>Model + effort breakdown</h2><span>CLI version retained per review</span></div><div class="metric-table"><p class="metric-table-head"><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Median</b><b>Codex</b></p>{#each data.models as row}<p><span>{row.model || 'Codex default'}</span><span>{row.effort || 'model default'}</span><span>{row.reviews}</span><span>{tokens(row.tokens_used) || '—'}</span><span>{durSecs(row.median_duration_secs) || '—'}</span><span class="mono">{row.codex_version || 'unavailable'}</span></p>{/each}</div></section>
   </div>
 {/if}

@@ -44,8 +44,12 @@ internal/
   run `make dashboard` and commit the regenerated assets — CI's
   `dashboard-fresh` job rebuilds and diffs to enforce this. Release ritual:
   `make release VERSION=vX.Y.Z` (verifies tag availability, clean tree,
-  dashboard freshness, Go tests, `go vet`, and frontend tests) → `git tag
-  vX.Y.Z` → `git push origin main vX.Y.Z`.
+  dashboard freshness, Go tests, `go vet`, and frontend tests), then `git tag
+  vX.Y.Z` and `git push origin main vX.Y.Z`. Pushing the `v*` tag is the only
+  build trigger: the Release workflow (`.github/workflows/release.yml`)
+  cross-builds the CGO-free binaries, publishes the GitHub Release, and updates
+  the Homebrew formula. You never cross-compile or upload artifacts by hand;
+  locally you only commit the dashboard bundle and push the tag.
 
 - **Family libraries**: `lib-agent-cli` (root scaffolding, XDG paths, creds
   store), `lib-agent-output` (NDJSON contract, `{error, fixable_by, hint}`),

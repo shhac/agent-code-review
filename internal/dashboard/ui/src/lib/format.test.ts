@@ -40,6 +40,8 @@ describe('tokens', () => {
     expect(tokens(850)).toBe('850');
     expect(tokens(3421)).toBe('3.4k');
     expect(tokens(192575)).toBe('193k');
+	    expect(tokens(14_340_000)).toBe('14m');
+	    expect(tokens(1_430_000_000)).toBe('1.4b');
   });
 });
 

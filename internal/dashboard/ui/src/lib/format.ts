@@ -62,12 +62,17 @@ export function dur(a: string, b: string) {
   return durSecs(Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 1000)) || '0s';
 }
 
-// Compact token count ("850", "3.4k", "193k"). Zero means unknown, not free.
+// Compact token count ("850", "3.4k", "193k", "14.3m", "1.2b"). Zero
+// means unknown, not free.
 export function tokens(n: number | undefined) {
-  if (!n || n <= 0) return '';
-  if (n < 1000) return `${n}`;
-  if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
-  return `${Math.round(n / 1000)}k`;
+	if (!n || n <= 0) return '';
+	if (n < 1000) return `${n}`;
+	if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
+	if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+	if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}m`;
+	if (n < 1_000_000_000) return `${Math.round(n / 1_000_000)}m`;
+	if (n < 10_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}b`;
+	return `${Math.round(n / 1_000_000_000)}b`;
 }
 
 export function keyOf(c: Candidate) {

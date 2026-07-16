@@ -135,8 +135,12 @@
   .pill-any .pill-k { color: var(--faint); font-style: italic; }
 
   .preview-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 18px 20px 6px; }
-  /* One shared height so the toggles, segmented, and select line up. */
+  /* One shared height so the toggles, pill-toggle, and select line up. The
+     :global rule is needed because PillToggle's root is a child component, so it
+     doesn't carry this component's scope class (the md/raw toggle in a box keeps
+     its own natural, compact size — only the preview-row instance is sized). */
   .preview-controls > * { height: 34px; box-sizing: border-box; }
+  .preview-controls > :global(.pill-toggle) { height: 34px; box-sizing: border-box; }
   .toggle {
     display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; cursor: pointer;
     border: 1px solid var(--line); border-radius: 8px; background: var(--surface-warm);

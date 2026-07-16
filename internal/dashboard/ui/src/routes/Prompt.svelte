@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getPrompt, getPromptPreview } from '../lib/api';
+  import { mdToHtml } from '../lib/markdown';
   import { feedLive, feedStale } from '../lib/feed';
   import type { PromptResponse, PromptPreviewResponse, RuleCondition } from '../lib/types';
 
   const EXAMPLE_REPO = 'example-org/example-repo';
+
+  let viewMode = 'rendered'; // 'rendered' | 'raw'
 
   let promptData: PromptResponse | null = null;
   let preview: PromptPreviewResponse | null = null;
@@ -99,6 +102,10 @@
         <select class="repo-select" bind:value={repo}>
           {#each repoOptions as r}<option value={r}>{r}</option>{/each}
         </select>
+        <div class="segmented compact render-toggle">
+          <label><input type="radio" bind:group={viewMode} value="rendered" /> Rendered</label>
+          <label><input type="radio" bind:group={viewMode} value="raw" /> Raw</label>
+        </div>
       </div>
       {#if preview}
         {#if preview.rules?.length}
@@ -112,7 +119,11 @@
             {/each}
           </div>
         {/if}
-        <pre>{preview.preview}</pre>
+        {#if viewMode === 'rendered'}
+          <div class="md">{@html mdToHtml(preview.preview)}</div>
+        {:else}
+          <pre>{preview.preview}</pre>
+        {/if}
       {:else}
         <div class="empty">Assembling preview…</div>
       {/if}
@@ -140,11 +151,33 @@
   .toggle.on { border-color: var(--accent); color: var(--ink); }
   .toggle input { accent-color: var(--accent); }
   .segmented.compact { margin: 0; }
+  .render-toggle { margin-left: auto; } /* push the raw/rendered switch to the right */
   .repo-select {
     padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px;
     background: var(--surface-warm); color: var(--ink); font: inherit; font-size: 12px;
   }
   .repo-select:focus { outline: none; border-color: var(--accent); }
+
+  /* Rendered markdown container (styles reach {@html} output via :global). */
+  .md { padding: 6px 20px 18px; line-height: 1.55; color: var(--ink); font-size: 14px; }
+  .md :global(h1), .md :global(h2), .md :global(h3), .md :global(h4) {
+    margin: 16px 0 6px; color: var(--accent); font-weight: 800; letter-spacing: 0; text-transform: none;
+  }
+  .md :global(h1) { font-size: 17px; }
+  .md :global(h2) { font-size: 15px; }
+  .md :global(h3), .md :global(h4) { font-size: 14px; }
+  .md :global(p) { margin: 8px 0; }
+  .md :global(ul), .md :global(ol) { margin: 8px 0; padding-left: 22px; }
+  .md :global(li) { margin: 3px 0; }
+  .md :global(strong) { color: var(--ink); font-weight: 800; }
+  .md :global(code) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+    background: var(--surface-warm); padding: 1px 5px; border-radius: 4px;
+  }
+  .md :global(pre) {
+    background: var(--paper); padding: 12px 14px; border-radius: 8px; overflow-x: auto; margin: 8px 0;
+  }
+  .md :global(pre code) { background: none; padding: 0; }
 
   .trace { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 20px 0; }
   .tchip {

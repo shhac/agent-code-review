@@ -15,18 +15,20 @@ import (
 // core review prompt; the on-* slots are post-outcome instructions.
 var promptSlots = []string{"main", "on-approve", "on-comment", "on-reject"}
 
-func slotAccess(r *config.ReviewSettings, slot string) (get func() string, set func(string)) {
+// slotField returns a pointer to the ReviewSettings field backing a prompt
+// slot, or nil for an unknown slot. Read with *p, write with *p = v.
+func slotField(r *config.ReviewSettings, slot string) *string {
 	switch slot {
 	case "main":
-		return func() string { return r.MainPrompt }, func(v string) { r.MainPrompt = v }
+		return &r.MainPrompt
 	case "on-approve":
-		return func() string { return r.OnApprove }, func(v string) { r.OnApprove = v }
+		return &r.OnApprove
 	case "on-comment":
-		return func() string { return r.OnComment }, func(v string) { r.OnComment = v }
+		return &r.OnComment
 	case "on-reject":
-		return func() string { return r.OnReject }, func(v string) { r.OnReject = v }
+		return &r.OnReject
 	default:
-		return nil, nil
+		return nil
 	}
 }
 
@@ -57,8 +59,7 @@ func promptsShowCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := config.Read()
 			for _, slot := range promptSlots {
-				get, _ := slotAccess(&cfg.Review, slot)
-				rec := map[string]any{"slot": slot, "value": get()}
+				rec := map[string]any{"slot": slot, "value": *slotField(&cfg.Review, slot)}
 				if slot == "main" && cfg.Review.MainPromptPath != "" {
 					rec["overridden_by"] = "main_prompt_path: " + cfg.Review.MainPromptPath
 					rec["effective"] = review.MainPrompt(cfg.Review)
@@ -80,15 +81,15 @@ func promptsSetCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, args []string) error {
 			slot, text := args[0], strings.TrimSpace(strings.Join(args[1:], " "))
 			if err := config.Update(func(cfg *config.Config) error {
-				_, set := slotAccess(&cfg.Review, slot)
-				if set == nil {
+				p := slotField(&cfg.Review, slot)
+				if p == nil {
 					return unknownSlotError(slot)
 				}
 				if slot == "main" && cfg.Review.MainPromptPath != "" {
 					return output.New("main_prompt_path is set ("+cfg.Review.MainPromptPath+") and overrides main_prompt", output.FixableByHuman).
 						WithHint("edit that file instead, or clear main_prompt_path in config.json first")
 				}
-				set(text)
+				*p = text
 				return nil
 			}); err != nil {
 				return err
@@ -113,11 +114,11 @@ func promptsUnsetCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, args []string) error {
 			slot := args[0]
 			if err := config.Update(func(cfg *config.Config) error {
-				_, set := slotAccess(&cfg.Review, slot)
-				if set == nil {
+				p := slotField(&cfg.Review, slot)
+				if p == nil {
 					return unknownSlotError(slot)
 				}
-				set("")
+				*p = ""
 				return nil
 			}); err != nil {
 				return err
@@ -152,23 +153,20 @@ func promptsPreviewCmd() *cobra.Command {
 				return output.New("--candidate-type must be one of "+strings.Join(config.CandidateTypes, ", ")+", got "+candidateType, output.FixableByAgent)
 			}
 			if repo == "" {
-				repo = "example-org/example-repo"
+				repo = review.SampleRepo
 			}
 			if !config.ValidRepoName(repo) {
-				return output.New("--repo must be owner/name, got "+repo, output.FixableByAgent)
+				return invalidRepo(repo)
 			}
 			cfg := config.Read()
-			sample := store.Candidate{
-				Repo:    repo,
-				Number:  123,
-				Type:    candidateType,
-				Author:  "example-author",
-				URL:     "https://github.com/" + repo + "/pull/123",
-				HeadSHA: "0000000000000000000000000000000000000000",
-			}
+			sample := review.SampleCandidate(repo, candidateType)
 			facts := review.Facts{AuthorAllowed: !notAllowed, AuthorIsGHUser: isGHUser}
+			variant := "allowed_author"
+			if notAllowed {
+				variant = "not_allowed_author"
+			}
 			rec := map[string]any{
-				"variant": map[bool]string{false: "allowed_author", true: "not_allowed_author"}[notAllowed],
+				"variant": variant,
 				"candidate": map[string]any{
 					"repo":              sample.Repo,
 					"candidate_type":    sample.Type,
@@ -190,9 +188,7 @@ func promptsPreviewCmd() *cobra.Command {
 	f.StringVar(&candidateType, "candidate-type", "", "Candidate kind: new (default) | refreshed")
 	f.StringVar(&repo, "repo", "", "Repo the synthetic candidate belongs to (default: example-org/example-repo)")
 	f.BoolVar(&explain, "explain", false, "Also trace which rules fired and why")
-	_ = cmd.RegisterFlagCompletionFunc("candidate-type", func(_ *cobra.Command, _ []string, tc string) ([]string, cobra.ShellCompDirective) {
-		return noFile(completePrefix(config.CandidateTypes, tc))
-	})
+	_ = cmd.RegisterFlagCompletionFunc("candidate-type", completeStatic(config.CandidateTypes))
 	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
 	return cmd
 }

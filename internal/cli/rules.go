@@ -88,34 +88,9 @@ func rulesAddCmd() *cobra.Command {
 			"are the two allow-list branches and are mutually exclusive.",
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			name = strings.TrimSpace(name)
-			prompt = strings.TrimSpace(prompt)
-			if name == "" {
-				return output.New("--name is required", output.FixableByAgent)
-			}
-			if prompt == "" {
-				return output.New("--prompt is required", output.FixableByAgent)
-			}
-			if authorAllowed && authorNotAllowed {
-				return output.New("--author-allowed and --author-not-allowed are mutually exclusive; a rule with both can never match", output.FixableByAgent)
-			}
-			if authorIsGHUser && authorNotGHUser {
-				return output.New("--author-is-gh-user and --author-not-gh-user are mutually exclusive; a rule with both can never match", output.FixableByAgent)
-			}
-			if outcome != "" && !config.ValidOutcome(outcome) {
-				return output.New("--outcome must be one of "+strings.Join(config.Outcomes, ", ")+", got "+outcome, output.FixableByAgent)
-			}
-			if candidateType != "" && !config.ValidCandidateType(candidateType) {
-				return output.New("--candidate-type must be one of "+strings.Join(config.CandidateTypes, ", ")+", got "+candidateType, output.FixableByAgent)
-			}
-			for _, r := range repos {
-				if !config.ValidRepoName(r) {
-					return output.New("--repo must be owner/name, got "+r, output.FixableByAgent)
-				}
-			}
 			rule := config.Rule{
-				Name:   name,
-				Prompt: prompt,
+				Name:   strings.TrimSpace(name),
+				Prompt: strings.TrimSpace(prompt),
 				When: config.Condition{
 					AuthorIsGHUser:   authorIsGHUser,
 					AuthorNotGHUser:  authorNotGHUser,
@@ -126,11 +101,14 @@ func rulesAddCmd() *cobra.Command {
 					Outcome:          outcome,
 				},
 			}
+			if err := validateRule(rule); err != nil {
+				return err
+			}
 			if err := config.Update(func(cfg *config.Config) error {
 				for _, existing := range cfg.Review.Rules {
-					if strings.EqualFold(existing.Name, name) {
-						return output.New("A rule named "+name+" already exists", output.FixableByAgent).
-							WithHint("remove it first (rules rm " + name + ") or pick another name")
+					if strings.EqualFold(existing.Name, rule.Name) {
+						return output.New("A rule named "+rule.Name+" already exists", output.FixableByAgent).
+							WithHint("remove it first (rules rm " + rule.Name + ") or pick another name")
 					}
 				}
 				cfg.Review.Rules = append(cfg.Review.Rules, rule)
@@ -151,14 +129,41 @@ func rulesAddCmd() *cobra.Command {
 	f.BoolVar(&authorNotGHUser, "author-not-gh-user", false, "Only when the PR is NOT self-authored (author != our gh user)")
 	f.StringVar(&candidateType, "candidate-type", "", "Only for this candidate kind: new|refreshed")
 	f.StringArrayVar(&repos, "repo", nil, "Only for these repos (owner/name; repeatable, any-of)")
-	_ = cmd.RegisterFlagCompletionFunc("outcome", func(_ *cobra.Command, _ []string, tc string) ([]string, cobra.ShellCompDirective) {
-		return noFile(completePrefix(config.Outcomes, tc))
-	})
-	_ = cmd.RegisterFlagCompletionFunc("candidate-type", func(_ *cobra.Command, _ []string, tc string) ([]string, cobra.ShellCompDirective) {
-		return noFile(completePrefix(config.CandidateTypes, tc))
-	})
+	_ = cmd.RegisterFlagCompletionFunc("outcome", completeStatic(config.Outcomes))
+	_ = cmd.RegisterFlagCompletionFunc("candidate-type", completeStatic(config.CandidateTypes))
 	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
 	return cmd
+}
+
+// validateRule checks a rule is well-formed and internally consistent: required
+// fields present, no mutually-exclusive condition pair set (which could never
+// match), and valid enum/repo values. Pure and table-testable, kept apart from
+// the persist/emit transport in rulesAddCmd.
+func validateRule(r config.Rule) error {
+	if r.Name == "" {
+		return output.New("--name is required", output.FixableByAgent)
+	}
+	if r.Prompt == "" {
+		return output.New("--prompt is required", output.FixableByAgent)
+	}
+	if r.When.AuthorAllowed && r.When.AuthorNotAllowed {
+		return output.New("--author-allowed and --author-not-allowed are mutually exclusive; a rule with both can never match", output.FixableByAgent)
+	}
+	if r.When.AuthorIsGHUser && r.When.AuthorNotGHUser {
+		return output.New("--author-is-gh-user and --author-not-gh-user are mutually exclusive; a rule with both can never match", output.FixableByAgent)
+	}
+	if r.When.Outcome != "" && !config.ValidOutcome(r.When.Outcome) {
+		return output.New("--outcome must be one of "+strings.Join(config.Outcomes, ", ")+", got "+r.When.Outcome, output.FixableByAgent)
+	}
+	if r.When.CandidateType != "" && !config.ValidCandidateType(r.When.CandidateType) {
+		return output.New("--candidate-type must be one of "+strings.Join(config.CandidateTypes, ", ")+", got "+r.When.CandidateType, output.FixableByAgent)
+	}
+	for _, repo := range r.When.Repos {
+		if !config.ValidRepoName(repo) {
+			return invalidRepo(repo)
+		}
+	}
+	return nil
 }
 
 func rulesRmCmd() *cobra.Command {

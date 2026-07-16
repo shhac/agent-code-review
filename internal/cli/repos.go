@@ -56,7 +56,7 @@ func reposAddCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, args []string) error {
 			repo := args[0]
 			if !config.ValidRepoName(repo) {
-				return output.New("Repo must be owner/name, got "+repo, output.FixableByAgent)
+				return invalidRepo(repo)
 			}
 			watched := false
 			if err := config.Update(func(cfg *config.Config) error {
@@ -89,6 +89,13 @@ func reposAddCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&allowedOnly, "allowed-authors-only", false,
 		"Only discover PRs authored by allowed authors in this repo")
 	return cmd
+}
+
+// invalidRepo is the shared "owner/name" validation error, mirroring
+// invalidAuthorRepo (which also accepts the "*" wildcard). Used by every
+// command that takes a plain repo argument or --repo flag.
+func invalidRepo(repo string) error {
+	return output.New("Repo must be owner/name, got "+repo, output.FixableByAgent)
 }
 
 // removeFold returns list without repo (case-insensitive).

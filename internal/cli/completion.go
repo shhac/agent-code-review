@@ -36,11 +36,15 @@ func completePrefix(values []string, prefix string) []string {
 	return out
 }
 
-func completeConfigKeys(keys []string) cobra.CompletionFunc {
+// completeStatic completes against a fixed value set (enum flags, config keys).
+// The canonical shape for "suggest one of these, no file completion".
+func completeStatic(values []string) cobra.CompletionFunc {
 	return func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return noFile(completePrefix(keys, toComplete))
+		return noFile(completePrefix(values, toComplete))
 	}
 }
+
+func completeConfigKeys(keys []string) cobra.CompletionFunc { return completeStatic(keys) }
 
 func attachConfigCompletions(cmd *cobra.Command, specs []configKeySpec) {
 	keyNames := make([]string, 0, len(specs))

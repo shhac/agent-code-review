@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"time"
 
@@ -291,31 +292,22 @@ func validateHoldDuration(v string) error {
 }
 
 func validateEngine(v string) error {
-	if v == "" || contains(engineValues, v) {
+	if v == "" || slices.Contains(engineValues, v) {
 		return nil
 	}
 	return output.New(`Unknown engine: `+v+`. Valid: codex`, output.FixableByAgent)
 }
 
 func validateSandbox(v string) error {
-	if v == "" || contains(sandboxValues, v) {
+	if v == "" || slices.Contains(sandboxValues, v) {
 		return nil
 	}
 	return output.New("Invalid sandbox mode: "+v+". Valid: read-only, workspace-write, danger-full-access", output.FixableByAgent)
 }
 
 func validateTailscaleMode(v string) error {
-	if v == "" || contains(tailscaleModeValues, v) {
+	if v == "" || slices.Contains(tailscaleModeValues, v) {
 		return nil
 	}
 	return output.New(`Invalid tailscale mode: `+v+`. Valid: "", serve, funnel`, output.FixableByAgent)
-}
-
-func contains(values []string, value string) bool {
-	for _, candidate := range values {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
 }

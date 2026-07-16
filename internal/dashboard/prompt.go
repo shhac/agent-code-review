@@ -68,16 +68,16 @@ func (s *Server) handlePromptPreview(w http.ResponseWriter, r *http.Request) {
 		candidateType = store.TypeNew
 	}
 	if !config.ValidCandidateType(candidateType) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "candidate_type must be new or refreshed"})
+		httpError(w, http.StatusBadRequest, "candidate_type must be new or refreshed")
 		return
 	}
 
 	repo := q.Get("repo")
 	if repo == "" {
-		repo = "example-org/example-repo"
+		repo = review.SampleRepo
 	}
 	if !config.ValidRepoName(repo) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo must be owner/name"})
+		httpError(w, http.StatusBadRequest, "repo must be owner/name")
 		return
 	}
 
@@ -85,14 +85,7 @@ func (s *Server) handlePromptPreview(w http.ResponseWriter, r *http.Request) {
 		AuthorAllowed:  q.Get("author_allowed") != "false", // default allowed
 		AuthorIsGHUser: q.Get("author_is_gh_user") == "true",
 	}
-	sample := store.Candidate{
-		Repo:    repo,
-		Number:  123,
-		Type:    candidateType,
-		Author:  "example-author",
-		URL:     "https://github.com/" + repo + "/pull/123",
-		HeadSHA: "0000000000000000000000000000000000000000",
-	}
+	sample := review.SampleCandidate(repo, candidateType)
 	cfg := s.config()
 	writeJSON(w, http.StatusOK, promptPreviewResp{
 		Candidate: promptPreviewCandidate{

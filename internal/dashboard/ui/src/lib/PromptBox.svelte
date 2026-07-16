@@ -1,16 +1,18 @@
 <script lang="ts">
   import { mdToHtml } from './markdown';
+  import PillToggle from './PillToggle.svelte';
 
   export let text: string;
-  let raw = false;
+  let mode = 'md'; // 'md' | 'raw'
+  const modes = [
+    { value: 'md', label: 'md' },
+    { value: 'raw', label: 'raw' },
+  ];
 </script>
 
 <div class="pbox">
-  <div class="pbox-toggle">
-    <button class:active={!raw} on:click={() => (raw = false)} title="Rendered markdown">md</button>
-    <button class:active={raw} on:click={() => (raw = true)} title="Raw text">raw</button>
-  </div>
-  {#if raw}
+  <div class="pbox-toggle"><PillToggle options={modes} bind:value={mode} /></div>
+  {#if mode === 'raw'}
     <pre>{text}</pre>
   {:else}
     <div class="md">{@html mdToHtml(text)}</div>
@@ -24,18 +26,8 @@
     white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.6;
   }
 
-  /* Compact md/raw switch overlaid in the box's top-right corner. */
-  .pbox-toggle {
-    position: absolute; top: 8px; right: 10px; z-index: 1; display: inline-flex;
-  }
-  .pbox-toggle button {
-    font-size: 10px; font-weight: 750; letter-spacing: .03em; padding: 2px 7px;
-    border: 1px solid var(--line); background: var(--surface-warm); color: var(--dim);
-    cursor: pointer; text-transform: uppercase;
-  }
-  .pbox-toggle button:first-child { border-radius: 6px 0 0 6px; }
-  .pbox-toggle button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
-  .pbox-toggle button.active { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+  /* Overlay the md/raw switch in the box's top-right corner. */
+  .pbox-toggle { position: absolute; top: 8px; right: 10px; z-index: 1; }
 
   /* Rendered markdown (styles reach {@html} output via :global). */
   .md { padding: 14px 20px 18px; line-height: 1.55; font-size: 14px; }

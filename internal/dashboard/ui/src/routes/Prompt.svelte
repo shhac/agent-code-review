@@ -2,10 +2,15 @@
   import { onMount } from 'svelte';
   import { getPrompt, getPromptPreview } from '../lib/api';
   import PromptBox from '../lib/PromptBox.svelte';
+  import PillToggle from '../lib/PillToggle.svelte';
   import { feedLive, feedStale } from '../lib/feed';
   import type { PromptResponse, PromptPreviewResponse, RuleCondition } from '../lib/types';
 
   const EXAMPLE_REPO = 'example-org/example-repo';
+  const candidateTypes = [
+    { value: 'new', label: 'New' },
+    { value: 'refreshed', label: 'Refreshed' },
+  ];
 
   let promptData: PromptResponse | null = null;
   let preview: PromptPreviewResponse | null = null;
@@ -93,10 +98,7 @@
       <div class="preview-controls">
         <label class="toggle" class:on={allowed}><input type="checkbox" bind:checked={allowed} /> Author allowed</label>
         <label class="toggle" class:on={self}><input type="checkbox" bind:checked={self} /> Self-authored</label>
-        <div class="segmented compact">
-          <label><input type="radio" bind:group={candidateType} value="new" /> New</label>
-          <label><input type="radio" bind:group={candidateType} value="refreshed" /> Refreshed</label>
-        </div>
+        <PillToggle options={candidateTypes} bind:value={candidateType} />
         <select class="repo-select" bind:value={repo}>
           {#each repoOptions as r}<option value={r}>{r}</option>{/each}
         </select>
@@ -142,8 +144,6 @@
   }
   .toggle.on { border-color: var(--accent); color: var(--ink); }
   .toggle input { accent-color: var(--accent); }
-  .segmented.compact { margin: 0; padding: 3px; }
-  .segmented.compact label { padding: 0 12px; }
   .repo-select {
     padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
     background: var(--surface-warm); color: var(--ink); font: inherit; font-size: 12px;

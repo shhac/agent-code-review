@@ -156,12 +156,42 @@ export type AuthorsResponse = {
   authors: AllowedAuthor[];
 };
 
+export type RuleCondition = {
+  author_is_gh_user?: boolean;
+  author_not_gh_user?: boolean;
+  author_allowed?: boolean;
+  author_not_allowed?: boolean;
+  candidate_type?: string;
+  repos?: string[];
+  outcome?: string;
+};
+
+export type Rule = { name: string; prompt: string; when?: RuleCondition };
+
 export type PromptResponse = {
   main_prompt?: string;
   outcomes?: Record<string, string>;
-  rules?: any[];
-  previews?: Record<string, string>;
+  rules?: Rule[];
+  repos?: string[];
   note?: string;
+};
+
+export type RuleTrace = {
+  name: string;
+  target: string; // "body" | "approve" | "comment" | "reject"
+  matched: boolean;
+  reason?: string;
+};
+
+export type PromptPreviewResponse = {
+  candidate: {
+    repo: string;
+    candidate_type: string;
+    author_allowed: boolean;
+    author_is_gh_user: boolean;
+  };
+  preview: string;
+  rules: RuleTrace[];
 };
 
 export type LogEntry = {

@@ -10,6 +10,7 @@ import type {
   LogsResponse,
   MetricsResponse,
   PromptResponse,
+  PromptPreviewResponse,
   StatsResponse,
   UsageResponse,
   ReviewLogRef,
@@ -56,6 +57,20 @@ export const getMetrics = (range: string, model: string, effort: string) => {
 export const getConfig = () => fetchJSON<ConfigResponse>('/api/config');
 export const getAuthors = () => fetchJSON<AuthorsResponse>('/api/authors');
 export const getPrompt = () => fetchJSON<PromptResponse>('/api/prompt');
+export const getPromptPreview = (p: {
+  author_allowed: boolean;
+  author_is_gh_user: boolean;
+  candidate_type: string;
+  repo?: string;
+}) => {
+  const params = new URLSearchParams({
+    author_allowed: String(p.author_allowed),
+    author_is_gh_user: String(p.author_is_gh_user),
+    candidate_type: p.candidate_type,
+  });
+  if (p.repo) params.set('repo', p.repo);
+  return fetchJSON<PromptPreviewResponse>(`/api/prompt/preview?${params.toString()}`);
+};
 export const getLogs = () => fetchJSON<LogsResponse>('/api/logs');
 
 export function getReviewLog(ref: ReviewLogRef) {

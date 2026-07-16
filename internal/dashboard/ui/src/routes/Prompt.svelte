@@ -147,7 +147,7 @@
   }
   .repo-select:focus { outline: none; border-color: var(--accent); }
 
-  .trace { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 20px 0; }
+  .trace { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 20px 12px; }
   .tchip {
     display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px;
     border-radius: 7px; border: 1px solid var(--line); background: var(--surface-warm);

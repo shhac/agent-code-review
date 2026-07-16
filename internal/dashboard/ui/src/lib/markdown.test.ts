@@ -14,6 +14,23 @@ describe('mdToHtml', () => {
     );
   });
 
+  it('never drops list items on irregular indentation', () => {
+    // Decreasing indent: an item returns to column 0 after an indented one.
+    const decreasing = mdToHtml(['- a', '   - b', '- c'].join('\n'));
+    expect((decreasing.match(/<li>/g) || []).length).toBe(3);
+    for (const item of ['a', 'b', 'c']) expect(decreasing).toContain(item);
+
+    // Intermediate indent that matches no open level must still appear.
+    const intermediate = mdToHtml(['- x', '      - y', '   - z'].join('\n'));
+    expect((intermediate.match(/<li>/g) || []).length).toBe(3);
+    expect(intermediate).toContain('z');
+
+    // First item indented, later item at column 0.
+    const shallowLater = mdToHtml(['   - p', '- q'].join('\n'));
+    expect((shallowLater.match(/<li>/g) || []).length).toBe(2);
+    expect(shallowLater).toContain('q');
+  });
+
   it('renders bold and inline code without touching digits/asterisks inside code', () => {
     expect(mdToHtml('use **bold** and `a * b` and `x 5 y`')).toBe(
       '<p>use <strong>bold</strong> and <code>a * b</code> and <code>x 5 y</code></p>',

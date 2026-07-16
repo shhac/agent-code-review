@@ -31,16 +31,21 @@ function inline(s: string): string {
 type ListItem = { indent: number; ordered: boolean; html: string };
 
 // buildList turns a flat run of list items into nested <ul>/<ol> by indent. A
-// deeper indent than the current level opens a sublist inside the previous item.
+// deeper indent than the current item opens a sublist inside it. It is
+// drop-free: the outermost level starts at the minimum indent present, so every
+// item is emitted even on irregular indentation — a shallower-than-its-sibling
+// item flattens to the current level rather than vanishing (the previous
+// equality-based grouping silently dropped such items).
 function buildList(items: ListItem[]): string {
   let idx = 0;
-  function level(indent: number): string {
+  function level(minIndent: number): string {
     const ordered = items[idx].ordered;
     let html = ordered ? '<ol>' : '<ul>';
-    while (idx < items.length && items[idx].indent === indent) {
+    while (idx < items.length && items[idx].indent >= minIndent) {
+      const itemIndent = items[idx].indent;
       let li = '<li>' + items[idx].html;
       idx++;
-      if (idx < items.length && items[idx].indent > indent) {
+      if (idx < items.length && items[idx].indent > itemIndent) {
         li += level(items[idx].indent);
       }
       li += '</li>';
@@ -49,11 +54,26 @@ function buildList(items: ListItem[]): string {
     html += ordered ? '</ol>' : '</ul>';
     return html;
   }
-  return level(items[0].indent);
+  return level(Math.min(...items.map((it) => it.indent)));
 }
 
 const LIST_RE = /^(\s*)([-*]|\d+\.)\s+(.*)$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+
+// takeWhile collects the run of lines from start for which pred holds, and
+// returns it with the index of the first line that failed (or lines.length).
+// The single cursor-advancing primitive the fence, list, and paragraph blocks
+// share, so the loop reads as dispatch rather than three hand-rolled scans.
+function takeWhile(lines: string[], start: number, pred: (s: string) => boolean): [string[], number] {
+  let i = start;
+  while (i < lines.length && pred(lines[i])) i++;
+  return [lines.slice(start, i), i];
+}
+
+function listItem(line: string): ListItem {
+  const m = line.match(LIST_RE)!;
+  return { indent: m[1].length, ordered: /\d+\./.test(m[2]), html: inline(m[3]) };
+}
 
 export function mdToHtml(src: string): string {
   const lines = escapeHtml(src).split('\n');
@@ -61,6 +81,9 @@ export function mdToHtml(src: string): string {
   let i = 0;
   const blank = (s: string) => s.trim() === '';
   const fence = (s: string) => s.trim().startsWith('```');
+  // A line that begins a new block ends the current paragraph. One definition so
+  // the paragraph terminator can't drift from the dispatch below.
+  const isBlockStart = (s: string) => blank(s) || fence(s) || HEADING_RE.test(s) || LIST_RE.test(s);
 
   while (i < lines.length) {
     const line = lines[i];
@@ -69,46 +92,27 @@ export function mdToHtml(src: string): string {
       continue;
     }
     if (fence(line)) {
-      i++;
-      const code: string[] = [];
-      while (i < lines.length && !fence(lines[i])) {
-        code.push(lines[i]);
-        i++;
-      }
-      i++; // closing fence
+      const [code, end] = takeWhile(lines, i + 1, (l) => !fence(l));
+      i = end + 1; // past the closing fence
       out.push('<pre><code>' + code.join('\n') + '</code></pre>');
       continue;
     }
     const h = line.match(HEADING_RE);
     if (h) {
-      const n = h[1].length;
-      out.push(`<h${n}>${inline(h[2])}</h${n}>`);
+      out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);
       i++;
       continue;
     }
     if (LIST_RE.test(line)) {
-      const items: ListItem[] = [];
-      while (i < lines.length && LIST_RE.test(lines[i])) {
-        const m = lines[i].match(LIST_RE)!;
-        items.push({ indent: m[1].length, ordered: /\d+\./.test(m[2]), html: inline(m[3]) });
-        i++;
-      }
-      out.push(buildList(items));
+      const [rows, end] = takeWhile(lines, i, (l) => LIST_RE.test(l));
+      i = end;
+      out.push(buildList(rows.map(listItem)));
       continue;
     }
     // Paragraph: consecutive plain lines; single newlines become <br>.
-    const para: string[] = [];
-    while (
-      i < lines.length &&
-      !blank(lines[i]) &&
-      !fence(lines[i]) &&
-      !HEADING_RE.test(lines[i]) &&
-      !LIST_RE.test(lines[i])
-    ) {
-      para.push(inline(lines[i]));
-      i++;
-    }
-    out.push('<p>' + para.join('<br>') + '</p>');
+    const [para, end] = takeWhile(lines, i, (l) => !isBlockStart(l));
+    i = end;
+    out.push('<p>' + para.map(inline).join('<br>') + '</p>');
   }
   return out.join('\n');
 }

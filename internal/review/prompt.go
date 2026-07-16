@@ -146,6 +146,9 @@ func matchReason(w config.Condition, c store.Candidate, f Facts) (bool, string) 
 	if w.AuthorIsGHUser && !f.AuthorIsGHUser {
 		return false, "needs author_is_gh_user (self-authored)"
 	}
+	if w.AuthorNotGHUser && f.AuthorIsGHUser {
+		return false, "needs author_not_gh_user (not self-authored)"
+	}
 	if w.AuthorAllowed && !f.AuthorAllowed {
 		return false, "needs author_allowed"
 	}

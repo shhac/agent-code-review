@@ -231,11 +231,13 @@ CONDITIONS (unset = wildcard; all set must hold):
   --author-allowed        PR author IS on the allowed-authors list for the repo
   --author-not-allowed     PR author is NOT on it (mutually exclusive with above)
   --author-is-gh-user      self-authored (author == our gh user)
+  --author-not-gh-user     NOT self-authored (mutually exclusive with above)
   --candidate-type new|refreshed
   --repo owner/name        repeatable, any-of
 Note: --author-allowed means "on the allow-list," not "was approvable"; a
 self-authored PR by an allow-listed author is still comment-only, yet counts
-as author-allowed. Add --author-is-gh-user to a separate rule to split that out.
+as author-allowed. To split self-review out, add --author-not-gh-user to the
+allow-list rules and give self-authored PRs their own --author-is-gh-user rule.
 
 COMMANDS:
   prompts rules ls         One record per rule, in config order (NDJSON)

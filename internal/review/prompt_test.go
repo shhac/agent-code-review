@@ -234,6 +234,30 @@ func TestExplainRules(t *testing.T) {
 	}
 }
 
+// TestAuthorNotGHUserCondition pins the negation twin: author_not_gh_user
+// excludes self-authored PRs, making the self / not-self split mutually
+// exclusive against author_is_gh_user.
+func TestAuthorNotGHUserCondition(t *testing.T) {
+	notSelf := config.Condition{AuthorNotGHUser: true}
+	self := config.Condition{AuthorIsGHUser: true}
+	c := store.Candidate{Repo: "o/r", Type: "new", Author: "bob"}
+
+	// Self-authored: not-self rule skips, self rule matches.
+	if matches(notSelf, c, Facts{AuthorIsGHUser: true}) {
+		t.Error("author_not_gh_user must NOT match a self-authored PR")
+	}
+	if !matches(self, c, Facts{AuthorIsGHUser: true}) {
+		t.Error("author_is_gh_user must match a self-authored PR")
+	}
+	// Someone else's PR: the reverse.
+	if !matches(notSelf, c, Facts{AuthorIsGHUser: false}) {
+		t.Error("author_not_gh_user must match a non-self PR")
+	}
+	if matches(self, c, Facts{AuthorIsGHUser: false}) {
+		t.Error("author_is_gh_user must NOT match a non-self PR")
+	}
+}
+
 func TestParseVerdict(t *testing.T) {
 	v, err := parseVerdict([]byte(`{"decision":"APPROVED","summary":"looks good, approved on GitHub"}`))
 	if err != nil || v.Decision != DecisionApproved || v.Summary == "" {

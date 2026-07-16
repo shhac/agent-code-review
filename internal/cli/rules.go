@@ -44,6 +44,9 @@ func ruleRecord(index int, r config.Rule) map[string]any {
 	if r.When.AuthorIsGHUser {
 		rec["author_is_gh_user"] = true
 	}
+	if r.When.AuthorNotGHUser {
+		rec["author_not_gh_user"] = true
+	}
 	if r.When.CandidateType != "" {
 		rec["candidate_type"] = r.When.CandidateType
 	}
@@ -73,7 +76,7 @@ func rulesAddCmd() *cobra.Command {
 	var (
 		name, prompt, outcome, candidateType string
 		authorAllowed, authorNotAllowed      bool
-		authorIsGHUser                       bool
+		authorIsGHUser, authorNotGHUser      bool
 		repos                                []string
 	)
 	cmd := &cobra.Command{
@@ -96,6 +99,9 @@ func rulesAddCmd() *cobra.Command {
 			if authorAllowed && authorNotAllowed {
 				return output.New("--author-allowed and --author-not-allowed are mutually exclusive; a rule with both can never match", output.FixableByAgent)
 			}
+			if authorIsGHUser && authorNotGHUser {
+				return output.New("--author-is-gh-user and --author-not-gh-user are mutually exclusive; a rule with both can never match", output.FixableByAgent)
+			}
 			if outcome != "" && !config.ValidOutcome(outcome) {
 				return output.New("--outcome must be one of "+strings.Join(config.Outcomes, ", ")+", got "+outcome, output.FixableByAgent)
 			}
@@ -112,6 +118,7 @@ func rulesAddCmd() *cobra.Command {
 				Prompt: prompt,
 				When: config.Condition{
 					AuthorIsGHUser:   authorIsGHUser,
+					AuthorNotGHUser:  authorNotGHUser,
 					AuthorAllowed:    authorAllowed,
 					AuthorNotAllowed: authorNotAllowed,
 					CandidateType:    candidateType,
@@ -141,6 +148,7 @@ func rulesAddCmd() *cobra.Command {
 	f.BoolVar(&authorAllowed, "author-allowed", false, "Only when the PR author IS on the allowed-authors list")
 	f.BoolVar(&authorNotAllowed, "author-not-allowed", false, "Only when the PR author is NOT on the allowed-authors list")
 	f.BoolVar(&authorIsGHUser, "author-is-gh-user", false, "Only when the PR is self-authored (author == our gh user)")
+	f.BoolVar(&authorNotGHUser, "author-not-gh-user", false, "Only when the PR is NOT self-authored (author != our gh user)")
 	f.StringVar(&candidateType, "candidate-type", "", "Only for this candidate kind: new|refreshed")
 	f.StringArrayVar(&repos, "repo", nil, "Only for these repos (owner/name; repeatable, any-of)")
 	_ = cmd.RegisterFlagCompletionFunc("outcome", func(_ *cobra.Command, _ []string, tc string) ([]string, cobra.ShellCompDirective) {

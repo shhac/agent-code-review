@@ -71,7 +71,8 @@ var starterJSON []byte
 // bullet (approve/comment/reject) instead of the prompt body. It is matched by
 // the outcome the agent lands on, never gated against candidate facts.
 type Condition struct {
-	AuthorIsGHUser   bool     `json:"author_is_gh_user,omitempty"`
+	AuthorIsGHUser   bool     `json:"author_is_gh_user,omitempty"`  // author IS our gh user (self-authored)
+	AuthorNotGHUser  bool     `json:"author_not_gh_user,omitempty"` // author is NOT our gh user (not self-authored)
 	AuthorAllowed    bool     `json:"author_allowed,omitempty"`     // author IS on the allowed-authors list for this repo
 	AuthorNotAllowed bool     `json:"author_not_allowed,omitempty"` // author not on the allowed-authors list for this repo
 	CandidateType    string   `json:"candidate_type,omitempty"`     // "new" | "refreshed" | ""

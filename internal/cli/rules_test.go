@@ -67,6 +67,7 @@ func TestRulesAddValidation(t *testing.T) {
 		{"no name", []string{"add", "--prompt", "X"}},
 		{"no prompt", []string{"add", "--name", "n"}},
 		{"both allow flags", []string{"add", "--name", "n", "--prompt", "X", "--author-allowed", "--author-not-allowed"}},
+		{"both gh-user flags", []string{"add", "--name", "n", "--prompt", "X", "--author-is-gh-user", "--author-not-gh-user"}},
 		{"bad outcome", []string{"add", "--name", "n", "--prompt", "X", "--outcome", "merge"}},
 		{"bad candidate-type", []string{"add", "--name", "n", "--prompt", "X", "--candidate-type", "ancient"}},
 		{"bad repo", []string{"add", "--name", "n", "--prompt", "X", "--repo", "not-a-repo"}},

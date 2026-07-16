@@ -34,7 +34,7 @@
     "on_approve": "",
     "on_comment": "",
     "on_reject": "",
-    "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is on the allowed-authors list for this repo and it isn't self-authored); you do not need a rule for it. Rules add EXTRA instructions when their condition matches (author_allowed / author_not_allowed / author_is_gh_user / candidate_type / repos). Give a rule an \"outcome\" (approve|comment|reject) to attach it under that post-outcome bullet instead of the prompt body, so behaviour can branch on the allow-list deterministically. Manage rules with the 'prompts rules' command (agent-code-review prompts rules usage).",
+    "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is on the allowed-authors list for this repo and it isn't self-authored); you do not need a rule for it. Rules add EXTRA instructions when their condition matches (author_allowed / author_not_allowed / author_is_gh_user / candidate_type / repos). Give a rule an \"outcome\" (approve|comment|reject) to attach it under that post-outcome section instead of the prompt body, so behaviour can branch on the allow-list deterministically. Manage rules with the 'prompts rules' command (agent-code-review prompts rules usage).",
     "rules": [],
     "codex": {
       "bin": "codex",

@@ -39,7 +39,7 @@ COMMANDS:
                                                      (slots: main, on-approve, on-comment, on-reject)
   prompts rules ls | add --name N --prompt T [--outcome ...] | rm <name>
                                                      Conditional prompt fragments, optionally
-                                                     routed under a post-outcome bullet
+                                                     routed under a post-outcome section
 
   config init | path | show                         Starter config / file location / full dump
   config list | get <key> | set <key> <v> | unset   Typed settings (schedule, candidates, codex, ...)
@@ -221,7 +221,7 @@ matches the candidate. Comment-only vs approval is a separate built-in
 directive; you never need a rule for it.
 
 Without an --outcome the fragment appends to the prompt body (fires for any
-outcome). WITH an --outcome it attaches under that post-outcome bullet
+outcome). WITH an --outcome it attaches under that post-outcome section
 (approve / comment / reject) alongside the base on_* slot, so behaviour can
 branch deterministically, e.g. on the allowed-authors list, without relying on
 prompt phrasing. Fragments are ADDITIVE: the base slot is the shared part, the

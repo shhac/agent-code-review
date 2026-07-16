@@ -113,11 +113,11 @@ func TestOutcomeInstructions(t *testing.T) {
 	c := store.Candidate{Repo: "o/r", Number: 9, Author: "alice"}
 
 	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
-	if !strings.Contains(got, "If you APPROVED this PR: notify per team convention") {
-		t.Errorf("missing on_approve instruction, got:\n%s", got)
+	if !strings.Contains(got, "## If you APPROVED this PR\nnotify per team convention") {
+		t.Errorf("missing on_approve section, got:\n%s", got)
 	}
-	if !strings.Contains(got, "If you REQUESTED CHANGES (rejected): explain what blocks it") {
-		t.Errorf("missing on_reject instruction, got:\n%s", got)
+	if !strings.Contains(got, "## If you REQUESTED CHANGES (rejected)\nexplain what blocks it") {
+		t.Errorf("missing on_reject section, got:\n%s", got)
 	}
 	if strings.Contains(got, "COMMENTED without approving") {
 		t.Errorf("unset on_comment must not appear, got:\n%s", got)
@@ -125,7 +125,7 @@ func TestOutcomeInstructions(t *testing.T) {
 
 	// No outcomes configured → whole section omitted.
 	got = BuildPrompt(config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}, c, Facts{})
-	if strings.Contains(got, "matching your outcome") {
+	if strings.Contains(got, "matches your outcome") {
 		t.Errorf("outcome section must be omitted when nothing is configured, got:\n%s", got)
 	}
 }
@@ -145,10 +145,10 @@ func TestOutcomeScopedRules(t *testing.T) {
 	c := store.Candidate{Repo: "o/r", Number: 7, Type: "new", Author: "alice"}
 
 	// Not-allowed variant: base + not-allowed fragment, under the COMMENTED
-	// bullet; the allowed fragment must not appear.
+	// heading as separate blocks; the allowed fragment must not appear.
 	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: false})
-	if !strings.Contains(got, "COMMENTED without approving: COMMENT-BASE DENY-FRAG") {
-		t.Errorf("expected base + not-allowed fragment under the comment bullet, got:\n%s", got)
+	if !strings.Contains(got, "## If you COMMENTED without approving\nCOMMENT-BASE\n\nDENY-FRAG") {
+		t.Errorf("expected base + not-allowed fragment under the comment heading, got:\n%s", got)
 	}
 	if strings.Contains(got, "ALLOW-FRAG") {
 		t.Errorf("allowed fragment must not fire for a not-allowed author, got:\n%s", got)
@@ -156,8 +156,8 @@ func TestOutcomeScopedRules(t *testing.T) {
 
 	// Allowed variant: base + allowed fragment; not-allowed fragment absent.
 	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
-	if !strings.Contains(got, "COMMENTED without approving: COMMENT-BASE ALLOW-FRAG") {
-		t.Errorf("expected base + allowed fragment under the comment bullet, got:\n%s", got)
+	if !strings.Contains(got, "## If you COMMENTED without approving\nCOMMENT-BASE\n\nALLOW-FRAG") {
+		t.Errorf("expected base + allowed fragment under the comment heading, got:\n%s", got)
 	}
 	if strings.Contains(got, "DENY-FRAG") {
 		t.Errorf("not-allowed fragment must not fire for an allowed author, got:\n%s", got)
@@ -180,12 +180,12 @@ func TestOutcomeScopedRuleWithoutBaseSlot(t *testing.T) {
 		},
 	}}
 	got := BuildPrompt(cfg, store.Candidate{Repo: "o/r", Number: 1, Author: "bob"}, Facts{})
-	if !strings.Contains(got, "REQUESTED CHANGES (rejected): REJECT-FRAG") {
-		t.Errorf("pure-rule outcome bullet should render, got:\n%s", got)
+	if !strings.Contains(got, "## If you REQUESTED CHANGES (rejected)\nREJECT-FRAG") {
+		t.Errorf("pure-rule outcome section should render, got:\n%s", got)
 	}
-	// A comment/approve bullet with neither base nor rule stays omitted.
+	// A comment/approve section with neither base nor rule stays omitted.
 	if strings.Contains(got, "COMMENTED without approving") || strings.Contains(got, "APPROVED this PR") {
-		t.Errorf("bullets with no content must be omitted, got:\n%s", got)
+		t.Errorf("sections with no content must be omitted, got:\n%s", got)
 	}
 }
 

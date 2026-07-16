@@ -18,7 +18,7 @@ func rulesCmd() *cobra.Command {
 		Short: "Manage conditional prompt rules (stored in config.json)",
 		Long: "Rules add EXTRA instructions to the assembled prompt when their condition\n" +
 			"matches a candidate. With an 'outcome' they attach under that post-outcome\n" +
-			"bullet (approve/comment/reject) instead of the prompt body, so behaviour\n" +
+			"section (approve/comment/reject) instead of the prompt body, so behaviour\n" +
 			"can branch on the allowed-authors list deterministically. Comment-only vs\n" +
 			"approval itself is a built-in directive; you never need a rule for it.",
 		Args: cobra.NoArgs,
@@ -84,7 +84,7 @@ func rulesAddCmd() *cobra.Command {
 		Short: "Add a conditional prompt rule",
 		Long: "Append a rule. --prompt is the fragment to add; the condition flags gate\n" +
 			"when it fires (unset = wildcard). --outcome routes it under a post-outcome\n" +
-			"bullet instead of the prompt body. --author-allowed and --author-not-allowed\n" +
+			"section instead of the prompt body. --author-allowed and --author-not-allowed\n" +
 			"are the two allow-list branches and are mutually exclusive.",
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -144,7 +144,7 @@ func rulesAddCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&name, "name", "", "Unique rule name (used by rules rm)")
 	f.StringVar(&prompt, "prompt", "", "The instruction fragment to add when the rule matches")
-	f.StringVar(&outcome, "outcome", "", "Route under this post-outcome bullet: approve|comment|reject")
+	f.StringVar(&outcome, "outcome", "", "Route under this post-outcome section: approve|comment|reject")
 	f.BoolVar(&authorAllowed, "author-allowed", false, "Only when the PR author IS on the allowed-authors list")
 	f.BoolVar(&authorNotAllowed, "author-not-allowed", false, "Only when the PR author is NOT on the allowed-authors list")
 	f.BoolVar(&authorIsGHUser, "author-is-gh-user", false, "Only when the PR is self-authored (author == our gh user)")

@@ -27,12 +27,12 @@ var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 // ValidRepoName reports whether s looks like an "owner/name" repo reference.
 func ValidRepoName(s string) bool { return repoNamePattern.MatchString(s) }
 
-// Outcomes are the post-outcome bullets a rule fragment can be routed under.
+// Outcomes are the post-outcome sections a rule fragment can be routed under.
 // They mirror the review outcomes the agent can land on (reject = requested
 // changes). SKIPPED has no prompt slot, so it is not routable.
 var Outcomes = []string{"approve", "comment", "reject"}
 
-// ValidOutcome reports whether s names a routable post-outcome bullet.
+// ValidOutcome reports whether s names a routable post-outcome section.
 func ValidOutcome(s string) bool {
 	for _, o := range Outcomes {
 		if s == o {
@@ -68,7 +68,7 @@ var starterJSON []byte
 // engine.
 //
 // Outcome is not a fact: it routes the fragment under a specific post-outcome
-// bullet (approve/comment/reject) instead of the prompt body. It is matched by
+// section (approve/comment/reject) instead of the prompt body. It is matched by
 // the outcome the agent lands on, never gated against candidate facts.
 type Condition struct {
 	AuthorIsGHUser   bool     `json:"author_is_gh_user,omitempty"`  // author IS our gh user (self-authored)
@@ -77,7 +77,7 @@ type Condition struct {
 	AuthorNotAllowed bool     `json:"author_not_allowed,omitempty"` // author not on the allowed-authors list for this repo
 	CandidateType    string   `json:"candidate_type,omitempty"`     // "new" | "refreshed" | ""
 	Repos            []string `json:"repos,omitempty"`              // "owner/name" match, any-of
-	Outcome          string   `json:"outcome,omitempty"`            // "approve" | "comment" | "reject" | "": route under this outcome's bullet
+	Outcome          string   `json:"outcome,omitempty"`            // "approve" | "comment" | "reject" | "": route under this outcome's section
 }
 
 // Rule is a conditional prompt fragment: "when <condition>, add <prompt> to

@@ -42,7 +42,7 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 		b.WriteString(outcome)
 	}
 	for _, rule := range cfg.Review.Rules {
-		// Outcome-scoped rules render under their bullet (outcomeInstructions);
+		// Outcome-scoped rules render under their section (outcomeInstructions);
 		// only unscoped rules append to the body here.
 		if rule.When.Outcome == "" && matches(rule.When, c, f) {
 			b.WriteString("\n\n")
@@ -52,13 +52,16 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	return strings.TrimSpace(b.String())
 }
 
-// outcomeInstructions renders the configured post-outcome fragments. Each
-// bullet is the base slot (on_approve / on_comment / on_reject) followed by any
-// outcome-scoped rule whose condition matches this candidate, so allow-list
-// (or repo / type) awareness is decided deterministically here, not by prompt
-// phrasing. A bullet appears only when it has content; when none do, the whole
-// section is omitted. The content is the user's own (team conventions, their
-// tooling); the tool just routes it to the right outcome.
+// outcomeInstructions renders the configured post-outcome fragments as one
+// markdown section per outcome: a `## <label>` heading followed by the base
+// slot (on_approve / on_comment / on_reject) and any outcome-scoped rule whose
+// condition matches this candidate. Allow-list (or repo / type) awareness is
+// decided deterministically here, not by prompt phrasing. Headings (not inline
+// bullets) so a multiline slot value keeps its own indentation, sub-lists, and
+// code blocks verbatim, and base + rules read as separate blocks. A section
+// appears only when it has content; when none do, the whole block is omitted.
+// The content is the user's own (team conventions, their tooling); the tool
+// just routes it to the right outcome.
 func outcomeInstructions(r config.ReviewSettings, c store.Candidate, f Facts) string {
 	type outcome struct{ key, label, base string }
 	outcomes := []outcome{
@@ -66,7 +69,7 @@ func outcomeInstructions(r config.ReviewSettings, c store.Candidate, f Facts) st
 		{"comment", "If you COMMENTED without approving", r.OnComment},
 		{"reject", "If you REQUESTED CHANGES (rejected)", r.OnReject},
 	}
-	var lines []string
+	var sections []string
 	for _, o := range outcomes {
 		var parts []string
 		if base := strings.TrimSpace(o.base); base != "" {
@@ -80,14 +83,14 @@ func outcomeInstructions(r config.ReviewSettings, c store.Candidate, f Facts) st
 			}
 		}
 		if len(parts) > 0 {
-			lines = append(lines, "- "+o.label+": "+strings.Join(parts, " "))
+			sections = append(sections, "## "+o.label+"\n"+strings.Join(parts, "\n\n"))
 		}
 	}
-	if len(lines) == 0 {
+	if len(sections) == 0 {
 		return ""
 	}
-	return "After completing the review, follow the instruction matching your outcome:\n" +
-		strings.Join(lines, "\n")
+	return "After completing the review, follow the instruction that matches your outcome.\n\n" +
+		strings.Join(sections, "\n\n")
 }
 
 // MainPrompt resolves the main review prompt: main_prompt_path wins when set
@@ -165,7 +168,7 @@ func matchReason(w config.Condition, c store.Candidate, f Facts) (bool, string) 
 }
 
 // RuleTrace explains one rule's fate for a candidate: whether it fired, where
-// its fragment lands (the prompt body, or a named outcome bullet), and — when
+// its fragment lands (the prompt body, or a named outcome section), and — when
 // skipped — why. An outcome-scoped rule that Matched still only reaches the
 // agent if the agent lands on that outcome; Target names which one.
 type RuleTrace struct {

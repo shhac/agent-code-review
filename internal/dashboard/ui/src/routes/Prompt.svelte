@@ -133,16 +133,19 @@
   .pill-any .pill-k { color: var(--faint); font-style: italic; }
 
   .preview-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 18px 20px 6px; }
+  /* One shared height so the toggles, segmented, and select line up. */
+  .preview-controls > * { height: 34px; box-sizing: border-box; }
   .toggle {
-    display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; cursor: pointer;
     border: 1px solid var(--line); border-radius: 8px; background: var(--surface-warm);
     color: var(--dim); font-size: 12px; font-weight: 750;
   }
   .toggle.on { border-color: var(--accent); color: var(--ink); }
   .toggle input { accent-color: var(--accent); }
-  .segmented.compact { margin: 0; }
+  .segmented.compact { margin: 0; padding: 3px; }
+  .segmented.compact label { padding: 0 12px; }
   .repo-select {
-    padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px;
+    padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
     background: var(--surface-warm); color: var(--ink); font: inherit; font-size: 12px;
   }
   .repo-select:focus { outline: none; border-color: var(--accent); }

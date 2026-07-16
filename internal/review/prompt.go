@@ -59,7 +59,9 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 // decided deterministically here, not by prompt phrasing. Headings (not inline
 // bullets) so a multiline slot value keeps its own indentation, sub-lists, and
 // code blocks verbatim, and base + rules read as separate blocks. A section
-// appears only when it has content; when none do, the whole block is omitted.
+// appears only when it has content AND the outcome is reachable (the approve
+// section is omitted when approval is forbidden); when none do, the whole block
+// is omitted.
 // The content is the user's own (team conventions, their tooling); the tool
 // just routes it to the right outcome.
 func outcomeInstructions(r config.ReviewSettings, c store.Candidate, f Facts) string {
@@ -71,6 +73,12 @@ func outcomeInstructions(r config.ReviewSettings, c store.Candidate, f Facts) st
 	}
 	var sections []string
 	for _, o := range outcomes {
+		// Skip the approve section when approval is impossible (author not on the
+		// allow-list, or self-authored): it would be an unreachable, contradictory
+		// instruction next to the "DO NOT approve" directive.
+		if o.key == "approve" && !canApprove(f) {
+			continue
+		}
 		var parts []string
 		if base := strings.TrimSpace(o.base); base != "" {
 			parts = append(parts, base)
@@ -116,12 +124,19 @@ func MainPrompt(r config.ReviewSettings) string {
 // leak the current gh user's identity, which the spec forbids. Only the single
 // author↔allowed pair for this PR is ever exposed, never the whole list.
 func approvalDirective(c store.Candidate, f Facts) string {
-	if f.AuthorAllowed && !f.AuthorIsGHUser {
+	if canApprove(f) {
 		return "Approval policy: you MAY approve this PR if the review warrants it, " +
 			"or leave comments. @" + c.Author + " is an allowed author for " + c.Repo + "."
 	}
 	return "Approval policy: DO NOT approve this PR under any circumstances; only leave comments."
 }
+
+// canApprove reports whether an APPROVE is possible for this candidate: only
+// when the author is on the allowed-authors list AND it isn't a self-authored
+// PR (you can't approve your own). It gates both the approval directive and
+// whether the "If you APPROVED" outcome section is emitted at all — there's no
+// point instructing the agent on an outcome it is forbidden from reaching.
+func canApprove(f Facts) bool { return f.AuthorAllowed && !f.AuthorIsGHUser }
 
 // SampleRepo is the placeholder repo for synthetic prompt previews. The CLI's
 // `prompts preview` and the dashboard both render this fixture, so it lives in

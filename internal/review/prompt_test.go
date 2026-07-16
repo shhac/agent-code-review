@@ -130,6 +130,39 @@ func TestOutcomeInstructions(t *testing.T) {
 	}
 }
 
+// TestApproveSectionOmittedWhenApprovalForbidden pins that the "If you APPROVED"
+// section only renders when an approve is actually reachable: allowed non-self
+// authors get it; not-allowed authors and self-authored PRs do not (it would be
+// a dead instruction beside the "DO NOT approve" directive). Comment/reject are
+// always reachable and unaffected.
+func TestApproveSectionOmittedWhenApprovalForbidden(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		OnApprove:  "APPROVE-FLOW",
+		OnComment:  "COMMENT-FLOW",
+	}}
+	c := store.Candidate{Repo: "o/r", Number: 3, Author: "alice"}
+
+	// Allowed, not self → approval possible → section present.
+	if got := BuildPrompt(cfg, c, Facts{AuthorAllowed: true}); !strings.Contains(got, "## If you APPROVED this PR\nAPPROVE-FLOW") {
+		t.Errorf("allowed author must get the approve section, got:\n%s", got)
+	}
+
+	// Not allowed → approval impossible → section omitted, but comment stays.
+	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: false})
+	if strings.Contains(got, "APPROVED this PR") || strings.Contains(got, "APPROVE-FLOW") {
+		t.Errorf("not-allowed author must not get the approve section, got:\n%s", got)
+	}
+	if !strings.Contains(got, "COMMENTED without approving") {
+		t.Errorf("comment section must still render, got:\n%s", got)
+	}
+
+	// Self-authored, even if allow-listed → can't approve own PR → omitted.
+	if got := BuildPrompt(cfg, c, Facts{AuthorAllowed: true, AuthorIsGHUser: true}); strings.Contains(got, "APPROVED this PR") {
+		t.Errorf("self-authored PR must not get the approve section, got:\n%s", got)
+	}
+}
+
 // TestOutcomeScopedRules pins the headline feature: an allow-list-aware rule
 // tagged with an outcome renders under that outcome's bullet, only in the
 // matching variant, and never leaks into the prompt body.

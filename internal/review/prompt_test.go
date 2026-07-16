@@ -130,6 +130,85 @@ func TestOutcomeInstructions(t *testing.T) {
 	}
 }
 
+// TestOutcomeScopedRules pins the headline feature: an allow-list-aware rule
+// tagged with an outcome renders under that outcome's bullet, only in the
+// matching variant, and never leaks into the prompt body.
+func TestOutcomeScopedRules(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		OnComment:  "COMMENT-BASE",
+		Rules: []config.Rule{
+			{Name: "cmt-not-allowed", When: config.Condition{Outcome: "comment", AuthorNotAllowed: true}, Prompt: "DENY-FRAG"},
+			{Name: "cmt-allowed", When: config.Condition{Outcome: "comment", AuthorAllowed: true}, Prompt: "ALLOW-FRAG"},
+		},
+	}}
+	c := store.Candidate{Repo: "o/r", Number: 7, Type: "new", Author: "alice"}
+
+	// Not-allowed variant: base + not-allowed fragment, under the COMMENTED
+	// bullet; the allowed fragment must not appear.
+	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: false})
+	if !strings.Contains(got, "COMMENTED without approving: COMMENT-BASE DENY-FRAG") {
+		t.Errorf("expected base + not-allowed fragment under the comment bullet, got:\n%s", got)
+	}
+	if strings.Contains(got, "ALLOW-FRAG") {
+		t.Errorf("allowed fragment must not fire for a not-allowed author, got:\n%s", got)
+	}
+
+	// Allowed variant: base + allowed fragment; not-allowed fragment absent.
+	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
+	if !strings.Contains(got, "COMMENTED without approving: COMMENT-BASE ALLOW-FRAG") {
+		t.Errorf("expected base + allowed fragment under the comment bullet, got:\n%s", got)
+	}
+	if strings.Contains(got, "DENY-FRAG") {
+		t.Errorf("not-allowed fragment must not fire for an allowed author, got:\n%s", got)
+	}
+
+	// Outcome-scoped rules must never body-append: the only occurrence of the
+	// fragment is inside the outcome section, not as a standalone trailing block.
+	if strings.Count(got, "ALLOW-FRAG") != 1 {
+		t.Errorf("outcome-scoped rule must render exactly once (under its bullet), got:\n%s", got)
+	}
+}
+
+// TestOutcomeScopedRuleWithoutBaseSlot: an outcome bullet renders from a rule
+// alone even when the base slot is empty.
+func TestOutcomeScopedRuleWithoutBaseSlot(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		Rules: []config.Rule{
+			{Name: "rej", When: config.Condition{Outcome: "reject"}, Prompt: "REJECT-FRAG"},
+		},
+	}}
+	got := BuildPrompt(cfg, store.Candidate{Repo: "o/r", Number: 1, Author: "bob"}, Facts{})
+	if !strings.Contains(got, "REQUESTED CHANGES (rejected): REJECT-FRAG") {
+		t.Errorf("pure-rule outcome bullet should render, got:\n%s", got)
+	}
+	// A comment/approve bullet with neither base nor rule stays omitted.
+	if strings.Contains(got, "COMMENTED without approving") || strings.Contains(got, "APPROVED this PR") {
+		t.Errorf("bullets with no content must be omitted, got:\n%s", got)
+	}
+}
+
+// TestUntaggedRuleStillBodyAppends: a rule with no outcome keeps its original
+// behaviour (appended to the prompt body, not routed to a bullet).
+func TestUntaggedRuleStillBodyAppends(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		OnComment:  "COMMENT-BASE",
+		Rules: []config.Rule{
+			{Name: "body", When: config.Condition{AuthorNotAllowed: true}, Prompt: "BODY-FRAG"},
+		},
+	}}
+	got := BuildPrompt(cfg, store.Candidate{Repo: "o/r", Number: 1, Author: "carol"}, Facts{AuthorAllowed: false})
+	if !strings.Contains(got, "BODY-FRAG") {
+		t.Errorf("untagged rule must still fire, got:\n%s", got)
+	}
+	// It must not be pulled into the comment bullet.
+	if strings.Contains(got, "COMMENTED without approving: COMMENT-BASE BODY-FRAG") {
+		t.Errorf("untagged rule must not route to an outcome bullet, got:\n%s", got)
+	}
+}
+
 func TestParseVerdict(t *testing.T) {
 	v, err := parseVerdict([]byte(`{"decision":"APPROVED","summary":"looks good, approved on GitHub"}`))
 	if err != nil || v.Decision != DecisionApproved || v.Summary == "" {

@@ -147,6 +147,17 @@ func completeRepos(_ *cobra.Command, _ []string, toComplete string) ([]string, c
 	return noFile(completePrefix(config.Read().SortedRepos(), toComplete))
 }
 
+func completeRuleNames(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	rules := config.Read().Review.Rules
+	names := make([]string, 0, len(rules))
+	for _, r := range rules {
+		if r.Name != "" {
+			names = append(names, r.Name)
+		}
+	}
+	return noFile(completePrefix(names, toComplete))
+}
+
 func completionStore() (store.Store, error) {
 	cfg := config.Read()
 	return store.Open(cfg.Store.Engine, cfg.StorePath())

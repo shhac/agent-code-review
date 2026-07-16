@@ -37,12 +37,14 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	b.WriteString(candidateContext(c))
 	b.WriteString("\n")
 	b.WriteString(approvalDirective(c, f))
-	if outcome := outcomeInstructions(cfg.Review); outcome != "" {
+	if outcome := outcomeInstructions(cfg.Review, c, f); outcome != "" {
 		b.WriteString("\n\n")
 		b.WriteString(outcome)
 	}
 	for _, rule := range cfg.Review.Rules {
-		if matches(rule.When, c, f) {
+		// Outcome-scoped rules render under their bullet (outcomeInstructions);
+		// only unscoped rules append to the body here.
+		if rule.When.Outcome == "" && matches(rule.When, c, f) {
 			b.WriteString("\n\n")
 			b.WriteString(strings.TrimSpace(rule.Prompt))
 		}
@@ -50,21 +52,35 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	return strings.TrimSpace(b.String())
 }
 
-// outcomeInstructions renders the configured post-outcome fragments. Only
-// configured outcomes appear; when none are set the section is omitted
-// entirely. The content is the user's own (their team conventions, their
+// outcomeInstructions renders the configured post-outcome fragments. Each
+// bullet is the base slot (on_approve / on_comment / on_reject) followed by any
+// outcome-scoped rule whose condition matches this candidate, so allow-list
+// (or repo / type) awareness is decided deterministically here, not by prompt
+// phrasing. A bullet appears only when it has content; when none do, the whole
+// section is omitted. The content is the user's own (team conventions, their
 // tooling); the tool just routes it to the right outcome.
-func outcomeInstructions(r config.ReviewSettings) string {
-	type outcome struct{ label, prompt string }
+func outcomeInstructions(r config.ReviewSettings, c store.Candidate, f Facts) string {
+	type outcome struct{ key, label, base string }
 	outcomes := []outcome{
-		{"If you APPROVED this PR", r.OnApprove},
-		{"If you COMMENTED without approving", r.OnComment},
-		{"If you REQUESTED CHANGES (rejected)", r.OnReject},
+		{"approve", "If you APPROVED this PR", r.OnApprove},
+		{"comment", "If you COMMENTED without approving", r.OnComment},
+		{"reject", "If you REQUESTED CHANGES (rejected)", r.OnReject},
 	}
 	var lines []string
 	for _, o := range outcomes {
-		if p := strings.TrimSpace(o.prompt); p != "" {
-			lines = append(lines, "- "+o.label+": "+p)
+		var parts []string
+		if base := strings.TrimSpace(o.base); base != "" {
+			parts = append(parts, base)
+		}
+		for _, rule := range r.Rules {
+			if strings.EqualFold(rule.When.Outcome, o.key) && matches(rule.When, c, f) {
+				if p := strings.TrimSpace(rule.Prompt); p != "" {
+					parts = append(parts, p)
+				}
+			}
+		}
+		if len(parts) > 0 {
+			lines = append(lines, "- "+o.label+": "+strings.Join(parts, " "))
 		}
 	}
 	if len(lines) == 0 {
@@ -116,9 +132,13 @@ func candidateContext(c store.Candidate) string {
 }
 
 // matches evaluates a rule condition against a candidate + facts. Unset fields
-// are wildcards; every set field must hold.
+// are wildcards; every set field must hold. Outcome is deliberately not checked
+// here: it routes the fragment (see outcomeInstructions), it does not gate it.
 func matches(w config.Condition, c store.Candidate, f Facts) bool {
 	if w.AuthorIsGHUser && !f.AuthorIsGHUser {
+		return false
+	}
+	if w.AuthorAllowed && !f.AuthorAllowed {
 		return false
 	}
 	if w.AuthorNotAllowed && f.AuthorAllowed {

@@ -27,6 +27,34 @@ var repoNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 // ValidRepoName reports whether s looks like an "owner/name" repo reference.
 func ValidRepoName(s string) bool { return repoNamePattern.MatchString(s) }
 
+// Outcomes are the post-outcome bullets a rule fragment can be routed under.
+// They mirror the review outcomes the agent can land on (reject = requested
+// changes). SKIPPED has no prompt slot, so it is not routable.
+var Outcomes = []string{"approve", "comment", "reject"}
+
+// ValidOutcome reports whether s names a routable post-outcome bullet.
+func ValidOutcome(s string) bool {
+	for _, o := range Outcomes {
+		if s == o {
+			return true
+		}
+	}
+	return false
+}
+
+// CandidateTypes are the discovery kinds a rule can gate on.
+var CandidateTypes = []string{"new", "refreshed"}
+
+// ValidCandidateType reports whether s names a candidate discovery kind.
+func ValidCandidateType(s string) bool {
+	for _, t := range CandidateTypes {
+		if s == t {
+			return true
+		}
+	}
+	return false
+}
+
 // starterJSON is the annotated starter config written by `config init`. It is
 // the same content as the repo's config.example.json (a test keeps them in
 // lockstep).
@@ -38,11 +66,17 @@ var starterJSON []byte
 // must match for the rule's prompt fragment to be appended. These map onto
 // the deterministic facts the CLI knows about a candidate before invoking the
 // engine.
+//
+// Outcome is not a fact: it routes the fragment under a specific post-outcome
+// bullet (approve/comment/reject) instead of the prompt body. It is matched by
+// the outcome the agent lands on, never gated against candidate facts.
 type Condition struct {
 	AuthorIsGHUser   bool     `json:"author_is_gh_user,omitempty"`
+	AuthorAllowed    bool     `json:"author_allowed,omitempty"`     // author IS on the allowed-authors list for this repo
 	AuthorNotAllowed bool     `json:"author_not_allowed,omitempty"` // author not on the allowed-authors list for this repo
 	CandidateType    string   `json:"candidate_type,omitempty"`     // "new" | "refreshed" | ""
 	Repos            []string `json:"repos,omitempty"`              // "owner/name" match, any-of
+	Outcome          string   `json:"outcome,omitempty"`            // "approve" | "comment" | "reject" | "": route under this outcome's bullet
 }
 
 // Rule is a conditional prompt fragment: "when <condition>, add <prompt> to

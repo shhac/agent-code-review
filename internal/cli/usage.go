@@ -38,6 +38,10 @@ COMMANDS:
   prompts show | set <slot> <text> | unset | preview Manage the review prompts
                                                      (slots: main, on-approve, on-comment, on-reject)
 
+  rules ls | add --name N --prompt T [--outcome ...] | rm <name>
+                                                     Conditional prompt fragments, optionally
+                                                     routed under a post-outcome bullet (config)
+
   config init | path | show                         Starter config / file location / full dump
   config list | get <key> | set <key> <v> | unset   Typed settings (schedule, candidates, codex, ...)
   usage                                              This help
@@ -85,7 +89,7 @@ STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
 OUTPUT: NDJSON to stdout; errors {error, fixable_by, hint} to stderr, exit 1.
 
 DETAIL: Run "<command> usage" for per-command docs and examples
-  (queue usage, repos usage, authors usage, prompts usage, config usage).`
+  (queue usage, repos usage, authors usage, prompts usage, rules usage, config usage).`
 
 const queueUsageText = `queue: The review queue (stored in DuckDB)
 
@@ -203,7 +207,50 @@ EXAMPLES:
 
 NOTES: put workspace-specific conventions (channels, emoji, extra CLIs) in
 these slots; the tool itself assumes only the gh and codex CLIs. Conditional
-extras (per repo / per candidate type) live in review.rules in config.json.`
+extras (per repo / candidate type / allow-list branch), including ones that
+attach to a specific outcome, are rules; manage them with 'rules' (rules usage).`
+
+const rulesUsageText = `rules: Conditional prompt fragments (stored in config.json)
+
+A rule adds EXTRA instructions to the assembled prompt when its condition
+matches the candidate. Comment-only vs approval is a separate built-in
+directive; you never need a rule for it.
+
+Without an --outcome the fragment appends to the prompt body (fires for any
+outcome). WITH an --outcome it attaches under that post-outcome bullet
+(approve / comment / reject) alongside the base on_* slot, so behaviour can
+branch deterministically, e.g. on the allowed-authors list, without relying on
+prompt phrasing. Fragments are ADDITIVE: the base slot is the shared part, the
+rule carries the conditional part.
+
+CONDITIONS (unset = wildcard; all set must hold):
+  --author-allowed        PR author IS on the allowed-authors list for the repo
+  --author-not-allowed     PR author is NOT on it (mutually exclusive with above)
+  --author-is-gh-user      self-authored (author == our gh user)
+  --candidate-type new|refreshed
+  --repo owner/name        repeatable, any-of
+Note: --author-allowed means "on the allow-list," not "was approvable"; a
+self-authored PR by an allow-listed author is still comment-only, yet counts
+as author-allowed. Add --author-is-gh-user to a separate rule to split that out.
+
+COMMANDS:
+  rules ls                 One record per rule, in config order (NDJSON)
+  rules add --name N --prompt TEXT [--outcome approve|comment|reject] [conditions]
+    Append a rule. Name must be unique; a rule with both allow-list flags is
+    rejected (it could never match).
+  rules rm <name>          Remove rule(s) with this name (case-insensitive)
+
+EXAMPLES:
+  # On comment, branch the Slack reaction on the allow-list:
+  agent-code-review rules add --name comment-not-allowed --outcome comment \
+    --author-not-allowed --prompt "React :verified: :lizard: on the PR's Slack message."
+  agent-code-review rules add --name comment-allowed --outcome comment \
+    --author-allowed --prompt "React :git-re-request: :bad-lizard: on the PR's Slack message."
+  agent-code-review rules ls
+
+NOTES: put the shared part (e.g. locating the Slack message) in the on-comment
+slot via 'prompts', and the branch-specific part in these rules. See exactly how
+they assemble with 'prompts preview [--author-not-allowed]'.`
 
 const configUsageText = `config: Persisted settings (stored in config.json)
 
@@ -244,8 +291,8 @@ EXAMPLES:
   agent-code-review config get schedule.interval
   agent-code-review config list
 
-NOTES: repos, authors, and prompts have their own command groups (repos usage,
-authors usage, prompts usage). review.rules and codex.args are edited in the
+NOTES: repos, authors, prompts, and rules have their own command groups (repos
+usage, authors usage, prompts usage, rules usage). codex.args is edited in the
 file directly (config path).`
 
 func registerUsage(root *cobra.Command) {

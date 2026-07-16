@@ -179,6 +179,32 @@ func TestValidRepoName(t *testing.T) {
 	}
 }
 
+// TestValidOutcomeAndCandidateType pins the rule-enum validators, including
+// their case-sensitivity: add-time validation is exact-match, even though
+// outcome routing at assembly time is case-insensitive (EqualFold).
+func TestValidOutcomeAndCandidateType(t *testing.T) {
+	for _, ok := range Outcomes {
+		if !ValidOutcome(ok) {
+			t.Errorf("ValidOutcome(%q) = false, want true", ok)
+		}
+	}
+	for _, bad := range []string{"", "merge", "Approve", "APPROVE", "skip"} {
+		if ValidOutcome(bad) {
+			t.Errorf("ValidOutcome(%q) = true, want false", bad)
+		}
+	}
+	for _, ok := range CandidateTypes {
+		if !ValidCandidateType(ok) {
+			t.Errorf("ValidCandidateType(%q) = false, want true", ok)
+		}
+	}
+	for _, bad := range []string{"", "New", "REFRESHED", "ancient"} {
+		if ValidCandidateType(bad) {
+			t.Errorf("ValidCandidateType(%q) = true, want false", bad)
+		}
+	}
+}
+
 // TestStarterMatchesExample keeps the embedded starter (written by `config
 // init`) in lockstep with the repo's documented config.example.json.
 func TestStarterMatchesExample(t *testing.T) {

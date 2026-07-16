@@ -37,10 +37,9 @@ COMMANDS:
 
   prompts show | set <slot> <text> | unset | preview Manage the review prompts
                                                      (slots: main, on-approve, on-comment, on-reject)
-
-  rules ls | add --name N --prompt T [--outcome ...] | rm <name>
+  prompts rules ls | add --name N --prompt T [--outcome ...] | rm <name>
                                                      Conditional prompt fragments, optionally
-                                                     routed under a post-outcome bullet (config)
+                                                     routed under a post-outcome bullet
 
   config init | path | show                         Starter config / file location / full dump
   config list | get <key> | set <key> <v> | unset   Typed settings (schedule, candidates, codex, ...)
@@ -89,7 +88,8 @@ STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
 OUTPUT: NDJSON to stdout; errors {error, fixable_by, hint} to stderr, exit 1.
 
 DETAIL: Run "<command> usage" for per-command docs and examples
-  (queue usage, repos usage, authors usage, prompts usage, rules usage, config usage).`
+  (queue usage, repos usage, authors usage, prompts usage, prompts rules usage,
+  config usage).`
 
 const queueUsageText = `queue: The review queue (stored in DuckDB)
 
@@ -196,21 +196,25 @@ COMMANDS:
   prompts show                 One record per slot (notes main_prompt_path override)
   prompts set <slot> <text>    Set a slot (multi-word text can be one quoted arg)
   prompts unset <slot>         Clear a slot
-  prompts preview [--author-not-allowed]
-    Print the fully assembled prompt for a synthetic candidate: exactly what
-    the agent receives (allowed-author variant by default).
+  prompts rules ...            Conditional prompt fragments (prompts rules usage)
+  prompts preview [--author-not-allowed] [--candidate-type new|refreshed]
+                  [--repo owner/name] [--author-is-gh-user] [--explain]
+    Print the fully assembled prompt for a synthetic candidate you shape with
+    flags, so any rule can be made to fire; --explain adds a per-rule trace of
+    what matched and why.
 
 EXAMPLES:
   agent-code-review prompts set main "Review this PR thoroughly via the gh CLI and leave one review."
   agent-code-review prompts set on-approve "Notify the team channel per our conventions."
-  agent-code-review prompts preview --author-not-allowed
+  agent-code-review prompts preview --author-not-allowed --explain
 
 NOTES: put workspace-specific conventions (channels, emoji, extra CLIs) in
 these slots; the tool itself assumes only the gh and codex CLIs. Conditional
 extras (per repo / candidate type / allow-list branch), including ones that
-attach to a specific outcome, are rules; manage them with 'rules' (rules usage).`
+attach to a specific outcome, are rules; manage them with 'prompts rules'
+(prompts rules usage).`
 
-const rulesUsageText = `rules: Conditional prompt fragments (stored in config.json)
+const rulesUsageText = `prompts rules: Conditional prompt fragments (stored in config.json)
 
 A rule adds EXTRA instructions to the assembled prompt when its condition
 matches the candidate. Comment-only vs approval is a separate built-in
@@ -234,23 +238,23 @@ self-authored PR by an allow-listed author is still comment-only, yet counts
 as author-allowed. Add --author-is-gh-user to a separate rule to split that out.
 
 COMMANDS:
-  rules ls                 One record per rule, in config order (NDJSON)
-  rules add --name N --prompt TEXT [--outcome approve|comment|reject] [conditions]
+  prompts rules ls         One record per rule, in config order (NDJSON)
+  prompts rules add --name N --prompt TEXT [--outcome approve|comment|reject] [conditions]
     Append a rule. Name must be unique; a rule with both allow-list flags is
     rejected (it could never match).
-  rules rm <name>          Remove rule(s) with this name (case-insensitive)
+  prompts rules rm <name>  Remove rule(s) with this name (case-insensitive)
 
 EXAMPLES:
   # On comment, branch the Slack reaction on the allow-list:
-  agent-code-review rules add --name comment-not-allowed --outcome comment \
+  agent-code-review prompts rules add --name comment-not-allowed --outcome comment \
     --author-not-allowed --prompt "React :verified: :lizard: on the PR's Slack message."
-  agent-code-review rules add --name comment-allowed --outcome comment \
+  agent-code-review prompts rules add --name comment-allowed --outcome comment \
     --author-allowed --prompt "React :git-re-request: :bad-lizard: on the PR's Slack message."
-  agent-code-review rules ls
+  agent-code-review prompts rules ls
 
 NOTES: put the shared part (e.g. locating the Slack message) in the on-comment
-slot via 'prompts', and the branch-specific part in these rules. See exactly how
-they assemble with 'prompts preview [--author-not-allowed]'.`
+slot via 'prompts set', and the branch-specific part in these rules. See exactly
+how they assemble with 'prompts preview [--author-not-allowed] [--explain]'.`
 
 const configUsageText = `config: Persisted settings (stored in config.json)
 
@@ -291,9 +295,9 @@ EXAMPLES:
   agent-code-review config get schedule.interval
   agent-code-review config list
 
-NOTES: repos, authors, prompts, and rules have their own command groups (repos
-usage, authors usage, prompts usage, rules usage). codex.args is edited in the
-file directly (config path).`
+NOTES: repos, authors, and prompts have their own command groups (repos usage,
+authors usage, prompts usage); rules live under prompts (prompts rules usage).
+codex.args is edited in the file directly (config path).`
 
 func registerUsage(root *cobra.Command) {
 	root.AddCommand(&cobra.Command{

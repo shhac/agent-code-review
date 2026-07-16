@@ -9,7 +9,10 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 )
 
-func registerRules(root *cobra.Command) {
+// rulesCmd builds the `prompts rules` group. Rules are conditional fragments
+// of the prompt, so they live under `prompts` alongside the slots and preview,
+// not as a top-level sibling of repos/authors.
+func rulesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rules",
 		Short: "Manage conditional prompt rules (stored in config.json)",
@@ -21,8 +24,8 @@ func registerRules(root *cobra.Command) {
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(rulesLsCmd(), rulesAddCmd(), rulesRmCmd())
-	registerGroupUsage(cmd, "rules", rulesUsageText)
-	root.AddCommand(cmd)
+	registerGroupUsage(cmd, "prompts rules", rulesUsageText)
+	return cmd
 }
 
 // ruleRecord is the NDJSON shape for `rules ls`: the rule flattened so every

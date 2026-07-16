@@ -9,9 +9,10 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 )
 
-func runRulesCmd(args ...string) error {
+// runRulesCmd runs `prompts rules ...` (rules are nested under prompts).
+func runRulesCmd(sub ...string) error {
 	root := newRootCmd("test")
-	root.SetArgs(args)
+	root.SetArgs(append([]string{"prompts", "rules"}, sub...))
 	return root.Execute()
 }
 
@@ -22,11 +23,11 @@ func TestRulesAddLsRm(t *testing.T) {
 	cleanup := xdg.SetConfigBaseForTest(t.TempDir())
 	defer cleanup()
 
-	if err := runRulesCmd("rules", "add", "--name", "cmt-not-allowed",
+	if err := runRulesCmd("add", "--name", "cmt-not-allowed",
 		"--outcome", "comment", "--author-not-allowed", "--prompt", "NOT-ALLOWED"); err != nil {
 		t.Fatal(err)
 	}
-	if err := runRulesCmd("rules", "add", "--name", "cmt-allowed",
+	if err := runRulesCmd("add", "--name", "cmt-allowed",
 		"--outcome", "comment", "--author-allowed", "--repo", "o/r", "--prompt", "ALLOWED"); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func TestRulesAddLsRm(t *testing.T) {
 	}
 
 	// rm by name (case-insensitive) removes just the one.
-	if err := runRulesCmd("rules", "rm", "CMT-NOT-ALLOWED"); err != nil {
+	if err := runRulesCmd("rm", "CMT-NOT-ALLOWED"); err != nil {
 		t.Fatal(err)
 	}
 	rules = config.Read().Review.Rules
@@ -63,12 +64,12 @@ func TestRulesAddValidation(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"no name", []string{"rules", "add", "--prompt", "X"}},
-		{"no prompt", []string{"rules", "add", "--name", "n"}},
-		{"both allow flags", []string{"rules", "add", "--name", "n", "--prompt", "X", "--author-allowed", "--author-not-allowed"}},
-		{"bad outcome", []string{"rules", "add", "--name", "n", "--prompt", "X", "--outcome", "merge"}},
-		{"bad candidate-type", []string{"rules", "add", "--name", "n", "--prompt", "X", "--candidate-type", "ancient"}},
-		{"bad repo", []string{"rules", "add", "--name", "n", "--prompt", "X", "--repo", "not-a-repo"}},
+		{"no name", []string{"add", "--prompt", "X"}},
+		{"no prompt", []string{"add", "--name", "n"}},
+		{"both allow flags", []string{"add", "--name", "n", "--prompt", "X", "--author-allowed", "--author-not-allowed"}},
+		{"bad outcome", []string{"add", "--name", "n", "--prompt", "X", "--outcome", "merge"}},
+		{"bad candidate-type", []string{"add", "--name", "n", "--prompt", "X", "--candidate-type", "ancient"}},
+		{"bad repo", []string{"add", "--name", "n", "--prompt", "X", "--repo", "not-a-repo"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,15 +84,38 @@ func TestRulesAddValidation(t *testing.T) {
 	}
 
 	// A valid add, then a duplicate name must fail.
-	if err := runRulesCmd("rules", "add", "--name", "dup", "--prompt", "X"); err != nil {
+	if err := runRulesCmd("add", "--name", "dup", "--prompt", "X"); err != nil {
 		t.Fatal(err)
 	}
-	if err := runRulesCmd("rules", "add", "--name", "DUP", "--prompt", "Y"); err == nil {
+	if err := runRulesCmd("add", "--name", "DUP", "--prompt", "Y"); err == nil {
 		t.Error("duplicate name (case-insensitive) must fail")
 	}
 
 	// rm of a missing rule must fail with a clear error.
-	if err := runRulesCmd("rules", "rm", "nope"); err == nil || !strings.Contains(err.Error(), "No rule named") {
+	if err := runRulesCmd("rm", "nope"); err == nil || !strings.Contains(err.Error(), "No rule named") {
 		t.Errorf("rm missing rule must fail clearly, got %v", err)
+	}
+}
+
+// TestPromptsPreviewShapedCandidate drives `prompts preview` with candidate
+// flags and confirms the command accepts the new axes and rejects bad values.
+func TestPromptsPreviewShapedCandidate(t *testing.T) {
+	cleanup := xdg.SetConfigBaseForTest(t.TempDir())
+	defer cleanup()
+
+	run := func(args ...string) error {
+		root := newRootCmd("test")
+		root.SetArgs(append([]string{"prompts", "preview"}, args...))
+		return root.Execute()
+	}
+
+	if err := run("--candidate-type", "refreshed", "--repo", "o/r", "--author-is-gh-user", "--explain"); err != nil {
+		t.Fatalf("shaped preview should succeed: %v", err)
+	}
+	if err := run("--candidate-type", "ancient"); err == nil {
+		t.Error("invalid candidate-type must fail")
+	}
+	if err := run("--repo", "not-a-repo"); err == nil {
+		t.Error("invalid repo must fail")
 	}
 }

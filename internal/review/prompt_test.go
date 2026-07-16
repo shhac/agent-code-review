@@ -209,6 +209,31 @@ func TestUntaggedRuleStillBodyAppends(t *testing.T) {
 	}
 }
 
+// TestExplainRules pins the --explain trace: target routing (body vs outcome),
+// match verdict, and a reason for the first failing condition.
+func TestExplainRules(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{Rules: []config.Rule{
+		{Name: "body-any", When: config.Condition{}, Prompt: "X"},
+		{Name: "cmt-allowed", When: config.Condition{Outcome: "comment", AuthorAllowed: true}, Prompt: "X"},
+		{Name: "repo-only", When: config.Condition{Repos: []string{"other/repo"}}, Prompt: "X"},
+	}}}
+	c := store.Candidate{Repo: "o/r", Type: "new", Author: "alice"}
+	traces := ExplainRules(cfg, c, Facts{AuthorAllowed: true})
+
+	if len(traces) != 3 {
+		t.Fatalf("want 3 traces, got %d", len(traces))
+	}
+	if traces[0].Target != "body" || !traces[0].Matched {
+		t.Errorf("wildcard rule should match under body: %+v", traces[0])
+	}
+	if traces[1].Target != "comment" || !traces[1].Matched {
+		t.Errorf("allowed comment rule should match under comment: %+v", traces[1])
+	}
+	if traces[2].Matched || traces[2].Reason == "" {
+		t.Errorf("repo-mismatch rule should be skipped with a reason: %+v", traces[2])
+	}
+}
+
 func TestParseVerdict(t *testing.T) {
 	v, err := parseVerdict([]byte(`{"decision":"APPROVED","summary":"looks good, approved on GitHub"}`))
 	if err != nil || v.Decision != DecisionApproved || v.Summary == "" {

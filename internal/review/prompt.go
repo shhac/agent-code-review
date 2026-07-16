@@ -135,20 +135,55 @@ func candidateContext(c store.Candidate) string {
 // are wildcards; every set field must hold. Outcome is deliberately not checked
 // here: it routes the fragment (see outcomeInstructions), it does not gate it.
 func matches(w config.Condition, c store.Candidate, f Facts) bool {
+	ok, _ := matchReason(w, c, f)
+	return ok
+}
+
+// matchReason is matches plus a human-readable reason for the FIRST failing
+// condition (empty when it matches). It powers `prompts preview --explain` so
+// authors can see exactly why a rule did or didn't fire for a given candidate.
+func matchReason(w config.Condition, c store.Candidate, f Facts) (bool, string) {
 	if w.AuthorIsGHUser && !f.AuthorIsGHUser {
-		return false
+		return false, "needs author_is_gh_user (self-authored)"
 	}
 	if w.AuthorAllowed && !f.AuthorAllowed {
-		return false
+		return false, "needs author_allowed"
 	}
 	if w.AuthorNotAllowed && f.AuthorAllowed {
-		return false
+		return false, "needs author_not_allowed"
 	}
 	if w.CandidateType != "" && !strings.EqualFold(w.CandidateType, c.Type) {
-		return false
+		return false, "needs candidate_type=" + w.CandidateType
 	}
 	if len(w.Repos) > 0 && !config.RepoMatches(w.Repos, c.Repo) {
-		return false
+		return false, "repo not in [" + strings.Join(w.Repos, ", ") + "]"
 	}
-	return true
+	return true, ""
+}
+
+// RuleTrace explains one rule's fate for a candidate: whether it fired, where
+// its fragment lands (the prompt body, or a named outcome bullet), and — when
+// skipped — why. An outcome-scoped rule that Matched still only reaches the
+// agent if the agent lands on that outcome; Target names which one.
+type RuleTrace struct {
+	Name    string `json:"name"`
+	Target  string `json:"target"` // "body" or "approve" | "comment" | "reject"
+	Matched bool   `json:"matched"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// ExplainRules traces every configured rule against a candidate + facts, in
+// config order, without assembling the prompt. It is the introspection behind
+// the preview's --explain mode.
+func ExplainRules(cfg config.Config, c store.Candidate, f Facts) []RuleTrace {
+	traces := make([]RuleTrace, 0, len(cfg.Review.Rules))
+	for _, rule := range cfg.Review.Rules {
+		target := "body"
+		if rule.When.Outcome != "" {
+			target = strings.ToLower(rule.When.Outcome)
+		}
+		ok, reason := matchReason(rule.When, c, f)
+		traces = append(traces, RuleTrace{Name: rule.Name, Target: target, Matched: ok, Reason: reason})
+	}
+	return traces
 }

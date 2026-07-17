@@ -71,27 +71,68 @@ func metricsSince(raw string, now time.Time) time.Time {
 	return now.UTC().AddDate(0, 0, -days+1).Truncate(24 * time.Hour)
 }
 
+// metricsFor filters once, then computes each aggregate in its own pure
+// function: a new metric is a new function plus a resp field, not an edit
+// inside a shared fold. The extra passes are negligible (bounded 90-day
+// review list).
 func metricsFor(reviews []store.Review, model, effort string) metricsResp {
-	resp := metricsResp{Verdicts: map[string]int{}, Activity: []metricsDay{}, Models: []modelMetric{}, Scatter: []metricsPoint{}}
-	days := map[string]*metricsDay{}
-	groups := map[metricGroupKey]*metricGroup{}
+	filtered := make([]store.Review, 0, len(reviews))
+	for _, r := range reviews {
+		if matchesMetricsFilter(r, model, effort) {
+			filtered = append(filtered, r)
+		}
+	}
+	return metricsResp{
+		Summary:  summaryOf(filtered),
+		Verdicts: verdictCounts(filtered),
+		Activity: activityByDay(filtered),
+		Models:   modelGroups(filtered),
+		Scatter:  scatterPoints(filtered),
+	}
+}
+
+func summaryOf(reviews []store.Review) metricsSummary {
+	s := metricsSummary{Reviews: len(reviews)}
 	durations := []int{}
 	for _, r := range reviews {
-		if !matchesMetricsFilter(r, model, effort) {
-			continue
-		}
-		resp.Summary.Reviews++
-		resp.Summary.TokensUsed += r.TokensUsed
-		resp.Verdicts[r.Verdict]++
+		s.TokensUsed += r.TokensUsed
 		if r.DurationSecs > 0 {
 			durations = append(durations, r.DurationSecs)
 		}
+	}
+	s.MedianDuration = medianDuration(durations)
+	return s
+}
+
+func verdictCounts(reviews []store.Review) map[string]int {
+	counts := map[string]int{}
+	for _, r := range reviews {
+		counts[r.Verdict]++
+	}
+	return counts
+}
+
+func activityByDay(reviews []store.Review) []metricsDay {
+	days := map[string]*metricsDay{}
+	for _, r := range reviews {
 		day := r.ReviewedAt.UTC().Format("2006-01-02")
 		if days[day] == nil {
 			days[day] = &metricsDay{Day: day}
 		}
 		days[day].Reviews++
 		days[day].TokensUsed += r.TokensUsed
+	}
+	activity := make([]metricsDay, 0, len(days))
+	for _, d := range days {
+		activity = append(activity, *d)
+	}
+	sort.Slice(activity, func(i, j int) bool { return activity[i].Day < activity[j].Day })
+	return activity
+}
+
+func modelGroups(reviews []store.Review) []modelMetric {
+	groups := map[metricGroupKey]*metricGroup{}
+	for _, r := range reviews {
 		key := metricGroupKey{r.Model, r.Effort, r.CodexVersion}
 		if groups[key] == nil {
 			groups[key] = &metricGroup{metric: modelMetric{Model: r.Model, Effort: r.Effort, CodexVersion: r.CodexVersion}}
@@ -102,19 +143,22 @@ func metricsFor(reviews []store.Review, model, effort string) metricsResp {
 		if r.DurationSecs > 0 {
 			g.durations = append(g.durations, r.DurationSecs)
 		}
-		resp.Scatter = append(resp.Scatter, metricsPoint{Model: r.Model, Effort: r.Effort, Verdict: r.Verdict, TokensUsed: r.TokensUsed, DurationSec: r.DurationSecs})
 	}
-	resp.Summary.MedianDuration = medianDuration(durations)
-	for _, d := range days {
-		resp.Activity = append(resp.Activity, *d)
-	}
-	sort.Slice(resp.Activity, func(i, j int) bool { return resp.Activity[i].Day < resp.Activity[j].Day })
+	models := make([]modelMetric, 0, len(groups))
 	for _, g := range groups {
 		g.metric.MedianDuration = medianDuration(g.durations)
-		resp.Models = append(resp.Models, g.metric)
+		models = append(models, g.metric)
 	}
-	sort.Slice(resp.Models, func(i, j int) bool { return resp.Models[i].Reviews > resp.Models[j].Reviews })
-	return resp
+	sort.Slice(models, func(i, j int) bool { return models[i].Reviews > models[j].Reviews })
+	return models
+}
+
+func scatterPoints(reviews []store.Review) []metricsPoint {
+	points := make([]metricsPoint, 0, len(reviews))
+	for _, r := range reviews {
+		points = append(points, metricsPoint{Model: r.Model, Effort: r.Effort, Verdict: r.Verdict, TokensUsed: r.TokensUsed, DurationSec: r.DurationSecs})
+	}
+	return points
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {

@@ -23,16 +23,24 @@ func (r Ref) String() string {
 	return r.Repo + "#" + strconv.Itoa(r.Number)
 }
 
-func ParseArgs(args []string) (Ref, error) {
-	number, err := strconv.Atoi(args[1])
-	if err != nil {
-		return Ref{}, err
+// Field-specific parse errors: callers name the offending field in their own
+// envelope without re-deriving the checks.
+var (
+	ErrRepo   = errors.New("repo must be owner/name")
+	ErrNumber = errors.New("PR number must be a positive integer")
+)
+
+// Parse validates the two textual halves of a PR reference. Repo is checked
+// first, so with both fields invalid the repo error wins.
+func Parse(repo, number string) (Ref, error) {
+	if !config.ValidRepoName(repo) {
+		return Ref{}, ErrRepo
 	}
-	ref := Ref{Repo: args[0], Number: number}
-	if !ref.Valid() {
-		return Ref{}, errors.New("invalid PR reference")
+	n, err := strconv.Atoi(number)
+	if err != nil || n <= 0 {
+		return Ref{}, ErrNumber
 	}
-	return ref, nil
+	return Ref{Repo: repo, Number: n}, nil
 }
 
 func ParseGitHubPull(raw string) (Ref, bool) {

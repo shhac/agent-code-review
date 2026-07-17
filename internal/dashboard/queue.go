@@ -151,7 +151,7 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 // actually set up to review.
 func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		prRef
+		prref.Ref
 		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -159,18 +159,18 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.URL != "" {
-		ref, ok := parsePRRef(req.URL)
+		ref, ok := prref.ParseGitHubPull(req.URL)
 		if !ok {
 			httpError(w, http.StatusBadRequest, "not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
 			return
 		}
-		req.prRef = ref
+		req.Ref = ref
 	}
 	if !config.ValidRepoName(req.Repo) || req.Number <= 0 {
 		httpError(w, http.StatusBadRequest, `need {"url": "owner/repo/pull/N"} or {"repo": "owner/name", "number": N}`)
 		return
 	}
-	if !s.repoWatched(req.Repo) {
+	if !s.config().WatchesRepo(req.Repo) {
 		httpError(w, http.StatusForbidden, req.Repo+" is not a watched repo; see the Config page for the allowed list")
 		return
 	}
@@ -195,28 +195,14 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, queueAddResp{Queued: true, Title: c.Title, Author: c.Author})
 }
 
-// repoWatched defers to the config-layer predicate: one definition of
-// watch-list membership.
-func (s *Server) repoWatched(repo string) bool {
-	return s.config().WatchesRepo(repo)
-}
-
-// prRef is the queue-row wire shape shared by the remove, add, promote, and
-// reorder request bodies (and the reorder validator's set key).
-type prRef = prref.Ref
-
-func decodePRRef(r *http.Request) (prRef, bool) {
-	var req prRef
+// decodePRRef decodes the queue-row wire shape shared by the remove, add,
+// promote, and reorder request bodies.
+func decodePRRef(r *http.Request) (prref.Ref, bool) {
+	var req prref.Ref
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return prRef{}, false
+		return prref.Ref{}, false
 	}
 	return req, req.Valid()
-}
-
-// parsePRRef accepts GitHub PR URLs and the bare owner/repo/pull/N form,
-// delegating owner/name validation to config.ValidRepoName.
-func parsePRRef(raw string) (prRef, bool) {
-	return prref.ParseGitHubPull(raw)
 }
 
 // handleQueuePromote is the explicit "review this now" action: float the row
@@ -253,7 +239,7 @@ func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Order []prRef `json:"order"`
+		Order []prref.Ref `json:"order"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Order) == 0 {
 		httpError(w, http.StatusBadRequest, `need {"order": [{"repo", "number"}, ...]} covering every queued PR`)
@@ -286,17 +272,17 @@ func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 // every unclaimed queue row once, no duplicates, no unknown PRs, and no rows
 // that are mid-review (their position is pinned while claimed). Pure:
 // unit-tested directly.
-func validateReorder(queue []store.Candidate, order []prRef, now time.Time, staleAfter time.Duration) error {
-	reorderable := make(map[prRef]struct{}, len(queue))
+func validateReorder(queue []store.Candidate, order []prref.Ref, now time.Time, staleAfter time.Duration) error {
+	reorderable := make(map[prref.Ref]struct{}, len(queue))
 	for _, c := range queue {
 		if !c.ClaimActive(now, staleAfter) {
-			reorderable[prRef{Repo: c.Repo, Number: c.Number}] = struct{}{}
+			reorderable[prref.Ref{Repo: c.Repo, Number: c.Number}] = struct{}{}
 		}
 	}
 	if len(order) != len(reorderable) {
 		return fmt.Errorf("order lists %d PRs but %d are reorderable; it must cover every queued PR exactly once", len(order), len(reorderable))
 	}
-	seen := make(map[prRef]struct{}, len(order))
+	seen := make(map[prref.Ref]struct{}, len(order))
 	for _, ref := range order {
 		if _, ok := reorderable[ref]; !ok {
 			return fmt.Errorf("%s#%d is not reorderable (not queued, or currently being reviewed)", ref.Repo, ref.Number)

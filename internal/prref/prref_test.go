@@ -1,6 +1,9 @@
 package prref
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestParseGitHubPull(t *testing.T) {
 	cases := []struct {
@@ -39,14 +42,24 @@ func TestParseGitHubPull(t *testing.T) {
 	}
 }
 
-func TestParseArgs(t *testing.T) {
-	ref, err := ParseArgs([]string{"o/r", "7"})
+func TestParse(t *testing.T) {
+	ref, err := Parse("o/r", "7")
 	if err != nil || ref != (Ref{Repo: "o/r", Number: 7}) {
-		t.Fatalf("ParseArgs valid = %v, %v", ref, err)
+		t.Fatalf("Parse valid = %v, %v", ref, err)
 	}
-	for _, args := range [][]string{{"not-a-repo", "7"}, {"o/r", "wat"}, {"o/r", "0"}, {"o/r", "-1"}} {
-		if _, err := ParseArgs(args); err == nil {
-			t.Fatalf("ParseArgs(%v) expected error", args)
+	cases := []struct {
+		repo, number string
+		want         error
+	}{
+		{"not-a-repo", "7", ErrRepo},
+		{"o/r", "wat", ErrNumber},
+		{"o/r", "0", ErrNumber},
+		{"o/r", "-1", ErrNumber},
+		{"not-a-repo", "wat", ErrRepo}, // both invalid: repo error wins
+	}
+	for _, tc := range cases {
+		if _, err := Parse(tc.repo, tc.number); !errors.Is(err, tc.want) {
+			t.Fatalf("Parse(%q, %q) = %v, want %v", tc.repo, tc.number, err, tc.want)
 		}
 	}
 }

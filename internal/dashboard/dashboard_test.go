@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -20,18 +20,18 @@ func TestValidateReorder(t *testing.T) {
 		{Repo: "example-org/service-alpha", Number: 2},
 		{Repo: "example-org/service-beta", Number: 3},
 	}
-	ref := func(repo string, n int) prRef { return prRef{Repo: repo, Number: n} }
+	ref := func(repo string, n int) prref.Ref { return prref.Ref{Repo: repo, Number: n} }
 
 	cases := []struct {
 		name    string
-		order   []prRef
+		order   []prref.Ref
 		wantErr string // substring; empty = valid
 	}{
-		{"full queued set in new order", []prRef{ref("example-org/service-beta", 3), ref("example-org/service-alpha", 2)}, ""},
-		{"reviewing row cannot be reordered", []prRef{ref("example-org/service-alpha", 1), ref("example-org/service-alpha", 2)}, "not reorderable"},
-		{"unknown PR rejected", []prRef{ref("example-org/service-alpha", 2), ref("example-org/ghost", 99)}, "not reorderable"},
-		{"duplicate rejected", []prRef{ref("example-org/service-alpha", 2), ref("example-org/service-alpha", 2)}, "twice"},
-		{"incomplete order rejected", []prRef{ref("example-org/service-alpha", 2)}, "exactly once"},
+		{"full queued set in new order", []prref.Ref{ref("example-org/service-beta", 3), ref("example-org/service-alpha", 2)}, ""},
+		{"reviewing row cannot be reordered", []prref.Ref{ref("example-org/service-alpha", 1), ref("example-org/service-alpha", 2)}, "not reorderable"},
+		{"unknown PR rejected", []prref.Ref{ref("example-org/service-alpha", 2), ref("example-org/ghost", 99)}, "not reorderable"},
+		{"duplicate rejected", []prref.Ref{ref("example-org/service-alpha", 2), ref("example-org/service-alpha", 2)}, "twice"},
+		{"incomplete order rejected", []prref.Ref{ref("example-org/service-alpha", 2)}, "exactly once"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -48,62 +48,6 @@ func TestValidateReorder(t *testing.T) {
 		})
 	}
 }
-func TestParsePRRef(t *testing.T) {
-	cases := []struct {
-		in         string
-		repo       string
-		number     int
-		shouldFail bool
-	}{
-		{"https://github.com/owner/repo/pull/123", "owner/repo", 123, false},
-		{"https://github.com/owner/repo/pull/123/files", "owner/repo", 123, false},
-		{"owner/repo/pull/9", "owner/repo", 9, false},
-		{"owner/my.repo-x_1/pull/42", "owner/my.repo-x_1", 42, false},
-		{"http://github.com/owner/repo/pull/1", "", 0, true},  // https only
-		{"https://gitlab.com/owner/repo/pull/1", "", 0, true}, // github.com only
-		{"owner/bad repo/pull/1", "", 0, true},
-		{"owner/repo#123", "", 0, true},
-		{"owner/repo", "", 0, true},
-		{"just words", "", 0, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			got, ok := parsePRRef(tc.in)
-			if tc.shouldFail {
-				if ok {
-					t.Errorf("expected no match, got %v", got)
-				}
-				return
-			}
-			if !ok {
-				t.Fatal("expected match, got none")
-			}
-			if got.Repo != tc.repo || got.Number != tc.number {
-				t.Errorf("got repo=%s number=%d, want %s %d", got.Repo, got.Number, tc.repo, tc.number)
-			}
-		})
-	}
-}
-
-func TestRepoWatched(t *testing.T) {
-	s := &Server{config: func() config.Config {
-		return config.Config{Repos: []string{"Org/Repo-One", "org/two"}}
-	}}
-	if !s.repoWatched("org/repo-one") {
-		t.Error("matching must be case-insensitive (GitHub semantics)")
-	}
-	if !s.repoWatched("ORG/TWO") {
-		t.Error("upper-case variant must match")
-	}
-	if s.repoWatched("org/other") {
-		t.Error("unwatched repo must not match")
-	}
-	empty := &Server{config: func() config.Config { return config.Config{} }}
-	if empty.repoWatched("any/repo") {
-		t.Error("no watched repos means nothing is accepted")
-	}
-}
-
 func TestViewQueue(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	staleAfter := 2 * time.Hour

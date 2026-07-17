@@ -9,9 +9,7 @@ import (
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/discover"
-	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -246,12 +244,6 @@ func streamFile(ctx context.Context, path string, follow bool, out io.Writer) er
 	}
 }
 
-// prKey renders the canonical "owner/repo#N" reference used in emit keys and
-// error messages.
-func prKey(repo string, number int) string {
-	return prref.Ref{Repo: repo, Number: number}.String()
-}
-
 // findQueued locates one queue row by number within an already repo-scoped
 // ListQueue result.
 func findQueued(ctx context.Context, s store.Store, repo string, number int) (store.Candidate, bool, error) {
@@ -267,23 +259,3 @@ func findQueued(ctx context.Context, s store.Store, repo string, number int) (st
 	return store.Candidate{}, false, nil
 }
 
-// withStore opens the store, runs fn, and closes it.
-func withStore(fn func(store.Store) error) error {
-	s, err := openStore(config.Read())
-	if err != nil {
-		return err
-	}
-	defer func() { _ = s.Close() }()
-	return fn(s)
-}
-
-func parseRepoNumber(args []string) (string, int, error) {
-	ref, err := prref.ParseArgs(args)
-	if err != nil {
-		if !config.ValidRepoName(args[0]) {
-			return "", 0, output.New("Repo must be owner/name, got "+args[0], output.FixableByAgent)
-		}
-		return "", 0, output.New("PR number must be an integer, got "+args[1], output.FixableByAgent)
-	}
-	return ref.Repo, ref.Number, nil
-}

@@ -3,13 +3,16 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
+	output "github.com/shhac/lib-agent-output"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/discover"
+	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/scheduler"
 	"github.com/shhac/agent-code-review/internal/store"
@@ -44,6 +47,36 @@ func emit(v any) error {
 // stdout stays clean for any NDJSON a command emits.
 func stderrLogf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
+}
+
+// withStore opens the store, runs fn, and closes it: the session helper
+// every store-touching command wraps its RunE in.
+func withStore(fn func(store.Store) error) error {
+	s, err := openStore(config.Read())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.Close() }()
+	return fn(s)
+}
+
+// parseRepoNumber maps the canonical <owner/repo> <number> positional pair
+// onto the CLI's error envelope.
+func parseRepoNumber(args []string) (string, int, error) {
+	ref, err := prref.Parse(args[0], args[1])
+	switch {
+	case errors.Is(err, prref.ErrRepo):
+		return "", 0, output.New("Repo must be owner/name, got "+args[0], output.FixableByAgent)
+	case err != nil:
+		return "", 0, output.New("PR number must be an integer, got "+args[1], output.FixableByAgent)
+	}
+	return ref.Repo, ref.Number, nil
+}
+
+// prKey renders the canonical "owner/repo#N" reference used in emit keys and
+// error messages.
+func prKey(repo string, number int) string {
+	return prref.Ref{Repo: repo, Number: number}.String()
 }
 
 // buildScheduler wires the discoverer and resolved gh user around an

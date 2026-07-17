@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -28,10 +29,10 @@ type handlerStore struct {
 	runs       []store.Run
 	logReview  store.Review
 	enqueued   []store.Candidate
-	dequeued   []prRef
+	dequeued   []prref.Ref
 	positions  []store.QueuePosition // Reorder's complete position list
 	reorderErr error                 // optional Reorder failure
-	promoted   []prRef               // Promote calls in order
+	promoted   []prref.Ref           // Promote calls in order
 	tokens     map[bool]int64        // keyed by since.IsZero()
 	since      time.Time
 	sinceErr   error
@@ -74,7 +75,7 @@ func (f *handlerStore) Enqueue(_ context.Context, c store.Candidate) error {
 }
 
 func (f *handlerStore) Dequeue(_ context.Context, repo string, number int) error {
-	f.dequeued = append(f.dequeued, prRef{Repo: repo, Number: number})
+	f.dequeued = append(f.dequeued, prref.Ref{Repo: repo, Number: number})
 	return nil
 }
 
@@ -87,7 +88,7 @@ func (f *handlerStore) Reorder(_ context.Context, positions []store.QueuePositio
 }
 
 func (f *handlerStore) Promote(_ context.Context, repo string, number int) error {
-	f.promoted = append(f.promoted, prRef{Repo: repo, Number: number})
+	f.promoted = append(f.promoted, prref.Ref{Repo: repo, Number: number})
 	return nil
 }
 
@@ -276,7 +277,7 @@ func TestHandleQueuePromote(t *testing.T) {
 		if code != http.StatusOK || resp["promoted"] != true {
 			t.Fatalf("code = %d resp = %v", code, resp)
 		}
-		if len(fs.promoted) != 1 || fs.promoted[0] != (prRef{Repo: "o/r", Number: 9}) {
+		if len(fs.promoted) != 1 || fs.promoted[0] != (prref.Ref{Repo: "o/r", Number: 9}) {
 			t.Errorf("promote calls = %v", fs.promoted)
 		}
 	})

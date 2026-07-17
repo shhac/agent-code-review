@@ -86,14 +86,24 @@ func ReviewLogKey(r Review) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
+// Verdict vocabulary: the canonical strings for every recordable outcome.
+// The review package's Decision* constants alias these (store is the layer
+// both sides already import), so the vocabulary cannot drift.
+const (
+	VerdictApproved         = "APPROVED"
+	VerdictCommented        = "COMMENTED"
+	VerdictRequestedChanges = "REQUESTED_CHANGES"
+	VerdictSkipped          = "SKIPPED"
+	VerdictWorking          = "WORKING" // engine-intermediate only; never recorded
+	VerdictError            = "ERROR"
+)
+
 // realVerdicts is the single source of the "actual posted review" set: the
 // outcomes that count as "reviewed at this SHA" for Refreshed detection.
 // SKIPPED and ERROR deliberately aren't in it: new commits (or a manual
 // re-add) must be able to re-surface those PRs. Both IsRealVerdict and the
-// driver's SQL filter derive from this list. (The engine's Decision*
-// constants in the review package mirror these strings; review imports
-// store, so the vocabulary can't reference them from here.)
-var realVerdicts = []string{"APPROVED", "COMMENTED", "REQUESTED_CHANGES"}
+// driver's SQL filter derive from this list.
+var realVerdicts = []string{VerdictApproved, VerdictCommented, VerdictRequestedChanges}
 
 // IsRealVerdict reports whether v is an actual posted review: the predicate
 // behind LastReview's history filter.

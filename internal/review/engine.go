@@ -24,18 +24,20 @@ type Verdict struct {
 	TokensUsed int    `json:"-"`             // stream metadata, not part of the agent's report
 }
 
-// Verdict decisions. The first four are the agent's final outcomes; WORKING
-// is the agent's intermediate progress marker (the output schema constrains
-// EVERY message, so progress notes need an honest value that doesn't
-// overload SKIPPED; it is never a valid final report); ERROR is the
-// driver's own value for "the invocation failed / no usable report".
+// Verdict decisions, aliased from the store's canonical vocabulary (the
+// layer both packages import, so the two sets cannot drift). The first four
+// are the agent's final outcomes; WORKING is the agent's intermediate
+// progress marker (the output schema constrains EVERY message, so progress
+// notes need an honest value that doesn't overload SKIPPED; it is never a
+// valid final report); ERROR is the driver's own value for "the invocation
+// failed / no usable report".
 const (
-	DecisionApproved         = "APPROVED"
-	DecisionCommented        = "COMMENTED"
-	DecisionRequestedChanges = "REQUESTED_CHANGES" // the "reject" outcome
-	DecisionSkipped          = "SKIPPED"
-	DecisionWorking          = "WORKING"
-	DecisionError            = "ERROR"
+	DecisionApproved         = store.VerdictApproved
+	DecisionCommented        = store.VerdictCommented
+	DecisionRequestedChanges = store.VerdictRequestedChanges // the "reject" outcome
+	DecisionSkipped          = store.VerdictSkipped
+	DecisionWorking          = store.VerdictWorking
+	DecisionError            = store.VerdictError
 )
 
 // Request is one PR review job.

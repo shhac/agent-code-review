@@ -1,11 +1,11 @@
 package dashboard
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/store"
 )
 
 type promptOutcomesResp struct {
@@ -60,41 +60,33 @@ type promptPreviewResp struct {
 // handlePromptPreview assembles the prompt for a synthetic candidate shaped by
 // query params: author_allowed (default true), author_is_gh_user (default
 // false), candidate_type (default new), repo (default the example repo).
+// Assembly semantics live in review.Preview; this handler is transport only.
 func (s *Server) handlePromptPreview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-
-	candidateType := q.Get("candidate_type")
-	if candidateType == "" {
-		candidateType = store.TypeNew
-	}
-	if !config.ValidCandidateType(candidateType) {
-		httpError(w, http.StatusBadRequest, "candidate_type must be new or refreshed")
-		return
-	}
-
-	repo := q.Get("repo")
-	if repo == "" {
-		repo = review.SampleRepo
-	}
-	if !config.ValidRepoName(repo) {
-		httpError(w, http.StatusBadRequest, "repo must be owner/name")
-		return
-	}
-
 	facts := review.Facts{
 		AuthorAllowed:  q.Get("author_allowed") != "false", // default allowed
 		AuthorIsGHUser: q.Get("author_is_gh_user") == "true",
 	}
-	sample := review.SampleCandidate(repo, candidateType)
-	cfg := s.config()
+	res, err := review.Preview(s.config(), q.Get("repo"), q.Get("candidate_type"), facts)
+	switch {
+	case errors.Is(err, review.ErrBadCandidateType):
+		httpError(w, http.StatusBadRequest, "candidate_type must be new or refreshed")
+		return
+	case errors.Is(err, review.ErrBadRepo):
+		httpError(w, http.StatusBadRequest, "repo must be owner/name")
+		return
+	case err != nil:
+		s.fail(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, promptPreviewResp{
 		Candidate: promptPreviewCandidate{
-			Repo:           sample.Repo,
-			CandidateType:  sample.Type,
-			AuthorAllowed:  facts.AuthorAllowed,
-			AuthorIsGHUser: facts.AuthorIsGHUser,
+			Repo:           res.Repo,
+			CandidateType:  res.CandidateType,
+			AuthorAllowed:  res.Facts.AuthorAllowed,
+			AuthorIsGHUser: res.Facts.AuthorIsGHUser,
 		},
-		Preview: review.BuildPrompt(cfg, sample, facts),
-		Rules:   review.ExplainRules(cfg, sample, facts),
+		Preview: res.Prompt,
+		Rules:   res.Rules,
 	})
 }

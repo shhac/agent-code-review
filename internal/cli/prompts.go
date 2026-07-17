@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 
 	output "github.com/shhac/lib-agent-output"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/store"
 )
 
 // promptSlots maps slot names to accessors on ReviewSettings. "main" is the
@@ -154,21 +154,16 @@ func promptsPreviewCmd() *cobra.Command {
 			"of what matched and why, without you having to read the assembled text.",
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if candidateType == "" {
-				candidateType = store.TypeNew
-			}
-			if !config.ValidCandidateType(candidateType) {
-				return output.New("--candidate-type must be one of "+strings.Join(config.CandidateTypes, ", ")+", got "+candidateType, output.FixableByAgent)
-			}
-			if repo == "" {
-				repo = review.SampleRepo
-			}
-			if !config.ValidRepoName(repo) {
-				return invalidRepo(repo)
-			}
-			cfg := config.Read()
-			sample := review.SampleCandidate(repo, candidateType)
 			facts := review.Facts{AuthorAllowed: !notAllowed, AuthorIsGHUser: isGHUser}
+			res, err := review.Preview(config.Read(), repo, candidateType, facts)
+			switch {
+			case errors.Is(err, review.ErrBadCandidateType):
+				return output.New("--candidate-type must be one of "+strings.Join(config.CandidateTypes, ", ")+", got "+candidateType, output.FixableByAgent)
+			case errors.Is(err, review.ErrBadRepo):
+				return invalidRepo(repo)
+			case err != nil:
+				return err
+			}
 			variant := "allowed_author"
 			if notAllowed {
 				variant = "not_allowed_author"
@@ -176,16 +171,16 @@ func promptsPreviewCmd() *cobra.Command {
 			rec := map[string]any{
 				"variant": variant,
 				"candidate": map[string]any{
-					"repo":              sample.Repo,
-					"candidate_type":    sample.Type,
-					"author_allowed":    facts.AuthorAllowed,
-					"author_is_gh_user": facts.AuthorIsGHUser,
+					"repo":              res.Repo,
+					"candidate_type":    res.CandidateType,
+					"author_allowed":    res.Facts.AuthorAllowed,
+					"author_is_gh_user": res.Facts.AuthorIsGHUser,
 				},
-				"preview": review.BuildPrompt(cfg, sample, facts),
+				"preview": res.Prompt,
 				"note":    "synthetic candidate; the engine driver appends a reporting instruction on top",
 			}
 			if explain {
-				rec["rules"] = review.ExplainRules(cfg, sample, facts)
+				rec["rules"] = res.Rules
 			}
 			return emit(rec)
 		},

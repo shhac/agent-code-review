@@ -9,14 +9,17 @@ import (
 )
 
 func TestRemoveFold(t *testing.T) {
-	got := removeFold([]string{"a/b", "C/D", "e/f"}, "c/d")
+	got, removed := filterFold([]string{"a/b", "C/D", "e/f"}, self, "c/d")
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
 	if len(got) != 2 || got[0] != "a/b" || got[1] != "e/f" {
 		t.Errorf("case-insensitive removal failed: %v", got)
 	}
-	if got := removeFold([]string{"a/b"}, "x/y"); len(got) != 1 {
+	if got, _ := filterFold([]string{"a/b"}, self, "x/y"); len(got) != 1 {
 		t.Errorf("no-match must keep the list: %v", got)
 	}
-	if got := removeFold(nil, "a/b"); len(got) != 0 {
+	if got, _ := filterFold(nil, self, "a/b"); len(got) != 0 {
 		t.Errorf("nil list: %v", got)
 	}
 }

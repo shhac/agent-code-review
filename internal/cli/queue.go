@@ -200,10 +200,10 @@ func completeRepoThenNumber(queuedOnly bool) cobra.CompletionFunc {
 }
 
 // reviewWorkDir resolves a PR's engine workspace via the shared queue-then-
-// history resolution (store.FindWorkspace), turning "never recorded" into
-// the CLI's error envelope.
+// history resolution (store.FindReviewWorkspace), turning "never recorded"
+// into the CLI's error envelope.
 func reviewWorkDir(ctx context.Context, s store.Store, repo string, number int) (string, error) {
-	ws, found, err := store.FindWorkspace(ctx, s, repo, number)
+	ws, found, err := store.FindReviewWorkspace(ctx, s, store.ReviewLogRef{Repo: repo, Number: number})
 	if err != nil {
 		return "", err
 	}
@@ -253,4 +253,3 @@ func findQueued(ctx context.Context, s store.Store, repo string, number int) (st
 	}
 	return store.Candidate{}, false, nil
 }
-

@@ -44,15 +44,13 @@ func completeStatic(values []string) cobra.CompletionFunc {
 	}
 }
 
-func completeConfigKeys(keys []string) cobra.CompletionFunc { return completeStatic(keys) }
-
 func attachConfigCompletions(cmd *cobra.Command, specs []configKeySpec) {
 	keyNames := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		keyNames = append(keyNames, spec.key.Name)
 	}
 	for _, verb := range []string{"get", "unset"} {
-		findCommand(cmd, verb).ValidArgsFunction = completeConfigKeys(keyNames)
+		findCommand(cmd, verb).ValidArgsFunction = completeStatic(keyNames)
 	}
 	findCommand(cmd, "set").ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
@@ -167,37 +165,52 @@ func completionStore() (store.Store, error) {
 	return store.Open(cfg.Store.Engine, cfg.StorePath())
 }
 
+// completeFromStore opens the store, collects suggestion values, and folds
+// every failure into "no suggestions": completion must never fail loudly.
+func completeFromStore(ctx context.Context, list func(context.Context, store.Store) ([]string, error)) []string {
+	s, err := completionStore()
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = s.Close() }()
+	values, err := list(ctx, s)
+	if err != nil {
+		return nil
+	}
+	return values
+}
+
 func completeQueuedNumber(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 1 {
 		return noFile(nil)
 	}
-	s, err := completionStore()
-	if err != nil {
-		return noFile(nil)
-	}
-	defer func() { _ = s.Close() }()
-	rows, err := s.ListQueue(cmd.Context(), args[0])
-	if err != nil {
-		return noFile(nil)
-	}
-	values := make([]string, 0, len(rows))
-	for _, row := range rows {
-		values = append(values, strconv.Itoa(row.Number))
-	}
+	values := completeFromStore(cmd.Context(), func(ctx context.Context, s store.Store) ([]string, error) {
+		rows, err := s.ListQueue(ctx, args[0])
+		if err != nil {
+			return nil, err
+		}
+		numbers := make([]string, 0, len(rows))
+		for _, row := range rows {
+			numbers = append(numbers, strconv.Itoa(row.Number))
+		}
+		return numbers, nil
+	})
 	return noFile(completePrefix(values, toComplete))
 }
 
 func completeAllowedAuthorRepo(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	values := append([]string{"*"}, config.Read().SortedRepos()...)
-	s, err := completionStore()
-	if err == nil {
-		defer func() { _ = s.Close() }()
-		if authors, err := s.ListAllowedAuthors(cmd.Context(), ""); err == nil {
-			for _, author := range authors {
-				values = append(values, author.Repo)
-			}
+	values = append(values, completeFromStore(cmd.Context(), func(ctx context.Context, s store.Store) ([]string, error) {
+		authors, err := s.ListAllowedAuthors(ctx, "")
+		if err != nil {
+			return nil, err
 		}
-	}
+		repos := make([]string, 0, len(authors))
+		for _, author := range authors {
+			repos = append(repos, author.Repo)
+		}
+		return repos, nil
+	})...)
 	return noFile(completePrefix(values, toComplete))
 }
 
@@ -205,18 +218,16 @@ func completeAllowedAuthorHandle(cmd *cobra.Command, args []string, toComplete s
 	if len(args) != 1 {
 		return noFile(nil)
 	}
-	s, err := completionStore()
-	if err != nil {
-		return noFile(nil)
-	}
-	defer func() { _ = s.Close() }()
-	authors, err := s.ListAllowedAuthors(cmd.Context(), args[0])
-	if err != nil {
-		return noFile(nil)
-	}
-	values := make([]string, 0, len(authors))
-	for _, author := range authors {
-		values = append(values, author.GitHubHandle)
-	}
+	values := completeFromStore(cmd.Context(), func(ctx context.Context, s store.Store) ([]string, error) {
+		authors, err := s.ListAllowedAuthors(ctx, args[0])
+		if err != nil {
+			return nil, err
+		}
+		handles := make([]string, 0, len(authors))
+		for _, author := range authors {
+			handles = append(handles, author.GitHubHandle)
+		}
+		return handles, nil
+	})
 	return noFile(completePrefix(values, toComplete))
 }

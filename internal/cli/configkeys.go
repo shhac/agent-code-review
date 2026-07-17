@@ -3,6 +3,7 @@ package cli
 import (
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
@@ -140,23 +141,14 @@ func validateHoldDuration(v string) error {
 	return nil
 }
 
-func validateEngine(v string) error {
-	if v == "" || slices.Contains(engineValues, v) {
-		return nil
+// validateOneOf allows empty (unset) or membership of values, with the
+// error message built from the same slice the shell completions offer, so
+// the two cannot drift.
+func validateOneOf(label string, values []string) func(string) error {
+	return func(v string) error {
+		if v == "" || slices.Contains(values, v) {
+			return nil
+		}
+		return output.New("Invalid "+label+": "+v+". Valid: "+strings.Join(values, ", "), output.FixableByAgent)
 	}
-	return output.New(`Unknown engine: `+v+`. Valid: codex`, output.FixableByAgent)
-}
-
-func validateSandbox(v string) error {
-	if v == "" || slices.Contains(sandboxValues, v) {
-		return nil
-	}
-	return output.New("Invalid sandbox mode: "+v+". Valid: read-only, workspace-write, danger-full-access", output.FixableByAgent)
-}
-
-func validateTailscaleMode(v string) error {
-	if v == "" || slices.Contains(tailscaleModeValues, v) {
-		return nil
-	}
-	return output.New(`Invalid tailscale mode: `+v+`. Valid: "", serve, funnel`, output.FixableByAgent)
 }

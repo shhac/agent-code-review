@@ -95,7 +95,7 @@ func TestReviewFromDuration(t *testing.T) {
 	}
 }
 
-// workspaceStore fakes the two reads FindWorkspace performs; every other
+// workspaceStore fakes the two reads FindReviewWorkspace performs; every other
 // Store method panics via the embedded nil interface.
 type workspaceStore struct {
 	Store
@@ -130,7 +130,7 @@ func TestFindWorkspace(t *testing.T) {
 			last:   Review{WorkDir: "/old"},
 			lastOK: true,
 		}
-		ws, found, err := FindWorkspace(ctx, s, "o/r", 5)
+		ws, found, err := FindReviewWorkspace(ctx, s, ReviewLogRef{Repo: "o/r", Number: 5})
 		if err != nil || !found {
 			t.Fatalf("found=%v err=%v", found, err)
 		}
@@ -145,7 +145,7 @@ func TestFindWorkspace(t *testing.T) {
 			last:   Review{WorkDir: "/old", Verdict: "APPROVED"},
 			lastOK: true,
 		}
-		ws, found, err := FindWorkspace(ctx, s, "o/r", 5)
+		ws, found, err := FindReviewWorkspace(ctx, s, ReviewLogRef{Repo: "o/r", Number: 5})
 		if err != nil || !found {
 			t.Fatalf("found=%v err=%v", found, err)
 		}
@@ -156,7 +156,7 @@ func TestFindWorkspace(t *testing.T) {
 
 	t.Run("no workspace ever recorded", func(t *testing.T) {
 		s := &workspaceStore{last: Review{}, lastOK: true}
-		if _, found, err := FindWorkspace(ctx, s, "o/r", 5); err != nil || found {
+		if _, found, err := FindReviewWorkspace(ctx, s, ReviewLogRef{Repo: "o/r", Number: 5}); err != nil || found {
 			t.Errorf("pre-feature reviews have no workspace; found=%v err=%v", found, err)
 		}
 	})

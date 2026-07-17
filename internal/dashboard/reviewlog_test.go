@@ -120,7 +120,7 @@ func TestTailFile(t *testing.T) {
 }
 
 // reviewLogStore fakes the two reads handleReviewLog performs through
-// store.FindWorkspace; everything else panics via the embedded nil interface.
+// store.FindReviewWorkspace; everything else panics via the embedded nil interface.
 type reviewLogStore struct {
 	store.Store
 	queue []store.Candidate

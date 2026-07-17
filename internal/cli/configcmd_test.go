@@ -32,23 +32,20 @@ func TestConfigKeyValidators(t *testing.T) {
 		}
 	}
 
+	validateEngine := validateOneOf("engine", engineValues)
 	if err := validateEngine("codex"); err != nil {
 		t.Errorf("codex is the valid engine: %v", err)
 	}
 	if err := validateEngine("claude"); err == nil {
 		t.Error("unknown engine must fail until it's wired")
 	}
-	if err := validateSandbox("workspace-write"); err != nil {
-		t.Error("workspace-write is a valid sandbox")
+	if err := validateEngine(""); err != nil {
+		t.Error("empty (unset) must always be allowed")
 	}
-	if err := validateSandbox("yolo"); err == nil {
+	if err := validateOneOf("sandbox mode", sandboxValues)("yolo"); err == nil {
 		t.Error("invalid sandbox must fail")
-	}
-	if err := validateTailscaleMode("serve"); err != nil {
-		t.Error("serve is a valid tailscale mode")
-	}
-	if err := validateTailscaleMode("open"); err == nil {
-		t.Error("invalid tailscale mode must fail")
+	} else if !strings.Contains(err.Error(), "read-only, workspace-write, danger-full-access") {
+		t.Errorf("message must list the valid set from the values slice, got %v", err)
 	}
 }
 
@@ -82,7 +79,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"schedule.usage_floor.weekly_percent": "0",
 		"codex.max_resumes":                   "3",
 	}
-	for _, key := range configKeys() {
+	for _, key := range configKeysFromSpecs(configKeySpecs()) {
 		sample, ok := samples[key.Name]
 		if !ok {
 			t.Errorf("no sample value for key %q: add one so it stays covered", key.Name)

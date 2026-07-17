@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
 	output "github.com/shhac/lib-agent-output"
@@ -64,6 +65,25 @@ func emitEach[T any](items []T, record func(int, T) any) error {
 	}
 	return nil
 }
+
+// filterFold removes every element whose name matches target
+// (case-insensitive), returning the kept slice and how many were removed:
+// the shared frame behind the case-insensitive rm commands.
+func filterFold[T any](list []T, name func(T) string, target string) ([]T, int) {
+	kept := list[:0]
+	removed := 0
+	for _, item := range list {
+		if strings.EqualFold(name(item), target) {
+			removed++
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept, removed
+}
+
+// self is filterFold's name function for plain string lists.
+func self(s string) string { return s }
 
 // withStore opens the store, runs fn, and closes it: the session helper
 // every store-touching command wraps its RunE in.

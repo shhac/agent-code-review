@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"strings"
-
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
@@ -66,7 +64,7 @@ func reposAddCmd() *cobra.Command {
 				if allowedOnly && !scoped {
 					cfg.AllowedAuthorsOnlyRepos = append(cfg.AllowedAuthorsOnlyRepos, repo)
 				} else if !allowedOnly && scoped {
-					cfg.AllowedAuthorsOnlyRepos = removeFold(cfg.AllowedAuthorsOnlyRepos, repo)
+					cfg.AllowedAuthorsOnlyRepos, _ = filterFold(cfg.AllowedAuthorsOnlyRepos, self, repo)
 				}
 				return nil
 			}); err != nil {
@@ -95,17 +93,6 @@ func invalidRepo(repo string) error {
 	return output.New("Repo must be owner/name, got "+repo, output.FixableByAgent)
 }
 
-// removeFold returns list without repo (case-insensitive).
-func removeFold(list []string, repo string) []string {
-	kept := list[:0]
-	for _, r := range list {
-		if !strings.EqualFold(r, repo) {
-			kept = append(kept, r)
-		}
-	}
-	return kept
-}
-
 func reposRmCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm <owner/repo>",
@@ -113,22 +100,14 @@ func reposRmCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			repo := args[0]
-			found := false
 			if err := config.Update(func(cfg *config.Config) error {
-				kept := cfg.Repos[:0]
-				for _, r := range cfg.Repos {
-					if strings.EqualFold(r, repo) {
-						found = true
-						continue
-					}
-					kept = append(kept, r)
-				}
-				if !found {
+				kept, removed := filterFold(cfg.Repos, self, repo)
+				if removed == 0 {
 					return output.New("Not a watched repo: "+repo, output.FixableByAgent).
 						WithHint("run 'agent-code-review repos ls' to see the watch list")
 				}
 				cfg.Repos = kept
-				cfg.AllowedAuthorsOnlyRepos = removeFold(cfg.AllowedAuthorsOnlyRepos, repo)
+				cfg.AllowedAuthorsOnlyRepos, _ = filterFold(cfg.AllowedAuthorsOnlyRepos, self, repo)
 				return nil
 			}); err != nil {
 				return err

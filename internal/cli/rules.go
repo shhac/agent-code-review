@@ -172,14 +172,8 @@ func rulesRmCmd() *cobra.Command {
 			name := args[0]
 			removed := 0
 			if err := config.Update(func(cfg *config.Config) error {
-				kept := cfg.Review.Rules[:0]
-				for _, r := range cfg.Review.Rules {
-					if strings.EqualFold(r.Name, name) {
-						removed++
-						continue
-					}
-					kept = append(kept, r)
-				}
+				var kept []config.Rule
+				kept, removed = filterFold(cfg.Review.Rules, func(r config.Rule) string { return r.Name }, name)
 				if removed == 0 {
 					return output.New("No rule named "+name, output.FixableByAgent).
 						WithHint("run 'agent-code-review rules ls' to see the configured rules")

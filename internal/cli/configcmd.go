@@ -64,13 +64,6 @@ func registerConfig(root *cobra.Command) {
 	root.AddCommand(cmd)
 }
 
-// configKeys defines the scalar dials editable via `config get|set|unset|list`.
-// Repos, authors, and prompts have their own first-class command groups; rules
-// and nested structures are edited in the file directly.
-func configKeys() []libcli.ConfigKey {
-	return configKeysFromSpecs(configKeySpecs())
-}
-
 func configKeysFromSpecs(specs []configKeySpec) []libcli.ConfigKey {
 	keys := make([]libcli.ConfigKey, 0, len(specs))
 	for _, spec := range specs {
@@ -106,7 +99,7 @@ func configKeySpecs() []configKeySpec {
 		plain(stringKey("candidates.quiet_period", "How long a PR must go untouched before discovery accepts it, as a Go duration (default 15m, 0s disables)",
 			func(c *config.Config) *string { return &c.Candidates.QuietPeriod }, validateHoldDuration)),
 		static(stringKey("review.engine", "Review engine (default codex)",
-			func(c *config.Config) *string { return &c.Review.Engine }, validateEngine), engineValues),
+			func(c *config.Config) *string { return &c.Review.Engine }, validateOneOf("engine", engineValues)), engineValues),
 		plain(stringKey("codex.bin", "Codex binary (default codex)",
 			func(c *config.Config) *string { return &c.Review.Codex.Bin }, nil)),
 		configKeySpec{key: stringKey("codex.model", "Model passed to codex exec --model",
@@ -114,13 +107,13 @@ func configKeySpecs() []configKeySpec {
 		configKeySpec{key: stringKey("codex.effort", "Reasoning effort passed as Codex model_reasoning_effort (empty = model default)",
 			func(c *config.Config) *string { return &c.Review.Codex.Effort }, nil), complete: completeConfiguredCodexEfforts},
 		static(stringKey("codex.sandbox", "Codex sandbox mode (default workspace-write)",
-			func(c *config.Config) *string { return &c.Review.Codex.Sandbox }, validateSandbox), sandboxValues),
+			func(c *config.Config) *string { return &c.Review.Codex.Sandbox }, validateOneOf("sandbox mode", sandboxValues)), sandboxValues),
 		plain(optionalIntKey("codex.max_resumes", "Resume nudges when a codex run ends on an intermediate WORKING report (default 2, 0 disables)",
 			func(c *config.Config) **int { return &c.Review.Codex.MaxResumes }, 0, 10)),
 		plain(stringKey("dashboard.addr", "Dashboard listen address (default :8330)",
 			func(c *config.Config) *string { return &c.Dashboard.Addr }, nil)),
 		static(stringKey("dashboard.tailscale.mode", `Tailscale exposure: "", "serve", or "funnel"`,
-			func(c *config.Config) *string { return &c.Dashboard.Tailscale.Mode }, validateTailscaleMode), tailscaleModeValues),
+			func(c *config.Config) *string { return &c.Dashboard.Tailscale.Mode }, validateOneOf("tailscale mode", tailscaleModeValues)), tailscaleModeValues),
 		plain(stringKey("dashboard.usage_poll_interval", "Codex usage refresh cadence as a Go duration (default 10m)",
 			func(c *config.Config) *string { return &c.Dashboard.UsagePollInterval }, validateDuration)),
 		plain(stringKey("store.path", "DuckDB file path (default under XDG data dir)",
@@ -131,4 +124,3 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) **int { return &c.Schedule.UsageFloor.WeeklyPercent }, 0, 100)),
 	}
 }
-

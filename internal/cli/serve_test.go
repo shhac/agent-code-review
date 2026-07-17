@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -126,5 +127,29 @@ func TestRunningLoopsPinsFlagsOverConfig(t *testing.T) {
 	cfg.Schedule.Enabled = config.Bool(false)
 	if got := runningLoops(serveOpts{}, cfg); got.Discovery || got.Review {
 		t.Errorf("disabled config loops = %+v", got)
+	}
+}
+
+// TestStartDashboardBindConflict pins the "one daemon per address" guard:
+// with the port already held, startDashboard must fail (naming the likely
+// cause) BEFORE the scheduler could start — a second instance dies here,
+// not after claiming a PR and spending an engine invocation.
+func TestStartDashboardBindConflict(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	stopped := false
+	_, err = startDashboard(ln.Addr().String(), nil, func(string, ...any) {}, func() { stopped = true })
+	if err == nil {
+		t.Fatal("binding an occupied address must fail")
+	}
+	if !strings.Contains(err.Error(), "another serve instance") {
+		t.Errorf("error should hint at the double-daemon cause, got: %v", err)
+	}
+	if stopped {
+		t.Error("the stop callback must not fire on a bind failure")
 	}
 }

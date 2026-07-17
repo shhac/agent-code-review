@@ -7,11 +7,11 @@ export type Feed = { ok: boolean; detail: string };
 
 export const feed = writable<Feed>({ ok: true, detail: 'syncing' });
 
-export function feedLive(detail = new Date().toLocaleTimeString()) {
+function feedLive(detail = new Date().toLocaleTimeString()) {
   feed.set({ ok: true, detail });
 }
 
-export function feedStale(detail = 'stale') {
+function feedStale(detail = 'stale') {
   feed.set({ ok: false, detail });
 }
 

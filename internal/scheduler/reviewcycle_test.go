@@ -128,7 +128,7 @@ func TestReviewCycle(t *testing.T) {
 		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
 		s := newCycleScheduler(fs, fe)
 
-		if err := s.ReviewCycle(context.Background()); err != nil {
+		if err := s.reviewCycleOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(fs.started) != 1 {
@@ -150,7 +150,7 @@ func TestReviewCycle(t *testing.T) {
 	t.Run("active run skips the cycle", func(t *testing.T) {
 		fs := &fakeCycleStore{activeRun: true, queue: []store.Candidate{{Repo: "o/r", Number: 1}}}
 		s := newCycleScheduler(fs, &fakeEngine{})
-		if err := s.ReviewCycle(context.Background()); err != nil {
+		if err := s.reviewCycleOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(fs.started) != 0 || len(fs.completed) != 0 {
@@ -161,7 +161,7 @@ func TestReviewCycle(t *testing.T) {
 	t.Run("queue error propagates without recording a run", func(t *testing.T) {
 		fs := &fakeCycleStore{queueErr: errors.New("db gone")}
 		s := newCycleScheduler(fs, &fakeEngine{})
-		if err := s.ReviewCycle(context.Background()); err == nil {
+		if err := s.reviewCycleOnce(context.Background()); err == nil {
 			t.Fatal("queue error must propagate")
 		}
 		if len(fs.started) != 0 || len(fs.finished) != 0 {
@@ -173,7 +173,7 @@ func TestReviewCycle(t *testing.T) {
 		fs := &fakeCycleStore{queue: []store.Candidate{{Repo: "o/r", Number: 1}}}
 		s := newCycleScheduler(fs, &fakeEngine{})
 		s.newEngine = func(config.Config) (review.Engine, error) { return nil, errors.New("bad engine") }
-		if err := s.ReviewCycle(context.Background()); err == nil {
+		if err := s.reviewCycleOnce(context.Background()); err == nil {
 			t.Fatal("engine build error must propagate")
 		}
 		if len(fs.started) != 0 {
@@ -184,7 +184,7 @@ func TestReviewCycle(t *testing.T) {
 	t.Run("empty queue is an idle no-op recording nothing", func(t *testing.T) {
 		fs := &fakeCycleStore{}
 		s := newCycleScheduler(fs, &fakeEngine{})
-		if err := s.ReviewCycle(context.Background()); err != nil {
+		if err := s.reviewCycleOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(fs.started) != 0 || len(fs.finished) != 0 {
@@ -200,7 +200,7 @@ func TestReviewCycle(t *testing.T) {
 		}}
 		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
 		s := newCycleScheduler(fs, fe)
-		if err := s.ReviewCycle(context.Background()); err != nil {
+		if err := s.reviewCycleOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(fs.completed) != 1 || fs.completed[0].Number != 2 {
@@ -212,7 +212,7 @@ func TestReviewCycle(t *testing.T) {
 			{Repo: "o/r", Number: 1, HeadSHA: "s1", EligibleAt: &soon, HoldReason: store.HoldSettling},
 		}}
 		s = newCycleScheduler(fs, fe)
-		if err := s.ReviewCycle(context.Background()); err != nil {
+		if err := s.reviewCycleOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(fs.started) != 0 || len(fs.completed) != 0 {
@@ -225,7 +225,7 @@ func TestReviewCycle(t *testing.T) {
 			{Repo: "o/r", Number: 3, HeadSHA: "s3", EligibleAt: &past, HoldReason: store.HoldCooldown},
 		}}
 		s = newCycleScheduler(fs, fe)
-		if err := s.ReviewCycle(context.Background()); err != nil {
+		if err := s.reviewCycleOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(fs.completed) != 1 || fs.completed[0].Number != 3 {

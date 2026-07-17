@@ -80,6 +80,8 @@ func boolOr(v *bool, def bool) bool {
 }
 
 // Bool returns a pointer to v for optional boolean config fields.
+// Bool is a *bool literal helper for the optional enabled flags; production
+// code reads them via the *Enabled getters, so its callers are tests.
 func Bool(v bool) *bool { return &v }
 
 // LeaseWindow is how long a claim (or an unfinished run) stays authoritative

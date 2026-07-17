@@ -82,8 +82,8 @@ func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
 	return s
 }
 
-// reviewOne invokes Scheduler.reviewOne with the cycle inputs ReviewCycle
-// would thread: the current config snapshot and the injected engine.
+// reviewOne invokes Scheduler.reviewOne with the cycle inputs the review
+// cycle would thread: the current config snapshot and the injected engine.
 func reviewOne(s *Scheduler, fe *fakeEngine, c store.Candidate) error {
 	return s.reviewOne(context.Background(), c, s.cfg(), fe)
 }
@@ -280,7 +280,7 @@ func TestReviewCyclePausedByUsageFloor(t *testing.T) {
 	}
 	s := New(func() config.Config { return cfg }, fs, nil, "u", nil, tripped)
 	s.newEngine = func(config.Config) (review.Engine, error) { return fe, nil }
-	if err := s.ReviewCycle(context.Background()); err != nil {
+	if err := s.reviewCycleOnce(context.Background()); err != nil {
 		t.Fatalf("paused cycle must return nil, got %v", err)
 	}
 }

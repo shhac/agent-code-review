@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { del, fetchJSON, post } from './api';
 
 const mockFetch = (res: Response) => {
-  const fn = vi.fn(async () => res);
+  const fn = vi.fn<typeof fetch>(async () => res);
   vi.stubGlobal('fetch', fn);
   return fn;
 };

@@ -208,7 +208,7 @@ example config.
 - **Live review logs**: the codex driver tees stdout+stderr into
   `<workdir>/agent.log` as the run progresses (buffer-only fallback keeps
   Verdict.Raw when the file can't be created). The claim records the workdir;
-  history snapshots it. One resolver (`store.FindWorkspace`, queue row then
+  history snapshots it. One resolver (`store.FindReviewWorkspace`, queue row then
   last outcome) backs both `queue log [-f]` and `/api/review-log`, which
   serves the last 128KB tail. The dashboard's review-log page renders the
   stream as one bubble per event, parsed client-side from the codex exec

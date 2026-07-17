@@ -10,12 +10,14 @@ import (
 	"github.com/shhac/agent-code-review/internal/usage"
 )
 
-// ReviewCycle processes the queued candidates. It is a no-op (returns nil)
-// when another cycle is still in flight: the run-lock rule from the spec.
-// An idle cycle (nothing available to review) exits before the run-lock and
-// records nothing: with the default 1m cadence, anything else would flood the
-// runs table and the log with empty ticks.
-func (s *Scheduler) ReviewCycle(ctx context.Context) error {
+// reviewCycleOnce processes the queued candidates with one context standing
+// in for both stop and review cancellation: RunCycle's (and the tests')
+// entry. It is a no-op (returns nil) when another cycle is still in flight:
+// the run-lock rule from the spec. An idle cycle (nothing available to
+// review) exits before the run-lock and records nothing: with the default 1m
+// cadence, anything else would flood the runs table and the log with empty
+// ticks.
+func (s *Scheduler) reviewCycleOnce(ctx context.Context) error {
 	return s.reviewCycle(ctx, ctx)
 }
 
@@ -100,5 +102,5 @@ func (s *Scheduler) RunCycle(ctx context.Context) error {
 	if err := s.Discover(ctx); err != nil {
 		return err
 	}
-	return s.ReviewCycle(ctx)
+	return s.reviewCycleOnce(ctx)
 }

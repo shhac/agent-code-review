@@ -69,14 +69,6 @@ type ReviewLogRef struct {
 	LogKey string
 }
 
-func ReviewLogRefFromReview(r Review) ReviewLogRef {
-	key := r.LogKey
-	if key == "" {
-		key = ReviewLogKey(r)
-	}
-	return ReviewLogRef{Repo: r.Repo, Number: r.Number, LogKey: key}
-}
-
 // ReviewLogKey is the stable, non-secret URL token for a history row's log.
 func ReviewLogKey(r Review) string {
 	h := sha256.New()

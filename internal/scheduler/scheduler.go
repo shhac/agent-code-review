@@ -1,8 +1,8 @@
 // Package scheduler owns the deterministic review cycle: take the run-lock,
 // discover candidates, process the queue oldest-first up to the parallelism
-// cap, record verdicts, release the lock. The serve daemon runs Discover and
-// ReviewCycle as independent heartbeat loops (Start); `run --once` calls
-// RunCycle a single time.
+// cap, record verdicts, release the lock. The serve daemon runs the
+// discovery and review heartbeat loops via StartGraceful; `run --once`
+// calls RunCycle a single time.
 package scheduler
 
 import (

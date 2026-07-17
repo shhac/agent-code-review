@@ -119,9 +119,9 @@ func (f *workspaceStore) ReviewByLogKey(_ context.Context, repo string, number i
 	return r, ok && r.Repo == repo && r.Number == number, nil
 }
 
-// TestFindWorkspace pins the shared queue-then-history resolution behind
+// TestFindReviewWorkspace pins the shared queue-then-history resolution behind
 // `queue log` and the dashboard's review-log endpoint.
-func TestFindWorkspace(t *testing.T) {
+func TestFindReviewWorkspace(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("queued row wins over history", func(t *testing.T) {
@@ -174,7 +174,7 @@ func TestFindReviewWorkspaceByLogKey(t *testing.T) {
 	}
 	s.byKey = map[string]Review{chosen.LogKey: chosen}
 
-	ws, found, err := FindReviewWorkspace(ctx, s, ReviewLogRefFromReview(chosen))
+	ws, found, err := FindReviewWorkspace(ctx, s, ReviewLogRef{Repo: chosen.Repo, Number: chosen.Number, LogKey: ReviewLogKey(chosen)})
 	if err != nil || !found {
 		t.Fatalf("found=%v err=%v", found, err)
 	}

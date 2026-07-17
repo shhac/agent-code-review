@@ -15,6 +15,25 @@ var (
 	ErrBadRepo          = errors.New("invalid repo")
 )
 
+// SampleRepo is the placeholder repo for synthetic prompt previews. The CLI's
+// `prompts preview` and the dashboard both render this fixture, so it lives in
+// one place to keep them identical.
+const SampleRepo = "example-org/example-repo"
+
+// SampleCandidate builds the synthetic candidate used for prompt previews from
+// an already-defaulted, already-validated repo and candidate type. Both preview
+// paths assemble from this one fixture so they can't drift.
+func SampleCandidate(repo, candidateType string) store.Candidate {
+	return store.Candidate{
+		Repo:    repo,
+		Number:  123,
+		Type:    candidateType,
+		Author:  "example-author",
+		URL:     "https://github.com/" + repo + "/pull/123",
+		HeadSHA: "0000000000000000000000000000000000000000",
+	}
+}
+
 // PreviewResult is the assembled preview for one shaped synthetic candidate:
 // the candidate echo both surfaces render, the assembled prompt, and the
 // per-rule trace.

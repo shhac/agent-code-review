@@ -149,16 +149,16 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 
 	sink, buf, closeSink := newAgentSink(workDir)
 	defer closeSink()
-	verdict, parseErr, runErr := e.runWithResumes(ctx, req.Prompt, workDir, schemaPath, lastMsgPath, sink, buf)
-	return resolveOutcome(verdict, parseErr, runErr, buf.String())
+	return e.runWithResumes(ctx, req.Prompt, workDir, schemaPath, lastMsgPath, sink, buf)
 }
 
 // runWithResumes drives the initial exec and, when a clean exit's last
 // message is WORKING (the agent yielded its turn without a tool call and
 // codex took that as the final answer — the session is intact and nothing
 // was posted), resumes the session with a nudge, up to maxResumes times,
-// instead of burning the whole run as an ERROR.
-func (e *codexEngine) runWithResumes(ctx context.Context, prompt, workDir, schemaPath, lastMsgPath string, sink io.Writer, buf *bytes.Buffer) (Verdict, error, error) {
+// instead of burning the whole run as an ERROR. The finished run resolves
+// through resolveOutcome, so callers see one ordinary (Verdict, error).
+func (e *codexEngine) runWithResumes(ctx context.Context, prompt, workDir, schemaPath, lastMsgPath string, sink io.Writer, buf *bytes.Buffer) (Verdict, error) {
 	runErr := e.runCmd(ctx, e.buildArgs(workDir, schemaPath, lastMsgPath, prompt), sink)
 	verdict, parseErr := parseVerdictFile(lastMsgPath)
 	for resumed := 0; resumed < e.maxResumes && runErr == nil && errors.Is(parseErr, errEndedOnWorking); resumed++ {
@@ -169,7 +169,7 @@ func (e *codexEngine) runWithResumes(ctx context.Context, prompt, workDir, schem
 		runErr = e.runCmd(ctx, e.buildResumeArgs(sessionID, schemaPath, lastMsgPath), sink)
 		verdict, parseErr = parseVerdictFile(lastMsgPath)
 	}
-	return verdict, parseErr, runErr
+	return resolveOutcome(verdict, parseErr, runErr, buf.String())
 }
 
 // resolveOutcome applies the driver's precedence rules to one finished run:

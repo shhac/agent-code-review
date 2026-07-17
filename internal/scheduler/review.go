@@ -118,16 +118,23 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	// block a future re-review: store.LastReview filters them out of
 	// Refreshed detection, and new commits change the SHA that discovery's
 	// same-SHA suppression keys on.
-	provenance := engine.Provenance(ctx)
-	rec := store.ReviewFrom(c, verdict.Decision, provenance.Engine, claimedAt)
-	rec.Model = provenance.Model
-	rec.Effort = provenance.Effort
-	rec.CodexVersion = provenance.CodexVersion
-	rec.TokensUsed = verdict.TokensUsed
-	if err := s.store.Complete(ctx, rec); err != nil {
+	if err := s.store.Complete(ctx, reviewRecord(c, verdict, engine.Provenance(ctx), claimedAt)); err != nil {
 		return err
 	}
 	return reviewErr
+}
+
+// reviewRecord builds the history row for one engine outcome: ReviewFrom's
+// candidate snapshot plus the engine-reported provenance and token spend. The
+// companion to store.ReviewFrom, so a new provenance field has exactly one
+// place to be threaded.
+func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, claimedAt time.Time) store.Review {
+	rec := store.ReviewFrom(c, v.Decision, p.Engine, claimedAt)
+	rec.Model = p.Model
+	rec.Effort = p.Effort
+	rec.CodexVersion = p.CodexVersion
+	rec.TokensUsed = v.TokensUsed
+	return rec
 }
 
 // tail returns the last n bytes of s, whitespace-trimmed, newlines flattened.

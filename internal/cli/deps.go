@@ -25,23 +25,27 @@ import (
 var globals *libcli.Globals
 
 // emit writes one record to stdout through the family output contract:
-// NDJSON by default, -f json|yaml envelopes, --color-aware. Values are
-// JSON-round-tripped first so every format uses the json-tag key names
-// (the yaml encoder marshals Go structs by field name otherwise).
+// NDJSON by default, -f json|yaml envelopes, --color-aware. Only the yaml
+// path JSON-round-trips the value first, so its encoder uses the json-tag
+// key names (yaml.v3 marshals Go structs by field name otherwise); the
+// NDJSON/json paths marshal with the tags anyway and skip the extra encode.
 func emit(v any) error {
 	format := ""
 	if globals != nil {
 		format = globals.Format
 	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
+	if output.Format(format) == output.FormatYAML {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		var normalized any
+		if err := json.Unmarshal(b, &normalized); err != nil {
+			return err
+		}
+		v = normalized
 	}
-	var normalized any
-	if err := json.Unmarshal(b, &normalized); err != nil {
-		return err
-	}
-	return libcli.EmitItem(os.Stdout, format, normalized)
+	return libcli.EmitItem(os.Stdout, format, v)
 }
 
 // stderrLogf is the daemon/cycle log sink: human-readable, on stderr, so

@@ -20,12 +20,13 @@ import (
 type fakeSchedStore struct {
 	store.Store // panic on anything not overridden
 
-	mu        sync.Mutex
-	allowed   bool
-	claimLost bool // simulate losing the compare-and-swap to another worker
-	claims    []store.Lease
-	workDirs  []string
-	completed []store.Review
+	mu         sync.Mutex
+	allowed    bool
+	allowedErr error // simulate the allow-list lookup failing
+	claimLost  bool  // simulate losing the compare-and-swap to another worker
+	claims     []store.Lease
+	workDirs   []string
+	completed  []store.Review
 }
 
 func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, l store.Lease) (bool, error) {
@@ -40,7 +41,7 @@ func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, l store.Lease
 }
 
 func (f *fakeSchedStore) IsAuthorAllowed(context.Context, string, string) (bool, error) {
-	return f.allowed, nil
+	return f.allowed, f.allowedErr
 }
 
 func (f *fakeSchedStore) Complete(_ context.Context, r store.Review) error {
@@ -220,6 +221,27 @@ func TestReviewOneAllowedFlagReachesPrompt(t *testing.T) {
 	}
 	if p := run(false); !strings.Contains(p, "DO NOT approve") {
 		t.Errorf("disallowed author must yield DO-NOT-approve directive, got:\n%.200s", p)
+	}
+}
+
+// TestReviewOneAuthorLookupError pins the approve-gating junction: when the
+// allow-list lookup fails, the error propagates, the engine is never invoked
+// (no prompt is built with a guessed approval policy), and no outcome is
+// recorded — the claim stays until the lease window retries it. A refactor
+// that "handles" the error by defaulting allowed must fail this test.
+func TestReviewOneAuthorLookupError(t *testing.T) {
+	fs := &fakeSchedStore{allowedErr: errors.New("store unavailable")}
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionApproved}}
+	s := newTestScheduler(fs, fe)
+
+	if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, Author: "alice", HeadSHA: "sha1"}); err == nil {
+		t.Fatal("allow-list lookup error must propagate")
+	}
+	if fe.prompt != "" {
+		t.Error("engine must not run when the allow-list lookup failed")
+	}
+	if len(fs.completed) != 0 {
+		t.Errorf("no outcome may be recorded on a lookup error, got %+v", fs.completed)
 	}
 }
 

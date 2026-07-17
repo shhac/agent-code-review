@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -85,81 +83,6 @@ func findCommand(parent *cobra.Command, name string) *cobra.Command {
 	return nil
 }
 
-type codexModel struct {
-	Slug                     string `json:"slug"`
-	SupportedReasoningLevels []struct {
-		Effort string `json:"effort"`
-	} `json:"supported_reasoning_levels"`
-}
-
-func codexModels(ctx context.Context) ([]codexModel, error) {
-	bin := config.Read().Review.Codex.Bin
-	if bin == "" {
-		bin = "codex"
-	}
-	ctx, cancel := context.WithTimeout(ctx, completionTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "debug", "models").Output()
-	if err != nil {
-		return nil, err
-	}
-	return parseCodexModels(out)
-}
-
-func parseCodexModels(data []byte) ([]codexModel, error) {
-	var response struct {
-		Models []codexModel `json:"models"`
-	}
-	if err := json.Unmarshal(data, &response); err != nil {
-		return nil, err
-	}
-	return response.Models, nil
-}
-
-func codexModelSlugs(ctx context.Context) []string {
-	models, err := codexModels(ctx)
-	if err != nil {
-		return nil
-	}
-	values := make([]string, 0, len(models))
-	for _, model := range models {
-		values = append(values, model.Slug)
-	}
-	return values
-}
-
-func codexModelEfforts(ctx context.Context, modelSlug string) []string {
-	models, err := codexModels(ctx)
-	if err != nil {
-		return nil
-	}
-	var values []string
-	for _, model := range models {
-		if modelSlug != "" && model.Slug != modelSlug {
-			continue
-		}
-		for _, level := range model.SupportedReasoningLevels {
-			values = append(values, level.Effort)
-		}
-	}
-	return values
-}
-
-func completeRepos(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return noFile(completePrefix(config.Read().SortedRepos(), toComplete))
-}
-
-func completeRuleNames(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	rules := config.Read().Review.Rules
-	names := make([]string, 0, len(rules))
-	for _, r := range rules {
-		if r.Name != "" {
-			names = append(names, r.Name)
-		}
-	}
-	return noFile(completePrefix(names, toComplete))
-}
-
 func completionStore() (store.Store, error) {
 	cfg := config.Read()
 	return store.Open(cfg.Store.Engine, cfg.StorePath())
@@ -230,4 +153,19 @@ func completeAllowedAuthorHandle(cmd *cobra.Command, args []string, toComplete s
 		return handles, nil
 	})
 	return noFile(completePrefix(values, toComplete))
+}
+
+func completeRepos(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return noFile(completePrefix(config.Read().SortedRepos(), toComplete))
+}
+
+func completeRuleNames(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	rules := config.Read().Review.Rules
+	names := make([]string, 0, len(rules))
+	for _, r := range rules {
+		if r.Name != "" {
+			names = append(names, r.Name)
+		}
+	}
+	return noFile(completePrefix(names, toComplete))
 }

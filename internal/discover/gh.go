@@ -72,17 +72,6 @@ func CurrentUser(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// PRMetadata is the manual-add view of a PR (`gh pr view`).
-type PRMetadata struct {
-	Title     string
-	Author    string
-	URL       string
-	HeadSHA   string
-	State     string // OPEN | CLOSED | MERGED
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
 // StillCandidate re-fetches one PR and reports whether it would still pass
 // the candidacy gates (open, not draft, review requested, not approved). The
 // scheduler calls this just before spending an engine invocation on a
@@ -100,7 +89,7 @@ func StillCandidate(ctx context.Context, repo string, number int) (bool, string,
 
 // stillCandidateFromJSON applies the live-state gate plus the shared
 // candidacy gates to a `gh pr view` payload. Pure: the state and gate
-// branches are table-tested from canned JSON, mirroring parsePRMetadata.
+// branches are table-tested from canned JSON, mirroring candidateFromView.
 func stillCandidateFromJSON(out []byte) (bool, string, error) {
 	var pr ghPR
 	if err := json.Unmarshal(out, &pr); err != nil {
@@ -115,73 +104,44 @@ func stillCandidateFromJSON(out []byte) (bool, string, error) {
 
 // ManualCandidate fetches a PR's live metadata and shapes it as a queued
 // candidate: the manual-add path for both the CLI and the dashboard. Closed
-// or merged PRs are rejected: there is nothing left to review.
+// or merged PRs are rejected: there is nothing left to review. The fetch
+// exists so manual adds carry title/author/SHA immediately instead of
+// waiting on (and possibly never matching) discovery.
 func ManualCandidate(ctx context.Context, repo string, number int) (store.Candidate, error) {
-	meta, err := FetchPR(ctx, repo, number)
-	if err != nil {
-		return store.Candidate{}, err
-	}
-	return candidateFromMetadata(repo, number, meta)
-}
-
-// candidateFromMetadata applies the manual-add gate (open PRs only) and shapes
-// the metadata as a queued candidate. Pure: the state gate and field mapping
-// are unit-tested without gh.
-func candidateFromMetadata(repo string, number int, meta PRMetadata) (store.Candidate, error) {
-	if meta.State != "OPEN" {
-		return store.Candidate{}, fmt.Errorf("PR %s#%d is %s: only open PRs can be queued", repo, number, meta.State)
-	}
-	return store.Candidate{
-		Repo:         repo,
-		Number:       number,
-		Type:         store.TypeNew,
-		Title:        meta.Title,
-		Author:       meta.Author,
-		URL:          meta.URL,
-		HeadSHA:      meta.HeadSHA,
-		CreatedAt:    meta.CreatedAt,
-		UpdatedAt:    meta.UpdatedAt,
-		DiscoveredAt: time.Now(),
-		Source:       store.SourceManual,
-	}, nil
-}
-
-// FetchPR fetches one PR's metadata so manual adds carry title/author/SHA
-// immediately instead of waiting on (and possibly never matching) discovery.
-func FetchPR(ctx context.Context, repo string, number int) (PRMetadata, error) {
 	out, err := runGH(ctx, "pr", "view", fmt.Sprintf("%d", number),
 		"--repo", repo,
 		"--json", "title,author,url,headRefOid,state,createdAt,updatedAt",
 	)
 	if err != nil {
-		return PRMetadata{}, err
+		return store.Candidate{}, err
 	}
-	return parsePRMetadata(out)
+	var pr ghPR
+	if err := json.Unmarshal(out, &pr); err != nil {
+		return store.Candidate{}, fmt.Errorf("parse gh pr view: %w", err)
+	}
+	return candidateFromView(repo, number, pr)
 }
 
-// parsePRMetadata maps `gh pr view --json` output to PRMetadata. Pure: the
-// field mapping is unit-tested from canned JSON.
-func parsePRMetadata(out []byte) (PRMetadata, error) {
-	var raw struct {
-		Title      string    `json:"title"`
-		Author     ghActor   `json:"author"`
-		URL        string    `json:"url"`
-		HeadRefOID string    `json:"headRefOid"`
-		State      string    `json:"state"`
-		CreatedAt  time.Time `json:"createdAt"`
-		UpdatedAt  time.Time `json:"updatedAt"`
+// candidateFromView applies the manual-add gate (open PRs only) and shapes a
+// `gh pr view` payload — the same ghPR wire shape every other gh read uses —
+// as a queued candidate. Pure: the state gate and field mapping are
+// unit-tested from canned JSON.
+func candidateFromView(repo string, number int, pr ghPR) (store.Candidate, error) {
+	if pr.State != "OPEN" {
+		return store.Candidate{}, fmt.Errorf("PR %s#%d is %s: only open PRs can be queued", repo, number, pr.State)
 	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return PRMetadata{}, err
-	}
-	return PRMetadata{
-		Title:     raw.Title,
-		Author:    raw.Author.Login,
-		URL:       raw.URL,
-		HeadSHA:   raw.HeadRefOID,
-		State:     raw.State,
-		CreatedAt: raw.CreatedAt,
-		UpdatedAt: raw.UpdatedAt,
+	return store.Candidate{
+		Repo:         repo,
+		Number:       number,
+		Type:         store.TypeNew,
+		Title:        pr.Title,
+		Author:       pr.Author.Login,
+		URL:          pr.URL,
+		HeadSHA:      pr.HeadRefOID,
+		CreatedAt:    pr.CreatedAt,
+		UpdatedAt:    pr.UpdatedAt,
+		DiscoveredAt: time.Now(),
+		Source:       store.SourceManual,
 	}, nil
 }
 

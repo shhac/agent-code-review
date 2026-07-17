@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -48,34 +47,27 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, queueRemoveResp{Removed: true})
 }
 
-// addToQueue accepts {"url": "<PR reference>"} (a full GitHub PR URL or the
-// bare "owner/repo/pull/N" form) or {"repo": "owner/name", "number": N}.
-// Either way the repo must be one of the configured watched repos; the
-// dashboard is the surface other people use, so it only takes PRs this tool is
-// actually set up to review.
+// addToQueue accepts {"url": "<PR reference>"}: a full GitHub PR URL or the
+// bare "owner/repo/pull/N" form (which also covers "I know the repo and
+// number"). One wire shape for the dashboard's only non-trivial untrusted
+// input; the repo must be one of the configured watched repos, because the
+// dashboard is the surface other people use, so it only takes PRs this tool
+// is actually set up to review.
 func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		prref.Ref
 		URL string `json:"url"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		httpError(w, http.StatusBadRequest, `need {"url": "https://github.com/owner/repo/pull/N" or "owner/repo/pull/N"}`)
 		return
 	}
-	if req.URL != "" {
-		ref, ok := prref.ParseGitHubPull(req.URL)
-		if !ok {
-			httpError(w, http.StatusBadRequest, "not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
-			return
-		}
-		req.Ref = ref
-	}
-	if !config.ValidRepoName(req.Repo) || req.Number <= 0 {
-		httpError(w, http.StatusBadRequest, `need {"url": "owner/repo/pull/N"} or {"repo": "owner/name", "number": N}`)
+	ref, ok := prref.ParseGitHubPull(req.URL)
+	if !ok {
+		httpError(w, http.StatusBadRequest, "not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
 		return
 	}
-	if !s.config().WatchesRepo(req.Repo) {
-		httpError(w, http.StatusForbidden, req.Repo+" is not a watched repo; see the Config page for the allowed list")
+	if !s.config().WatchesRepo(ref.Repo) {
+		httpError(w, http.StatusForbidden, ref.Repo+" is not a watched repo; see the Config page for the allowed list")
 		return
 	}
 	// Fetching metadata involves a gh round-trip; give it room.
@@ -85,7 +77,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	// Fetch real metadata up front (title/author/SHA) and reject closed or
 	// merged PRs; discovery only backfills PRs that match the candidate
 	// rules, which a manual add may not.
-	c, err := s.manualCandidate(ctx, req.Repo, req.Number)
+	c, err := s.manualCandidate(ctx, ref.Repo, ref.Number)
 	if err != nil {
 		httpError(w, http.StatusBadGateway, err.Error())
 		return

@@ -231,12 +231,19 @@ func TestHandleQueue(t *testing.T) {
 
 	t.Run("POST add gates on watched repos", func(t *testing.T) {
 		fs := &handlerStore{}
-		code, resp := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodPost, "/api/queue", `{"repo":"other/repo","number":5}`)
+		code, resp := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodPost, "/api/queue", `{"url":"other/repo/pull/5"}`)
 		if code != http.StatusForbidden {
 			t.Errorf("unwatched repo must 403, got %d %v", code, resp)
 		}
 		if len(fs.enqueued) != 0 {
 			t.Error("nothing may be enqueued for an unwatched repo")
+		}
+	})
+
+	t.Run("POST add rejects the retired repo/number shape", func(t *testing.T) {
+		fs := &handlerStore{}
+		if code, _ := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodPost, "/api/queue", `{"repo":"o/r","number":5}`); code != http.StatusBadRequest {
+			t.Errorf("repo/number body must 400 (url-only wire shape), got %d", code)
 		}
 	})
 

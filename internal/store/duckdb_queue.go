@@ -18,6 +18,12 @@ import (
 //     one loses (a hold, once set, does not shrink). A manual-source enqueue
 //     clears the hold, and a hold is never re-imposed on a manual row.
 func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
+	// An empty SHA would render as NULL: history.head_sha is NOT NULL, so
+	// such a row could never Complete — it would error every cycle until
+	// manually removed. Refuse it at the entrance instead.
+	if c.HeadSHA == "" {
+		return fmt.Errorf("enqueue %s#%d: empty head SHA", c.Repo, c.Number)
+	}
 	sql := fmt.Sprintf(`INSERT INTO queue
 	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, eligible_at, hold_reason)
 	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s)
@@ -89,7 +95,7 @@ func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error 
 func (d *duckDB) Complete(ctx context.Context, r Review) error {
 	sql := fmt.Sprintf(`BEGIN;
 	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, codex_version, reviewed_at, duration_secs, work_dir, tokens_used) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d);
-	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha = %s;
+	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha IS NOT DISTINCT FROM %s;
 	UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE repo = %s AND number = %d;
 	COMMIT;`,
 		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), q(r.Model), q(r.Effort), q(r.CodexVersion), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed,

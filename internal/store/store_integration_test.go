@@ -96,7 +96,7 @@ func TestReadOnlyStoreReadsButRefusesWrites(t *testing.T) {
 	}
 
 	// Writes are refused by DuckDB itself; no per-method guard needed.
-	if err := ro.Enqueue(ctx, Candidate{Repo: "o/r", Number: 8, Type: TypeNew}); err == nil {
+	if err := ro.Enqueue(ctx, Candidate{Repo: "o/r", Number: 8, Type: TypeNew, HeadSHA: "sha"}); err == nil {
 		t.Fatal("read-only store accepted a write")
 	}
 }
@@ -223,7 +223,7 @@ func TestReorderAppliesEveryPositionTogether(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	for _, number := range []int{1, 2, 3} {
-		if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: number, Type: TypeNew, DiscoveredAt: time.Now()}); err != nil {
+		if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: number, Type: TypeNew, HeadSHA: "sha", DiscoveredAt: time.Now()}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -272,6 +272,17 @@ func TestCompleteSHAGate(t *testing.T) {
 	}
 	if last, ok, _ := s.LastOutcome(ctx, "o/r", 8); !ok || last.HeadSHA != "sha1" {
 		t.Errorf("history must still record the sha1 outcome, got ok=%v %+v", ok, last)
+	}
+
+	// NULL boundary: an empty SHA renders as NULL. history.head_sha is NOT
+	// NULL, so such a row could never Complete (the transaction would abort
+	// every cycle, leaving the row stuck). Enqueue must refuse it at the
+	// entrance so the queue can't hold un-completable work.
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 9, Type: TypeNew, HeadSHA: ""}); err == nil {
+		t.Error("enqueueing an empty head SHA must be rejected: the row could never Complete")
+	}
+	if _, ok := getQueued(t, s, "o/r", 9); ok {
+		t.Error("rejected empty-SHA candidate must not be enqueued")
 	}
 }
 
@@ -331,10 +342,10 @@ func TestListQueueOrderingAndClaimVisibility(t *testing.T) {
 	rows := []Candidate{
 		// #30 was discovered hours before the others: FIFO puts it first even
 		// though it is Refreshed and the later sweep found New PRs.
-		{Repo: "o/r", Number: 30, Type: TypeRefreshed, DiscoveredAt: sweep(9)},
-		{Repo: "o/r", Number: 20, Type: TypeNew, DiscoveredAt: sweep(12)},
-		{Repo: "o/r", Number: 10, Type: TypeNew, DiscoveredAt: sweep(12)},
-		{Repo: "o/r", Number: 40, Type: TypeRefreshed, DiscoveredAt: sweep(12)},
+		{Repo: "o/r", Number: 30, Type: TypeRefreshed, HeadSHA: "sha", DiscoveredAt: sweep(9)},
+		{Repo: "o/r", Number: 20, Type: TypeNew, HeadSHA: "sha", DiscoveredAt: sweep(12)},
+		{Repo: "o/r", Number: 10, Type: TypeNew, HeadSHA: "sha", DiscoveredAt: sweep(12)},
+		{Repo: "o/r", Number: 40, Type: TypeRefreshed, HeadSHA: "sha", DiscoveredAt: sweep(12)},
 	}
 	for _, c := range rows {
 		if err := s.Enqueue(ctx, c); err != nil {
@@ -486,7 +497,7 @@ func TestHostileStringsRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	title := `fix: O'Brien's "quote" bug'; DROP TABLE queue; --`
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 9, Type: TypeNew, Title: title, Author: "o'malley"}); err != nil {
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 9, Type: TypeNew, HeadSHA: "sha", Title: title, Author: "o'malley"}); err != nil {
 		t.Fatal(err)
 	}
 	c, ok := getQueued(t, s, "o/r", 9)
@@ -509,28 +520,28 @@ func TestEnqueueSourceEscalation(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeNew, Source: SourceDiscovered}); err != nil {
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeNew, HeadSHA: "sha", Source: SourceDiscovered}); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := getQueued(t, s, "o/r", 12); c.Source != SourceDiscovered {
 		t.Fatalf("fresh discovered row source = %q", c.Source)
 	}
 	// Human re-adds it: escalate.
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeNew, Source: SourceManual}); err != nil {
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeNew, HeadSHA: "sha", Source: SourceManual}); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := getQueued(t, s, "o/r", 12); c.Source != SourceManual {
 		t.Fatalf("manual re-add must escalate source, got %q", c.Source)
 	}
 	// Discovery sweeps again: must NOT downgrade.
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeRefreshed, Source: SourceDiscovered}); err != nil {
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 12, Type: TypeRefreshed, HeadSHA: "sha", Source: SourceDiscovered}); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := getQueued(t, s, "o/r", 12); c.Source != SourceManual {
 		t.Fatalf("discovery must not downgrade a manual row, got %q", c.Source)
 	}
 	// Empty source defaults to discovered.
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 13, Type: TypeNew}); err != nil {
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 13, Type: TypeNew, HeadSHA: "sha"}); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := getQueued(t, s, "o/r", 13); c.Source != SourceDiscovered {
@@ -579,10 +590,10 @@ func TestEnqueueDiscoveredAtFirstSeen(t *testing.T) {
 	ctx := context.Background()
 
 	first := time.Now().UTC().Truncate(time.Second).Add(-3 * time.Hour)
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 20, Type: TypeNew, DiscoveredAt: first}); err != nil {
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 20, Type: TypeNew, HeadSHA: "sha", DiscoveredAt: first}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 20, Type: TypeNew, DiscoveredAt: time.Now()}); err != nil {
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 20, Type: TypeNew, HeadSHA: "sha", DiscoveredAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := getQueued(t, s, "o/r", 20)
@@ -603,7 +614,7 @@ func TestEnqueueHoldSemantics(t *testing.T) {
 
 	enq := func(eligible *time.Time, reason, source string) {
 		t.Helper()
-		if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 21, Type: TypeNew, EligibleAt: eligible, HoldReason: reason, Source: source}); err != nil {
+		if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 21, Type: TypeNew, HeadSHA: "sha", EligibleAt: eligible, HoldReason: reason, Source: source}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -729,7 +740,7 @@ func TestPromote(t *testing.T) {
 	ctx := context.Background()
 
 	eligible := time.Now().UTC().Truncate(time.Second).Add(time.Hour)
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 22, Type: TypeNew, EligibleAt: &eligible, HoldReason: HoldCooldown}); err != nil {
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 22, Type: TypeNew, HeadSHA: "sha", EligibleAt: &eligible, HoldReason: HoldCooldown}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Promote(ctx, "o/r", 22); err != nil {

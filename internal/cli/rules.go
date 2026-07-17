@@ -62,12 +62,9 @@ func rulesLsCmd() *cobra.Command {
 		Short: "List configured rules (NDJSON, in config order)",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			for i, r := range config.Read().Review.Rules {
-				if err := emit(ruleRecord(i, r)); err != nil {
-					return err
-				}
-			}
-			return nil
+			return emitEach(config.Read().Review.Rules, func(i int, r config.Rule) any {
+				return ruleRecord(i, r)
+			})
 		},
 	}
 }

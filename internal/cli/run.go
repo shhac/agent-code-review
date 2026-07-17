@@ -51,9 +51,9 @@ func registerRun(root *cobra.Command) {
 			byVerdict := map[string]int{}
 			for _, r := range outcomes {
 				byVerdict[r.Verdict]++
-				if err := emit(r); err != nil {
-					return err
-				}
+			}
+			if err := emitEach(outcomes, nil); err != nil {
+				return err
 			}
 			return emit(map[string]any{
 				"cycle_duration_secs": int(time.Since(started).Seconds()),

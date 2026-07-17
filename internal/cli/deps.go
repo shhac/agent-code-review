@@ -49,6 +49,22 @@ func stderrLogf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 }
 
+// emitEach emits one record per item, stopping at the first write error:
+// the shared frame behind every ls-style command. record maps an item (with
+// its index) to the emitted shape; nil emits items as-is.
+func emitEach[T any](items []T, record func(int, T) any) error {
+	for i, item := range items {
+		v := any(item)
+		if record != nil {
+			v = record(i, item)
+		}
+		if err := emit(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // withStore opens the store, runs fn, and closes it: the session helper
 // every store-touching command wraps its RunE in.
 func withStore(fn func(store.Store) error) error {

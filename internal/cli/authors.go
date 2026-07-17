@@ -38,12 +38,7 @@ func authorsLsCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				for _, a := range authors {
-					if err := emit(a); err != nil {
-						return err
-					}
-				}
-				return nil
+				return emitEach(authors, nil)
 			})
 		},
 	}

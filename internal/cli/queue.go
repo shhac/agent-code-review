@@ -37,12 +37,7 @@ func queueLsCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				for _, c := range cands {
-					if err := emit(c); err != nil {
-						return err
-					}
-				}
-				return nil
+				return emitEach(cands, nil)
 			})
 		},
 	}

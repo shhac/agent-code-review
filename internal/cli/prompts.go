@@ -62,7 +62,7 @@ func promptsShowCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := config.Read()
-			for _, slot := range promptSlots {
+			return emitEach(promptSlots, func(_ int, slot string) any {
 				rec := map[string]any{"slot": slot, "value": *slotField(&cfg.Review, slot)}
 				if slot == "main" && cfg.Review.MainPromptPath != "" {
 					rec["overridden_by"] = "main_prompt_path: " + cfg.Review.MainPromptPath
@@ -72,11 +72,8 @@ func promptsShowCmd() *cobra.Command {
 					rec["effective"] = review.ResumePrompt(cfg.Review)
 					rec["note"] = "built-in default; override with 'prompts set resume'"
 				}
-				if err := emit(rec); err != nil {
-					return err
-				}
-			}
-			return nil
+				return rec
+			})
 		},
 	}
 }

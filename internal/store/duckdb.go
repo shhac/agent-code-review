@@ -93,16 +93,6 @@ func (d *duckDB) exec(ctx context.Context, sql string) error {
 	return err
 }
 
-// mapRows scans every result row through one scanner: the shared tail of all
-// List* methods, so none can forget the preallocation or empty-slice contract.
-func mapRows[T any](rows []map[string]any, scan func(map[string]any) T) []T {
-	out := make([]T, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, scan(r))
-	}
-	return out
-}
-
 func queryOne[T any](ctx context.Context, d *duckDB, sql string, scan func(map[string]any) T) (T, bool, error) {
 	rows, err := d.query(ctx, sql)
 	var zero T
@@ -112,12 +102,19 @@ func queryOne[T any](ctx context.Context, d *duckDB, sql string, scan func(map[s
 	return scan(rows[0]), true, nil
 }
 
+// queryMany is the shared tail of all List* methods: every result row goes
+// through one scanner, and the preallocated non-nil slice keeps the
+// empty-result contract ([] not null after JSON encoding).
 func queryMany[T any](ctx context.Context, d *duckDB, sql string, scan func(map[string]any) T) ([]T, error) {
 	rows, err := d.query(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
-	return mapRows(rows, scan), nil
+	out := make([]T, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, scan(r))
+	}
+	return out, nil
 }
 
 func parseNDJSON(stdout string) ([]map[string]any, error) {

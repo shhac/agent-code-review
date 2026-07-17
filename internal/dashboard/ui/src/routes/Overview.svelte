@@ -7,19 +7,16 @@
   import QueueBoard from '../lib/QueueBoard.svelte';
   import RecentRuns from '../lib/RecentRuns.svelte';
   import StatusBadge from '../lib/StatusBadge.svelte';
-  import type { Bucket, Candidate, QueueCounts, Review, Run, UsageSnapshot, UsageWindow } from '../lib/types';
+  import type { Bucket, Candidate, QueueCounts, Review, Run, UsageResponse, UsageWindow } from '../lib/types';
 
   let queue: Candidate[] = [];
   let counts: QueueCounts = { total: 0, queued: 0, reviewing: 0, held: 0 };
   let reviews: Review[] = [];
   let runs: Run[] = [];
   let buckets: Bucket[] = [];
-  let usageAvailable = false;
-  let usage: UsageSnapshot | null = null;
-  let usagePaused = false;
-  let tokensTotal = 0;
-  let tokens24h = 0;
-  let pausedReason = '';
+  // One object per API response: the template reads fields directly, so a
+  // new usage field is a template edit, not another mirrored scalar.
+  let usageResp: UsageResponse | null = null;
   let addInput = '';
   let addErr = '';
   let dragging = false;
@@ -27,6 +24,8 @@
   $: totalReviews = sumBuckets(buckets, 'approved') + sumBuckets(buckets, 'commented') + sumBuckets(buckets, 'requested_changes');
   $: approvedReviews = sumBuckets(buckets, 'approved');
   $: lastRun = runs[0];
+  $: usage = usageResp?.usage || null;
+  $: usagePaused = !!usageResp?.review_paused;
 
   // State is passed in explicitly: Svelte's legacy reactive statements only
   // see dependencies named in the expression, so a closure reading component
@@ -48,12 +47,7 @@
     counts = q.counts || { total: queue.length, queued: 0, reviewing: 0, held: 0 };
     reviews = rv.reviews || [];
     runs = rn.runs || [];
-    usageAvailable = !!us.available;
-    usage = us.usage || null;
-    usagePaused = !!us.review_paused;
-    tokensTotal = us.tokens_total || 0;
-    tokens24h = us.tokens_24h || 0;
-    pausedReason = us.paused_reason || '';
+    usageResp = us;
     buckets = st.buckets || [];
   }
 
@@ -105,13 +99,13 @@
 
     <section>
       <div class="section-head compact"><h2>Codex usage</h2>{#if usage?.plan}<span>plan {usage.plan}</span>{/if}</div>
-      {#if !usageAvailable}
+      {#if !usageResp?.available}
         <p class="muted">not available yet</p>
       {:else if usage?.error}
         <p class="muted">unavailable: {usage.error}</p>
       {:else}
         {#if usagePaused}
-          <p class="status warn"><i></i>reviews paused: {pausedReason}</p>
+          <p class="status warn"><i></i>reviews paused: {usageResp?.paused_reason}</p>
         {/if}
         {#each [['Primary', usage?.primary], ['Secondary', usage?.secondary]] as item}
           {@const label = item[0] as string}
@@ -125,8 +119,8 @@
           {/if}
         {/each}
       {/if}
-      {#if tokensTotal}
-        <div class="tokens-line"><span>Tokens spent</span><b>{tokens(tokens24h) || '0'} last 24h · {tokens(tokensTotal)} all time</b></div>
+      {#if usageResp?.tokens_total}
+        <div class="tokens-line"><span>Tokens spent</span><b>{tokens(usageResp?.tokens_24h || 0) || '0'} last 24h · {tokens(usageResp?.tokens_total || 0)} all time</b></div>
       {/if}
     </section>
 

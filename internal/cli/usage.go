@@ -249,11 +249,12 @@ COMMANDS:
   prompts rules rm <name>  Remove rule(s) with this name (case-insensitive)
 
 EXAMPLES:
-  # On comment, branch the Slack reaction on the allow-list:
+  # On comment, branch the notification reaction on the allow-list (the
+  # channels, emoji, and tooling here are examples; use your own conventions):
   agent-code-review prompts rules add --name comment-not-allowed --outcome comment \
-    --author-not-allowed --prompt "React :verified: :lizard: on the PR's Slack message."
+    --author-not-allowed --prompt "React :eyes: on the PR's Slack message."
   agent-code-review prompts rules add --name comment-allowed --outcome comment \
-    --author-allowed --prompt "React :git-re-request: :bad-lizard: on the PR's Slack message."
+    --author-allowed --prompt "React :memo: on the PR's Slack message."
   agent-code-review prompts rules ls
 
 NOTES: put the shared part (e.g. locating the Slack message) in the on-comment

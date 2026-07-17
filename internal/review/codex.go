@@ -13,8 +13,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 )
@@ -38,18 +36,7 @@ type codexEngine struct {
 	// the engine's only subprocess seam. Production execs e.bin; tests inject
 	// a recorder so the resume loop and outcome precedence test in-process.
 	runCmd func(ctx context.Context, args []string, sink io.Writer) error
-
-	// codex --version is constant for a given install, so a burst of reviews
-	// shouldn't re-exec the probe for each one. codexVersion caches it briefly.
-	versionMu sync.Mutex
-	version   string
-	versionAt time.Time
 }
-
-// codexVersionTTL bounds how long a probed `codex --version` is reused. Short
-// enough that a CLI upgrade is picked up within seconds, long enough to collapse
-// the per-review probes during a review burst.
-const codexVersionTTL = 10 * time.Second
 
 // defaultMaxResumes bounds the resume-on-WORKING nudges per review when
 // codex.max_resumes is unset.
@@ -91,21 +78,17 @@ func (e *codexEngine) Provenance(ctx context.Context) Provenance {
 	return Provenance{Engine: e.Name(), Model: e.model, Effort: e.effort, CodexVersion: e.codexVersion(ctx)}
 }
 
-// codexVersion returns the CLI version string, re-probing at most once per
-// codexVersionTTL. A failed probe is not cached, so the next call retries; the
-// previously cached value (or "") is returned meanwhile.
+// codexVersion probes `codex --version` uncached: the engine is rebuilt from
+// live config at the start of every cycle and reviews take minutes, so one
+// cheap exec per Provenance call needs no cache (and recording the version
+// at review end stays accurate across a mid-cycle codex upgrade). "" on a
+// failed probe.
 func (e *codexEngine) codexVersion(ctx context.Context) string {
-	e.versionMu.Lock()
-	defer e.versionMu.Unlock()
-	if e.version != "" && time.Since(e.versionAt) < codexVersionTTL {
-		return e.version
-	}
 	out, err := exec.CommandContext(ctx, e.bin, "--version").Output()
-	if err == nil {
-		e.version = strings.TrimSpace(string(out))
-		e.versionAt = time.Now()
+	if err != nil {
+		return ""
 	}
-	return e.version
+	return strings.TrimSpace(string(out))
 }
 
 // verdictSchema constrains the agent's messages. codex applies the schema to

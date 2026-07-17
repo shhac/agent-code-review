@@ -6,6 +6,13 @@
 
   type SettingsGroup = [string, [string, string][]];
 
+  // One wording for the per-daemon loop state cells (review + discovery).
+  function loopState(running: boolean, enabled: boolean): string {
+    if (running) return 'running';
+    if (enabled) return 'off (config enabled, boot flag disabled)';
+    return 'off';
+  }
+
   let configData: ConfigResponse | null = null;
   let authors: AllowedAuthor[] = [];
   $: settingsGroups = configData ? ([
@@ -14,7 +21,7 @@
       ['Reviewing as', configData.reviewing_as ? `@${configData.reviewing_as}` : 'unknown (gh not authenticated?)'],
     ]],
     ['Review loop', [
-      ['State (this daemon)', configData.review_running ? 'running' : configData.schedule.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
+      ['State (this daemon)', loopState(configData.review_running, configData.schedule.enabled)],
       ['Engine', configData.engine],
       ['Codex model', configData.codex.model || 'Codex default'],
       ['Codex effort', configData.codex.effort || 'model default'],
@@ -24,7 +31,7 @@
       ['Usage floor (weekly)', configData.schedule.usage_floor_weekly_percent ? `pause below ${configData.schedule.usage_floor_weekly_percent}% remaining` : 'disabled'],
     ]],
     ['Discovery', [
-      ['State (this daemon)', configData.discovery_running ? 'running' : configData.discovery.enabled ? 'off (config enabled, boot flag disabled)' : 'off'],
+      ['State (this daemon)', loopState(configData.discovery_running, configData.discovery.enabled)],
       ['Interval', configData.discovery.interval],
     ]],
     ['Candidate eligibility', [

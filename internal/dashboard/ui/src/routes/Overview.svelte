@@ -7,7 +7,7 @@
   import QueueBoard from '../lib/QueueBoard.svelte';
   import RecentRuns from '../lib/RecentRuns.svelte';
   import StatusBadge from '../lib/StatusBadge.svelte';
-  import type { Bucket, Candidate, QueueCounts, Review, Run, UsageResponse, UsageWindow } from '../lib/types';
+  import type { Bucket, Candidate, QueueCounts, Review, Run, UsageResponse } from '../lib/types';
 
   let queue: Candidate[] = [];
   let counts: QueueCounts = { total: 0, queued: 0, reviewing: 0, held: 0 };
@@ -26,6 +26,10 @@
   $: lastRun = runs[0];
   $: usage = usageResp?.usage || null;
   $: usagePaused = !!usageResp?.review_paused;
+  $: usageWindows = [
+    { label: 'Primary', window: usage?.primary },
+    { label: 'Secondary', window: usage?.secondary },
+  ];
 
   // State is passed in explicitly: Svelte's legacy reactive statements only
   // see dependencies named in the expression, so a closure reading component
@@ -107,9 +111,7 @@
         {#if usagePaused}
           <p class="status warn"><i></i>reviews paused: {usageResp?.paused_reason}</p>
         {/if}
-        {#each [['Primary', usage?.primary], ['Secondary', usage?.secondary]] as item}
-          {@const label = item[0] as string}
-          {@const window = item[1] as UsageWindow | undefined}
+        {#each usageWindows as { label, window }}
           {#if window}
             <div class:hot={window.used_percent >= 90} class="meter">
               <div><span>{windowName(window, label)}</span><b>{Math.round(window.used_percent)}%</b></div>

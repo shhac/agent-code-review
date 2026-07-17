@@ -109,33 +109,50 @@ func Fetch(ctx context.Context, bin string) (Snapshot, error) {
 		_ = cmd.Wait()
 	}()
 
-	send := func(v any) error {
-		b, err := json.Marshal(v)
-		if err != nil {
-			return err
-		}
-		_, err = stdin.Write(append(b, '\n'))
-		return err
-	}
-	if err := send(map[string]any{
-		"jsonrpc": "2.0", "id": 1, "method": "initialize",
-		"params": map[string]any{"clientInfo": map[string]any{
-			"name": "agent-code-review", "title": "agent-code-review", "version": "dev",
-		}},
-	}); err != nil {
-		return Snapshot{}, err
-	}
-	if err := send(map[string]any{"jsonrpc": "2.0", "method": "initialized"}); err != nil {
-		return Snapshot{}, err
-	}
-	if err := send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read", "params": map[string]any{}}); err != nil {
+	if err := writeHandshake(stdin); err != nil {
 		return Snapshot{}, err
 	}
 
 	return parseRateLimits(stdout)
 }
 
-// parseRateLimits scans the app-server's stdout stream for the id=2 response
+// rateLimitsRequestID identifies the rateLimits/read call in the handshake;
+// parseRateLimits scans the response stream for exactly this id.
+const rateLimitsRequestID = 2
+
+// handshakeMessages is the request half of the app-server protocol:
+// initialize, the initialized notification, then the rateLimits read. Pure,
+// so the wire contract is pinned by table tests — parseRateLimits covers the
+// response half the same way.
+func handshakeMessages() []map[string]any {
+	return []map[string]any{
+		{
+			"jsonrpc": "2.0", "id": 1, "method": "initialize",
+			"params": map[string]any{"clientInfo": map[string]any{
+				"name": "agent-code-review", "title": "agent-code-review", "version": "dev",
+			}},
+		},
+		{"jsonrpc": "2.0", "method": "initialized"},
+		{"jsonrpc": "2.0", "id": rateLimitsRequestID, "method": "account/rateLimits/read", "params": map[string]any{}},
+	}
+}
+
+// writeHandshake frames the handshake messages onto the app-server's stdin:
+// one JSON object per newline-terminated line.
+func writeHandshake(w io.Writer) error {
+	for _, msg := range handshakeMessages() {
+		b, err := json.Marshal(msg)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(append(b, '\n')); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// parseRateLimits scans the app-server's stdout stream for the rateLimits response
 // and maps it to a Snapshot. Pure over an io.Reader: the skip/error/mapping
 // branches are tested from canned streams without spawning codex.
 func parseRateLimits(r io.Reader) (Snapshot, error) {
@@ -143,7 +160,7 @@ func parseRateLimits(r io.Reader) (Snapshot, error) {
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
 	for scanner.Scan() {
 		var resp rpcResponse
-		if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil || resp.ID != 2 {
+		if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil || resp.ID != rateLimitsRequestID {
 			continue
 		}
 		if resp.Error != nil {

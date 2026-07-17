@@ -2,12 +2,63 @@ package usage
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestWriteHandshake pins the request half of the app-server protocol: the
+// exact method names, id sequence, and one-JSON-object-per-line framing the
+// desktop-app contract depends on. Without this pin a typo in a method name
+// passes every test (the fake-codex scripts ignore stdin).
+func TestWriteHandshake(t *testing.T) {
+	var buf strings.Builder
+	if err := writeHandshake(&buf); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("handshake must be 3 newline-framed messages, got %d: %q", len(lines), buf.String())
+	}
+	type msg struct {
+		JSONRPC string         `json:"jsonrpc"`
+		ID      *int           `json:"id"`
+		Method  string         `json:"method"`
+		Params  map[string]any `json:"params"`
+	}
+	decode := func(line string) msg {
+		t.Helper()
+		var m msg
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("handshake line is not JSON: %q (%v)", line, err)
+		}
+		if m.JSONRPC != "2.0" {
+			t.Errorf("jsonrpc = %q, want 2.0 in %q", m.JSONRPC, line)
+		}
+		return m
+	}
+
+	initMsg := decode(lines[0])
+	if initMsg.Method != "initialize" || initMsg.ID == nil || *initMsg.ID != 1 {
+		t.Errorf("first message must be initialize with id 1, got %+v", initMsg)
+	}
+	if ci, ok := initMsg.Params["clientInfo"].(map[string]any); !ok || ci["name"] != "agent-code-review" {
+		t.Errorf("initialize must carry clientInfo.name, got %v", initMsg.Params)
+	}
+
+	notify := decode(lines[1])
+	if notify.Method != "initialized" || notify.ID != nil {
+		t.Errorf("second message must be the id-less initialized notification, got %+v", notify)
+	}
+
+	read := decode(lines[2])
+	if read.Method != "account/rateLimits/read" || read.ID == nil || *read.ID != rateLimitsRequestID {
+		t.Errorf("third message must read rate limits with the id parseRateLimits scans for, got %+v", read)
+	}
+}
 
 func fakeCodex(t *testing.T, body string) string {
 	t.Helper()

@@ -113,6 +113,13 @@ func parseRepoNumber(args []string) (string, int, error) {
 	return ref.Repo, ref.Number, nil
 }
 
+// invalidEnum is the shared enum-flag error: one wording for every
+// "--flag must be one of ..." failure, built from the same slice the
+// completions offer.
+func invalidEnum(flag string, valid []string, got string) error {
+	return output.New(flag+" must be one of "+strings.Join(valid, ", ")+", got "+got, output.FixableByAgent)
+}
+
 // prKey renders the canonical "owner/repo#N" reference used in emit keys and
 // error messages.
 func prKey(repo string, number int) string {

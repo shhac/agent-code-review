@@ -76,12 +76,7 @@ func authorsAllowCmd() *cobra.Command {
 	f.StringVar(&name, "name", "", "Display name")
 	f.StringVar(&email, "email", "", "Email")
 	f.StringVar(&slackID, "slack-id", "", "Slack user ID")
-	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) == 0 {
-			return completeAllowedAuthorRepo(cmd, args, toComplete)
-		}
-		return noFile(nil)
-	}
+	cmd.ValidArgsFunction = completePositional(completeAllowedAuthorRepo, nil)
 	return cmd
 }
 
@@ -102,12 +97,7 @@ func authorsDenyCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) == 0 {
-			return completeAllowedAuthorRepo(cmd, args, toComplete)
-		}
-		return completeAllowedAuthorHandle(cmd, args, toComplete)
-	}
+	cmd.ValidArgsFunction = completePositional(completeAllowedAuthorRepo, completeAllowedAuthorHandle)
 	return cmd
 }
 

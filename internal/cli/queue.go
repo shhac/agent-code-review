@@ -188,15 +188,10 @@ func queueLogCmd() *cobra.Command {
 }
 
 func completeRepoThenNumber(queuedOnly bool) cobra.CompletionFunc {
-	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) == 0 {
-			return completeRepos(cmd, args, toComplete)
-		}
-		if queuedOnly {
-			return completeQueuedNumber(cmd, args, toComplete)
-		}
-		return noFile(nil)
+	if queuedOnly {
+		return completePositional(completeRepos, completeQueuedNumber)
 	}
+	return completePositional(completeRepos, nil)
 }
 
 // reviewWorkDir resolves a PR's engine workspace via the shared queue-then-

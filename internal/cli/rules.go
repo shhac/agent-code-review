@@ -150,10 +150,10 @@ func validateRule(r config.Rule) error {
 		return output.New("--author-is-gh-user and --author-not-gh-user are mutually exclusive; a rule with both can never match", output.FixableByAgent)
 	}
 	if r.When.Outcome != "" && !config.ValidOutcome(r.When.Outcome) {
-		return output.New("--outcome must be one of "+strings.Join(config.Outcomes, ", ")+", got "+r.When.Outcome, output.FixableByAgent)
+		return invalidEnum("--outcome", config.Outcomes, r.When.Outcome)
 	}
 	if r.When.CandidateType != "" && !config.ValidCandidateType(r.When.CandidateType) {
-		return output.New("--candidate-type must be one of "+strings.Join(config.CandidateTypes, ", ")+", got "+r.When.CandidateType, output.FixableByAgent)
+		return invalidEnum("--candidate-type", config.CandidateTypes, r.When.CandidateType)
 	}
 	for _, repo := range r.When.Repos {
 		if !config.ValidRepoName(repo) {
@@ -186,11 +186,6 @@ func rulesRmCmd() *cobra.Command {
 			return emit(map[string]any{"removed": name, "count": removed})
 		},
 	}
-	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) == 0 {
-			return completeRuleNames(nil, args, toComplete)
-		}
-		return noFile(nil)
-	}
+	cmd.ValidArgsFunction = completePositional(completeRuleNames, nil)
 	return cmd
 }

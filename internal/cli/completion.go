@@ -74,6 +74,20 @@ func completeConfiguredCodexEfforts(ctx context.Context) []string {
 	return codexModelEfforts(ctx, config.Read().Review.Codex.Model)
 }
 
+// completePositional builds the common "arg 0 completes via first, later
+// args via rest (nil = nothing)" ValidArgsFunction shape.
+func completePositional(first, rest cobra.CompletionFunc) cobra.CompletionFunc {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return first(cmd, args, toComplete)
+		}
+		if rest == nil {
+			return noFile(nil)
+		}
+		return rest(cmd, args, toComplete)
+	}
+}
+
 func findCommand(parent *cobra.Command, name string) *cobra.Command {
 	for _, child := range parent.Commands() {
 		if child.Name() == name {

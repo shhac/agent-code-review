@@ -102,12 +102,7 @@ func promptsSetCmd() *cobra.Command {
 			return emit(map[string]any{"slot": slot, "value": text})
 		},
 	}
-	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) == 0 {
-			return noFile(completePrefix(promptSlots, toComplete))
-		}
-		return noFile(nil)
-	}
+	cmd.ValidArgsFunction = completePositional(completeStatic(promptSlots), nil)
 	return cmd
 }
 
@@ -155,7 +150,7 @@ func promptsPreviewCmd() *cobra.Command {
 			res, err := review.Preview(config.Read(), repo, candidateType, facts)
 			switch {
 			case errors.Is(err, review.ErrBadCandidateType):
-				return output.New("--candidate-type must be one of "+strings.Join(config.CandidateTypes, ", ")+", got "+candidateType, output.FixableByAgent)
+				return invalidEnum("--candidate-type", config.CandidateTypes, candidateType)
 			case errors.Is(err, review.ErrBadRepo):
 				return invalidRepo(repo)
 			case err != nil:

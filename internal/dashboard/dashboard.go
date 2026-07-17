@@ -193,6 +193,22 @@ func reqCtx(r *http.Request, d time.Duration) (context.Context, context.CancelFu
 	return context.WithTimeout(r.Context(), d)
 }
 
+// serveGet is the one single-fetch GET transport frame: request-scoped
+// timeout, the standard error envelope, and the JSON write, so a new
+// endpoint cannot silently omit any of the three. Handlers keep only
+// parameter parsing and response shaping inside fetch; multi-fetch or
+// branching handlers (usage, config, review-log) stay explicit.
+func serveGet[T any](s *Server, w http.ResponseWriter, r *http.Request, fetch func(context.Context) (T, error)) {
+	ctx, cancel := reqCtx(r, 10*time.Second)
+	defer cancel()
+	resp, err := fetch(ctx)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // fail writes the standard 500 error envelope.
 func (s *Server) fail(w http.ResponseWriter, err error) {
 	httpError(w, http.StatusInternalServerError, err.Error())

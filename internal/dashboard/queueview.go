@@ -6,6 +6,7 @@ package dashboard
 // The write surface lives in queue.go.
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -97,13 +98,12 @@ func countQueue(views []queueView) queueCounts {
 }
 
 func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-	candidates, err := s.store.ListQueue(ctx, "")
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	views := viewQueue(candidates, time.Now(), s.config().LeaseWindow())
-	writeJSON(w, http.StatusOK, queueResp{Candidates: views, Counts: countQueue(views)})
+	serveGet(s, w, r, func(ctx context.Context) (queueResp, error) {
+		candidates, err := s.store.ListQueue(ctx, "")
+		if err != nil {
+			return queueResp{}, err
+		}
+		views := viewQueue(candidates, time.Now(), s.config().LeaseWindow())
+		return queueResp{Candidates: views, Counts: countQueue(views)}, nil
+	})
 }

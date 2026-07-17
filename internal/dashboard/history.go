@@ -1,8 +1,8 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
-	"time"
 
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -16,23 +16,15 @@ type runsResp struct {
 }
 
 func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-	reviews, err := s.store.ListReviews(ctx, queryInt(r, "limit", 50, 500))
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, reviewsResp{Reviews: reviews})
+	serveGet(s, w, r, func(ctx context.Context) (reviewsResp, error) {
+		reviews, err := s.store.ListReviews(ctx, queryInt(r, "limit", 50, 500))
+		return reviewsResp{Reviews: reviews}, err
+	})
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-	runs, err := s.store.ListRuns(ctx, queryInt(r, "limit", 20, 200))
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, runsResp{Runs: runs})
+	serveGet(s, w, r, func(ctx context.Context) (runsResp, error) {
+		runs, err := s.store.ListRuns(ctx, queryInt(r, "limit", 20, 200))
+		return runsResp{Runs: runs}, err
+	})
 }

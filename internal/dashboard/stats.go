@@ -4,6 +4,7 @@ package dashboard
 // review outcomes into hourly buckets for the Overview chart.
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -58,13 +59,12 @@ func bucketReviews(reviews []store.Review, start time.Time) []statsBucket {
 // handleStats returns 24 hourly buckets of review outcomes for the sliding
 // last-24h window: approved / commented / requested_changes counts per hour.
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-	start := time.Now().UTC().Truncate(time.Hour).Add(-23 * time.Hour)
-	reviews, err := s.store.ListReviewsSince(ctx, start)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, statsResp{Buckets: bucketReviews(reviews, start)})
+	serveGet(s, w, r, func(ctx context.Context) (statsResp, error) {
+		start := time.Now().UTC().Truncate(time.Hour).Add(-23 * time.Hour)
+		reviews, err := s.store.ListReviewsSince(ctx, start)
+		if err != nil {
+			return statsResp{}, err
+		}
+		return statsResp{Buckets: bucketReviews(reviews, start)}, nil
+	})
 }

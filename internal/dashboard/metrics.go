@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"time"
@@ -162,12 +163,11 @@ func scatterPoints(reviews []store.Review) []metricsPoint {
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-	reviews, err := s.store.ListReviewsSince(ctx, metricsSince(r.URL.Query().Get("range"), time.Now()))
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, metricsFor(reviews, r.URL.Query().Get("model"), r.URL.Query().Get("effort")))
+	serveGet(s, w, r, func(ctx context.Context) (metricsResp, error) {
+		reviews, err := s.store.ListReviewsSince(ctx, metricsSince(r.URL.Query().Get("range"), time.Now()))
+		if err != nil {
+			return metricsResp{}, err
+		}
+		return metricsFor(reviews, r.URL.Query().Get("model"), r.URL.Query().Get("effort")), nil
+	})
 }

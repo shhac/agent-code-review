@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -98,12 +99,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-	authors, err := s.store.ListAllowedAuthors(ctx, r.URL.Query().Get("repo"))
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, authorsResp{Authors: authors})
+	serveGet(s, w, r, func(ctx context.Context) (authorsResp, error) {
+		authors, err := s.store.ListAllowedAuthors(ctx, r.URL.Query().Get("repo"))
+		return authorsResp{Authors: authors}, err
+	})
 }

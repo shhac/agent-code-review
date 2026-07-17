@@ -16,30 +16,38 @@ import type {
   ReviewLogRef,
 } from './types';
 
+// errorFrom unwraps the API's {error} envelope from a failed response. The
+// body may not be JSON at all (a proxy 502's HTML page, an empty reply), so
+// a parse failure falls back to the status text instead of masking the real
+// failure with a SyntaxError.
+async function errorFrom(res: Response): Promise<Error> {
+  try {
+    const data = await res.json();
+    return new Error(data.error || res.statusText);
+  } catch {
+    return new Error(res.statusText || `HTTP ${res.status}`);
+  }
+}
+
 export async function fetchJSON<T = any>(path: string): Promise<T> {
   const res = await fetch(path);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || res.statusText);
-  return data as T;
+  if (!res.ok) throw await errorFrom(res);
+  return (await res.json()) as T;
 }
 
-export async function post(path: string, body: unknown) {
+// send is the one write-path frame: JSON body out, {error} envelope on
+// failure. post/del are thin partial applications.
+async function send(method: 'POST' | 'DELETE', path: string, body: unknown) {
   const res = await fetch(path, {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+  if (!res.ok) throw await errorFrom(res);
 }
 
-export async function del(path: string, body: unknown) {
-  const res = await fetch(path, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error((await res.json()).error || res.statusText);
-}
+export const post = (path: string, body: unknown) => send('POST', path, body);
+export const del = (path: string, body: unknown) => send('DELETE', path, body);
 
 type PRRef = { repo: string; number: number };
 

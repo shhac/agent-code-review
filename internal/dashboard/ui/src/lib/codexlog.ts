@@ -48,8 +48,10 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
   let kind: 'meta' | 'user' | 'thinking' | 'codex' | 'exec' | 'tokens' = 'meta';
   let body: string[] = [];
   const pending: ExecEvent[] = []; // exec events awaiting a result line
-  let command: ExecEvent | null = null; // exec whose command is still being read
-  let output: ExecEvent | null = null; // exec whose output is being read
+  // Where a non-marker line lands while in an exec section: the one cursor.
+  // An exec marker points it at the fresh event's command; a result line
+  // repoints it at the completed event's output.
+  let sink: { event: ExecEvent; field: 'command' | 'output' } | null = null;
 
   const flushProse = () => {
     const text = kind === 'tokens' ? dropRepeatedFinalMessage(body.join('\n').trim(), events) : body.join('\n').trim();
@@ -60,13 +62,13 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
   for (const line of lines) {
     if (markers.has(line)) {
       if (kind !== 'exec') flushProse();
-      command = null;
-      output = null;
+      sink = null;
       kind = line === 'tokens used' ? 'tokens' : (line as 'user' | 'thinking' | 'codex' | 'exec');
       if (kind === 'exec') {
-        command = { kind: 'exec', command: '', output: '' };
-        events.push(command);
-        pending.push(command);
+        const ev: ExecEvent = { kind: 'exec', command: '', output: '' };
+        events.push(ev);
+        pending.push(ev);
+        sink = { event: ev, field: 'command' };
       }
       continue;
     }
@@ -80,15 +82,16 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
       if (done) {
         done.ok = m[1] === 'succeeded';
         done.duration = m[2];
-        output = done;
+        sink = { event: done, field: 'output' };
+      } else if (sink?.field === 'command') {
+        // Unattributable extra result line: whatever command it closed is
+        // unknown, so stop attributing lines to the half-read command.
+        sink = null;
       }
-      command = null;
       continue;
     }
-    if (command) {
-      command.command += (command.command ? '\n' : '') + line;
-    } else if (output) {
-      output.output += (output.output ? '\n' : '') + line;
+    if (sink) {
+      sink.event[sink.field] += (sink.event[sink.field] ? '\n' : '') + line;
     }
   }
   flushProse();

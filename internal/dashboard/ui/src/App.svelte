@@ -24,24 +24,27 @@
     { route: 'logs', label: 'Logs', path: '/logs' },
   ];
 
-  let route: Route = routeFromPath(location.pathname);
-
-  function routeFromPath(path: string): Route {
+  // Route matching derives from the nav table above (with a uniform ".html"
+  // alias for every entry) so adding a route is one table row, not a second
+  // mapping that can drift.
+  function routeFromPath(path: string): { route: Route; reviewRef?: ReviewLogRef } {
     const ref = parseReviewLogPath(path);
-    if (ref) {
-      reviewRef = ref;
-      return 'review';
-    }
-    if (path === '/history') return 'history';
-    if (path === '/metrics') return 'metrics';
-    if (path === '/config' || path === '/config.html') return 'config';
-    if (path === '/prompt' || path === '/prompt.html') return 'prompt';
-    if (path === '/logs' || path === '/logs.html') return 'logs';
-    return 'overview';
+    if (ref) return { route: 'review', reviewRef: ref };
+    const hit = nav.find((n) => path === n.path || path === n.path + '.html');
+    return { route: hit?.route ?? 'overview' };
   }
 
+  function applyPath(path: string) {
+    const matched = routeFromPath(path);
+    if (matched.reviewRef) reviewRef = matched.reviewRef;
+    route = matched.route;
+  }
+
+  let route: Route = 'overview';
+  applyPath(location.pathname);
+
   window.addEventListener('popstate', () => {
-    route = routeFromPath(location.pathname);
+    applyPath(location.pathname);
   });
 </script>
 

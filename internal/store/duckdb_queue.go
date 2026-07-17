@@ -17,6 +17,12 @@ import (
 //     sweep wins (the author is still active; push the hold out); an earlier
 //     one loses (a hold, once set, does not shrink). A manual-source enqueue
 //     clears the hold, and a hold is never re-imposed on a manual row.
+//
+// Storing the hold (rather than deriving it at read time like the claim
+// lease) is deliberate: the hold is a debounce frozen at discovery, so
+// editing the hold dials never shrinks or lifts holds already granted, and
+// future triggers (e.g. an explicit delay-on-click) can impose holds that no
+// derivation could reconstruct.
 func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	// An empty SHA would render as NULL: history.head_sha is NOT NULL, so
 	// such a row could never Complete — it would error every cycle until

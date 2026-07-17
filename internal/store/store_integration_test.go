@@ -286,6 +286,42 @@ func TestCompleteSHAGate(t *testing.T) {
 	}
 }
 
+// TestActiveRunStaleness pins the run-lock predicate: a fresh running row
+// blocks cycles, a crashed row older than the window stops blocking them,
+// and a finished row never blocks. A regression in the cutoff comparison
+// would either allow overlapping cycles or wedge the scheduler for a whole
+// lease window.
+func TestActiveRunStaleness(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	staleAfter := 2 * time.Hour
+
+	// A crashed run from 3h ago: beyond the window, must not block.
+	if err := s.StartRun(ctx, Run{ID: "stale", StartedAt: time.Now().Add(-3 * time.Hour), Host: "h", PID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.ActiveRun(ctx, staleAfter); err != nil || ok {
+		t.Fatalf("a run older than the stale window must not be active, got ok=%v err=%v", ok, err)
+	}
+
+	// A fresh running row blocks, and is the one returned.
+	if err := s.StartRun(ctx, Run{ID: "fresh", StartedAt: time.Now().Add(-time.Minute), Host: "h", PID: 2}); err != nil {
+		t.Fatal(err)
+	}
+	run, ok, err := s.ActiveRun(ctx, staleAfter)
+	if err != nil || !ok || run.ID != "fresh" {
+		t.Fatalf("fresh running row must be active, got ok=%v id=%q err=%v", ok, run.ID, err)
+	}
+
+	// Finishing it releases the lock.
+	if err := s.FinishRun(ctx, "fresh", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.ActiveRun(ctx, staleAfter); ok {
+		t.Error("a finished run must not be active")
+	}
+}
+
 // TestLastReviewVsLastOutcome pins the two history reads: LastReview sees only
 // real verdicts (Refreshed detection), LastOutcome sees everything (same-SHA
 // suppression).

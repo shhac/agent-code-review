@@ -16,18 +16,14 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-type rootFlags struct {
-	libcli.Globals
-}
-
 func newRootCmd(version string) *cobra.Command {
-	g := &rootFlags{}
-	globals = &g.Globals // emit() resolves -f/--format from here
+	g := &libcli.Globals{}
+	globals = g // emit() resolves -f/--format from here
 	root := libcli.NewRoot(libcli.Options{
 		Use:           "agent-code-review",
 		Short:         "PR review queue + scheduler for AI agents",
 		Version:       version,
-		Globals:       &g.Globals,
+		Globals:       g,
 		DefaultFormat: output.FormatNDJSON,
 		UnknownHint:   "run 'agent-code-review usage' to see the available commands",
 	})

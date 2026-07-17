@@ -106,6 +106,14 @@ func (c Config) Engine() string {
 	return "codex"
 }
 
+// TailscalePort is the Tailscale serve/funnel port (default 443).
+func (c Config) TailscalePort() int {
+	if c.Dashboard.Tailscale.Port != 0 {
+		return c.Dashboard.Tailscale.Port
+	}
+	return 443
+}
+
 // DashboardAddr is the HTTP listen address (default ":8330").
 func (c Config) DashboardAddr() string {
 	if c.Dashboard.Addr != "" {

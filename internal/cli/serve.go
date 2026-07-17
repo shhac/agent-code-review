@@ -56,7 +56,7 @@ func registerServe(root *cobra.Command) {
 	f.StringVar(&opts.addr, "http", cfg.DashboardAddr(), "HTTP listen address for the dashboard")
 	f.StringVar(&opts.publicURL, "public-url", cfg.Dashboard.PublicURL, "Externally-reachable URL (derived from Tailscale when unset)")
 	f.StringVar(&opts.tailscaleMode, "tailscale", cfg.Dashboard.Tailscale.Mode, `Expose via Tailscale: "serve" (tailnet) or "funnel" (public)`)
-	f.IntVar(&opts.tailscalePort, "tailscale-port", tailscalePortOr(cfg.Dashboard.Tailscale.Port), "Tailscale port (443, 8443, or 10000)")
+	f.IntVar(&opts.tailscalePort, "tailscale-port", cfg.TailscalePort(), "Tailscale port (443, 8443, or 10000)")
 	f.BoolVar(&opts.noSchedule, "no-schedule", false, "Serve the dashboard only; run neither loop")
 	f.BoolVar(&opts.noDiscovery, "no-discovery", false, "Don't run the discovery loop this boot (overrides discovery.enabled)")
 	f.BoolVar(&opts.noReviews, "no-reviews", false, "Don't run the review loop this boot (overrides schedule.enabled)")
@@ -240,11 +240,4 @@ func waitForScheduler(done <-chan error, forceCtx context.Context, logf schedule
 		logf("shutdown: force shutdown without waiting for in-flight reviewers")
 		return true
 	}
-}
-
-func tailscalePortOr(port int) int {
-	if port == 0 {
-		return 443
-	}
-	return port
 }

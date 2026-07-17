@@ -106,7 +106,7 @@ func parseRepoNumber(args []string) (string, int, error) {
 	ref, err := prref.Parse(args[0], args[1])
 	switch {
 	case errors.Is(err, prref.ErrRepo):
-		return "", 0, output.New("Repo must be owner/name, got "+args[0], output.FixableByAgent)
+		return "", 0, invalidRepo(args[0])
 	case err != nil:
 		return "", 0, output.New("PR number must be an integer, got "+args[1], output.FixableByAgent)
 	}

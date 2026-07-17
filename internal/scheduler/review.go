@@ -92,8 +92,12 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 		_ = os.Remove(workDir)
 		return nil
 	}
-	if skipped, err := s.skipIfStale(ctx, c, claimedAt); skipped || err != nil {
+	skipped, err := s.skipIfStale(ctx, c, claimedAt)
+	if err != nil {
 		return err
+	}
+	if skipped {
+		return nil
 	}
 	// Leave the tmp dir in place; a future run may reuse it (per the spec).
 

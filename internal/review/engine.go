@@ -9,6 +9,7 @@ package review
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
@@ -63,16 +64,23 @@ type Engine interface {
 	Provenance(ctx context.Context) Provenance
 }
 
-// NewEngine builds the configured engine. Only "codex" is wired today.
+// Engines lists the wired review engines, default first: the one vocabulary
+// behind NewEngine's dispatch and error text and the CLI's validation and
+// completion. (config.Engine()'s display default must restate the first
+// entry — config cannot import review without a cycle; TestNewEngine pins
+// the two in step.)
+var Engines = []string{"codex"}
+
+// NewEngine builds the configured engine.
 func NewEngine(cfg config.ReviewSettings) (Engine, error) {
 	engine := cfg.Engine
 	if engine == "" {
-		engine = "codex"
+		engine = Engines[0]
 	}
 	switch engine {
 	case "codex":
 		return newCodex(cfg.Codex, ResumePrompt(cfg)), nil
 	default:
-		return nil, fmt.Errorf("Unknown review engine: %q. Valid: codex", engine)
+		return nil, fmt.Errorf("Unknown review engine: %q. Valid: %s", engine, strings.Join(Engines, ", "))
 	}
 }

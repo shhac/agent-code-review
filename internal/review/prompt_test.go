@@ -353,6 +353,11 @@ func TestNewEngine(t *testing.T) {
 	if _, err := NewEngine(config.ReviewSettings{Engine: "mystery"}); err == nil {
 		t.Error("unknown engine must fail")
 	}
+	// config.Engine()'s display default cannot reference Engines (import
+	// cycle), so pin the restated literal here instead.
+	if got := (config.Config{}).Engine(); got != Engines[0] {
+		t.Errorf("config.Engine() default %q must match Engines[0] %q", got, Engines[0])
+	}
 }
 
 // TestMainPrompt pins the path-wins-over-inline resolution, including the

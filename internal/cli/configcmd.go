@@ -7,11 +7,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/review"
 )
 
 var (
 	boolValues          = []string{"true", "false"}
-	engineValues        = []string{"codex"}
+	engineValues        = review.Engines
 	sandboxValues       = []string{"read-only", "workspace-write", "danger-full-access"}
 	tailscaleModeValues = []string{"serve", "funnel"}
 )

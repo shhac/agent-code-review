@@ -97,8 +97,10 @@ const (
 // driver's SQL filter derive from this list.
 var realVerdicts = []string{VerdictApproved, VerdictCommented, VerdictRequestedChanges}
 
-// IsRealVerdict reports whether v is an actual posted review: the predicate
-// behind LastReview's history filter.
+// IsRealVerdict is the Go mirror of the SQL predicate LastReview actually
+// filters with (realVerdictsSQL): a deliberate lockstep seam, pinned by the
+// store and scheduler tests so the two derivations of realVerdicts cannot
+// drift.
 func IsRealVerdict(v string) bool {
 	for _, rv := range realVerdicts {
 		if v == rv {

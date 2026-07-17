@@ -1,6 +1,6 @@
 package dashboard
 
-// This file is the queue write surface: add (URL or repo/number, gated to
+// This file is the queue write surface: add (by PR URL/reference, gated to
 // watched repos), remove, promote, and reorder. Kept apart from the read
 // side (queueview.go): this is the one part of the dashboard that validates
 // untrusted input and mutates state.
@@ -91,8 +91,8 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, queueAddResp{Queued: true, Title: c.Title, Author: c.Author})
 }
 
-// decodePRRef decodes the queue-row wire shape shared by the remove, add,
-// promote, and reorder request bodies.
+// decodePRRef decodes the queue-row wire shape shared by the remove and
+// promote request bodies (add is url-only; reorder decodes its list inline).
 func decodePRRef(r *http.Request) (prref.Ref, bool) {
 	var req prref.Ref
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

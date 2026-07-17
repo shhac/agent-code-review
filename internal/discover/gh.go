@@ -36,12 +36,10 @@ type ghPR struct {
 
 type ghActor struct {
 	Login string `json:"login"`
-	Name  string `json:"name"`
 }
 
 type ghReview struct {
-	Author ghActor `json:"author"`
-	State  string  `json:"state"`
+	State string `json:"state"`
 }
 
 // prListFields is the JSON field set requested from `gh pr list`.

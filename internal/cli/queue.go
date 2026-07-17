@@ -182,7 +182,8 @@ func queueLogCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Keep streaming as the agent writes (Ctrl-C to stop)")
+	// No -f shorthand: lib-agent-cli's persistent flag set already owns it.
+	cmd.Flags().BoolVar(&follow, "follow", false, "Keep streaming as the agent writes (Ctrl-C to stop)")
 	cmd.ValidArgsFunction = completeRepoThenNumber(true)
 	return cmd
 }

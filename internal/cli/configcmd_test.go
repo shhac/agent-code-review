@@ -80,6 +80,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"store.path":                          "/tmp/example.duckdb",
 		"schedule.usage_floor.5h_percent":     "25",
 		"schedule.usage_floor.weekly_percent": "0",
+		"codex.max_resumes":                   "3",
 	}
 	for _, key := range configKeys() {
 		sample, ok := samples[key.Name]

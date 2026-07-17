@@ -70,11 +70,12 @@ type DiscoverySettings struct {
 
 // CodexSettings configures the default review engine (codex exec).
 type CodexSettings struct {
-	Bin     string   `json:"bin,omitempty"`     // default "codex"
-	Model   string   `json:"model,omitempty"`   // e.g. "gpt-5.6"
-	Effort  string   `json:"effort,omitempty"`  // Codex model_reasoning_effort; empty = model default
-	Sandbox string   `json:"sandbox,omitempty"` // codex sandbox mode
-	Args    []string `json:"args,omitempty"`    // extra args appended to `codex exec`
+	Bin        string   `json:"bin,omitempty"`         // default "codex"
+	Model      string   `json:"model,omitempty"`       // e.g. "gpt-5.6"
+	Effort     string   `json:"effort,omitempty"`      // Codex model_reasoning_effort; empty = model default
+	Sandbox    string   `json:"sandbox,omitempty"`     // codex sandbox mode
+	Args       []string `json:"args,omitempty"`        // extra args appended to `codex exec`
+	MaxResumes *int     `json:"max_resumes,omitempty"` // resumes when a run ends on a WORKING report; nil = default 2, 0 disables
 }
 
 // ReviewSettings selects and configures the pluggable review engine.
@@ -90,7 +91,8 @@ type ReviewSettings struct {
 	MainPromptPath string        `json:"main_prompt_path,omitempty"` // or load it from a file
 	OnApprove      string        `json:"on_approve,omitempty"`
 	OnComment      string        `json:"on_comment,omitempty"`
-	OnReject       string        `json:"on_reject,omitempty"` // reject = requested changes
+	OnReject       string        `json:"on_reject,omitempty"`     // reject = requested changes
+	ResumePrompt   string        `json:"resume_prompt,omitempty"` // nudge when resuming a run that ended on WORKING; empty = built-in default
 	Rules          []Rule        `json:"rules,omitempty"`
 	Codex          CodexSettings `json:"codex,omitempty"`
 }

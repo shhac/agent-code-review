@@ -113,6 +113,23 @@ func MainPrompt(r config.ReviewSettings) string {
 	return strings.TrimSpace(r.MainPrompt)
 }
 
+// defaultResumePrompt nudges a session that yielded its turn on a WORKING
+// report to pick the review back up. resume_prompt in config overrides it.
+const defaultResumePrompt = "Your last message was an intermediate WORKING update, but you stopped there " +
+	"without finishing the review. Keep going until you arrive at a decision: continue from where you " +
+	"left off, complete every remaining required action, and only stop once your FINAL message reports " +
+	"the real outcome (APPROVED, COMMENTED, REQUESTED_CHANGES, or SKIPPED) per the schema. Never end on WORKING."
+
+// ResumePrompt resolves the nudge sent when resuming a run that ended on a
+// WORKING report: the configured resume_prompt, else the built-in default.
+// Exported for the prompts CLI's show view.
+func ResumePrompt(r config.ReviewSettings) string {
+	if p := strings.TrimSpace(r.ResumePrompt); p != "" {
+		return p
+	}
+	return defaultResumePrompt
+}
+
 // approvalDirective states the approval policy for THIS PR as a hard
 // instruction, so comment-only is the default and an APPROVE is only ever
 // permitted when explicitly allowed, never as a fallback when a rule is

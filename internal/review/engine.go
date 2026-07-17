@@ -69,7 +69,7 @@ func NewEngine(cfg config.ReviewSettings) (Engine, error) {
 	}
 	switch engine {
 	case "codex":
-		return newCodex(cfg.Codex), nil
+		return newCodex(cfg.Codex, ResumePrompt(cfg)), nil
 	default:
 		return nil, fmt.Errorf("Unknown review engine: %q. Valid: codex", engine)
 	}

@@ -12,8 +12,9 @@ import (
 )
 
 // promptSlots maps slot names to accessors on ReviewSettings. "main" is the
-// core review prompt; the on-* slots are post-outcome instructions.
-var promptSlots = []string{"main", "on-approve", "on-comment", "on-reject"}
+// core review prompt; the on-* slots are post-outcome instructions; "resume"
+// is the nudge sent when a run ends on an intermediate WORKING report.
+var promptSlots = []string{"main", "on-approve", "on-comment", "on-reject", "resume"}
 
 // slotField returns a pointer to the ReviewSettings field backing a prompt
 // slot, or nil for an unknown slot. Read with *p, write with *p = v.
@@ -27,6 +28,8 @@ func slotField(r *config.ReviewSettings, slot string) *string {
 		return &r.OnComment
 	case "on-reject":
 		return &r.OnReject
+	case "resume":
+		return &r.ResumePrompt
 	default:
 		return nil
 	}
@@ -40,8 +43,9 @@ func registerPrompts(root *cobra.Command) {
 	cmd := &cobra.Command{
 		Use:   "prompts",
 		Short: "Inspect and edit the review prompts (stored in config.json)",
-		Long: "The prompts handed to the review agent: the main prompt plus the\n" +
-			"post-outcome instructions (on-approve / on-comment / on-reject). The\n" +
+		Long: "The prompts handed to the review agent: the main prompt, the\n" +
+			"post-outcome instructions (on-approve / on-comment / on-reject), and\n" +
+			"the resume nudge sent when a run ends on a WORKING report. The\n" +
 			"approval directive and rules also feed the assembled prompt; see\n" +
 			"'prompts preview' for exactly what the agent receives.",
 		Args: cobra.NoArgs,
@@ -64,6 +68,10 @@ func promptsShowCmd() *cobra.Command {
 					rec["overridden_by"] = "main_prompt_path: " + cfg.Review.MainPromptPath
 					rec["effective"] = review.MainPrompt(cfg.Review)
 				}
+				if slot == "resume" && cfg.Review.ResumePrompt == "" {
+					rec["effective"] = review.ResumePrompt(cfg.Review)
+					rec["note"] = "built-in default; override with 'prompts set resume'"
+				}
 				if err := emit(rec); err != nil {
 					return err
 				}
@@ -75,7 +83,7 @@ func promptsShowCmd() *cobra.Command {
 
 func promptsSetCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "set <main|on-approve|on-comment|on-reject> <text>",
+		Use:   "set <main|on-approve|on-comment|on-reject|resume> <text>",
 		Short: "Set a prompt slot",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -108,7 +116,7 @@ func promptsSetCmd() *cobra.Command {
 
 func promptsUnsetCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "unset <main|on-approve|on-comment|on-reject>",
+		Use:   "unset <main|on-approve|on-comment|on-reject|resume>",
 		Short: "Clear a prompt slot",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {

@@ -119,6 +119,8 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *string { return &c.Review.Codex.Effort }, nil), complete: completeConfiguredCodexEfforts},
 		static(stringKey("codex.sandbox", "Codex sandbox mode (default workspace-write)",
 			func(c *config.Config) *string { return &c.Review.Codex.Sandbox }, validateSandbox), sandboxValues),
+		plain(optionalIntKey("codex.max_resumes", "Resume nudges when a codex run ends on an intermediate WORKING report (default 2, 0 disables)",
+			func(c *config.Config) **int { return &c.Review.Codex.MaxResumes }, 0, 10)),
 		plain(stringKey("dashboard.addr", "Dashboard listen address (default :8330)",
 			func(c *config.Config) *string { return &c.Dashboard.Addr }, nil)),
 		static(stringKey("dashboard.tailscale.mode", `Tailscale exposure: "", "serve", or "funnel"`,

@@ -36,7 +36,7 @@ COMMANDS:
   authors deny <owner/repo|*> <handle>               Make an author's PRs comment-only again
 
   prompts show | set <slot> <text> | unset | preview Manage the review prompts
-                                                     (slots: main, on-approve, on-comment, on-reject)
+                                                     (slots: main, on-approve, on-comment, on-reject, resume)
   prompts rules ls | add --name N --prompt T [--outcome ...] | rm <name>
                                                      Conditional prompt fragments, optionally
                                                      routed under a post-outcome section
@@ -191,6 +191,8 @@ SLOTS:
   on-approve   What to do after submitting an approving review
   on-comment   What to do after commenting without approving
   on-reject    What to do after requesting changes
+  resume       Nudge sent when a run ends on an intermediate WORKING report
+               (has a built-in default; codex.max_resumes bounds the retries)
 
 COMMANDS:
   prompts show                 One record per slot (notes main_prompt_path override)

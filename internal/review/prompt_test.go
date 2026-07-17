@@ -1,6 +1,7 @@
 package review
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -313,9 +314,9 @@ func TestParseVerdict(t *testing.T) {
 		t.Error("agent must not be able to report ERROR")
 	}
 	// WORKING is the intermediate progress marker; a run that ends on it
-	// was cut short and must not record an outcome.
-	if _, err := parseVerdict([]byte(`{"decision":"WORKING","summary":"still reading the diff"}`)); err == nil {
-		t.Error("a final WORKING report must be rejected")
+	// was cut short and must surface the sentinel the resume loop keys on.
+	if _, err := parseVerdict([]byte(`{"decision":"WORKING","summary":"still reading the diff"}`)); !errors.Is(err, errEndedOnWorking) {
+		t.Errorf("a final WORKING report must yield errEndedOnWorking, got %v", err)
 	}
 }
 
@@ -332,6 +333,11 @@ func TestParseTokensUsed(t *testing.T) {
 	}
 	if got := parseTokensUsed("tokens used\n941"); got != 941 {
 		t.Errorf("ungrouped count must parse, got %d", got)
+	}
+	// A transcript holding several trailers (one per invocation, e.g. after
+	// resumes) reports the total spend.
+	if got := parseTokensUsed("tokens used\n1,000\nresumed\ntokens used\n234"); got != 1234 {
+		t.Errorf("multiple trailers must sum, got %d", got)
 	}
 }
 

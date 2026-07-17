@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,11 +26,13 @@ import (
 // which this driver parses into a Verdict. The engine never posts the review;
 // it only launches the agent and reads the report.
 type codexEngine struct {
-	bin     string
-	model   string
-	effort  string
-	sandbox string
-	args    []string
+	bin          string
+	model        string
+	effort       string
+	sandbox      string
+	args         []string
+	maxResumes   int
+	resumePrompt string
 
 	// codex --version is constant for a given install, so a burst of reviews
 	// shouldn't re-exec the probe for each one. codexVersion caches it briefly.
@@ -43,7 +46,11 @@ type codexEngine struct {
 // the per-review probes during a review burst.
 const codexVersionTTL = 10 * time.Second
 
-func newCodex(c config.CodexSettings) *codexEngine {
+// defaultMaxResumes bounds the resume-on-WORKING nudges per review when
+// codex.max_resumes is unset.
+const defaultMaxResumes = 2
+
+func newCodex(c config.CodexSettings, resumePrompt string) *codexEngine {
 	bin := c.Bin
 	if bin == "" {
 		bin = "codex"
@@ -54,7 +61,12 @@ func newCodex(c config.CodexSettings) *codexEngine {
 		// scopes that to the per-PR workdir.
 		sandbox = "workspace-write"
 	}
-	return &codexEngine{bin: bin, model: c.Model, effort: c.Effort, sandbox: sandbox, args: c.Args}
+	resumes := defaultMaxResumes
+	if c.MaxResumes != nil && *c.MaxResumes >= 0 {
+		resumes = *c.MaxResumes
+	}
+	return &codexEngine{bin: bin, model: c.Model, effort: c.Effort, sandbox: sandbox, args: c.Args,
+		maxResumes: resumes, resumePrompt: resumePrompt}
 }
 
 func (e *codexEngine) Name() string { return "codex" }
@@ -136,20 +148,35 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 	}
 	lastMsgPath := filepath.Join(workDir, "verdict.json")
 
-	args := e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt)
-	cmd := exec.CommandContext(ctx, e.bin, args...)
-
 	sink, buf, closeSink := newAgentSink(workDir)
 	defer closeSink()
-	cmd.Stdout = sink
-	cmd.Stderr = sink
-	runErr := cmd.Run()
+	run := func(args []string) error {
+		cmd := exec.CommandContext(ctx, e.bin, args...)
+		cmd.Stdout = sink
+		cmd.Stderr = sink
+		return cmd.Run()
+	}
+
+	runErr := run(e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt))
+	verdict, parseErr := parseVerdictFile(lastMsgPath)
+
+	// A clean exit whose last message is WORKING means the agent yielded its
+	// turn without a tool call and codex took that as the final answer; the
+	// session itself is intact and nothing was posted. Resume it with a nudge,
+	// up to maxResumes times, instead of burning the whole run as an ERROR.
+	for resumed := 0; resumed < e.maxResumes && runErr == nil && errors.Is(parseErr, errEndedOnWorking); resumed++ {
+		sessionID := parseSessionID(buf.String())
+		if sessionID == "" {
+			break
+		}
+		runErr = run(e.buildResumeArgs(sessionID, schemaPath, lastMsgPath))
+		verdict, parseErr = parseVerdictFile(lastMsgPath)
+	}
 	raw := buf.String()
 
 	// Prefer the report file even when the process exited non-zero; a partial
 	// run may still have written a valid final message.
 	tokens := parseTokensUsed(raw)
-	verdict, parseErr := parseVerdictFile(lastMsgPath)
 	if parseErr == nil {
 		verdict.Raw = raw
 		verdict.TokensUsed = tokens
@@ -201,6 +228,50 @@ func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string)
 	return append(args, prompt+reportingInstruction)
 }
 
+// buildResumeArgs assembles the codex exec resume invocation that nudges a
+// session which ended on a WORKING report. resume has no --sandbox/--cd
+// flags: the session's cwd is restored from its rollout, and the sandbox
+// mode is re-asserted through its config key so the resumed turns keep the
+// same write scope. Pure, pinned by table tests like buildArgs.
+func (e *codexEngine) buildResumeArgs(sessionID, schemaPath, lastMsgPath string) []string {
+	args := []string{"exec", "resume"}
+	if e.model != "" {
+		args = append(args, "--model", e.model)
+	}
+	// JSON string syntax is valid TOML basic-string syntax (see the effort
+	// override below).
+	sandbox, _ := json.Marshal(e.sandbox)
+	args = append(args,
+		"--skip-git-repo-check",
+		"-c", "sandbox_mode="+string(sandbox),
+		"--output-schema", schemaPath,
+		"--output-last-message", lastMsgPath,
+	)
+	args = append(args, e.args...)
+	if e.effort != "" {
+		effort, _ := json.Marshal(e.effort)
+		args = append(args, "-c", "model_reasoning_effort="+string(effort))
+	}
+	return append(args, sessionID, e.resumePrompt)
+}
+
+// sessionIDPattern matches the "session id:" line of codex exec's run header.
+var sessionIDPattern = regexp.MustCompile(`(?m)^session id: ([0-9a-fA-F-]{36})\s*$`)
+
+// parseSessionID extracts the run's session UUID from the engine transcript;
+// "" means the header wasn't found (and a resume is impossible).
+func parseSessionID(raw string) string {
+	m := sessionIDPattern.FindStringSubmatch(raw)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+// errEndedOnWorking marks a run whose final message was an intermediate
+// WORKING report: the agent yielded early, and the driver may resume it.
+var errEndedOnWorking = errors.New("agent ended on an intermediate WORKING report (run truncated?)")
+
 // parseVerdictFile reads and validates the agent's final-message report.
 func parseVerdictFile(path string) (Verdict, error) {
 	data, err := os.ReadFile(path)
@@ -225,7 +296,7 @@ func parseVerdict(data []byte) (Verdict, error) {
 	case DecisionWorking:
 		// WORKING is only legal mid-run; ending on it means the run was cut
 		// short before a real outcome was reported.
-		return Verdict{}, fmt.Errorf("agent ended on an intermediate WORKING report (run truncated?)")
+		return Verdict{}, errEndedOnWorking
 	default:
 		return Verdict{}, fmt.Errorf("verdict report has invalid decision %q", v.Decision)
 	}
@@ -235,16 +306,19 @@ func parseVerdict(data []byte) (Verdict, error) {
 // the end of a run, e.g. "tokens used\n192,575".
 var tokensUsedPattern = regexp.MustCompile(`(?m)^tokens used\n([0-9,]+)$`)
 
-// parseTokensUsed extracts the run's token count from the engine transcript;
-// 0 means the trailer wasn't found (truncated or older codex).
+// parseTokensUsed sums the run's token count from the engine transcript. Each
+// codex invocation prints its own per-invocation trailer, so with resumes the
+// transcript holds several and the total spend is their sum (verified live:
+// a resumed invocation reports only its own usage, not the session's).
+// 0 means no trailer was found (truncated or older codex).
 func parseTokensUsed(raw string) int {
-	matches := tokensUsedPattern.FindAllStringSubmatch(raw, -1)
-	if len(matches) == 0 {
-		return 0
+	total := 0
+	for _, m := range tokensUsedPattern.FindAllStringSubmatch(raw, -1) {
+		n, err := strconv.Atoi(strings.ReplaceAll(m[1], ",", ""))
+		if err != nil {
+			continue
+		}
+		total += n
 	}
-	n, err := strconv.Atoi(strings.ReplaceAll(matches[len(matches)-1][1], ",", ""))
-	if err != nil {
-		return 0
-	}
-	return n
+	return total
 }

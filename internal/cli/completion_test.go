@@ -18,7 +18,7 @@ func TestConfigCompletionHooks(t *testing.T) {
 	}
 	set := findCommand(configCmd, "set")
 	keys, _ := set.ValidArgsFunction(set, nil, "codex.")
-	if !reflect.DeepEqual(keys, []string{"codex.bin", "codex.effort", "codex.model", "codex.sandbox"}) {
+	if !reflect.DeepEqual(keys, []string{"codex.bin", "codex.effort", "codex.max_resumes", "codex.model", "codex.sandbox"}) {
 		t.Errorf("codex config key completion = %v", keys)
 	}
 	for _, tc := range []struct {

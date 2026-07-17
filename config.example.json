@@ -36,6 +36,8 @@
     "on_reject": "",
     "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is on the allowed-authors list for this repo and it isn't self-authored); you do not need a rule for it. Rules add EXTRA instructions when their condition matches (author_allowed / author_not_allowed / author_is_gh_user / candidate_type / repos). Give a rule an \"outcome\" (approve|comment|reject) to attach it under that post-outcome section instead of the prompt body, so behaviour can branch on the allow-list deterministically. Manage rules with the 'prompts rules' command (agent-code-review prompts rules usage).",
     "rules": [],
+    "//resume_prompt_note": "When a codex run ends on an intermediate WORKING report (the agent yielded its turn before finishing), the driver resumes the session with this nudge instead of recording an ERROR. Empty uses a built-in default; codex.max_resumes bounds the attempts.",
+    "resume_prompt": "",
     "codex": {
       "bin": "codex",
       "//model_note": "Leave empty to use codex's own default model. To pin one, pick a valid id from `codex debug models`; an invalid id fails every review with a 400.",
@@ -44,7 +46,9 @@
       "effort": "",
       "sandbox": "workspace-write",
       "//args_note": "workspace-write disables network by default, but the agent must reach GitHub via gh; this override re-enables network while keeping writes scoped to the per-PR workdir.",
-      "args": ["-c", "sandbox_workspace_write.network_access=true"]
+      "args": ["-c", "sandbox_workspace_write.network_access=true"],
+      "//max_resumes_note": "How many times to resume a session that ended on a WORKING report before recording an ERROR. Unset means 2; 0 disables resuming.",
+      "max_resumes": 2
     }
   },
   "store": {

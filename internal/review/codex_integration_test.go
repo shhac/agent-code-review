@@ -20,7 +20,7 @@ func TestCodexSmoke(t *testing.T) {
 		t.Skip("codex not on PATH")
 	}
 
-	engine := newCodex(config.CodexSettings{Sandbox: "read-only"})
+	engine := newCodex(config.CodexSettings{Sandbox: "read-only"}, "NUDGE")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 

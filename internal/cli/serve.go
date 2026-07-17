@@ -113,7 +113,6 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
 
 	running := runningLoops(opts, cfg)
-	schedCfg := pinnedLoopConfig(running)
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
 	// Bind BEFORE the scheduler starts: the port doubles as the "one daemon
 	// per address" guard, and the loops fire immediately on start; an
@@ -123,7 +122,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	if err != nil {
 		return err
 	}
-	schedDone, err := startScheduler(ctx, running, schedCfg, s, logf, usageCache.Get, shutdown)
+	schedDone, err := startScheduler(ctx, running, config.Read, s, logf, usageCache.Get, shutdown)
 	if err != nil {
 		return err
 	}
@@ -149,17 +148,6 @@ func runningLoops(opts serveOpts, cfg config.Config) dashboard.Running {
 	return dashboard.Running{
 		Discovery: !off && !opts.noDiscovery && cfg.DiscoveryEnabled(),
 		Review:    !off && !opts.noReviews && cfg.ScheduleEnabled(),
-	}
-}
-
-// pinnedLoopConfig keeps the two loop switches stable for one daemon boot,
-// while every other scheduler dial continues to reload from config.json.
-func pinnedLoopConfig(running dashboard.Running) func() config.Config {
-	return func() config.Config {
-		c := config.Read()
-		c.Discovery.Enabled = config.Bool(running.Discovery)
-		c.Schedule.Enabled = config.Bool(running.Review)
-		return c
 	}
 }
 
@@ -193,7 +181,7 @@ func startScheduler(ctx context.Context, running dashboard.Running, cfg func() c
 	}
 	done := make(chan error, 1)
 	go func() {
-		err := sched.StartGraceful(shutdown.gracefulCtx, shutdown.reviewCtx)
+		err := sched.StartGraceful(shutdown.gracefulCtx, shutdown.reviewCtx, running.Discovery, running.Review)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			logf("scheduler stopped: %v", err)
 		}

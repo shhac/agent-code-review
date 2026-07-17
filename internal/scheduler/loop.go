@@ -6,60 +6,45 @@ import (
 	"time"
 )
 
-// Start runs the enabled loops until ctx is cancelled. Cancellation is forceful:
-// in-flight reviewers receive ctx too. The serve daemon uses StartGraceful so
-// its first Ctrl-C can stop scheduling while letting claimed reviewers finish.
-func (s *Scheduler) Start(ctx context.Context) error {
-	return s.StartGraceful(ctx, ctx)
-}
-
-// StartGraceful runs the enabled loops until stopCtx is cancelled: discovery
+// StartGraceful runs the requested loops until stopCtx is cancelled: discovery
 // receives stopCtx and is cancelled immediately, while in-flight reviewers
 // receive reviewCtx and drain unless that second context is cancelled too.
-// Enabled loops fire immediately on start.
-func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context) error {
+// Loops fire immediately on start.
+//
+// The discovery/review switches are per-boot decisions owned by the caller
+// (serve resolves config defaults + --no-* flags into them); nothing re-reads
+// config's enabled flags mid-run, so a config edit cannot resurrect a loop
+// this boot turned off. Callers with both switches off should not start the
+// scheduler at all — called that way, this returns once reconciliation is
+// done.
+func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context, discovery, review bool) error {
 	// A crashed daemon leaves a running run row (which would block cycles
 	// for the whole lease window) and claimed queue rows (which would wait
 	// it out too). Reconcile before the first tick so a restart resumes
 	// immediately. Failure is logged, not fatal; the lease window is the
 	// fallback that always works.
-	reconcile := s.reconcile
-	if reconcile == nil {
-		reconcile = s.Reconcile
-	}
-	if err := reconcile(reviewCtx); err != nil {
+	if err := s.reconcile(reviewCtx); err != nil {
 		s.logf("reconcile: %v", err)
 	}
 	boot := s.cfg()
-	loopRunner := s.loopRunner
-	if loopRunner == nil {
-		loopRunner = s.loop
-	}
 	var wg sync.WaitGroup
-	started := false
-	if boot.DiscoveryEnabled() {
+	if discovery {
 		s.logf("scheduler: discovery every %s (config reloads live)", boot.DiscoverInterval())
-		started = true
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			loopRunner(stopCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
+			s.loopRunner(stopCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
 		}()
 	}
-	if boot.ScheduleEnabled() {
+	if review {
 		s.logf("scheduler: reviews every %s, max parallel %d (config reloads live)", boot.Interval(), boot.MaxParallel())
-		started = true
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			loopRunner(stopCtx, func() time.Duration { return s.cfg().Interval() }, "review", func(context.Context) error {
+			s.loopRunner(stopCtx, func() time.Duration { return s.cfg().Interval() }, "review", func(context.Context) error {
 				return s.reviewCycle(stopCtx, reviewCtx)
 			})
 		}()
-	}
-	if !started {
-		<-stopCtx.Done()
-		return stopCtx.Err()
 	}
 
 	done := make(chan struct{})

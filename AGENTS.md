@@ -67,9 +67,10 @@ internal/
   CLI at runtime.
 - **Config reloads live via getters.** Scheduler, discoverer, and dashboard
   hold `func() config.Config` and re-read per cycle/sweep/request (each
-  operation snapshots ONCE and threads the snapshot). The serve daemon pins
-  the loop on/off switches to the boot flags (`schedCfg` in serve.go) so a
-  config edit can't resurrect a loop `--no-*` disabled.
+  operation snapshots ONCE and threads the snapshot). The loop on/off
+  switches are NOT config: serve resolves config defaults + `--no-*` flags
+  once at boot and passes them to `StartGraceful` as explicit parameters, so
+  a config edit can't resurrect a loop this boot disabled.
 - **Queue row ⇔ pending work.** Completion moves a candidate into append-only
   history atomically (SHA-gated `Complete`); "reviewing" is derived from a
   claim lease (`ClaimActive`, window `LeaseWindow()`), never stored as a

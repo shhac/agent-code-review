@@ -78,15 +78,18 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 	if usageFn == nil {
 		usageFn = func() usage.Snapshot { return usage.Snapshot{} }
 	}
-	return &Scheduler{
+	sched := &Scheduler{
 		cfg: cfg, store: s, disc: d, ghUser: ghUser,
 		logf: logf, usageFn: usageFn,
 		newEngine:      func(c config.Config) (review.Engine, error) { return review.NewEngine(c.Review) },
 		stillCandidate: discover.StillCandidate,
 		pidAlive:       pidAlive,
-		loopRunner:     nil,
-		reconcile:      nil,
 	}
+	// Method-valued seams can't appear in the literal above; same convention
+	// as the other seams: production impls at construction, tests overwrite.
+	sched.loopRunner = sched.loop
+	sched.reconcile = sched.Reconcile
+	return sched
 }
 
 // Discover scrapes the watched repos for candidates. Purely deterministic:

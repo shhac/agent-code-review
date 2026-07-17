@@ -184,7 +184,10 @@ func startScheduler(ctx context.Context, running dashboard.Running, cfg func() c
 		logf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
 		return nil, nil
 	}
-	sched, err := buildScheduler(ctx, cfg, s, logf, usageFn)
+	// Warnings fold into the daemon log so they reach stderr AND the
+	// dashboard's log ring, unlike run's structured-notice route.
+	warnf := func(notice, hint string) { logf("warning: %s (%s)", notice, hint) }
+	sched, err := buildScheduler(ctx, cfg, s, logf, warnf, usageFn)
 	if err != nil {
 		return nil, err
 	}

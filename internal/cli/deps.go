@@ -51,9 +51,11 @@ func stderrLogf(format string, args ...any) {
 // codex settings reload live (the engine itself is rebuilt each cycle); the
 // engine name is validated up front so a typo still fails at boot. logf is
 // the cycle log sink: plain stderr for one-shot runs; serve tees it into the
-// dashboard's log ring. usageFn feeds the usage-floor pause; nil (one-shot
-// runs) bypasses the floor.
-func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Store, logf func(string, ...any), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
+// dashboard's log ring. warnf carries agent-actionable warnings: one-shot
+// runs route it to output.WriteNotice so stderr stays structured; serve folds
+// it into the daemon log (and thus the dashboard's log ring). usageFn feeds
+// the usage-floor pause; nil (one-shot runs) bypasses the floor.
+func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Store, logf func(string, ...any), warnf func(notice, hint string), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
 	cfg := cfgFn()
 	if _, err := review.NewEngine(cfg.Review); err != nil {
 		return nil, err
@@ -65,7 +67,8 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 		if u, err := discover.CurrentUser(ctx); err == nil {
 			ghUser = u
 		} else {
-			logf("warning: could not resolve gh user (%v); self-review rule will not fire", err)
+			warnf(fmt.Sprintf("could not resolve gh user (%v); self-review rule will not fire", err),
+				"set gh_user in config, or authenticate the gh CLI")
 		}
 	}
 

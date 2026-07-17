@@ -177,7 +177,13 @@ func queueLogCmd() *cobra.Command {
 					return err
 				}
 				path := review.LogPath(workDir)
-				stderrLogf("streaming %s", path)
+				// Stdout is the raw log stream, so the preamble is a
+				// structured notice: stderr stays machine-readable.
+				hint := ""
+				if !follow {
+					hint = "pass --follow to keep streaming as the agent writes"
+				}
+				output.WriteNotice(os.Stderr, "streaming "+path, hint)
 				return streamFile(cmd.Context(), path, follow, os.Stdout)
 			})
 		},

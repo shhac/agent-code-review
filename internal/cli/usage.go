@@ -20,6 +20,8 @@ COMMANDS:
                                                      Per-loop overrides for this boot; config
                                                      (discovery.enabled/schedule.enabled) sets defaults
   run  [--once]                                      Run a single review cycle, then exit
+                                                     (stdout: outcome records + a summary;
+                                                     stderr: cycle progress logs)
 
   queue ls [--repo R]                                List pending candidates (NDJSON)
   queue add <owner/repo> <number>                    Add a PR to the queue

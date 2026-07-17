@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -228,6 +229,69 @@ exit 0
 		}
 		if got := len(invocations(t, workDir)); got != 1 {
 			t.Errorf("invocations = %d, want just the initial exec", got)
+		}
+	})
+}
+
+// TestCodexResumeExitBranches completes the resume loop's exit matrix using
+// the in-process runCmd seam: a resume invocation that dies mid-run. The
+// loop must stop on the process failure (no further resumes), and the
+// "report file wins" precedence must apply to resumed runs exactly as to
+// initial ones, with every invocation's token trailer still summed.
+func TestCodexResumeExitBranches(t *testing.T) {
+	setup := func(t *testing.T, resumeReport string) (*codexEngine, string, *int) {
+		t.Helper()
+		workDir := t.TempDir()
+		e := newCodex(config.CodexSettings{}, "NUDGE")
+		calls := 0
+		e.runCmd = func(_ context.Context, args []string, sink io.Writer) error {
+			calls++
+			report := resumeReport
+			if calls == 1 {
+				_, _ = io.WriteString(sink, "session id: 019f6f77-3c3d-7ce3-966d-d4b2083f4459\ntokens used\n100\n")
+				report = `{"decision":"WORKING","summary":"starting"}`
+			} else {
+				_, _ = io.WriteString(sink, "diagnostics\ntokens used\n50\n")
+			}
+			if err := os.WriteFile(filepath.Join(workDir, "verdict.json"), []byte(report), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if calls == 1 {
+				return nil
+			}
+			return errors.New("exit status 7")
+		}
+		return e, workDir, &calls
+	}
+
+	t.Run("resume dying without a report returns ERROR and stops resuming", func(t *testing.T) {
+		e, workDir, calls := setup(t, `{"decision":"WORKING","summary":"cut short again"}`)
+		v, err := e.Review(context.Background(), Request{WorkDir: workDir, Prompt: "P"})
+		if err == nil || !strings.Contains(err.Error(), "codex exec") {
+			t.Fatalf("failed resume must surface the exec error, got %v", err)
+		}
+		if v.Decision != DecisionError {
+			t.Errorf("verdict = %+v, want ERROR", v)
+		}
+		if v.TokensUsed != 150 {
+			t.Errorf("tokens = %d, want both invocations summed (150)", v.TokensUsed)
+		}
+		if *calls != 2 {
+			t.Errorf("invocations = %d; the loop must stop on a process failure, not retry to the cap", *calls)
+		}
+	})
+
+	t.Run("resume dying after a valid report still wins", func(t *testing.T) {
+		e, workDir, calls := setup(t, `{"decision":"APPROVED","summary":"posted before dying"}`)
+		v, err := e.Review(context.Background(), Request{WorkDir: workDir, Prompt: "P"})
+		if err != nil {
+			t.Fatalf("valid report must win over the non-zero exit, got %v", err)
+		}
+		if v.Decision != DecisionApproved || v.Summary != "posted before dying" || v.TokensUsed != 150 {
+			t.Errorf("verdict = %+v, want the resumed APPROVED report with summed tokens", v)
+		}
+		if *calls != 2 {
+			t.Errorf("invocations = %d, want exec + one resume", *calls)
 		}
 	})
 }

@@ -34,6 +34,11 @@ type codexEngine struct {
 	maxResumes   int
 	resumePrompt string
 
+	// runCmd launches one codex invocation with its output teed into sink:
+	// the engine's only subprocess seam. Production execs e.bin; tests inject
+	// a recorder so the resume loop and outcome precedence test in-process.
+	runCmd func(ctx context.Context, args []string, sink io.Writer) error
+
 	// codex --version is constant for a given install, so a burst of reviews
 	// shouldn't re-exec the probe for each one. codexVersion caches it briefly.
 	versionMu sync.Mutex
@@ -65,8 +70,19 @@ func newCodex(c config.CodexSettings, resumePrompt string) *codexEngine {
 	if c.MaxResumes != nil && *c.MaxResumes >= 0 {
 		resumes = *c.MaxResumes
 	}
-	return &codexEngine{bin: bin, model: c.Model, effort: c.Effort, sandbox: sandbox, args: c.Args,
+	e := &codexEngine{bin: bin, model: c.Model, effort: c.Effort, sandbox: sandbox, args: c.Args,
 		maxResumes: resumes, resumePrompt: resumePrompt}
+	e.runCmd = e.execCodex
+	return e
+}
+
+// execCodex is the production runCmd: one codex subprocess, stdout+stderr
+// teed into sink.
+func (e *codexEngine) execCodex(ctx context.Context, args []string, sink io.Writer) error {
+	cmd := exec.CommandContext(ctx, e.bin, args...)
+	cmd.Stdout = sink
+	cmd.Stderr = sink
+	return cmd.Run()
 }
 
 func (e *codexEngine) Name() string { return "codex" }
@@ -150,32 +166,34 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 
 	sink, buf, closeSink := newAgentSink(workDir)
 	defer closeSink()
-	run := func(args []string) error {
-		cmd := exec.CommandContext(ctx, e.bin, args...)
-		cmd.Stdout = sink
-		cmd.Stderr = sink
-		return cmd.Run()
-	}
+	verdict, parseErr, runErr := e.runWithResumes(ctx, req.Prompt, workDir, schemaPath, lastMsgPath, sink, buf)
+	return resolveOutcome(verdict, parseErr, runErr, buf.String())
+}
 
-	runErr := run(e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt))
+// runWithResumes drives the initial exec and, when a clean exit's last
+// message is WORKING (the agent yielded its turn without a tool call and
+// codex took that as the final answer — the session is intact and nothing
+// was posted), resumes the session with a nudge, up to maxResumes times,
+// instead of burning the whole run as an ERROR.
+func (e *codexEngine) runWithResumes(ctx context.Context, prompt, workDir, schemaPath, lastMsgPath string, sink io.Writer, buf *bytes.Buffer) (Verdict, error, error) {
+	runErr := e.runCmd(ctx, e.buildArgs(workDir, schemaPath, lastMsgPath, prompt), sink)
 	verdict, parseErr := parseVerdictFile(lastMsgPath)
-
-	// A clean exit whose last message is WORKING means the agent yielded its
-	// turn without a tool call and codex took that as the final answer; the
-	// session itself is intact and nothing was posted. Resume it with a nudge,
-	// up to maxResumes times, instead of burning the whole run as an ERROR.
 	for resumed := 0; resumed < e.maxResumes && runErr == nil && errors.Is(parseErr, errEndedOnWorking); resumed++ {
 		sessionID := parseSessionID(buf.String())
 		if sessionID == "" {
 			break
 		}
-		runErr = run(e.buildResumeArgs(sessionID, schemaPath, lastMsgPath))
+		runErr = e.runCmd(ctx, e.buildResumeArgs(sessionID, schemaPath, lastMsgPath), sink)
 		verdict, parseErr = parseVerdictFile(lastMsgPath)
 	}
-	raw := buf.String()
+	return verdict, parseErr, runErr
+}
 
-	// Prefer the report file even when the process exited non-zero; a partial
-	// run may still have written a valid final message.
+// resolveOutcome applies the driver's precedence rules to one finished run:
+// a valid report wins even over a non-zero exit (a partial run may still
+// have written its final message); otherwise the process failure, and last
+// a clean exit that never produced a report.
+func resolveOutcome(verdict Verdict, parseErr, runErr error, raw string) (Verdict, error) {
 	tokens := parseTokensUsed(raw)
 	if parseErr == nil {
 		verdict.Raw = raw

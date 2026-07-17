@@ -62,7 +62,8 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context, discovery,
 
 // loopHeartbeat is how often a loop re-reads its interval, so a cadence edit
 // in config.json takes effect within this bound instead of after the
-// previously scheduled tick.
+// previously scheduled tick. New copies it onto the Scheduler's heartbeat
+// seam; tests shrink theirs to drive the loop without real 30s waits.
 const loopHeartbeat = 30 * time.Second
 
 // due reports whether interval has elapsed since the last run started. The
@@ -87,7 +88,7 @@ func (s *Scheduler) loop(ctx context.Context, interval func() time.Duration, nam
 	}
 	last := time.Now()
 	run()
-	ticker := time.NewTicker(loopHeartbeat)
+	ticker := time.NewTicker(s.heartbeat)
 	defer ticker.Stop()
 	for {
 		select {

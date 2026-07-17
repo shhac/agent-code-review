@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,6 +54,69 @@ func TestStartGracefulForceContextReturnsWithoutWaitingForLoops(t *testing.T) {
 	force()
 	if err := <-done; err != context.Canceled {
 		t.Errorf("StartGraceful error = %v, want context.Canceled", err)
+	}
+}
+
+// TestLoopCadence drives the real loop with a millisecond heartbeat and pins
+// its contract: fn runs immediately on start, a shrunk live interval makes an
+// already-elapsed run due on the next beat, and cancellation stops further
+// runs. No test drove this production path before; only the pure `due` helper
+// was covered.
+func TestLoopCadence(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := New(func() config.Config { return config.Config{} }, nil, nil, "", nil, nil)
+	s.heartbeat = time.Millisecond
+
+	var mu sync.Mutex
+	runs := 0
+	interval := time.Hour // effectively "never due" until shrunk
+	getInterval := func() time.Duration { mu.Lock(); defer mu.Unlock(); return interval }
+	countRuns := func() int { mu.Lock(); defer mu.Unlock(); return runs }
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.loop(ctx, getInterval, "test", func(context.Context) error {
+			mu.Lock()
+			runs++
+			mu.Unlock()
+			return nil
+		})
+	}()
+
+	waitFor := func(cond func() bool, what string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	// Immediate first run, then nothing while the interval is an hour.
+	waitFor(func() bool { return countRuns() == 1 }, "the immediate first run")
+	time.Sleep(20 * time.Millisecond)
+	if got := countRuns(); got != 1 {
+		t.Fatalf("runs = %d before the interval elapsed, want 1", got)
+	}
+
+	// Shrinking the live interval makes the already-elapsed run due on the
+	// next heartbeat: the documented config-reload contract.
+	mu.Lock()
+	interval = time.Millisecond
+	mu.Unlock()
+	waitFor(func() bool { return countRuns() >= 2 }, "the shrunk interval to trigger a run")
+
+	// Cancellation stops further runs.
+	cancel()
+	<-done
+	final := countRuns()
+	time.Sleep(20 * time.Millisecond)
+	if got := countRuns(); got != final {
+		t.Errorf("runs advanced after cancellation: %d -> %d", final, got)
 	}
 }
 

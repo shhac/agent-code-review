@@ -69,6 +69,9 @@ type Scheduler struct {
 	// starting timers or requiring a fully populated Store.
 	loopRunner func(context.Context, func() time.Duration, string, func(context.Context) error)
 	reconcile  func(context.Context) error
+	// heartbeat is loop's interval-re-read cadence (loopHeartbeat in
+	// production; shrunk by tests so the loop is drivable without real waits).
+	heartbeat time.Duration
 }
 
 func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
@@ -84,6 +87,7 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 		newEngine:      func(c config.Config) (review.Engine, error) { return review.NewEngine(c.Review) },
 		stillCandidate: discover.StillCandidate,
 		pidAlive:       pidAlive,
+		heartbeat:      loopHeartbeat,
 	}
 	// Method-valued seams can't appear in the literal above; same convention
 	// as the other seams: production impls at construction, tests overwrite.

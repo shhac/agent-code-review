@@ -24,6 +24,19 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	if c.HeadSHA == "" {
 		return fmt.Errorf("enqueue %s#%d: empty head SHA", c.Repo, c.Number)
 	}
+	// The eligible_at and hold_reason CASE arms must stay in lockstep (the
+	// reason always describes the timestamp it rides with), so both arms are
+	// built from the same predicate strings rather than repeating them.
+	const (
+		manualWins = `excluded.source = 'manual' OR queue.source = 'manual'`
+		newerHold  = `COALESCE(excluded.eligible_at, TIMESTAMP '1970-01-01') > COALESCE(queue.eligible_at, TIMESTAMP '1970-01-01')`
+	)
+	holdCase := func(column string) string {
+		return fmt.Sprintf(`CASE
+	    WHEN %s THEN NULL
+	    WHEN %s THEN excluded.%s
+	    ELSE queue.%s END`, manualWins, newerHold, column, column)
+	}
 	sql := fmt.Sprintf(`INSERT INTO queue
 	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, eligible_at, hold_reason)
 	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s)
@@ -34,14 +47,8 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  url = excluded.url,
 	  head_sha = excluded.head_sha,
 	  updated_at = excluded.updated_at,
-	  eligible_at = CASE
-	    WHEN excluded.source = 'manual' OR queue.source = 'manual' THEN NULL
-	    WHEN COALESCE(excluded.eligible_at, TIMESTAMP '1970-01-01') > COALESCE(queue.eligible_at, TIMESTAMP '1970-01-01') THEN excluded.eligible_at
-	    ELSE queue.eligible_at END,
-	  hold_reason = CASE
-	    WHEN excluded.source = 'manual' OR queue.source = 'manual' THEN NULL
-	    WHEN COALESCE(excluded.eligible_at, TIMESTAMP '1970-01-01') > COALESCE(queue.eligible_at, TIMESTAMP '1970-01-01') THEN excluded.hold_reason
-	    ELSE queue.hold_reason END,
+	  eligible_at = `+holdCase("eligible_at")+`,
+	  hold_reason = `+holdCase("hold_reason")+`,
 	  source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE queue.source END`,
 		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
 		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), q(orDefault(c.Source, SourceDiscovered)),

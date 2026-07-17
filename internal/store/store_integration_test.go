@@ -286,6 +286,39 @@ func TestCompleteSHAGate(t *testing.T) {
 	}
 }
 
+// TestListReviewsSince pins the dashboard feed's time filter: the boundary
+// row (reviewed_at == since) is included, earlier rows are excluded, results
+// come oldest-first, and a zero since means "no lower bound" (matching
+// TokensUsed) rather than silently matching nothing via `>= NULL`.
+func TestListReviewsSince(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	for i, at := range []time.Time{base.Add(-time.Hour), base, base.Add(time.Hour)} {
+		rec := Review{Repo: "o/r", Number: 50 + i, HeadSHA: "sha", Verdict: "COMMENTED", ReviewedAt: at}
+		if err := s.Complete(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.ListReviewsSince(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Number != 51 || got[1].Number != 52 {
+		t.Fatalf("since filter must include the boundary row, oldest first; got %+v", got)
+	}
+
+	all, err := s.ListReviewsSince(ctx, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("zero since must mean no lower bound, got %d rows", len(all))
+	}
+}
+
 // TestActiveRunStaleness pins the run-lock predicate: a fresh running row
 // blocks cycles, a crashed row older than the window stops blocking them,
 // and a finished row never blocks. A regression in the cutoff comparison

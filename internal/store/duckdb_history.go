@@ -52,8 +52,13 @@ func (d *duckDB) ReviewByLogKey(ctx context.Context, repo string, number int, lo
 }
 
 func (d *duckDB) ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error) {
-	return queryMany(ctx, d, fmt.Sprintf(
-		"SELECT * FROM history WHERE reviewed_at >= %s ORDER BY reviewed_at", ts(since)), scanReview)
+	// Zero means "no lower bound", matching TokensUsed below; without the
+	// guard ts(zero) renders NULL and `>= NULL` silently matches nothing.
+	sql := "SELECT * FROM history"
+	if !since.IsZero() {
+		sql += fmt.Sprintf(" WHERE reviewed_at >= %s", ts(since))
+	}
+	return queryMany(ctx, d, sql+" ORDER BY reviewed_at", scanReview)
 }
 
 func (d *duckDB) TokensUsed(ctx context.Context, since time.Time) (int64, error) {

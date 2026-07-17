@@ -14,3 +14,19 @@ export function feedLive(detail = new Date().toLocaleTimeString()) {
 export function feedStale(detail = 'stale') {
   feed.set({ ok: false, detail });
 }
+
+// withFeed wraps a route's refresh so the report-your-health contract can't
+// be forgotten: success marks the feed live (with the returned detail, if
+// any), a throw marks it stale. Register with poll()/onMount instead of
+// calling feedLive/feedStale inline.
+export function withFeed(fn: () => Promise<string | void> | string | void): () => Promise<void> {
+  return async () => {
+    try {
+      const detail = await fn();
+      if (typeof detail === 'string') feedLive(detail);
+      else feedLive();
+    } catch {
+      feedStale();
+    }
+  };
+}

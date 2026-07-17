@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getReviews } from '../lib/api';
-  import { feedLive, feedStale } from '../lib/feed';
+  import { withFeed } from '../lib/feed';
   import { ago, durSecs, tokens, when } from '../lib/format';
   import { navigate } from '../lib/nav';
   import Pager from '../lib/Pager.svelte';
@@ -16,13 +16,8 @@
   const perPage = 25;
 
   async function refresh() {
-    try {
-      const rv = await getReviews(500);
-      reviews = rv.reviews || [];
-      feedLive();
-    } catch {
-      feedStale();
-    }
+    const rv = await getReviews(500);
+    reviews = rv.reviews || [];
   }
 
   // The filter matches anywhere in "repo#number title author verdict", so
@@ -39,7 +34,7 @@
     return rs.filter((r) => `${r.repo}#${r.number} ${r.title} ${r.author} ${r.verdict}`.toLowerCase().includes(needle));
   }
 
-  poll(refresh, 15000);
+  poll(withFeed(refresh), 15000);
 </script>
 
 <section class="page-head">

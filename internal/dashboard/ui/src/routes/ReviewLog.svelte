@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getReviewLog } from '../lib/api';
   import { parseCodexLog, verdictShaped } from '../lib/codexlog';
-  import { feedLive, feedStale } from '../lib/feed';
+  import { withFeed } from '../lib/feed';
   import { durSecs, prHref, rel, tokens, when } from '../lib/format';
   import { poll } from '../lib/poll';
   import StatusBadge from '../lib/StatusBadge.svelte';
@@ -19,26 +19,22 @@
   let showRaw = false;
 
   async function refresh() {
-    try {
-      const pinned = pane ? pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40 : true;
-      const data = await getReviewLog(reviewRef);
-      available = !!data.available;
-      state = data.state || '';
-      content = data.content || '';
-      truncated = !!data.truncated;
-      pr = data.pr || null;
-      loaded = true;
-      feedLive(state || 'no log');
-      setTimeout(() => {
-        if (pinned && pane) pane.scrollTop = pane.scrollHeight;
-      });
-    } catch {
-      feedStale();
-    }
+    const pinned = pane ? pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40 : true;
+    const data = await getReviewLog(reviewRef);
+    available = !!data.available;
+    state = data.state || '';
+    content = data.content || '';
+    truncated = !!data.truncated;
+    pr = data.pr || null;
+    loaded = true;
+    setTimeout(() => {
+      if (pinned && pane) pane.scrollTop = pane.scrollHeight;
+    });
+    return state || 'no log';
   }
 
   // Live reviews tail fast; finished ones only need the occasional re-read.
-  poll(refresh, () => (state === 'reviewing' ? 3000 : 15000));
+  poll(withFeed(refresh), () => (state === 'reviewing' ? 3000 : 15000));
 
   // A finished review wears its verdict; in-flight states wear themselves.
   $: displayStatus = state === 'finished' ? pr?.verdict || 'finished' : state;

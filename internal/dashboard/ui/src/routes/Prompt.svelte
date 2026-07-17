@@ -3,7 +3,7 @@
   import { getPrompt, getPromptPreview } from '../lib/api';
   import PromptBox from '../lib/PromptBox.svelte';
   import PillToggle from '../lib/PillToggle.svelte';
-  import { feedLive, feedStale } from '../lib/feed';
+  import { withFeed } from '../lib/feed';
   import type { PromptResponse, PromptPreviewResponse, RuleCondition } from '../lib/types';
 
   const EXAMPLE_REPO = 'example-org/example-repo';
@@ -44,15 +44,11 @@
   $: allowed, self, candidateType, repo, loadPreview();
 
   async function load() {
-    try {
-      promptData = await getPrompt();
-      feedLive('read-only');
-    } catch {
-      feedStale();
-    }
+    promptData = await getPrompt();
+    return 'read-only';
   }
 
-  onMount(load);
+  onMount(withFeed(load));
 </script>
 
 <section class="page-head">

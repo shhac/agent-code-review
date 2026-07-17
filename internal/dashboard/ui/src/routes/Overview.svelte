@@ -1,7 +1,7 @@
 <script lang="ts">
   import ActivityChart from '../lib/ActivityChart.svelte';
   import { getQueue, getReviews, getRuns, getStats, getUsage, queuePR } from '../lib/api';
-  import { feedLive, feedStale } from '../lib/feed';
+  import { withFeed } from '../lib/feed';
   import { dur, rel, tokens, when, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
   import QueueBoard from '../lib/QueueBoard.svelte';
@@ -37,29 +37,24 @@
 
   async function refresh() {
     if (dragging) return; // never yank the list out from under a drag
-    try {
-      const [q, rv, rn, us, st] = await Promise.all([
-        getQueue(),
-        getReviews(100),
-        getRuns(100),
-        getUsage(),
-        getStats(),
-      ]);
-      queue = q.candidates || [];
-      counts = q.counts || { total: queue.length, queued: 0, reviewing: 0, held: 0 };
-      reviews = rv.reviews || [];
-      runs = rn.runs || [];
-      usageAvailable = !!us.available;
-      usage = us.usage || null;
-      usagePaused = !!us.review_paused;
-      tokensTotal = us.tokens_total || 0;
-      tokens24h = us.tokens_24h || 0;
-      pausedReason = us.paused_reason || '';
-      buckets = st.buckets || [];
-      feedLive();
-    } catch {
-      feedStale();
-    }
+    const [q, rv, rn, us, st] = await Promise.all([
+      getQueue(),
+      getReviews(100),
+      getRuns(100),
+      getUsage(),
+      getStats(),
+    ]);
+    queue = q.candidates || [];
+    counts = q.counts || { total: queue.length, queued: 0, reviewing: 0, held: 0 };
+    reviews = rv.reviews || [];
+    runs = rn.runs || [];
+    usageAvailable = !!us.available;
+    usage = us.usage || null;
+    usagePaused = !!us.review_paused;
+    tokensTotal = us.tokens_total || 0;
+    tokens24h = us.tokens_24h || 0;
+    pausedReason = us.paused_reason || '';
+    buckets = st.buckets || [];
   }
 
   async function addToQueue() {
@@ -67,13 +62,13 @@
     try {
       await queuePR(addInput.trim());
       addInput = '';
-      await refresh();
+      await withFeed(refresh)();
     } catch (e: any) {
       addErr = e.message;
     }
   }
 
-  poll(refresh, 15000);
+  poll(withFeed(refresh), 15000);
 </script>
 
 <section class="hero">

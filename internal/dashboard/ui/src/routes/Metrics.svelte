@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getMetrics } from '../lib/api';
-  import { feedLive, feedStale } from '../lib/feed';
+  import { withFeed } from '../lib/feed';
   import { durSecs, maxOf, tokens } from '../lib/format';
   import { metricFacets, scatterClass, scatterPos, trendPoints, verdictRing } from '../lib/metrics';
   import type { MetricsResponse } from '../lib/types';
@@ -25,13 +25,12 @@
   $: ring = verdictRing(data?.verdicts || {});
 
   async function load() {
-    try {
-      data = await getMetrics(range, model, effort);
-      feedLive('metrics');
-    } catch { feedStale(); }
+    data = await getMetrics(range, model, effort);
+    return 'metrics';
   }
-  function changed() { load(); }
-  onMount(load);
+  const reload = withFeed(load);
+  function changed() { void reload(); }
+  onMount(reload);
 </script>
 
 <section class="hero metrics-hero">

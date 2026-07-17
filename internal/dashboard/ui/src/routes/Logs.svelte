@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getLogs } from '../lib/api';
-  import { feedLive, feedStale } from '../lib/feed';
+  import { withFeed } from '../lib/feed';
   import { when } from '../lib/format';
   import { poll } from '../lib/poll';
 
@@ -9,21 +9,17 @@
   let logPane: HTMLDivElement;
 
   async function refresh() {
-    try {
-      const pinned = logPane ? logPane.scrollHeight - logPane.scrollTop - logPane.clientHeight < 40 : true;
-      const data = await getLogs();
-      logsAvailable = !!data.available;
-      logEntries = data.entries || [];
-      feedLive(`${logEntries.length} lines`);
-      setTimeout(() => {
-        if (pinned && logPane) logPane.scrollTop = logPane.scrollHeight;
-      });
-    } catch {
-      feedStale();
-    }
+    const pinned = logPane ? logPane.scrollHeight - logPane.scrollTop - logPane.clientHeight < 40 : true;
+    const data = await getLogs();
+    logsAvailable = !!data.available;
+    logEntries = data.entries || [];
+    setTimeout(() => {
+      if (pinned && logPane) logPane.scrollTop = logPane.scrollHeight;
+    });
+    return `${logEntries.length} lines`;
   }
 
-  poll(refresh, 5000);
+  poll(withFeed(refresh), 5000);
 </script>
 
 <section class="page-head">

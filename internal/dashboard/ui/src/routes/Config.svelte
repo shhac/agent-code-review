@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getAuthors, getConfig } from '../lib/api';
-  import { feedLive, feedStale } from '../lib/feed';
+  import { withFeed } from '../lib/feed';
   import type { AllowedAuthor, ConfigResponse } from '../lib/types';
 
   type SettingsGroup = [string, [string, string][]];
@@ -36,20 +36,13 @@
   ] satisfies SettingsGroup[]) : [];
 
   async function load() {
-    try {
-      const [cfg, au] = await Promise.all([
-        getConfig(),
-        getAuthors(),
-      ]);
-      configData = cfg;
-      authors = au.authors || [];
-      feedLive('read-only');
-    } catch {
-      feedStale();
-    }
+    const [cfg, au] = await Promise.all([getConfig(), getAuthors()]);
+    configData = cfg;
+    authors = au.authors || [];
+    return 'read-only';
   }
 
-  onMount(load);
+  onMount(withFeed(load));
 </script>
 
 <section class="page-head">

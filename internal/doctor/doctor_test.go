@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shhac/agent-code-review/internal/config"
 )
 
 // Blocking is what the exit code and the boot warning both key off, so it
@@ -83,5 +85,43 @@ func TestClaudeAuthCheckMissingBinary(t *testing.T) {
 	c := claudeAuthCheck(t.Context(), "definitely-not-a-real-binary-xyz")
 	if c.OK || !strings.Contains(c.Detail, "not on PATH") {
 		t.Errorf("check = %+v, want a not-on-PATH failure", c)
+	}
+}
+
+// Check.Name is treated as a unique key: the CLI reports only the first
+// failure, and consumers read the rows as one-per-check. Two config problems
+// must therefore fold into one row rather than emitting two rows sharing a
+// name, which silently hid the second problem.
+func TestConfigCheckFoldsEveryProblemIntoOneRow(t *testing.T) {
+	c := configCheck([]string{"model unsupported in auto mode", "allow_tools bypasses the classifier"})
+	if c.OK || c.Name != "engine-config" {
+		t.Fatalf("check = %+v, want a single failing engine-config row", c)
+	}
+	for _, want := range []string{"model unsupported", "bypasses the classifier"} {
+		if !strings.Contains(c.Detail, want) {
+			t.Errorf("detail = %q, must mention %q — a hidden problem is the bug this fixes", c.Detail, want)
+		}
+	}
+	if c.Hint == "" {
+		t.Error("a failing check must carry a hint")
+	}
+}
+
+func TestConfigCheckPassesWhenNothingConflicts(t *testing.T) {
+	if c := configCheck(nil); !c.OK || c.Name != "engine-config" {
+		t.Errorf("check = %+v, want a passing engine-config row", c)
+	}
+}
+
+// Whatever Run returns, no two checks may share a name.
+func TestRunEmitsUniqueCheckNames(t *testing.T) {
+	seen := map[string]int{}
+	for _, c := range Run(t.Context(), config.Config{}) {
+		seen[c.Name]++
+	}
+	for name, n := range seen {
+		if n > 1 {
+			t.Errorf("check %q emitted %d times; Name is used as a unique key", name, n)
+		}
 	}
 }

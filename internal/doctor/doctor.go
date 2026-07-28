@@ -47,16 +47,24 @@ func Run(ctx context.Context, cfg config.Config) []Check {
 		binaryCheck(ctx, "duckdb", store.DuckDBBin(), "--version", "install duckdb (brew install duckdb), or set AGENT_CODE_REVIEW_DUCKDB_PATH"),
 	}
 	checks = append(checks, engineChecks(ctx, engine, cfg)...)
-	for _, problem := range review.Preflight(cfg.Review) {
-		checks = append(checks, Check{
-			Name: "engine-config", OK: false, Blocking: true, Detail: problem,
-			Hint: "agent-code-review config set ...",
-		})
+	return append(checks, configCheck(review.Preflight(cfg.Review)))
+}
+
+// configCheck folds every static configuration problem into ONE check.
+// Check.Name is a unique key everywhere else here — the CLI keys its exit
+// message off the first failure, and any consumer reading the NDJSON rows
+// reasonably assumes one row per check. Emitting a row per problem broke that
+// silently: a config with two problems reported two rows both called
+// engine-config, and only the first reached the error message.
+func configCheck(problems []string) Check {
+	if len(problems) == 0 {
+		return Check{Name: "engine-config", OK: true, Blocking: true, Detail: "no conflicting settings"}
 	}
-	if !hasCheck(checks, "engine-config") {
-		checks = append(checks, Check{Name: "engine-config", OK: true, Blocking: true, Detail: "no conflicting settings"})
+	return Check{
+		Name: "engine-config", OK: false, Blocking: true,
+		Detail: strings.Join(problems, "; "),
+		Hint:   "agent-code-review config set ...",
 	}
-	return checks
 }
 
 // Blocking reports whether any blocking check failed, i.e. whether reviews
@@ -160,13 +168,4 @@ func run(ctx context.Context, bin string, args ...string) (string, error) {
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
 	return line
-}
-
-func hasCheck(checks []Check, name string) bool {
-	for _, c := range checks {
-		if c.Name == name {
-			return true
-		}
-	}
-	return false
 }

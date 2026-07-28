@@ -50,6 +50,7 @@
     thinking: 'thinking',
     codex: 'agent',
     claude: 'agent',
+    error: 'failed',
     tokens: 'tokens used',
   };
   // The tokens trailer renders as a meta-styled bubble; every agent message

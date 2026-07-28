@@ -5,6 +5,8 @@
 // lines:
 //
 //   user            the prompt handed to the agent
+//   error           why a run ended without a report (claude only; codex has
+//                   no equivalent, so the marker simply never appears)
 //   thinking        a reasoning summary (absent when summaries are off)
 //   codex | claude  an agent message, named for the engine that produced it
 //   exec            a command; a " succeeded|exited|failed in <dur>:" line ends
@@ -41,10 +43,11 @@ export type LogEvent =
   | { kind: 'user'; body: string }
   | { kind: 'thinking'; body: string }
   | { kind: AgentKind; body: string }
+  | { kind: 'error'; body: string }
   | { kind: 'tokens'; body: string }
   | ExecEvent;
 
-const markers = new Set(['user', 'thinking', ...agentKinds, 'exec', 'tokens used']);
+const markers = new Set(['user', 'thinking', ...agentKinds, 'exec', 'error', 'tokens used']);
 const execResult = /^ (succeeded|exited|failed)\b.*?(?: in ([^\s:]+))?:?\s*$/;
 
 // parseAgentLog splits the raw stream into events, or returns null when the
@@ -57,7 +60,7 @@ export function parseAgentLog(raw: string): LogEvent[] | null {
   const events: LogEvent[] = [];
   // Prose blocks accumulate into `body`; exec blocks are event objects
   // mutated in place so interleaved results can attach to earlier commands.
-  let kind: 'meta' | 'user' | 'thinking' | AgentKind | 'exec' | 'tokens' = 'meta';
+  let kind: 'meta' | 'user' | 'thinking' | AgentKind | 'exec' | 'error' | 'tokens' = 'meta';
   let body: string[] = [];
   const pending: ExecEvent[] = []; // exec events awaiting a result line
   // Where a non-marker line lands while in an exec section: the one cursor.
@@ -75,7 +78,7 @@ export function parseAgentLog(raw: string): LogEvent[] | null {
     if (markers.has(line)) {
       if (kind !== 'exec') flushProse();
       sink = null;
-      kind = line === 'tokens used' ? 'tokens' : (line as 'user' | 'thinking' | AgentKind | 'exec');
+      kind = line === 'tokens used' ? 'tokens' : (line as 'user' | 'thinking' | AgentKind | 'exec' | 'error');
       if (kind === 'exec') {
         const ev: ExecEvent = { kind: 'exec', command: '', output: '' };
         events.push(ev);

@@ -150,3 +150,36 @@ describe('claude transcripts render through the same parser', () => {
     expect('body' in tokens ? tokens.body : '').toBe('42,800\n~ $0.6231 at API rates');
   });
 });
+
+// A claude run that ends without a report writes why under an `error` marker.
+// Before that existed, a failed review's log read only "tokens used 0" and the
+// dashboard had nothing to show.
+describe('failed runs explain themselves', () => {
+  const failed = join(
+    'session id: abc-123',
+    'user',
+    'Review PR #21212',
+    'error',
+    'error_during_execution: Claude Code process exited with code 1',
+    'tokens used',
+    '0',
+  );
+
+  it('parses the error marker as its own event', () => {
+    const events = parseAgentLog(failed);
+    expect(events!.map((e) => e.kind)).toEqual(['meta', 'user', 'error', 'tokens']);
+  });
+
+  it('keeps the reason intact', () => {
+    const err = parseAgentLog(failed)!.find((e) => e.kind === 'error')!;
+    expect('body' in err ? err.body : '').toBe(
+      'error_during_execution: Claude Code process exited with code 1',
+    );
+  });
+
+  // The marker must not swallow the trailer that follows it.
+  it('still reads the token trailer', () => {
+    const tokens = parseAgentLog(failed)!.find((e) => e.kind === 'tokens')!;
+    expect('body' in tokens ? tokens.body : '').toBe('0');
+  });
+});

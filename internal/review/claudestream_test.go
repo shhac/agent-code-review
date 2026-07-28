@@ -277,3 +277,41 @@ func TestTranscodeHandlesWireShapeVariance(t *testing.T) {
 		t.Errorf("unknown tool-result shape must fall back to raw:\n%s", got)
 	}
 }
+
+// A run that ends without a report must say WHY in the transcript. Review
+// 21212 failed three seconds in and its log read only "tokens used 0",
+// because the driver captured structured_output and usage and discarded
+// is_error, subtype, and result — dropping the diagnosis exactly when it was
+// the only thing worth having.
+func TestTranscodeRendersFailureReason(t *testing.T) {
+	got, tr := transcode(t,
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"Claude Code process exited with code 1","usage":{"input_tokens":0}}`,
+	)
+	if !strings.Contains(got, "error\nerror_during_execution: Claude Code process exited with code 1") {
+		t.Errorf("failure must render under the error marker:\n%s", got)
+	}
+	// And the driver's error names it, rather than saying "no structured output".
+	if _, err := tr.verdict(); err == nil || !strings.Contains(err.Error(), "exited with code 1") {
+		t.Errorf("verdict error = %v, want the CLI's own reason", err)
+	}
+}
+
+// A successful run must stay silent: an error bubble on every review would
+// train the reader to ignore it.
+func TestTranscodeRendersNoFailureOnSuccess(t *testing.T) {
+	got, _ := transcode(t,
+		`{"type":"result","subtype":"success","structured_output":{"decision":"APPROVED","summary":"ok"},"usage":{"input_tokens":10}}`,
+	)
+	if strings.Contains(got, "\nerror\n") {
+		t.Errorf("a successful run must not render a failure:\n%s", got)
+	}
+}
+
+// The shape review 21212 actually produced: no structured output, no error
+// flag, nothing else to go on. It must still say something.
+func TestTranscodeRendersBareMissingReport(t *testing.T) {
+	got, _ := transcode(t, `{"type":"result","subtype":"success","usage":{"input_tokens":0}}`)
+	if !strings.Contains(got, "error\nthe run ended without a report") {
+		t.Errorf("a report-less run must still explain itself:\n%s", got)
+	}
+}

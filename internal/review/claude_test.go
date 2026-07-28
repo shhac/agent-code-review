@@ -339,3 +339,25 @@ func TestResumableRunToleratesMissingCostAccessor(t *testing.T) {
 		t.Errorf("verdict = %+v", v)
 	}
 }
+
+// The 21212 shape end to end: the driver must surface the CLI's reason in the
+// error AND in the transcript the dashboard renders.
+func TestClaudeFailureSurfacesReason(t *testing.T) {
+	zero := 0
+	e := newClaude(config.ClaudeSettings{MaxResumes: &zero}, "nudge")
+	e.runCmd = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
+		_, _ = io.WriteString(stream, `{"type":"system","subtype":"init","session_id":"s1"}`+"\n"+
+			`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"credit balance too low","usage":{"input_tokens":0}}`+"\n")
+		return nil
+	}
+	v, err := e.Review(context.Background(), Request{Prompt: "go", WorkDir: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "credit balance too low") {
+		t.Errorf("error = %v, want the CLI's reason", err)
+	}
+	if v.Decision != DecisionError {
+		t.Errorf("decision = %q, want ERROR", v.Decision)
+	}
+	if !strings.Contains(v.Raw, "error\nerror_during_execution: credit balance too low") {
+		t.Errorf("transcript must carry the reason:\n%s", v.Raw)
+	}
+}

@@ -31,7 +31,12 @@ type streamEvent struct {
 	} `json:"message"`
 	StructuredOutput json.RawMessage `json:"structured_output"`
 	TotalCostUSD     float64         `json:"total_cost_usd"`
-	Usage            *struct {
+	// IsError and Result carry the run's own account of a failure. Without
+	// them a failed run rendered as a bare "tokens used 0" and the reason was
+	// discarded, which is precisely the transcript you need most.
+	IsError bool            `json:"is_error"`
+	Result  json.RawMessage `json:"result"`
+	Usage   *struct {
 		InputTokens              int `json:"input_tokens"`
 		OutputTokens             int `json:"output_tokens"`
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
@@ -71,6 +76,7 @@ type streamTranscoder struct {
 	tokens        int             // summed across every invocation, like codex's per-run trailers
 	costUSD       float64         // ditto; see renderResult for what this figure means
 	report        json.RawMessage // structured_output of the most recent result message
+	failure       string          // the run's own account of why it ended without a report
 	promptSeen    bool            // the first text-bearing user message is the prompt, the rest are tool results
 	pendingPrompt string          // registered by the driver, rendered on the first agent activity
 	pending       []time.Time     // start times of tool calls awaiting a result, FIFO
@@ -241,6 +247,14 @@ func (t *streamTranscoder) renderResult(ev streamEvent) {
 		t.tokens += ev.Usage.InputTokens + ev.Usage.OutputTokens +
 			ev.Usage.CacheCreationInputTokens + ev.Usage.CacheReadInputTokens
 	}
+	// A run that ends with no report has failed; say so in the transcript
+	// rather than leaving a bare token trailer. The CLI's own wording is the
+	// best diagnosis available, and it is otherwise dropped.
+	if reason := resultFailure(ev); reason != "" {
+		t.failure = reason
+		t.emit("error", reason)
+	}
+
 	// Summed for the same reason as the tokens, and verified the same way.
 	// NOT money charged: on a subscription this is what the run's tokens
 	// would have cost at API rates, which is precisely the figure
@@ -259,11 +273,55 @@ func (t *streamTranscoder) renderResult(ev streamEvent) {
 	}
 }
 
+// resultFailure describes a result event that carries no usable report: the
+// CLI's is_error flag, its subtype, and whatever it put in `result`. "" when
+// the run reported an outcome normally.
+func resultFailure(ev streamEvent) string {
+	hasReport := len(ev.StructuredOutput) > 0 && !bytes.Equal(bytes.TrimSpace(ev.StructuredOutput), []byte("null"))
+	if hasReport && !ev.IsError {
+		return ""
+	}
+	parts := []string{}
+	if ev.Subtype != "" && ev.Subtype != "success" {
+		parts = append(parts, ev.Subtype)
+	}
+	if text := decodeResultText(ev.Result); text != "" {
+		parts = append(parts, text)
+	}
+	if len(parts) == 0 {
+		if ev.IsError {
+			return "the run reported an error with no detail"
+		}
+		if !hasReport {
+			return "the run ended without a report"
+		}
+		return ""
+	}
+	return strings.Join(parts, ": ")
+}
+
+// decodeResultText reads the result payload, which is a plain string for most
+// outcomes and an object for some; an unrecognised shape falls back to its raw
+// form rather than being dropped.
+func decodeResultText(raw json.RawMessage) string {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return strings.TrimSpace(text)
+	}
+	return strings.TrimSpace(string(raw))
+}
+
 // verdict reads the run's most recent structured report. claude applies the
 // schema only to the final output, so an absent report means the run ended
 // without one (a hard error, a budget or turn cap), not that it is mid-flight.
 func (t *streamTranscoder) verdict() (Verdict, error) {
 	if len(t.report) == 0 {
+		if t.failure != "" {
+			return Verdict{}, fmt.Errorf("no report: %s", t.failure)
+		}
 		return Verdict{}, fmt.Errorf("no structured output in the result event")
 	}
 	return parseVerdict(t.report)

@@ -352,6 +352,10 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 }
 /* escape .terminal p's two-column grid; bubbles own their layout */
 .log-bubble p { display: block; margin: 0; white-space: pre-wrap; word-break: break-word; }
+/* A run that ended without a report says why here; styled like a failed exec
+   so it reads as the problem it is rather than as agent output. */
+.log-bubble.error { border-left-color: var(--bad-ink); }
+.log-bubble.error .kind { color: var(--bad-ink); }
 .log-bubble.agent { border-left-color: var(--accent); }
 .log-bubble.agent .kind { color: var(--accent); }
 .log-bubble.thinking { color: var(--dim); }

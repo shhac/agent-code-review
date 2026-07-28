@@ -216,7 +216,7 @@ func (t *streamTranscoder) emitToolResult(b contentBlock) {
 		elapsed = " in " + t.now().Sub(t.pending[0]).Truncate(10*time.Millisecond).String()
 		t.pending = t.pending[1:]
 	}
-	fmt.Fprintf(t.out, " %s%s:\n%s\n", status, elapsed, decodeToolResult(b.Content))
+	_, _ = fmt.Fprintf(t.out, " %s%s:\n%s\n", status, elapsed, decodeToolResult(b.Content))
 }
 
 func (t *streamTranscoder) renderResult(ev streamEvent) {
@@ -253,9 +253,9 @@ func (t *streamTranscoder) renderResult(ev streamEvent) {
 	// cost line rides along so a live log shows spend without waiting for
 	// the review to land in history; codex reports none, so it stays off
 	// there rather than printing a misleading zero.
-	fmt.Fprintf(t.out, "tokens used\n%s\n", withThousands(t.tokens))
+	_, _ = fmt.Fprintf(t.out, "tokens used\n%s\n", withThousands(t.tokens))
 	if t.costUSD > 0 {
-		fmt.Fprintf(t.out, "~ $%.4f at API rates\n", t.costUSD)
+		_, _ = fmt.Fprintf(t.out, "~ $%.4f at API rates\n", t.costUSD)
 	}
 }
 
@@ -271,13 +271,19 @@ func (t *streamTranscoder) verdict() (Verdict, error) {
 
 // emit writes one marker block. An empty marker writes banner text, which the
 // parser attributes to the pre-marker meta section.
+//
+// Write errors are deliberately dropped here and in the other renderers: the
+// sink is a best-effort log tee that already degrades to buffer-only when the
+// workspace cannot hold a file (see newAgentSink), and failing a review
+// because its transcript could not be written would trade a cosmetic loss for
+// a real one.
 func (t *streamTranscoder) emit(marker, body string) {
 	body = strings.TrimRight(body, "\n")
 	if marker == "" {
-		fmt.Fprintf(t.out, "%s\n", body)
+		_, _ = fmt.Fprintf(t.out, "%s\n", body)
 		return
 	}
-	fmt.Fprintf(t.out, "%s\n%s\n", marker, body)
+	_, _ = fmt.Fprintf(t.out, "%s\n%s\n", marker, body)
 }
 
 // decodeContent reads a message's content, which is an array of blocks for

@@ -72,10 +72,10 @@ type Engine interface {
 
 // Engines lists the wired review engines, default first: the one vocabulary
 // behind NewEngine's dispatch and error text and the CLI's validation and
-// completion. (config.Engine()'s display default must restate the first
-// entry — config cannot import review without a cycle; TestNewEngine pins
-// the two in step.)
-var Engines = []string{"codex", "claude"}
+// completion. Defined in config (which this package already imports) so that
+// config.Engine()'s default and this list cannot disagree; re-exported here
+// because "which engines exist" reads as a review concept at the call sites.
+var Engines = config.EngineNames
 
 // NewEngine builds the configured engine.
 func NewEngine(cfg config.ReviewSettings) (Engine, error) {

@@ -98,12 +98,32 @@ func (c Config) LeaseWindow() time.Duration {
 	return 2 * time.Hour
 }
 
-// Engine is the review engine id (default "codex").
+// EngineNames lists the wired review engines, default first. It lives here
+// rather than in the review package because config is the one package every
+// consumer already imports: review, the CLI, the dashboard, and doctor all
+// depend on config, and none of them can be depended on in return. Holding it
+// the other way round forced Engine() to restate the default as a literal and
+// needed a cross-package test to catch the two drifting.
+//
+// review re-exports this as review.Engines, so existing callers are unchanged.
+var EngineNames = []string{"codex", "claude"}
+
+// Engine is the review engine id, defaulting to the first wired engine.
 func (c Config) Engine() string {
 	if c.Review.Engine != "" {
 		return c.Review.Engine
 	}
-	return "codex"
+	return EngineNames[0]
+}
+
+// BinFor is the named engine's configured binary, whether or not it is the
+// engine currently selected. Callers that meter or diagnose EVERY engine need
+// this; callers that only care about the active one want EngineBin.
+func (c Config) BinFor(engine string) string {
+	if engine == "claude" {
+		return c.Review.Claude.Bin
+	}
+	return c.Review.Codex.Bin
 }
 
 // EngineBin is the configured engine's binary; empty means the engine picks
@@ -115,10 +135,7 @@ func (c Config) Engine() string {
 // themselves. Adding a third engine then touches this file once instead of
 // every consumer.
 func (c Config) EngineBin() string {
-	if c.Engine() == "claude" {
-		return c.Review.Claude.Bin
-	}
-	return c.Review.Codex.Bin
+	return c.BinFor(c.Engine())
 }
 
 // EngineModel is the configured engine's model; empty means the engine's own

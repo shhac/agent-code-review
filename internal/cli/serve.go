@@ -19,6 +19,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/doctor"
 	"github.com/shhac/agent-code-review/internal/logbuf"
+	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/scheduler"
 	"github.com/shhac/agent-code-review/internal/store"
 	"github.com/shhac/agent-code-review/internal/usage"
@@ -172,10 +173,11 @@ func runningLoops(opts serveOpts, cfg config.Config) dashboard.Running {
 // rather than vanishing. The usage FLOOR still consults only the configured
 // engine, since that is the account reviews actually spend from.
 func usageSources(cfg config.Config) []usage.Source {
-	return []usage.Source{
-		{Engine: "codex", Bin: cfg.Review.Codex.Bin},
-		{Engine: "claude", Bin: cfg.Review.Claude.Bin},
+	sources := make([]usage.Source, 0, len(review.Engines))
+	for _, engine := range review.Engines {
+		sources = append(sources, usage.Source{Engine: engine, Bin: cfg.BinFor(engine)})
 	}
+	return sources
 }
 
 func startDashboard(addr string, dash *dashboard.Server, logf scheduler.Logf, stop func()) (*http.Server, error) {

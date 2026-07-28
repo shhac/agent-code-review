@@ -353,8 +353,8 @@ func TestNewEngine(t *testing.T) {
 	if _, err := NewEngine(config.ReviewSettings{Engine: "mystery"}); err == nil {
 		t.Error("unknown engine must fail")
 	}
-	// config.Engine()'s display default cannot reference Engines (import
-	// cycle), so pin the restated literal here instead.
+	// Engines and config.Engine()'s default are now the same value, so there
+	// is no restated literal left to drift; this just pins the wiring.
 	if got := (config.Config{}).Engine(); got != Engines[0] {
 		t.Errorf("config.Engine() default %q must match Engines[0] %q", got, Engines[0])
 	}

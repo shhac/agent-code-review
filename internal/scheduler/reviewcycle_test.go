@@ -47,7 +47,7 @@ func newCycleScheduler(fs *fakeCycleStore, fe *fakeEngine) *Scheduler {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
 	s := New(func() config.Config { return cfg }, fs, nil, "the-gh-user", nil, nil)
 	s.newEngine = func(config.Config) (review.Engine, error) { return fe, nil }
-	s.stillCandidate = func(context.Context, string, int) (bool, string, error) { return true, "", nil }
+	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
 	return s
 }
 
@@ -82,7 +82,7 @@ func TestProcessQueueGracefulStop(t *testing.T) {
 	s := New(func() config.Config {
 		return config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
 	}, fs, nil, "the-gh-user", nil, nil)
-	s.stillCandidate = func(context.Context, string, int) (bool, string, error) { return true, "", nil }
+	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
 	stopCtx, stop := context.WithCancel(context.Background())
 	defer stop()
 

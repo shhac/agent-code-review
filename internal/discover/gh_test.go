@@ -69,7 +69,7 @@ func TestStillCandidateFromJSON(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ok, reason, err := stillCandidateFromJSON([]byte(tc.json))
+			ok, reason, err := stillCandidateFromJSON([]byte(tc.json), "", "")
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected parse error")
@@ -83,5 +83,61 @@ func TestStillCandidateFromJSON(t *testing.T) {
 				t.Errorf("got ok=%v reason=%q, want ok=%v reason=%q", ok, reason, tc.ok, tc.reason)
 			}
 		})
+	}
+}
+
+// An attempt interrupted AFTER it posted its review recorded nothing, so on
+// re-claim nothing downstream knows the work is done. Until now this was
+// caught only as a side effect: GitHub clears the review request when a
+// requested reviewer submits, so the candidacy gate happened to reject the PR.
+// That is incidental, and it does not hold when the request came from a team
+// or was re-added.
+func TestStillCandidateSkipsWhatWeAlreadyReviewedAtThisHead(t *testing.T) {
+	const payload = `{"number":7,"state":"OPEN","isDraft":false,
+	  "reviewRequests":[{"login":"bot"}],"reviewDecision":"REVIEW_REQUIRED",
+	  "headRefOid":"headsha",
+	  "reviews":[{"state":"COMMENTED","author":{"login":"bot"},"commit":{"oid":"headsha"}}]}`
+
+	ok, reason, err := stillCandidateFromJSON([]byte(payload), "bot", "headsha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("a PR we already reviewed at this exact head must not be reviewed again")
+	}
+	if reason != "already reviewed at this revision" {
+		t.Errorf("reason = %q, want it to name the real cause rather than a missing request", reason)
+	}
+
+	// New commits since our review: a different head, so there is real work.
+	ok, _, err = stillCandidateFromJSON([]byte(payload), "bot", "newersha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("a newer head must still be a candidate; the guard is per revision, not per PR")
+	}
+
+	// Someone else's review at this head is not ours and blocks nothing.
+	other := `{"number":7,"state":"OPEN","isDraft":false,
+	  "reviewRequests":[{"login":"bot"}],"reviewDecision":"REVIEW_REQUIRED",
+	  "headRefOid":"headsha",
+	  "reviews":[{"state":"COMMENTED","author":{"login":"someone-else"},"commit":{"oid":"headsha"}}]}`
+	ok, _, err = stillCandidateFromJSON([]byte(other), "bot", "headsha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("another reviewer's review must not count as ours")
+	}
+
+	// Without an identity to compare against, the guard must not fire at all
+	// rather than guess.
+	ok, _, err = stillCandidateFromJSON([]byte(payload), "", "headsha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Error("no login means the guard cannot apply, not that everything is already reviewed")
 	}
 }

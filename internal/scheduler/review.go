@@ -54,7 +54,10 @@ func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate, started 
 	if c.Source == store.SourceManual {
 		return false, nil
 	}
-	ok, reason, err := s.stillCandidate(ctx, c.Repo, c.Number)
+	// The head is passed so the recheck can also answer "have we already
+	// reviewed THIS revision": an attempt interrupted after it posted recorded
+	// nothing, so without this the work would be done twice.
+	ok, reason, err := s.stillCandidate(ctx, c.Repo, c.Number, s.ghUser, c.HeadSHA)
 	if err != nil {
 		return false, fmt.Errorf("candidacy recheck: %w", err)
 	}

@@ -39,7 +39,35 @@ type ghActor struct {
 }
 
 type ghReview struct {
-	State string `json:"state"`
+	State  string  `json:"state"`
+	Author ghActor `json:"author"`
+	// Commit is the head the review was submitted against, which is what makes
+	// "have we already reviewed THIS revision" an exact question rather than a
+	// guess from timestamps.
+	Commit struct {
+		OID string `json:"oid"`
+	} `json:"commit"`
+}
+
+// AlreadyReviewedBy reports whether login has already submitted a review at
+// head. The guard against re-reviewing a PR whose previous attempt was
+// interrupted AFTER it posted: that attempt recorded nothing, so nothing else
+// downstream knows it happened.
+//
+// Until now this was prevented only as a side effect: GitHub clears the review
+// request when a requested reviewer submits, so the candidacy gate happened to
+// reject the PR. That is real but incidental, and it does not hold when the
+// review was requested from a team, or when the request is re-added.
+func (p ghPR) AlreadyReviewedBy(login, head string) bool {
+	if login == "" || head == "" {
+		return false
+	}
+	for _, r := range p.Reviews {
+		if r.Author.Login == login && r.Commit.OID == head {
+			return true
+		}
+	}
+	return false
 }
 
 // prListFields is the JSON field set requested from `gh pr list`.
@@ -76,25 +104,38 @@ func CurrentUser(ctx context.Context) (string, error) {
 // DISCOVERED candidate; the window between discovery and review is long
 // enough for someone else to have approved, merged, or closed the PR.
 func StillCandidate(ctx context.Context, repo string, number int) (bool, string, error) {
+	return StillCandidateAt(ctx, repo, number, "", "")
+}
+
+// StillCandidateAt is StillCandidate plus the already-reviewed guard: when
+// login and head are supplied, a PR this login has already reviewed at that
+// exact head is no longer a candidate. Used on a re-claim, where the previous
+// attempt may have posted its review and then died before recording anything.
+func StillCandidateAt(ctx context.Context, repo string, number int, login, head string) (bool, string, error) {
 	out, err := runGH(ctx, "pr", "view", fmt.Sprintf("%d", number),
 		"--repo", repo,
-		"--json", "number,isDraft,state,reviewRequests,reviewDecision")
+		"--json", "number,isDraft,state,reviewRequests,reviewDecision,reviews,headRefOid")
 	if err != nil {
 		return false, "", err
 	}
-	return stillCandidateFromJSON(out)
+	return stillCandidateFromJSON(out, login, head)
 }
 
 // stillCandidateFromJSON applies the live-state gate plus the shared
 // candidacy gates to a `gh pr view` payload. Pure: the state and gate
 // branches are table-tested from canned JSON, mirroring candidateFromView.
-func stillCandidateFromJSON(out []byte) (bool, string, error) {
+func stillCandidateFromJSON(out []byte, login, head string) (bool, string, error) {
 	var pr ghPR
 	if err := json.Unmarshal(out, &pr); err != nil {
 		return false, "", fmt.Errorf("parse gh pr view: %w", err)
 	}
 	if pr.State != "OPEN" {
 		return false, strings.ToLower(pr.State), nil
+	}
+	// Checked before the ordinary gates so the reason names what actually
+	// happened: the work is done, not that the request went away.
+	if pr.AlreadyReviewedBy(login, head) {
+		return false, "already reviewed at this revision", nil
 	}
 	ok, reason := candidacyGate(pr)
 	return ok, reason, nil

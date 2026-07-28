@@ -66,7 +66,7 @@ type Scheduler struct {
 	newEngine func(config.Config) (review.Engine, error)
 	// stillCandidate re-checks a PR's candidacy just before the engine runs
 	// (discover.StillCandidate in production; swapped in tests).
-	stillCandidate func(ctx context.Context, repo string, number int) (bool, string, error)
+	stillCandidate func(ctx context.Context, repo string, number int, login, head string) (bool, string, error)
 	// pidAlive reports whether a pid is a live process on THIS host (real
 	// signal-0 probe in production; swapped in tests). Reconcile uses it to
 	// tell a crashed daemon's leftovers from a sibling instance's live work.
@@ -105,7 +105,7 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 		cfg: cfg, store: s, disc: d, ghUser: ghUser,
 		logf: logf, usageFn: usageFn,
 		newEngine:      func(c config.Config) (review.Engine, error) { return review.NewEngine(c.Review) },
-		stillCandidate: discover.StillCandidate,
+		stillCandidate: discover.StillCandidateAt,
 		pidAlive:       pidAlive,
 		heartbeat:      loopHeartbeat,
 	}

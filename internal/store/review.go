@@ -40,6 +40,14 @@ type Review struct {
 	// and the unit `claude.max_budget_usd` is compared against. 0 when the
 	// engine reports none (codex prints only a token trailer).
 	CostUSD float64 `json:"cost_usd"`
+	// EstCostUSD is our own valuation of the run: its token classes priced
+	// against the model's rates. Frozen at completion time rather than derived
+	// on read, because rates change and what a review cost is what it cost
+	// then, not what the same tokens would cost today.
+	//
+	// 0 means no estimate was possible (no price table, an unlisted model, or
+	// a row recorded before the class split existed). It never means free.
+	EstCostUSD float64 `json:"est_cost_usd"`
 	// The token classes, which are priced differently and so are recorded
 	// apart: a cached read costs about a tenth of fresh input and a sixtieth
 	// of output. Each driver maps its engine's reporting onto them, so nothing
@@ -67,6 +75,26 @@ type Review struct {
 	// analytics question is a query rather than a migration and a data gap.
 	UsageRaw string `json:"usage_raw,omitempty"`
 }
+
+// EffectiveCostUSD is the run's spend however it is best known: the engine's
+// own figure when it reported one, otherwise ours. Only claude values its own
+// runs, so without the fallback every codex review reads as free.
+//
+// Deliberately expressible in SQL as
+// COALESCE(NULLIF(cost_usd, 0), est_cost_usd) — the fresh-token heuristic this
+// replaces was not, which is how a Go aggregate and a SQL one came to disagree
+// about the same history.
+func (r Review) EffectiveCostUSD() float64 {
+	if r.CostUSD > 0 {
+		return r.CostUSD
+	}
+	return r.EstCostUSD
+}
+
+// CostEstimated says whether EffectiveCostUSD came from our rates rather than
+// the engine. A total mixing the two has to be able to say how much of it is
+// inferred.
+func (r Review) CostEstimated() bool { return r.CostUSD == 0 && r.EstCostUSD > 0 }
 
 // ReviewFrom snapshots a candidate's identity into a history record: the
 // single place the Candidate→Review field fan-out lives, so a new snapshot

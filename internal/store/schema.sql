@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS history (
   tokens_used   INTEGER   NOT NULL DEFAULT 0,   -- engine-reported token spend; 0 when unknown
   cost_usd      DOUBLE                          -- engine-reported API-rate valuation of the run, NOT money charged
                           NOT NULL DEFAULT 0,   -- (on a subscription, what the tokens would cost at API rates); 0 when unreported
+  est_cost_usd  DOUBLE    NOT NULL DEFAULT 0,   -- our own valuation: token classes priced at the model's rates, frozen at
+                                                -- completion. 0 means no estimate was possible, never that the run was free.
   -- tokens_used split into the only two kinds anything downstream asks about:
   -- work the model actually processed, and context it re-read from cache.
   -- Cached re-reads dominate a long agentic session, so a total including them
@@ -121,6 +123,10 @@ UPDATE history SET fresh_tokens = input_tokens + output_tokens + cache_creation_
 ALTER TABLE history ADD COLUMN IF NOT EXISTS cache_write_tokens INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS reasoning_tokens INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS usage_raw TEXT;
+-- Our valuation, for the engine that reports none. Rows predating it read 0
+-- (no estimate), and the scheduler backfills any row that has a class split
+-- but no estimate yet.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS est_cost_usd DOUBLE DEFAULT 0;
 -- Rows predating the split at all. Their tokens_used is trustworthy as a
 -- fresh count only from an engine that never counted cached re-reads, which
 -- means every engine except claude. Naming claude here is safe by

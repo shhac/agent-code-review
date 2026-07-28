@@ -24,6 +24,7 @@ func scanReview(r map[string]any) Review {
 		WorkDir:          getString(r, "work_dir"),
 		TokensUsed:       getInt(r, "tokens_used"),
 		CostUSD:          getFloat(r, "cost_usd"),
+		EstCostUSD:       getFloat(r, "est_cost_usd"),
 		FreshTokens:      getInt(r, "fresh_tokens"),
 		InputTokens:      getInt(r, "input_tokens"),
 		OutputTokens:     getInt(r, "output_tokens"),

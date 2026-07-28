@@ -522,6 +522,7 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	rec.CacheReadTokens = 150000
 	rec.ReasoningTokens = 900
 	rec.UsageRaw = `[{"input_tokens":40000,"service_tier":"standard"}]`
+	rec.EstCostUSD = 0.4177
 	rec.Model = "gpt-5.6-terra"
 	rec.Effort = "high"
 	rec.EngineVersion = "Codex CLI 0.144.0"
@@ -572,6 +573,15 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	// literal formatter and scan path; sub-cent precision must survive both.
 	if last.CostUSD != 0.6231 {
 		t.Errorf("cost_usd = %v, want 0.6231", last.CostUSD)
+	}
+	// Both spend figures round-trip, and the reported one wins: an estimate
+	// must never displace what the engine itself said the run cost.
+	if last.EstCostUSD != 0.4177 {
+		t.Errorf("est_cost_usd = %v, want 0.4177", last.EstCostUSD)
+	}
+	if last.EffectiveCostUSD() != 0.6231 || last.CostEstimated() {
+		t.Errorf("effective cost = %v estimated=%v, want the reported 0.6231",
+			last.EffectiveCostUSD(), last.CostEstimated())
 	}
 	all, err := s.ListReviews(ctx, 5)
 	if err != nil || len(all) != 1 || all[0].Title != title {

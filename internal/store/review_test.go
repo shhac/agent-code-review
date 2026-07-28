@@ -15,3 +15,31 @@ func TestReviewLogKeyIgnoresTheTokenSplit(t *testing.T) {
 		t.Error("recording the split changed the log key, breaking existing review-log links")
 	}
 }
+
+// Only claude values its own runs, so without the estimate fallback every
+// codex review reads as free. The reported figure must still win where it
+// exists: our rates are an inference, the engine's is not.
+func TestEffectiveCostPrefersTheReportedFigure(t *testing.T) {
+	reported := Review{CostUSD: 3.71, EstCostUSD: 3.20}
+	if got := reported.EffectiveCostUSD(); got != 3.71 {
+		t.Errorf("effective = %v, want the engine's own 3.71", got)
+	}
+	if reported.CostEstimated() {
+		t.Error("a row with a reported cost must not be marked estimated")
+	}
+
+	estimated := Review{EstCostUSD: 0.42}
+	if got := estimated.EffectiveCostUSD(); got != 0.42 {
+		t.Errorf("effective = %v, want the estimate 0.42", got)
+	}
+	if !estimated.CostEstimated() {
+		t.Error("a row priced only by us must be marked estimated")
+	}
+
+	// Neither figure means unknown. It must stay 0 AND stay unmarked, so an
+	// aggregate can exclude it rather than count a free review.
+	unknown := Review{}
+	if unknown.EffectiveCostUSD() != 0 || unknown.CostEstimated() {
+		t.Error("a row with no spend figure must read as unknown, not as an estimate of zero")
+	}
+}

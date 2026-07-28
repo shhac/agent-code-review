@@ -265,6 +265,17 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 .scatter-tip { position: absolute; z-index: 3; padding: 7px 10px; background: var(--paper-2); border: 1px solid var(--line-strong); border-radius: 7px; box-shadow: var(--shadow); font-size: 11px; white-space: nowrap; pointer-events: none; }.scatter-tip p { margin: 0; }.scatter-tip .tip-head { color: var(--dim); }.scatter-tip .tip-head i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }.scatter-tip .tip-vals { margin-top: 3px; color: var(--dim); }.scatter-tip .tip-vals b { color: var(--ink); font-weight: 600; }
 .legend .model-0 { background: var(--green); }.legend .model-1 { background: var(--blue); }.legend .model-2 { background: var(--red); }.legend .other, .legend .model-3 { background: var(--amber); }
 .axis { position: absolute; color: var(--faint); font-size: 11px; }.axis.x { right: 0; bottom: -21px; }.axis.y { left: -5px; top: -20px; }
+/* Engine usage: one block per engine, stacked so codex and claude can be
+   compared at a glance. The inactive engine is dimmed rather than hidden --
+   the whole point is seeing whether the OTHER engine has headroom. */
+.engine-usage { padding: 10px 0; border-top: 1px solid var(--line); }
+.engine-usage:first-of-type { border-top: 0; padding-top: 4px; }
+.engine-usage.inactive { opacity: .72; }
+.engine-head { margin: 0 0 6px; display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.engine-head span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+.engine-head b { font-weight: 500; }
+.active-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
 .metric-table { display: grid; }.metric-table p { margin: 0; display: grid; grid-template-columns: minmax(150px, 2fr) minmax(100px, 1fr) repeat(4, 90px) minmax(110px, 1fr); gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); align-items: center; font-size: 13px; }.metric-table-head { color: var(--faint); font-size: 11px !important; letter-spacing: .08em; text-transform: uppercase; }
 @media (max-width: 860px) { .metrics-grid { grid-template-columns: 1fr; }.metric-table { overflow-x: auto; }.metric-table p { min-width: 810px; }.metrics-filters { width: 100%; }.metrics-filters label { flex: 1; }.metrics-filters select { width: 100%; } }
 @media (max-width: 600px) { .metric-kpis { grid-template-columns: 1fr; }.metrics-hero { align-items: start; }.scatter { height: 230px; } }

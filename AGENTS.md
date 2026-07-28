@@ -93,7 +93,7 @@ internal/
   every review; and under `-p` there is nobody to prompt, so repeated
   classifier blocks abort the run rather than falling back.
 
-- **Usage metering follows the configured engine.** `usage.Source` picks the
+- **Usage metering covers every engine; the floor follows the configured one.** `usage.Source` picks the
   reader: codex speaks JSON-RPC to `codex app-server`; claude reads the
   account's OAuth usage endpoint, since Claude Code exposes no usage command
   and reports no headroom in its run output. Both map onto the same
@@ -102,6 +102,15 @@ internal/
   because review availability must not depend on the meter working. The
   claude reader touches a stored credential; it must never log it, copy it
   into a Snapshot, or include it in an error string.
+
+  EVERY engine is polled, not just the configured one, so the dashboard can
+  show both side by side and an operator can see the engine they are not using
+  has headroom before switching. The usage FLOOR still consults only the
+  configured engine, since that is the account reviews spend from. A failed
+  poll keeps being retried and reports "unavailable: <reason>" in its slot; it
+  is never dropped, because a missing slot reads as "this engine does not
+  exist". `Snapshot.OK()` is the availability test: a failed poll still stamps
+  FetchedAt, so "we tried" and "we have numbers" are different questions.
 
   Distinct from usage: `history.cost_usd` is per-review spend, recorded from
   the engine's own report (claude's result event; codex reports none, so those

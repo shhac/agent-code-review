@@ -101,12 +101,23 @@ export type UsageSnapshot = {
   secondary?: UsageWindow;
 };
 
+// One engine's meter. `available` is not derivable from the snapshot: a failed
+// poll still stamps fetched_at, so the server decides, and `error` explains an
+// unavailable engine rather than leaving a blank meter.
+export type EngineUsage = {
+  engine: string;
+  active: boolean;
+  available: boolean;
+  error?: string;
+  usage?: UsageSnapshot;
+};
+
 export type UsageResponse = {
   available: boolean;
-  // Which engine's account this headroom belongs to: usage follows the
-  // configured review engine, so the panel labels itself from this.
+  // The configured engine, so the panel knows which slot is live.
   engine?: string;
-  usage?: UsageSnapshot;
+  // Every metered engine, so the one NOT in use can be compared against.
+  engines?: EngineUsage[];
   review_paused?: boolean;
   paused_reason?: string;
   tokens_total?: number;

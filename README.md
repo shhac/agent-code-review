@@ -35,8 +35,10 @@ you can expose over Tailscale.
   the loop on/off switches and the listen/Tailscale settings need a restart.
 - **Usage floors**: the review loop pauses itself when the configured
   engine's rate-limit window has less than `schedule.usage_floor.*` percent
-  remaining (default 10), and resumes when the window refills. Metering follows
-  the engine, so it always reflects the account reviews actually spend from.
+  remaining (default 10), and resumes when the window refills. The floor
+  follows the configured engine, since that is the account reviews spend from;
+  the dashboard meters **every** engine side by side so you can see whether
+  the one you're not using has more headroom before switching.
 - **Per-review spend**: every review records its token count, and its
   API-rate cost where the engine reports one, so a per-review budget can be
   set from your own data rather than guessed.

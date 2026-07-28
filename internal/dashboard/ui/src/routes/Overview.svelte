@@ -7,7 +7,7 @@
   import QueueBoard from '../lib/QueueBoard.svelte';
   import RecentRuns from '../lib/RecentRuns.svelte';
   import StatusBadge from '../lib/StatusBadge.svelte';
-  import type { Bucket, Candidate, QueueCounts, Review, Run, UsageResponse } from '../lib/types';
+  import type { Bucket, Candidate, QueueCounts, Review, Run, UsageResponse, UsageSnapshot } from '../lib/types';
 
   let queue: Candidate[] = [];
   let counts: QueueCounts = { total: 0, queued: 0, reviewing: 0, held: 0 };
@@ -24,14 +24,16 @@
   $: totalReviews = sumBuckets(buckets, 'approved') + sumBuckets(buckets, 'commented') + sumBuckets(buckets, 'requested_changes');
   $: approvedReviews = sumBuckets(buckets, 'approved');
   $: lastRun = runs[0];
-  $: usage = usageResp?.usage || null;
   $: usagePaused = !!usageResp?.review_paused;
-  // The panel meters whichever engine reviews run on, so it names that
-  // engine rather than assuming codex.
-  $: usageEngine = usageResp?.engine || 'Engine';
-  $: usageWindows = [
-    { label: 'Primary', window: usage?.primary },
-    { label: 'Secondary', window: usage?.secondary },
+  // Every metered engine, active one first, so the engine in use reads first
+  // but the alternative is visible without interaction: the panel exists to
+  // support "should I switch?", which needs a comparison, not one number.
+  $: engineUsages = [...(usageResp?.engines || [])].sort(
+    (a, b) => Number(b.active) - Number(a.active),
+  );
+  const usageWindowsOf = (u: UsageSnapshot | undefined) => [
+    { label: 'Primary', window: u?.primary },
+    { label: 'Secondary', window: u?.secondary },
   ];
 
   // State is passed in explicitly: Svelte's legacy reactive statements only
@@ -105,25 +107,33 @@
     </section>
 
     <section>
-      <div class="section-head compact"><h2>{usageEngine} usage</h2>{#if usage?.plan}<span>plan {usage.plan}</span>{/if}</div>
-      {#if !usageResp?.available}
-        <p class="muted">not available yet</p>
-      {:else if usage?.error}
-        <p class="muted">unavailable: {usage.error}</p>
-      {:else}
-        {#if usagePaused}
-          <p class="status warn"><i></i>reviews paused: {usageResp?.paused_reason}</p>
-        {/if}
-        {#each usageWindows as { label, window }}
-          {#if window}
-            <div class:hot={window.used_percent >= 90} class="meter">
-              <div><span>{windowName(window, label)}</span><b>{Math.round(window.used_percent)}%</b></div>
-              <i style={`width:${Math.min(100, Math.max(0, window.used_percent))}%`}></i>
-              {#if window.resets_at}<small>resets {when(window.resets_at * 1000)}</small>{/if}
-            </div>
-          {/if}
-        {/each}
+      <div class="section-head compact"><h2>Engine usage</h2><span>{engineUsages.length} engines</span></div>
+      {#if usagePaused}
+        <p class="status warn"><i></i>reviews paused: {usageResp?.paused_reason}</p>
       {/if}
+      {#each engineUsages as eu (eu.engine)}
+        <div class="engine-usage" class:inactive={!eu.active}>
+          <p class="engine-head">
+            <span>{eu.engine}{#if eu.active}<i class="active-dot" title="the configured review engine"></i>{/if}</span>
+            {#if eu.usage?.plan}<b>plan {eu.usage.plan}</b>{/if}
+          </p>
+          {#if !eu.available}
+            <p class="muted">unavailable{#if eu.error}: {eu.error}{/if}</p>
+          {:else}
+            {#each usageWindowsOf(eu.usage) as { label, window }}
+              {#if window}
+                <div class:hot={window.used_percent >= 90} class="meter">
+                  <div><span>{windowName(window, label)}</span><b>{Math.round(window.used_percent)}%</b></div>
+                  <i style={`width:${Math.min(100, Math.max(0, window.used_percent))}%`}></i>
+                  {#if window.resets_at}<small>resets {when(window.resets_at * 1000)}</small>{/if}
+                </div>
+              {/if}
+            {/each}
+          {/if}
+        </div>
+      {:else}
+        <p class="muted">not available yet</p>
+      {/each}
       {#if usageResp?.tokens_total}
         <div class="tokens-line"><span>Tokens spent</span><b>{tokens(usageResp?.tokens_24h || 0) || '0'} last 24h · {tokens(usageResp?.tokens_total || 0)} all time</b></div>
       {/if}

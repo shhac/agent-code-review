@@ -212,23 +212,49 @@ func toWindow(w *rpcWindow) *Window {
 	return &Window{UsedPercent: w.UsedPercent, WindowMins: w.WindowMins, ResetsAt: w.ResetsAt}
 }
 
-// Cache holds the latest snapshot and refreshes it on an interval.
-type Cache struct {
-	mu   sync.RWMutex
-	snap Snapshot
+// OK reports whether the snapshot carries usable headroom. A poll that failed
+// still stamps FetchedAt, so "we tried" and "we have numbers" are different
+// questions and callers must ask this one before rendering meters.
+func (s Snapshot) OK() bool {
+	return !s.FetchedAt.IsZero() && s.Error == "" && (s.Primary != nil || s.Secondary != nil)
 }
 
-func NewCache() *Cache { return &Cache{} }
+// Cache holds the latest snapshot per engine and refreshes each on an
+// interval. Keyed by engine because the dashboard shows every engine's
+// headroom side by side, so an operator can see that the engine they are NOT
+// using has room before deciding to switch; the usage floor still consults
+// only the configured one, since that is the account reviews spend from.
+type Cache struct {
+	mu    sync.RWMutex
+	snaps map[string]Snapshot
+}
 
-// Get returns the latest snapshot (zero value until the first poll lands).
-func (c *Cache) Get() Snapshot {
+func NewCache() *Cache { return &Cache{snaps: map[string]Snapshot{}} }
+
+// Get returns one engine's latest snapshot (zero value until its first poll
+// lands, or if it is not polled at all).
+func (c *Cache) Get(engine string) Snapshot {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.snap
+	return c.snaps[engine]
+}
+
+// All returns a copy of every engine's latest snapshot.
+func (c *Cache) All() map[string]Snapshot {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make(map[string]Snapshot, len(c.snaps))
+	for engine, snap := range c.snaps {
+		out[engine] = snap
+	}
+	return out
 }
 
 // Poll fetches immediately, then every interval until ctx is done. Failures
-// are recorded on the snapshot (Error + FetchedAt) rather than wedging.
+// are recorded on the snapshot (Error + FetchedAt) rather than wedging, and
+// deliberately keep being retried: an engine that is missing or logged out
+// today may not be tomorrow, and "unavailable, because X" is exactly what an
+// operator weighing a switch needs to see.
 func (c *Cache) Poll(ctx context.Context, interval time.Duration, src Source) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -238,7 +264,7 @@ func (c *Cache) Poll(ctx context.Context, interval time.Duration, src Source) {
 			snap = Snapshot{Error: err.Error(), FetchedAt: time.Now()}
 		}
 		c.mu.Lock()
-		c.snap = snap
+		c.snaps[src.Engine] = snap
 		c.mu.Unlock()
 		select {
 		case <-ctx.Done():

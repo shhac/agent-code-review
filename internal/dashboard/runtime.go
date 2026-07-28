@@ -5,20 +5,55 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/logbuf"
+	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/usage"
 )
 
+// engineUsage is one engine's meter as the dashboard renders it. Available
+// distinguishes "we have numbers" from "we tried and failed", which the
+// snapshot alone cannot: a failed poll still stamps FetchedAt. Error carries
+// the reason so an unavailable engine explains itself instead of showing a
+// blank meter.
+type engineUsage struct {
+	Engine    string          `json:"engine"`
+	Active    bool            `json:"active"`
+	Available bool            `json:"available"`
+	Error     string          `json:"error,omitempty"`
+	Usage     *usage.Snapshot `json:"usage,omitempty"`
+}
+
 type usageResp struct {
+	// Available reports whether the ACTIVE engine has usable numbers, kept
+	// for the panel's overall state; per-engine detail is in Engines.
 	Available bool `json:"available"`
-	// Engine names whose headroom this is: usage follows the configured
-	// review engine, so the panel must say which account it is metering
-	// rather than assuming codex.
-	Engine       string          `json:"engine"`
-	Usage        *usage.Snapshot `json:"usage,omitempty"`
-	ReviewPaused bool            `json:"review_paused,omitempty"`
-	PausedReason string          `json:"paused_reason,omitempty"`
-	TokensTotal  int64           `json:"tokens_total"`
-	Tokens24h    int64           `json:"tokens_24h"`
+	// Engine is the configured engine, so the UI knows which slot to open on.
+	Engine string `json:"engine"`
+	// Engines carries every metered engine, so an operator can see the one
+	// they are NOT using has headroom before deciding to switch.
+	Engines      []engineUsage `json:"engines"`
+	ReviewPaused bool          `json:"review_paused,omitempty"`
+	PausedReason string        `json:"paused_reason,omitempty"`
+	TokensTotal  int64         `json:"tokens_total"`
+	Tokens24h    int64         `json:"tokens_24h"`
+}
+
+// engineUsages renders every engine's cached snapshot in a stable order, with
+// the configured one marked. Engines that were never polled still appear, as
+// unavailable: a missing slot would read as "this engine does not exist".
+func engineUsages(snaps map[string]usage.Snapshot, active string) []engineUsage {
+	out := make([]engineUsage, 0, len(review.Engines))
+	for _, engine := range review.Engines {
+		snap := snaps[engine]
+		row := engineUsage{Engine: engine, Active: engine == active, Available: snap.OK(), Error: snap.Error}
+		if !snap.FetchedAt.IsZero() {
+			row.Usage = &snap
+		}
+		if !row.Available && row.Error == "" {
+			row.Error = "no usage reported yet"
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 type logsResp struct {
@@ -51,16 +86,25 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.usage == nil {
-		writeJSON(w, http.StatusOK, usageResp{Available: false, Engine: s.config().Engine(), TokensTotal: tokensTotal, Tokens24h: tokens24h})
+		writeJSON(w, http.StatusOK, usageResp{
+			Available: false, Engine: s.config().Engine(),
+			Engines:     engineUsages(nil, s.config().Engine()),
+			TokensTotal: tokensTotal, Tokens24h: tokens24h,
+		})
 		return
 	}
-	snap := s.usage.Get()
 	cfg := s.config()
+	active := cfg.Engine()
+	snaps := s.usage.All()
+	// The floor applies to the ACTIVE engine only: that is the account
+	// reviews spend from, so another engine's headroom must not pause or
+	// unpause the loop.
+	snap := snaps[active]
 	paused, reason := usage.BelowFloor(snap, cfg.UsageFloor5h(), cfg.UsageFloorWeekly())
 	writeJSON(w, http.StatusOK, usageResp{
-		Available:    !snap.FetchedAt.IsZero(),
-		Engine:       cfg.Engine(),
-		Usage:        &snap,
+		Available:    snap.OK(),
+		Engine:       active,
+		Engines:      engineUsages(snaps, active),
 		ReviewPaused: paused,
 		PausedReason: reason,
 		TokensTotal:  tokensTotal,

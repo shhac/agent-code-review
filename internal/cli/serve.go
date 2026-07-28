@@ -107,13 +107,14 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		defer func() { _ = tsDown() }()
 	}
 
-	// Poll the review engine's usage in the background so the dashboard can
-	// show remaining quota without a round trip per request. The source
-	// follows the configured engine: headroom belongs to the account that
-	// engine spends against, so polling the other one would meter a quota
-	// nothing is consuming. Resolved once at boot, like the loop switches.
+	// Poll every engine's usage in the background so the dashboard can show
+	// remaining quota without a round trip per request, and so both engines
+	// can be compared when deciding which to run on. Bins resolve once at
+	// boot, like the loop switches.
 	usageCache := usage.NewCache()
-	go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), usageSource(cfg))
+	for _, src := range usageSources(cfg) {
+		go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), src)
+	}
 
 	running := runningLoops(opts, cfg)
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
@@ -125,7 +126,8 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	if err != nil {
 		return err
 	}
-	schedDone, err := startScheduler(ctx, running, config.Read, s, logf, usageCache.Get, shutdown)
+	schedDone, err := startScheduler(ctx, running, config.Read, s, logf,
+		func() usage.Snapshot { return usageCache.Get(config.Read().Engine()) }, shutdown)
 	if err != nil {
 		return err
 	}
@@ -154,13 +156,17 @@ func runningLoops(opts serveOpts, cfg config.Config) dashboard.Running {
 	}
 }
 
-// usageSource points the usage poller at the configured engine's account.
-func usageSource(cfg config.Config) usage.Source {
-	engine := cfg.Engine()
-	if engine == "claude" {
-		return usage.Source{Engine: engine, Bin: cfg.Review.Claude.Bin}
+// usageSources lists every engine to meter. All of them, not just the
+// configured one: the dashboard shows them side by side so an operator can
+// see the engine they are NOT using has headroom before deciding to switch,
+// and an engine that is missing or logged out reports that as its state
+// rather than vanishing. The usage FLOOR still consults only the configured
+// engine, since that is the account reviews actually spend from.
+func usageSources(cfg config.Config) []usage.Source {
+	return []usage.Source{
+		{Engine: "codex", Bin: cfg.Review.Codex.Bin},
+		{Engine: "claude", Bin: cfg.Review.Claude.Bin},
 	}
-	return usage.Source{Engine: engine, Bin: cfg.Review.Codex.Bin}
 }
 
 func startDashboard(addr string, dash *dashboard.Server, logf scheduler.Logf, stop func()) (*http.Server, error) {

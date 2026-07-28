@@ -43,7 +43,6 @@ CREATE TABLE IF NOT EXISTS history (
   engine        TEXT,
   model         TEXT,                           -- managed model; NULL when the engine/default selected it
   effort        TEXT,                           -- managed reasoning effort; NULL when the model/default selected it
-  codex_version TEXT,                           -- LEGACY, superseded by engine_version; retained so old rows keep their value
   engine_version TEXT,                          -- version of the CLI that ran this review; NULL when unavailable
   reviewed_at   TIMESTAMP NOT NULL,
   duration_secs INTEGER   NOT NULL DEFAULT 0,   -- claim-to-completion elapsed; 0 for rows predating the column and for manual skips
@@ -67,13 +66,20 @@ ALTER TABLE history ADD COLUMN IF NOT EXISTS work_dir TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS tokens_used INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS model TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS effort TEXT;
-ALTER TABLE history ADD COLUMN IF NOT EXISTS codex_version TEXT;
 -- codex_version -> engine_version: the column outlived its single-engine name
--- once a second driver (claude) could produce rows. Both columns exist
--- everywhere so this backfill is valid on a fresh store too; nothing writes
--- codex_version any more, and the pre-rename rows keep their value.
+-- once a second driver (claude) could produce rows.
+--
+-- Add, backfill, drop, in that order, every boot. The add and the drop look
+-- redundant together, but each covers a path the other doesn't: the ADD keeps
+-- the backfill's UPDATE valid on a store that never had the column (a fresh
+-- one, or one already migrated by an earlier boot), and the DROP retires it
+-- once its value has been copied across. Doing both means a store upgrading
+-- from ANY earlier version -- including one that skipped the release where
+-- engine_version landed -- keeps its recorded versions.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS codex_version TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS engine_version TEXT;
 UPDATE history SET engine_version = codex_version WHERE engine_version IS NULL;
+ALTER TABLE history DROP COLUMN IF EXISTS codex_version;
 -- Per-review spend. Rows predating the column, and every codex row (codex
 -- prints a token trailer but no cost), read as 0.
 ALTER TABLE history ADD COLUMN IF NOT EXISTS cost_usd DOUBLE DEFAULT 0;

@@ -82,6 +82,11 @@ type Request struct {
 	Candidate store.Candidate
 	Prompt    string // fully assembled instructions
 	WorkDir   string // tmp workspace the engine may use
+	// ResumeSession is an engine session left open by an attempt that was
+	// interrupted (the daemon was killed mid-review). Set, the driver picks
+	// that session up with the resume nudge instead of paying for the work
+	// again from a cold start; empty, it starts fresh as usual.
+	ResumeSession string
 }
 
 // Provenance identifies the engine configuration that produced an outcome.

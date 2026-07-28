@@ -73,6 +73,15 @@ func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate, started 
 // history as the queue row is removed (atomically, SHA-gated; see
 // Store.Complete).
 func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config.Config, engine review.Engine) error {
+	// A work_dir already on the row is the previous claim's: this candidate is
+	// back in the queue because a daemon died mid-review. Read before the
+	// claim overwrites it, because its log is the only surviving record of the
+	// session that attempt had open.
+	resumeSession := ""
+	if c.WorkDir != "" {
+		resumeSession = review.SessionFromLog(c.WorkDir)
+	}
+
 	// The workdir exists before the claim so the claim can record it: from
 	// that moment <work_dir>/agent.log is the candidate's live review log.
 	workDir, err := os.MkdirTemp("", fmt.Sprintf("agent-code-review-%d-", c.Number))
@@ -111,7 +120,12 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	facts := review.DeriveFacts(c, s.ghUser, allowed)
 	prompt := review.BuildPrompt(cfg, c, facts)
 
-	verdict, reviewErr := engine.Review(ctx, review.Request{Candidate: c, Prompt: prompt, WorkDir: workDir})
+	if resumeSession != "" {
+		s.logf("review %s#%d: resuming session %s from an interrupted attempt", c.Repo, c.Number, resumeSession)
+	}
+	verdict, reviewErr := engine.Review(ctx, review.Request{
+		Candidate: c, Prompt: prompt, WorkDir: workDir, ResumeSession: resumeSession,
+	})
 	if verdict.Summary != "" {
 		s.logf("review %s#%d: %s: %s", c.Repo, c.Number, verdict.Decision, verdict.Summary)
 	}

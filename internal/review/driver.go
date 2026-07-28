@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 )
 
 // verdictSchema constrains the agent's report. codex applies the schema to
@@ -232,4 +233,41 @@ func prepareWorkspace(workDir string) (dir, schemaPath string, err error) {
 		return "", "", err
 	}
 	return workDir, schemaPath, nil
+}
+
+// logSessionPattern matches the session-id banner both transcoders render at
+// the top of every invocation.
+var logSessionPattern = regexp.MustCompile(`(?m)^session id: (\S+)\s*$`)
+
+// maxLogScan bounds how much of a previous agent log is read looking for a
+// session to resume. Generous next to a real review log, and a ceiling either
+// way so a runaway log cannot be pulled into memory at claim time.
+const maxLogScan = 8 << 20
+
+// SessionFromLog recovers the engine session a previous attempt was running,
+// from the transcript it left in workDir. "" when there is nothing to resume:
+// no log, no banner, or a log too mangled to read.
+//
+// This is what lets an interrupted review continue instead of starting over.
+// The transcript is the only place the session id survives a daemon death —
+// it lives in the transcoder's memory otherwise — which is a good reason for
+// both engines to render it into the shared format rather than keep it.
+//
+// The LAST banner wins: a log that already covers a resume holds several, and
+// the most recent names the session still open.
+func SessionFromLog(workDir string) string {
+	f, err := os.Open(LogPath(workDir))
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxLogScan))
+	if err != nil {
+		return ""
+	}
+	matches := logSessionPattern.FindAllSubmatch(data, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	return string(matches[len(matches)-1][1])
 }

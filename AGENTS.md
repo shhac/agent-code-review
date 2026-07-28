@@ -80,6 +80,28 @@ internal/
   and read by `ui/src/lib/agentlog.test.ts`; regenerate with
   `go test ./internal/review -update-golden`.
 
+- **An interrupted review is recovered, not repeated.** Killing the daemon
+  mid-review never loses the PR: the queue row survives (only `Complete`
+  retires it), `Reconcile` releases claims held by a dead pid on this host,
+  and the lease reclaims anything it cannot judge. What used to be lost was
+  the *work*. Reconcile now records the abandoned attempt through
+  `AppendHistory` (an insert that deliberately leaves the queue row pending,
+  unlike `Complete`), keeping its `work_dir` and so its transcript reachable.
+  The re-claim then reads the session id back out of that transcript
+  (`review.SessionFromLog`) and hands it to the driver, which opens with a
+  resume and the nudge instead of paying for the review again from cold. The
+  transcript is the ONLY place a session id survives a daemon death, which is
+  why both engines render it into the shared log format rather than keeping it
+  in memory. Nothing to resume degrades to a normal fresh review.
+
+- **Not reviewing twice is ours, not GitHub's.** An attempt interrupted after
+  it posted recorded nothing. It happened not to double-post only because
+  GitHub clears the review request when a requested reviewer submits, which is
+  incidental and fails for team requests. The recheck now asks directly:
+  `gh` returns `commit.oid` per review, so "have we already reviewed THIS
+  revision" is exact. Per revision, not per PR, so new commits stay reviewable;
+  manual queue adds bypass the recheck, so a deliberate re-review still works.
+
 - **The two engines report usage with opposite scopes, and it is measured.**
   claude's usage is PER-INVOCATION, so its transcoder sums; codex's
   `turn.completed` carries the SESSION TOTAL every turn, so its transcoder

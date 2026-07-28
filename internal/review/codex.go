@@ -98,6 +98,12 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 		engine: "codex exec",
 		max:    e.maxResumes,
 		start: func() error {
+			// An interrupted attempt left a live session; continuing it costs
+			// the nudge instead of the whole review again.
+			if req.ResumeSession != "" {
+				stream.userPrompt(e.resumePrompt)
+				return e.run(ctx, e.buildResumeArgs(req.ResumeSession, schemaPath, lastMsgPath), stream)
+			}
 			stream.userPrompt(req.Prompt)
 			return e.run(ctx, e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt), stream)
 		},

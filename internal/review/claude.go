@@ -173,6 +173,12 @@ func (e *claudeEngine) Review(ctx context.Context, req Request) (Verdict, error)
 		engine: "claude -p",
 		max:    e.maxResumes,
 		start: func() error {
+			// An interrupted attempt left a live session; continuing it costs
+			// the nudge instead of the whole review again.
+			if req.ResumeSession != "" {
+				stream.userPrompt(e.resumePrompt)
+				return e.run(ctx, e.buildResumeArgs(req.ResumeSession), workDir, stream, sink)
+			}
 			stream.userPrompt(req.Prompt)
 			return e.run(ctx, e.buildArgs(req.Prompt), workDir, stream, sink)
 		},

@@ -15,6 +15,7 @@ package usage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -116,21 +117,46 @@ func toClaudeWindow(w *claudeWindow, windowMins int) *Window {
 	return &Window{UsedPercent: w.Utilization, WindowMins: windowMins, ResetsAt: resets}
 }
 
-// claudePlan reads the subscription tier from `claude auth status --json`,
-// which is a local call against the same stored credential. "" when the probe
-// fails: the plan name is display sugar, never a floor input.
-func claudePlan(ctx context.Context, bin string) string {
+// ClaudeAuthStatus is what `claude auth status --json` reports. One decode of
+// this wire shape, because two packages need it: this one for the plan name
+// on a usage snapshot, and doctor for its preflight auth check. Decoding it
+// twice meant a schema change would be fixed in one place and silently
+// zero-value the other.
+type ClaudeAuthStatus struct {
+	LoggedIn         bool   `json:"loggedIn"`
+	AuthMethod       string `json:"authMethod"`
+	SubscriptionType string `json:"subscriptionType"`
+}
+
+// ErrClaudeAuthUnreadable means the probe ran but its output did not parse,
+// which is a different diagnosis from the probe failing to run at all. A
+// sentinel rather than a message, so callers branch on identity instead of
+// matching on error text.
+var ErrClaudeAuthUnreadable = errors.New("claude auth status was not readable JSON")
+
+// ReadClaudeAuthStatus runs the local auth probe. Note the CLI exits 0 while
+// logged out and reports it in the payload, so callers must check LoggedIn
+// rather than trusting the exit code.
+func ReadClaudeAuthStatus(ctx context.Context, bin string) (ClaudeAuthStatus, error) {
 	if bin == "" {
 		bin = "claude"
 	}
 	out, err := exec.CommandContext(ctx, bin, "auth", "status", "--json").Output()
 	if err != nil {
-		return ""
+		return ClaudeAuthStatus{}, err
 	}
-	var status struct {
-		SubscriptionType string `json:"subscriptionType"`
-	}
+	var status ClaudeAuthStatus
 	if err := json.Unmarshal(out, &status); err != nil {
+		return ClaudeAuthStatus{}, ErrClaudeAuthUnreadable
+	}
+	return status, nil
+}
+
+// claudePlan reads the subscription tier for a usage snapshot. "" when the
+// probe fails: the plan name is display sugar, never a floor input.
+func claudePlan(ctx context.Context, bin string) string {
+	status, err := ReadClaudeAuthStatus(ctx, bin)
+	if err != nil {
 		return ""
 	}
 	return status.SubscriptionType

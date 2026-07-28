@@ -11,7 +11,7 @@ package doctor
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -20,6 +20,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 // probeTimeout bounds each external command. Generous enough for a cold
@@ -139,17 +140,13 @@ func claudeAuthCheck(ctx context.Context, bin string) Check {
 	if _, err := exec.LookPath(bin); err != nil {
 		return Check{Name: "engine:claude-auth", Blocking: true, Detail: fmt.Sprintf("%q not on PATH", bin), Hint: hint}
 	}
-	out, err := run(ctx, bin, "auth", "status", "--json")
+	status, err := usage.ReadClaudeAuthStatus(ctx, bin)
 	if err != nil {
-		return Check{Name: "engine:claude-auth", Blocking: true, Detail: "auth status failed", Hint: hint}
-	}
-	var status struct {
-		LoggedIn         bool   `json:"loggedIn"`
-		SubscriptionType string `json:"subscriptionType"`
-		AuthMethod       string `json:"authMethod"`
-	}
-	if err := json.Unmarshal([]byte(out), &status); err != nil {
-		return Check{Name: "engine:claude-auth", Blocking: true, Detail: "auth status was not readable JSON", Hint: hint}
+		detail := "auth status failed"
+		if errors.Is(err, usage.ErrClaudeAuthUnreadable) {
+			detail = "auth status was not readable JSON"
+		}
+		return Check{Name: "engine:claude-auth", Blocking: true, Detail: detail, Hint: hint}
 	}
 	if !status.LoggedIn {
 		return Check{Name: "engine:claude-auth", Blocking: true, Detail: "not logged in", Hint: hint}

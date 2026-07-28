@@ -53,9 +53,10 @@
     tokens: 'tokens used',
   };
   // The tokens trailer renders as a meta-styled bubble; every agent message
-  // shares one style regardless of engine; everything else wears its own kind
-  // as the style class.
-  const bubbleClass: Record<string, string> = { tokens: 'meta', claude: 'codex' };
+  // shares the one `agent` style whichever engine produced it; everything else
+  // wears its own kind as the style class.
+  const styleFor = (kind: string) =>
+    kind === 'tokens' ? 'meta' : isAgentKind(kind) ? 'agent' : kind;
 </script>
 
 <section class="page-head">
@@ -115,7 +116,7 @@
             {/if}
           </article>
         {:else if ev.kind === 'user' || ev.kind === 'meta'}
-          <article class="log-bubble {bubbleClass[ev.kind] ?? ev.kind}">
+          <article class="log-bubble {styleFor(ev.kind)}">
             <details>
               <summary><span class="kind">{kindLabel[ev.kind]}</span> {lineCount(ev.body)} lines</summary>
               <pre>{ev.body}</pre>
@@ -123,7 +124,7 @@
           </article>
         {:else}
           {@const verdict = isAgentKind(ev.kind) ? verdictShaped(ev.body) : null}
-          <article class="log-bubble {bubbleClass[ev.kind] ?? ev.kind}">
+          <article class="log-bubble {styleFor(ev.kind)}">
             <header>
               <span class="kind">{kindLabel[ev.kind]}</span>
               {#if verdict && verdict.decision !== 'WORKING'}<span class="decision">decision: {verdict.decision}</span>{/if}

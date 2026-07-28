@@ -327,7 +327,7 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 .pager button:not(:disabled):hover { border-color: var(--accent); }
 
 /* Review-log bubbles: one card per stream event (prompt, agent message,
-   exec, thinking), parsed from the codex output tee. */
+   exec, thinking), parsed from the agent output tee. */
 .log-view-toggle {
   padding: 0; border: 0; background: none; cursor: pointer;
   color: var(--accent); font: inherit; font-weight: 750;
@@ -352,8 +352,8 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 }
 /* escape .terminal p's two-column grid; bubbles own their layout */
 .log-bubble p { display: block; margin: 0; white-space: pre-wrap; word-break: break-word; }
-.log-bubble.codex { border-left-color: var(--accent); }
-.log-bubble.codex .kind { color: var(--accent); }
+.log-bubble.agent { border-left-color: var(--accent); }
+.log-bubble.agent .kind { color: var(--accent); }
 .log-bubble.thinking { color: var(--dim); }
 .log-bubble.exec.failed { border-left-color: var(--bad-ink); }
 .log-bubble.exec .out, .log-bubble.exec details pre { color: var(--dim); margin-top: 6px; max-height: 320px; overflow-y: auto; }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -827,5 +828,76 @@ func TestPromote(t *testing.T) {
 	}
 	if c.QueuePos != -1 || c.EligibleAt != nil || c.HoldReason != "" || c.Source != SourceManual {
 		t.Errorf("promote must float, clear hold, and escalate: %+v", c)
+	}
+}
+
+// TestInitMigratesPreExistingHistory runs Init against a store shaped the way
+// v0.21.1 left it: a populated codex_version column and no engine_version.
+//
+// Every other test here starts from an empty temp store, where CREATE TABLE
+// already has the current columns and the migration block is a no-op — so the
+// path that actually matters (real history, a backfill, and a column DROP)
+// was never exercised. The schema comment notes this add/backfill/drop shape
+// is likely to recur for future renames, which is exactly why it needs a
+// regression test rather than a one-off manual check.
+func TestInitMigratesPreExistingHistory(t *testing.T) {
+	if _, err := exec.LookPath("duckdb"); err != nil {
+		t.Skip("duckdb CLI not on PATH")
+	}
+	path := filepath.Join(t.TempDir(), "legacy.duckdb")
+
+	// Seed the old shape directly, bypassing Store so no current-schema DDL runs.
+	seed := `CREATE TABLE history (
+	  repo TEXT NOT NULL, number INTEGER NOT NULL, title TEXT, author TEXT,
+	  head_sha TEXT NOT NULL, verdict TEXT NOT NULL, engine TEXT, model TEXT,
+	  effort TEXT, codex_version TEXT, reviewed_at TIMESTAMP NOT NULL,
+	  duration_secs INTEGER NOT NULL DEFAULT 0, work_dir TEXT,
+	  tokens_used INTEGER NOT NULL DEFAULT 0);
+	INSERT INTO history VALUES ('o/r', 7, 'legacy row', 'someone', 'sha7',
+	  'APPROVED', 'codex', 'gpt-5.6', 'high', 'codex-cli 0.144.5', now(), 42,
+	  '/tmp/wd', 1000);
+	CREATE TABLE queue (repo TEXT NOT NULL, number INTEGER NOT NULL,
+	  type TEXT NOT NULL, PRIMARY KEY (repo, number));`
+	if out, err := exec.Command("duckdb", path, "-c", seed).CombinedOutput(); err != nil {
+		t.Fatalf("seed legacy store: %v\n%s", err, out)
+	}
+
+	s, err := Open("duckdb", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	ctx := context.Background()
+	// Init twice: the migration must be idempotent, since it runs every boot.
+	for i := range 2 {
+		if err := s.Init(ctx); err != nil {
+			t.Fatalf("Init #%d: %v", i+1, err)
+		}
+	}
+
+	reviews, err := s.ListReviews(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 {
+		t.Fatalf("history rows = %d, want the seeded row to survive", len(reviews))
+	}
+	// The value must have been carried across, not dropped with the column.
+	if got := reviews[0].EngineVersion; got != "codex-cli 0.144.5" {
+		t.Errorf("engine_version = %q, want the backfilled codex_version", got)
+	}
+	if reviews[0].TokensUsed != 1000 || reviews[0].Title != "legacy row" {
+		t.Errorf("unrelated columns disturbed: %+v", reviews[0])
+	}
+
+	// And the retired column is gone rather than lingering.
+	out, err := exec.Command("duckdb", path, "-c",
+		"SELECT count(*) FROM information_schema.columns WHERE table_name='history' AND column_name='codex_version';").CombinedOutput()
+	if err != nil {
+		t.Fatalf("column check: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "0") {
+		t.Errorf("codex_version still present after migration:\n%s", out)
 	}
 }

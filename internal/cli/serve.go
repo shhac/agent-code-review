@@ -92,7 +92,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 
 	sigCh := make(chan os.Signal, 2)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, shutdownSignals...)
 	defer signal.Stop(sigCh)
 	shutdown := newShutdownController(ctx, sigCh, logf)
 	defer shutdown.stop()
@@ -267,6 +267,13 @@ func newShutdownController(ctx context.Context, signals <-chan os.Signal, logf s
 		},
 	}
 }
+
+// shutdownSignals is what the daemon stops on. SIGTERM matters as much as
+// SIGINT and is easier to forget: it is what launchd, systemd and a reboot
+// send, so dropping it would leave every unattended restart killing in-flight
+// reviews outright instead of draining them. Named so a test can pin the set,
+// which a test feeding the signal channel directly cannot.
+var shutdownSignals = []os.Signal{syscall.SIGINT, syscall.SIGTERM}
 
 func waitForScheduler(done <-chan error, forceCtx context.Context, logf scheduler.Logf) bool {
 	if done == nil {

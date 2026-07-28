@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -77,6 +78,64 @@ func TestShutdownController(t *testing.T) {
 		waitDone(t, shutdown.reviewCtx, "review context")
 		if !logs.contains("again") || !logs.contains("force shutdown") {
 			t.Fatalf("missing force shutdown log: %#v", logs.lines)
+		}
+	})
+
+	// SIGTERM is the signal that actually arrives on a reboot or an upgrade;
+	// launchd and systemd send it, and a human only ever sends SIGINT. Every
+	// other case here uses SIGINT, so handling that alone would pass the whole
+	// suite while leaving the unattended path -- the one where an in-flight
+	// review is lost -- broken.
+	t.Run("SIGTERM drains exactly like SIGINT", func(t *testing.T) {
+		signals := make(chan os.Signal, 2)
+		logs := &testLogs{}
+		shutdown := newShutdownController(context.Background(), signals, logs.logf)
+		defer shutdown.stop()
+
+		signals <- syscall.SIGTERM
+		waitDone(t, shutdown.gracefulCtx, "graceful context")
+		assertNotDone(t, shutdown.reviewCtx, "review context")
+		// The log has to name the signal: "why did the daemon stop" is the
+		// first question after an unexplained restart.
+		if !logs.contains("terminated") {
+			t.Fatalf("shutdown log must name the signal that caused it: %#v", logs.lines)
+		}
+	})
+
+	// A supervisor escalating SIGINT -> SIGTERM is the same "stop now" the
+	// second Ctrl-C means. Matching on the signal rather than counting them
+	// would leave in-flight reviews running past the deadline.
+	t.Run("a different second signal still forces", func(t *testing.T) {
+		signals := make(chan os.Signal, 2)
+		logs := &testLogs{}
+		shutdown := newShutdownController(context.Background(), signals, logs.logf)
+		defer shutdown.stop()
+
+		signals <- syscall.SIGINT
+		waitDone(t, shutdown.gracefulCtx, "graceful context")
+		signals <- syscall.SIGTERM
+		waitDone(t, shutdown.reviewCtx, "review context")
+		if !logs.contains("force shutdown") {
+			t.Fatalf("missing force shutdown log: %#v", logs.lines)
+		}
+	})
+
+	// The ordinary path: reviewers finish on their own and the daemon exits
+	// through its own cleanup. Nothing was forced, so nothing may claim it
+	// was -- a "force shutdown" line in the log after a clean drain would
+	// send anyone reading it looking for a problem that did not happen.
+	t.Run("a drain that completes on its own is not reported as forced", func(t *testing.T) {
+		signals := make(chan os.Signal, 2)
+		logs := &testLogs{}
+		shutdown := newShutdownController(context.Background(), signals, logs.logf)
+
+		signals <- syscall.SIGINT
+		waitDone(t, shutdown.gracefulCtx, "graceful context")
+
+		shutdown.stop() // what serve's deferred cleanup does once draining is done
+		waitDone(t, shutdown.reviewCtx, "review context")
+		if logs.contains("force shutdown") {
+			t.Fatalf("a clean drain must not log a forced shutdown: %#v", logs.lines)
 		}
 	})
 
@@ -178,5 +237,21 @@ func TestUsageSourcesCoversEveryWiredEngine(t *testing.T) {
 	}
 	if bins["codex"] != "codex-dev" || bins["claude"] != "claude-dev" {
 		t.Errorf("bins = %v, want each engine's configured binary", bins)
+	}
+}
+
+// The controller tests feed the signal channel directly, so they pass whether
+// or not the daemon ever asked to be told about a signal. This pins the
+// registration itself: drop SIGTERM and every unattended restart goes from
+// draining in-flight reviews to killing them, with nothing else failing.
+func TestShutdownSignalsCoverUnattendedRestarts(t *testing.T) {
+	want := map[os.Signal]string{
+		syscall.SIGINT:  "Ctrl-C",
+		syscall.SIGTERM: "launchd/systemd/reboot",
+	}
+	for sig, who := range want {
+		if !slices.Contains(shutdownSignals, sig) {
+			t.Errorf("%v is not handled; %s sends it, and an unhandled signal kills in-flight reviews", sig, who)
+		}
 	}
 }

@@ -9,10 +9,16 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
+// Cost fields are the engine's API-rate valuation, not money charged; see
+// store.Review.CostUSD. MedianCost is the number to set a per-review budget
+// from, since a mean is dragged around by the long tail.
 type metricsSummary struct {
-	Reviews        int `json:"reviews"`
-	TokensUsed     int `json:"tokens_used"`
-	MedianDuration int `json:"median_duration_secs"`
+	Reviews        int     `json:"reviews"`
+	TokensUsed     int     `json:"tokens_used"`
+	MedianDuration int     `json:"median_duration_secs"`
+	CostUSD        float64 `json:"cost_usd"`
+	MedianCostUSD  float64 `json:"median_cost_usd"`
+	MaxCostUSD     float64 `json:"max_cost_usd"`
 }
 
 type metricsDay struct {
@@ -22,12 +28,13 @@ type metricsDay struct {
 }
 
 type modelMetric struct {
-	Model          string `json:"model"`
-	Effort         string `json:"effort"`
-	CodexVersion   string `json:"codex_version"`
-	Reviews        int    `json:"reviews"`
-	TokensUsed     int    `json:"tokens_used"`
-	MedianDuration int    `json:"median_duration_secs"`
+	Model          string  `json:"model"`
+	Effort         string  `json:"effort"`
+	EngineVersion  string  `json:"engine_version"`
+	Reviews        int     `json:"reviews"`
+	TokensUsed     int     `json:"tokens_used"`
+	MedianDuration int     `json:"median_duration_secs"`
+	MedianCostUSD  float64 `json:"median_cost_usd"`
 }
 
 type metricsPoint struct {
@@ -50,6 +57,7 @@ type metricGroupKey struct{ model, effort, version string }
 type metricGroup struct {
 	metric    modelMetric
 	durations []int
+	costs     []float64
 }
 
 func matchesMetricsFilter(r store.Review, model, effort string) bool {
@@ -62,6 +70,14 @@ func medianDuration(durations []int) int {
 	}
 	sort.Ints(durations)
 	return durations[len(durations)/2]
+}
+
+func medianCost(costs []float64) float64 {
+	if len(costs) == 0 {
+		return 0
+	}
+	sort.Float64s(costs)
+	return costs[len(costs)/2]
 }
 
 func metricsSince(raw string, now time.Time) time.Time {
@@ -95,13 +111,23 @@ func metricsFor(reviews []store.Review, model, effort string) metricsResp {
 func summaryOf(reviews []store.Review) metricsSummary {
 	s := metricsSummary{Reviews: len(reviews)}
 	durations := []int{}
+	costs := []float64{}
 	for _, r := range reviews {
 		s.TokensUsed += r.TokensUsed
+		s.CostUSD += r.CostUSD
 		if r.DurationSecs > 0 {
 			durations = append(durations, r.DurationSecs)
 		}
+		// Only priced reviews shape the median and max: a codex row reports
+		// no cost, and folding its 0 in would halve the median of a mixed
+		// history and make a budget derived from it far too tight.
+		if r.CostUSD > 0 {
+			costs = append(costs, r.CostUSD)
+			s.MaxCostUSD = max(s.MaxCostUSD, r.CostUSD)
+		}
 	}
 	s.MedianDuration = medianDuration(durations)
+	s.MedianCostUSD = medianCost(costs)
 	return s
 }
 
@@ -134,9 +160,9 @@ func activityByDay(reviews []store.Review) []metricsDay {
 func modelGroups(reviews []store.Review) []modelMetric {
 	groups := map[metricGroupKey]*metricGroup{}
 	for _, r := range reviews {
-		key := metricGroupKey{r.Model, r.Effort, r.CodexVersion}
+		key := metricGroupKey{r.Model, r.Effort, r.EngineVersion}
 		if groups[key] == nil {
-			groups[key] = &metricGroup{metric: modelMetric{Model: r.Model, Effort: r.Effort, CodexVersion: r.CodexVersion}}
+			groups[key] = &metricGroup{metric: modelMetric{Model: r.Model, Effort: r.Effort, EngineVersion: r.EngineVersion}}
 		}
 		g := groups[key]
 		g.metric.Reviews++
@@ -144,10 +170,14 @@ func modelGroups(reviews []store.Review) []modelMetric {
 		if r.DurationSecs > 0 {
 			g.durations = append(g.durations, r.DurationSecs)
 		}
+		if r.CostUSD > 0 {
+			g.costs = append(g.costs, r.CostUSD)
+		}
 	}
 	models := make([]modelMetric, 0, len(groups))
 	for _, g := range groups {
 		g.metric.MedianDuration = medianDuration(g.durations)
+		g.metric.MedianCostUSD = medianCost(g.costs)
 		models = append(models, g.metric)
 	}
 	sort.Slice(models, func(i, j int) bool { return models[i].Reviews > models[j].Reviews })

@@ -9,20 +9,21 @@ import (
 
 func scanReview(r map[string]any) Review {
 	review := Review{
-		Repo:         getString(r, "repo"),
-		Number:       getInt(r, "number"),
-		Title:        getString(r, "title"),
-		Author:       getString(r, "author"),
-		HeadSHA:      getString(r, "head_sha"),
-		Verdict:      getString(r, "verdict"),
-		Engine:       getString(r, "engine"),
-		Model:        getString(r, "model"),
-		Effort:       getString(r, "effort"),
-		CodexVersion: getString(r, "codex_version"),
-		ReviewedAt:   getTime(r, "reviewed_at"),
-		DurationSecs: getInt(r, "duration_secs"),
-		WorkDir:      getString(r, "work_dir"),
-		TokensUsed:   getInt(r, "tokens_used"),
+		Repo:          getString(r, "repo"),
+		Number:        getInt(r, "number"),
+		Title:         getString(r, "title"),
+		Author:        getString(r, "author"),
+		HeadSHA:       getString(r, "head_sha"),
+		Verdict:       getString(r, "verdict"),
+		Engine:        getString(r, "engine"),
+		Model:         getString(r, "model"),
+		Effort:        getString(r, "effort"),
+		EngineVersion: getString(r, "engine_version"),
+		ReviewedAt:    getTime(r, "reviewed_at"),
+		DurationSecs:  getInt(r, "duration_secs"),
+		WorkDir:       getString(r, "work_dir"),
+		TokensUsed:    getInt(r, "tokens_used"),
+		CostUSD:       getFloat(r, "cost_usd"),
 	}
 	review.LogKey = ReviewLogKey(review)
 	return review
@@ -120,6 +121,29 @@ func getString(r map[string]any, key string) string {
 		return s
 	}
 	return fmt.Sprint(v)
+}
+
+// num renders a float as a SQL literal. Never scientific notation: DuckDB
+// accepts it, but a literal that reads as `1e-05` in a logged statement is
+// needlessly hard to eyeball.
+func num(f float64) string {
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+func getFloat(r map[string]any, key string) float64 {
+	v, ok := r[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return n
+	case string:
+		f, _ := strconv.ParseFloat(n, 64)
+		return f
+	default:
+		return 0
+	}
 }
 
 func getInt(r map[string]any, key string) int {

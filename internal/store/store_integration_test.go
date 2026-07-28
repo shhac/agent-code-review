@@ -516,7 +516,8 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	rec.TokensUsed = 192575
 	rec.Model = "gpt-5.6-terra"
 	rec.Effort = "high"
-	rec.CodexVersion = "Codex CLI 0.144.0"
+	rec.EngineVersion = "Codex CLI 0.144.0"
+	rec.CostUSD = 0.6231
 	if err := s.Complete(ctx, rec); err != nil {
 		t.Fatal(err)
 	}
@@ -542,8 +543,13 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	if last.Model != "gpt-5.6-terra" || last.Effort != "high" {
 		t.Errorf("model/effort = %q/%q, want gpt-5.6-terra/high", last.Model, last.Effort)
 	}
-	if last.CodexVersion != "Codex CLI 0.144.0" {
-		t.Errorf("codex_version = %q", last.CodexVersion)
+	if last.EngineVersion != "Codex CLI 0.144.0" {
+		t.Errorf("engine_version = %q", last.EngineVersion)
+	}
+	// Cost is the one float column, so it round-trips through its own SQL
+	// literal formatter and scan path; sub-cent precision must survive both.
+	if last.CostUSD != 0.6231 {
+		t.Errorf("cost_usd = %v, want 0.6231", last.CostUSD)
 	}
 	all, err := s.ListReviews(ctx, 5)
 	if err != nil || len(all) != 1 || all[0].Title != title {

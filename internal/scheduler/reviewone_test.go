@@ -160,7 +160,7 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 		t.Fatalf("completed = %d, want 1", len(fs.completed))
 	}
 	got := fs.completed[0]
-	if got.Model != "gpt-5.6-terra" || got.Effort != "high" || got.CodexVersion != "Codex CLI 0.144.0" {
+	if got.Model != "gpt-5.6-terra" || got.Effort != "high" || got.EngineVersion != "Codex CLI 0.144.0" {
 		t.Errorf("provenance = %+v", got)
 	}
 }
@@ -168,7 +168,7 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 type codexNamedEngine struct{ *fakeEngine }
 
 func (e *codexNamedEngine) Provenance(context.Context) review.Provenance {
-	return review.Provenance{Engine: "codex", Model: "gpt-5.6-terra", Effort: "high", CodexVersion: "Codex CLI 0.144.0"}
+	return review.Provenance{Engine: "codex", Model: "gpt-5.6-terra", Effort: "high", EngineVersion: "Codex CLI 0.144.0"}
 }
 
 // TestReviewOneClaimRace: losing the compare-and-swap claim to another

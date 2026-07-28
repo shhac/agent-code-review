@@ -129,15 +129,16 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 }
 
 // reviewRecord builds the history row for one engine outcome: ReviewFrom's
-// candidate snapshot plus the engine-reported provenance and token spend. The
+// candidate snapshot plus the engine-reported provenance and spend. The
 // companion to store.ReviewFrom, so a new provenance field has exactly one
 // place to be threaded.
 func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, claimedAt time.Time) store.Review {
 	rec := store.ReviewFrom(c, v.Decision, p.Engine, claimedAt)
 	rec.Model = p.Model
 	rec.Effort = p.Effort
-	rec.CodexVersion = p.CodexVersion
+	rec.EngineVersion = p.EngineVersion
 	rec.TokensUsed = v.TokensUsed
+	rec.CostUSD = v.CostUSD
 	return rec
 }
 

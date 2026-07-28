@@ -41,13 +41,16 @@ CREATE TABLE IF NOT EXISTS history (
   head_sha      TEXT      NOT NULL,
   verdict       TEXT      NOT NULL,             -- APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
   engine        TEXT,
-  model         TEXT,                           -- managed Codex model; NULL when the engine/default selected it
-  effort        TEXT,                           -- managed Codex reasoning effort; NULL when the model/default selected it
-  codex_version TEXT,                           -- Codex CLI version that ran this review; NULL when unavailable
+  model         TEXT,                           -- managed model; NULL when the engine/default selected it
+  effort        TEXT,                           -- managed reasoning effort; NULL when the model/default selected it
+  codex_version TEXT,                           -- LEGACY, superseded by engine_version; retained so old rows keep their value
+  engine_version TEXT,                          -- version of the CLI that ran this review; NULL when unavailable
   reviewed_at   TIMESTAMP NOT NULL,
   duration_secs INTEGER   NOT NULL DEFAULT 0,   -- claim-to-completion elapsed; 0 for rows predating the column and for manual skips
   work_dir      TEXT,                           -- the engine workspace used, kept for postmortem log access
-  tokens_used   INTEGER   NOT NULL DEFAULT 0    -- engine-reported token spend; 0 when unknown
+  tokens_used   INTEGER   NOT NULL DEFAULT 0,   -- engine-reported token spend; 0 when unknown
+  cost_usd      DOUBLE                          -- engine-reported API-rate valuation of the run, NOT money charged
+                          NOT NULL DEFAULT 0    -- (on a subscription, what the tokens would cost at API rates); 0 when unreported
 );
 
 -- Idempotent migrations for stores created before these columns existed.
@@ -65,6 +68,15 @@ ALTER TABLE history ADD COLUMN IF NOT EXISTS tokens_used INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS model TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS effort TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS codex_version TEXT;
+-- codex_version -> engine_version: the column outlived its single-engine name
+-- once a second driver (claude) could produce rows. Both columns exist
+-- everywhere so this backfill is valid on a fresh store too; nothing writes
+-- codex_version any more, and the pre-rename rows keep their value.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS engine_version TEXT;
+UPDATE history SET engine_version = codex_version WHERE engine_version IS NULL;
+-- Per-review spend. Rows predating the column, and every codex row (codex
+-- prints a token trailer but no cost), read as 0.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS cost_usd DOUBLE DEFAULT 0;
 
 -- Per-repo allowed authors: whose PRs WE (the reviewer) may approve, not who
 -- can approve. A PR may receive an APPROVE only when its author's handle is

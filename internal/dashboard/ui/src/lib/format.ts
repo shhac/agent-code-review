@@ -81,6 +81,16 @@ export function tokens(n: number | undefined) {
 	return `${Math.round(n / 1_000_000_000)}b`;
 }
 
+// Per-review spend at API rates, not money charged. Sub-cent figures are
+// common, so small values keep more precision rather than rounding to $0.00.
+// Zero means the engine reported no cost (codex), not that the run was free.
+export function usd(n: number | undefined) {
+	if (!n || n <= 0) return '';
+	if (n < 0.01) return `$${n.toFixed(4)}`;
+	if (n < 10) return `$${n.toFixed(2)}`;
+	return `$${Math.round(n)}`;
+}
+
 export function keyOf(c: Candidate) {
   return `${c.repo}#${c.number}`;
 }

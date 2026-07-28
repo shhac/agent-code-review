@@ -44,10 +44,11 @@ export type Review = {
   engine: string;
   model?: string;
   effort?: string;
-  codex_version?: string;
+  engine_version?: string;
   head_sha: string;
   reviewed_at: string;
   duration_secs: number;
+  cost_usd?: number;
   work_dir?: string;
   tokens_used?: number;
 };
@@ -79,10 +80,10 @@ export type StatsResponse = {
 };
 
 export type MetricsResponse = {
-  summary: { reviews: number; tokens_used: number; median_duration_secs: number };
+  summary: { reviews: number; tokens_used: number; median_duration_secs: number; cost_usd: number; median_cost_usd: number; max_cost_usd: number };
   verdicts: Record<string, number>;
   activity: { day: string; reviews: number; tokens_used: number }[];
-  models: { model: string; effort: string; codex_version: string; reviews: number; tokens_used: number; median_duration_secs: number }[];
+  models: { model: string; effort: string; engine_version: string; reviews: number; tokens_used: number; median_duration_secs: number; median_cost_usd: number }[];
   scatter: { model: string; effort: string; verdict: string; tokens_used: number; duration_secs: number }[];
 };
 

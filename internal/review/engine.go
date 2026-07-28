@@ -23,6 +23,12 @@ type Verdict struct {
 	Summary    string `json:"summary,omitempty"`
 	Raw        string `json:"raw,omitempty"` // full engine transcript, for debugging
 	TokensUsed int    `json:"-"`             // stream metadata, not part of the agent's report
+	// CostUSD is the run's API-rate valuation as the engine reported it, not
+	// money charged: on a subscription it is what the tokens would have cost
+	// at API rates. 0 when the engine reports no cost (codex prints only a
+	// token trailer). Like TokensUsed, it is stream metadata rather than
+	// something the agent claims.
+	CostUSD float64 `json:"-"`
 }
 
 // Verdict decisions, aliased from the store's canonical vocabulary (the
@@ -51,10 +57,10 @@ type Request struct {
 // Provenance identifies the engine configuration that produced an outcome.
 // Empty fields mean that an engine does not expose that detail.
 type Provenance struct {
-	Engine       string
-	Model        string
-	Effort       string
-	CodexVersion string
+	Engine        string
+	Model         string
+	Effort        string
+	EngineVersion string // the engine CLI's own version, however it reports it
 }
 
 // Engine reviews a single PR and owns the provenance recorded for it. This

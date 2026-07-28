@@ -1,11 +1,8 @@
 package review
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -22,7 +19,9 @@ import (
 // and running any post-approve steps) and then REPORTS BACK what it did as a
 // schema-constrained final message (--output-schema + --output-last-message),
 // which this driver parses into a Verdict. The engine never posts the review;
-// it only launches the agent and reads the report.
+// it only launches the agent and reads the report. The verdict contract, the
+// agent log, and the resume policy are shared with every other engine; see
+// driver.go.
 type codexEngine struct {
 	bin          string
 	model        string
@@ -37,10 +36,6 @@ type codexEngine struct {
 	// a recorder so the resume loop and outcome precedence test in-process.
 	runCmd func(ctx context.Context, args []string, sink io.Writer) error
 }
-
-// defaultMaxResumes bounds the resume-on-WORKING nudges per review when
-// codex.max_resumes is unset.
-const defaultMaxResumes = 2
 
 func newCodex(c config.CodexSettings, resumePrompt string) *codexEngine {
 	bin := c.Bin
@@ -75,7 +70,7 @@ func (e *codexEngine) execCodex(ctx context.Context, args []string, sink io.Writ
 func (e *codexEngine) Name() string { return "codex" }
 
 func (e *codexEngine) Provenance(ctx context.Context) Provenance {
-	return Provenance{Engine: e.Name(), Model: e.model, Effort: e.effort, CodexVersion: e.codexVersion(ctx)}
+	return Provenance{Engine: e.Name(), Model: e.model, Effort: e.effort, EngineVersion: e.codexVersion(ctx)}
 }
 
 // codexVersion probes `codex --version` uncached: the engine is rebuilt from
@@ -91,117 +86,29 @@ func (e *codexEngine) codexVersion(ctx context.Context) string {
 	return strings.TrimSpace(string(out))
 }
 
-// verdictSchema constrains the agent's messages. codex applies the schema to
-// EVERY assistant message in the run, not just the final report, so WORKING
-// exists as the honest value for intermediate progress notes; without it
-// the agent overloads SKIPPED for "I'm still investigating". ERROR is
-// deliberately absent: it is this driver's own value for "the invocation
-// failed", never something the agent reports.
-const verdictSchema = `{
-  "type": "object",
-  "properties": {
-    "decision": {
-      "type": "string",
-      "enum": ["WORKING", "APPROVED", "COMMENTED", "REQUESTED_CHANGES", "SKIPPED"],
-      "description": "WORKING = you are not finished yet (use for every intermediate progress note; NEVER as your final message). The rest report what you actually did: APPROVED = submitted an approving review; COMMENTED = left a review or comments without approving; REQUESTED_CHANGES = submitted a request-changes review; SKIPPED = did not review this PR."
-    },
-    "summary": {
-      "type": "string",
-      "description": "One or two sentences: your progress note (WORKING), or what you did and why (final message)."
-    }
-  },
-  "required": ["decision", "summary"],
-  "additionalProperties": false
-}`
-
-// agentLogName is the live log file the engine tees its output into inside
-// the review workdir; consumers locate it through LogPath.
-const agentLogName = "agent.log"
-
-// LogPath locates the review agent's live log inside its workspace. The
-// engine tees its output there as the run progresses; the CLI's `queue log`
-// and the dashboard's per-review page both tail it through this one contract.
-func LogPath(workDir string) string {
-	return filepath.Join(workDir, agentLogName)
-}
-
-// reportingInstruction is appended to every prompt so the agent knows its final
-// message is a machine-read report, not prose.
-const reportingInstruction = `
-
-Every message you emit matches the provided output schema. While you are still working, use {"decision": "WORKING", "summary": "<progress note>"} for intermediate updates. When you are completely finished, your FINAL message must report the outcome: {"decision": "APPROVED"|"COMMENTED"|"REQUESTED_CHANGES"|"SKIPPED", "summary": "..."}. The final decision must reflect what you ACTUALLY did on GitHub: APPROVED only if you submitted an approving review, COMMENTED if you left a review or comments without approving, REQUESTED_CHANGES if you submitted a request-changes review, SKIPPED if you did not review this PR (explain why in the summary). Never end on WORKING.`
-
 func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) {
-	workDir := req.WorkDir
-	if workDir == "" {
-		dir, err := os.MkdirTemp("", "agent-code-review-")
-		if err != nil {
-			return Verdict{Decision: DecisionError}, err
-		}
-		workDir = dir
-	}
-
-	schemaPath := filepath.Join(workDir, "verdict.schema.json")
-	if err := os.WriteFile(schemaPath, []byte(verdictSchema), 0o600); err != nil {
+	workDir, schemaPath, err := prepareWorkspace(req.WorkDir)
+	if err != nil {
 		return Verdict{Decision: DecisionError}, err
 	}
 	lastMsgPath := filepath.Join(workDir, "verdict.json")
 
 	sink, buf, closeSink := newAgentSink(workDir)
 	defer closeSink()
-	return e.runWithResumes(ctx, req.Prompt, workDir, schemaPath, lastMsgPath, sink, buf)
-}
 
-// runWithResumes drives the initial exec and, when a clean exit's last
-// message is WORKING (the agent yielded its turn without a tool call and
-// codex took that as the final answer — the session is intact and nothing
-// was posted), resumes the session with a nudge, up to maxResumes times,
-// instead of burning the whole run as an ERROR. The finished run resolves
-// through resolveOutcome, so callers see one ordinary (Verdict, error).
-func (e *codexEngine) runWithResumes(ctx context.Context, prompt, workDir, schemaPath, lastMsgPath string, sink io.Writer, buf *bytes.Buffer) (Verdict, error) {
-	runErr := e.runCmd(ctx, e.buildArgs(workDir, schemaPath, lastMsgPath, prompt), sink)
-	verdict, parseErr := parseVerdictFile(lastMsgPath)
-	for resumed := 0; resumed < e.maxResumes && runErr == nil && errors.Is(parseErr, errEndedOnWorking); resumed++ {
-		sessionID := parseSessionID(buf.String())
-		if sessionID == "" {
-			break
-		}
-		runErr = e.runCmd(ctx, e.buildResumeArgs(sessionID, schemaPath, lastMsgPath), sink)
-		verdict, parseErr = parseVerdictFile(lastMsgPath)
-	}
-	return resolveOutcome(verdict, parseErr, runErr, buf.String())
-}
-
-// resolveOutcome applies the driver's precedence rules to one finished run:
-// a valid report wins even over a non-zero exit (a partial run may still
-// have written its final message); otherwise the process failure, and last
-// a clean exit that never produced a report.
-func resolveOutcome(verdict Verdict, parseErr, runErr error, raw string) (Verdict, error) {
-	tokens := parseTokensUsed(raw)
-	if parseErr == nil {
-		verdict.Raw = raw
-		verdict.TokensUsed = tokens
-		return verdict, nil
-	}
-	if runErr != nil {
-		return Verdict{Decision: DecisionError, Raw: raw, TokensUsed: tokens}, fmt.Errorf("codex exec: %w", runErr)
-	}
-	return Verdict{Decision: DecisionError, Raw: raw, TokensUsed: tokens}, fmt.Errorf("codex exec succeeded but no verdict report: %w", parseErr)
-}
-
-// newAgentSink builds the writer engine output streams into: an in-memory
-// buffer (it feeds Verdict.Raw for error surfacing) teed into the workdir's
-// live agent log (see LogPath) as the run progresses, so the CLI's
-// `queue log` and the dashboard's per-review page can watch it. A workspace
-// that can't hold the log file degrades to buffer-only; diagnostics must
-// survive even when the live view can't.
-func newAgentSink(workDir string) (io.Writer, *bytes.Buffer, func()) {
-	buf := &bytes.Buffer{}
-	logFile, err := os.Create(LogPath(workDir))
-	if err != nil {
-		return buf, buf, func() {}
-	}
-	return io.MultiWriter(buf, logFile), buf, func() { _ = logFile.Close() }
+	// codex reports through a file (--output-last-message) and prints both its
+	// session id and a per-invocation token trailer into the transcript, so
+	// every accessor the resume policy needs is a read of one of those two.
+	return resumableRun{
+		engine:  "codex exec",
+		max:     e.maxResumes,
+		start:   func() error { return e.runCmd(ctx, e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt), sink) },
+		resume:  func(id string) error { return e.runCmd(ctx, e.buildResumeArgs(id, schemaPath, lastMsgPath), sink) },
+		report:  func() (Verdict, error) { return parseVerdictFile(lastMsgPath) },
+		session: func() string { return parseSessionID(buf.String()) },
+		raw:     buf.String,
+		tokens:  func() int { return parseTokensUsed(buf.String()) },
+	}.do()
 }
 
 // buildArgs assembles the codex exec invocation. Pure. The CLI contract
@@ -269,10 +176,6 @@ func parseSessionID(raw string) string {
 	return m[1]
 }
 
-// errEndedOnWorking marks a run whose final message was an intermediate
-// WORKING report: the agent yielded early, and the driver may resume it.
-var errEndedOnWorking = errors.New("agent ended on an intermediate WORKING report (run truncated?)")
-
 // parseVerdictFile reads and validates the agent's final-message report.
 func parseVerdictFile(path string) (Verdict, error) {
 	data, err := os.ReadFile(path)
@@ -280,27 +183,6 @@ func parseVerdictFile(path string) (Verdict, error) {
 		return Verdict{}, err
 	}
 	return parseVerdict(data)
-}
-
-func parseVerdict(data []byte) (Verdict, error) {
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" {
-		return Verdict{}, fmt.Errorf("empty verdict report")
-	}
-	var v Verdict
-	if err := json.Unmarshal([]byte(trimmed), &v); err != nil {
-		return Verdict{}, fmt.Errorf("parse verdict report: %w", err)
-	}
-	switch v.Decision {
-	case DecisionApproved, DecisionCommented, DecisionRequestedChanges, DecisionSkipped:
-		return v, nil
-	case DecisionWorking:
-		// WORKING is only legal mid-run; ending on it means the run was cut
-		// short before a real outcome was reported.
-		return Verdict{}, errEndedOnWorking
-	default:
-		return Verdict{}, fmt.Errorf("verdict report has invalid decision %q", v.Decision)
-	}
 }
 
 // tokensUsedPattern matches the "tokens used" trailer codex exec prints at

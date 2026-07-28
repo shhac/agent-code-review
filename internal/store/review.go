@@ -19,21 +19,27 @@ const (
 // Title and Author are snapshots of the PR at completion time so the History
 // page can render outcomes like queue items without a gh round-trip.
 type Review struct {
-	Repo         string    `json:"repo"`
-	Number       int       `json:"number"`
-	LogKey       string    `json:"log_key,omitempty"` // deterministic URL key for selecting this exact history row's log
-	Title        string    `json:"title"`
-	Author       string    `json:"author"`
-	HeadSHA      string    `json:"head_sha"`
-	Verdict      string    `json:"verdict"` // APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
-	Engine       string    `json:"engine"`
-	Model        string    `json:"model,omitempty"`  // managed Codex model; empty means Codex selected its default
-	Effort       string    `json:"effort,omitempty"` // managed Codex reasoning effort; empty means model default
-	CodexVersion string    `json:"codex_version,omitempty"`
-	ReviewedAt   time.Time `json:"reviewed_at"`
-	DurationSecs int       `json:"duration_secs"`      // claim-to-completion elapsed; 0 when unknown
-	WorkDir      string    `json:"work_dir,omitempty"` // engine workspace used, kept for postmortem log access
-	TokensUsed   int       `json:"tokens_used"`        // engine-reported token spend; 0 when unknown
+	Repo          string    `json:"repo"`
+	Number        int       `json:"number"`
+	LogKey        string    `json:"log_key,omitempty"` // deterministic URL key for selecting this exact history row's log
+	Title         string    `json:"title"`
+	Author        string    `json:"author"`
+	HeadSHA       string    `json:"head_sha"`
+	Verdict       string    `json:"verdict"` // APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED|ERROR
+	Engine        string    `json:"engine"`
+	Model         string    `json:"model,omitempty"`          // managed model; empty means the engine selected its default
+	Effort        string    `json:"effort,omitempty"`         // managed reasoning effort; empty means model default
+	EngineVersion string    `json:"engine_version,omitempty"` // version of the engine CLI that ran this review
+	ReviewedAt    time.Time `json:"reviewed_at"`
+	DurationSecs  int       `json:"duration_secs"`      // claim-to-completion elapsed; 0 when unknown
+	WorkDir       string    `json:"work_dir,omitempty"` // engine workspace used, kept for postmortem log access
+	TokensUsed    int       `json:"tokens_used"`        // engine-reported token spend; 0 when unknown
+	// CostUSD is the engine's API-rate valuation of the run, NOT money
+	// charged: on a subscription it is what those tokens would have cost at
+	// API rates. It is the only per-review spend signal an engine reports,
+	// and the unit `claude.max_budget_usd` is compared against. 0 when the
+	// engine reports none (codex prints only a token trailer).
+	CostUSD float64 `json:"cost_usd"`
 }
 
 // ReviewFrom snapshots a candidate's identity into a history record: the

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getMetrics } from '../lib/api';
   import { withFeed } from '../lib/feed';
-  import { durSecs, maxOf, statusLabel, tokens } from '../lib/format';
+  import { durSecs, maxOf, statusLabel, tokens, usd } from '../lib/format';
   import { metricFacets, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing } from '../lib/metrics';
   import type { MetricsResponse } from '../lib/types';
 
@@ -54,6 +54,7 @@
       <div><strong>{data.summary.reviews}</strong><span>reviews completed</span></div>
       <div><strong>{tokens(data.summary.tokens_used) || '0'}</strong><span>tokens used</span></div>
       <div><strong>{durSecs(data.summary.median_duration_secs) || '–'}</strong><span>median duration</span></div>
+      <div title="API-rate valuation per review, not money charged. Engines that report no cost (codex) are excluded."><strong>{usd(data.summary.median_cost_usd) || '–'}</strong><span>median cost{#if data.summary.max_cost_usd > 0} · peak {usd(data.summary.max_cost_usd)}{/if}</span></div>
     </section>
     <div class="metrics-grid">
       <section class="surface metric-panel activity-panel"><div class="section-head"><h2>Completed reviews + token spend</h2><span>daily</span></div><div class="activity-plot"><span class="activity-axis left title">reviews</span><span class="activity-axis left top">{maxReviews}</span><span class="activity-axis left bottom">0</span><span class="activity-axis right title">tokens</span><span class="activity-axis right top">{tokens(maxTokens) || '0'}</span><span class="activity-axis right bottom">0</span>{#each data.activity as day}<div class="activity-day" title={`${day.day}: ${day.reviews} reviews · ${day.tokens_used} tokens`}><i class="review-bar" style={`height:${Math.max(3, day.reviews / maxReviews * 100)}%`}></i></div>{/each}<svg class="token-trend" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Token spend trend"><polyline points={tokenPoints} /></svg></div><div class="legend"><span><i class="approved"></i>completed reviews</span><span><i class="commented"></i>tokens used</span></div></section>
@@ -67,6 +68,6 @@
       <span class="axis x">duration →</span><span class="axis y">tokens →</span>
     </div>
     <div class="legend">{#if colour === 'model'}{#each [...slots] as [name, slot]}<span><i class={`model-${slot}`}></i>{name || 'Codex default'}</span>{/each}{:else}<span><i class="approved"></i>approved</span><span><i class="commented"></i>commented</span><span><i class="changes"></i>requested changes</span><span><i class="other"></i>skipped / error</span>{/if}</div></section>
-    <section class="surface metric-panel"><div class="section-head"><h2>Model + effort breakdown</h2><span>CLI version retained per review</span></div><div class="metric-table"><p class="metric-table-head"><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Median</b><b>Codex</b></p>{#each data.models as row}<p><span>{row.model || 'Codex default'}</span><span>{row.effort || 'model default'}</span><span>{row.reviews}</span><span>{tokens(row.tokens_used) || '–'}</span><span>{durSecs(row.median_duration_secs) || '–'}</span><span class="mono">{row.codex_version || 'unavailable'}</span></p>{/each}</div></section>
+    <section class="surface metric-panel"><div class="section-head"><h2>Model + effort breakdown</h2><span>CLI version retained per review</span></div><div class="metric-table"><p class="metric-table-head"><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Median</b><b>Cost</b><b>Version</b></p>{#each data.models as row}<p><span>{row.model || 'engine default'}</span><span>{row.effort || 'model default'}</span><span>{row.reviews}</span><span>{tokens(row.tokens_used) || '–'}</span><span>{durSecs(row.median_duration_secs) || '–'}</span><span>{usd(row.median_cost_usd) || '–'}</span><span class="mono">{row.engine_version || 'unavailable'}</span></p>{/each}</div></section>
   </div>
 {/if}

@@ -50,15 +50,16 @@ CREATE TABLE IF NOT EXISTS history (
   tokens_used   INTEGER   NOT NULL DEFAULT 0,   -- engine-reported token spend; 0 when unknown
   cost_usd      DOUBLE                          -- engine-reported API-rate valuation of the run, NOT money charged
                           NOT NULL DEFAULT 0,   -- (on a subscription, what the tokens would cost at API rates); 0 when unreported
-  -- tokens_used split by kind, when the engine reports one (claude does;
-  -- codex reports a single total, so these stay 0 and tokens_used is all
-  -- there is). cache_read_tokens is why the split matters: it is context the
-  -- model re-read rather than processed, it dominates a long session, and a
-  -- total including it is not comparable with an engine that excludes it.
-  input_tokens          INTEGER NOT NULL DEFAULT 0,
-  output_tokens         INTEGER NOT NULL DEFAULT 0,
-  cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-  cache_read_tokens     INTEGER NOT NULL DEFAULT 0
+  -- tokens_used split into the only two kinds anything downstream asks about:
+  -- work the model actually processed, and context it re-read from cache.
+  -- Cached re-reads dominate a long agentic session, so a total including them
+  -- runs ~28x one that excludes them; fresh_tokens is therefore the only token
+  -- figure comparable between engines that report differently. Each driver
+  -- decides the split, so a reader never has to know which engine ran.
+  -- fresh_tokens 0 means unknown, not zero work: rows recorded before this
+  -- column by an engine whose total was cache-inflated cannot be recovered.
+  fresh_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0
 );
 
 -- Idempotent migrations for stores created before these columns existed.
@@ -92,12 +93,28 @@ ALTER TABLE history DROP COLUMN IF EXISTS codex_version;
 -- Per-review spend. Rows predating the column, and every codex row (codex
 -- prints a token trailer but no cost), read as 0.
 ALTER TABLE history ADD COLUMN IF NOT EXISTS cost_usd DOUBLE DEFAULT 0;
--- Token split. Rows predating it, and every codex row, keep 0 here and carry
--- their figure in tokens_used alone.
+-- Token split, in the same add-backfill-drop shape as engine_version above.
+-- A short-lived earlier form recorded claude's raw four-way usage; the ADDs
+-- keep the recovery UPDATE valid on a store that never had those columns, and
+-- the DROPs retire them once folded into fresh_tokens.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS fresh_tokens INTEGER DEFAULT 0;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS cache_read_tokens INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS input_tokens INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS output_tokens INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS cache_creation_tokens INTEGER DEFAULT 0;
-ALTER TABLE history ADD COLUMN IF NOT EXISTS cache_read_tokens INTEGER DEFAULT 0;
+UPDATE history SET fresh_tokens = input_tokens + output_tokens + cache_creation_tokens
+  WHERE input_tokens + output_tokens + cache_creation_tokens > 0;
+-- Rows predating the split at all. Their tokens_used is trustworthy as a
+-- fresh count only from an engine that never counted cached re-reads, which
+-- means every engine except claude. Naming claude here is safe by
+-- construction rather than a guess about the future: any engine wired after
+-- this column existed writes fresh_tokens itself, so a 0 on its rows is a
+-- real zero and re-running this UPDATE leaves it at 0 either way.
+UPDATE history SET fresh_tokens = tokens_used
+  WHERE fresh_tokens = 0 AND cache_read_tokens = 0 AND engine IS DISTINCT FROM 'claude';
+ALTER TABLE history DROP COLUMN IF EXISTS input_tokens;
+ALTER TABLE history DROP COLUMN IF EXISTS output_tokens;
+ALTER TABLE history DROP COLUMN IF EXISTS cache_creation_tokens;
 
 -- Per-repo allowed authors: whose PRs WE (the reviewer) may approve, not who
 -- can approve. A PR may receive an APPROVE only when its author's handle is

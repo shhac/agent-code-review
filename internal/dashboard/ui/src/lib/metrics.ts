@@ -55,7 +55,7 @@ export function scatterClass(point: ScatterPoint, mode: ColourMode, slots: Map<s
 export function scatterPos(point: ScatterPoint, maxDuration: number, maxTokens: number) {
 	return {
 		x: SCATTER_INSET + (point.duration_secs / maxDuration) * SCATTER_SPAN_X,
-		y: SCATTER_INSET + (point.tokens_used / maxTokens) * SCATTER_SPAN_Y,
+		y: SCATTER_INSET + (point.fresh_tokens / maxTokens) * SCATTER_SPAN_Y,
 	};
 }
 
@@ -114,7 +114,7 @@ export function trendPoints(activity: ActivityDay[], maxTokens: number): string 
   return activity
     .map((day, i, rows) => {
       const x = rows.length < 2 ? 50 : (i / (rows.length - 1)) * 100;
-      const y = 100 - (day.tokens_used / maxTokens) * 100;
+      const y = 100 - (day.fresh_tokens / maxTokens) * 100;
       return `${x},${y}`;
     })
     .join(' ');

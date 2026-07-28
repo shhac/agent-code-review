@@ -33,11 +33,13 @@ type prInfo struct {
 	Verdict      string     `json:"verdict,omitempty"`
 	DurationSecs int        `json:"duration_secs,omitempty"`
 	TokensUsed   int        `json:"tokens_used,omitempty"`
-	// The split behind TokensUsed, when the engine reported one. Shown here
-	// rather than charted: for a single review the total is meaningful, and
-	// seeing how much of it was cached re-reads explains the magnitude.
-	FreshTokens     int        `json:"fresh_tokens,omitempty"`
-	CacheReadTokens int        `json:"cache_read_tokens,omitempty"`
+	// The split behind TokensUsed. Shown here rather than charted: for a
+	// single review the total is meaningful, and seeing how much of it was
+	// cached re-reads explains the magnitude. Both are always sent, so the
+	// page reads facts about the review rather than inferring which branch
+	// the server took.
+	FreshTokens     int        `json:"fresh_tokens"`
+	CacheReadTokens int        `json:"cache_read_tokens"`
 	CostUSD         float64    `json:"cost_usd,omitempty"`
 	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
 }
@@ -69,11 +71,9 @@ func reviewLogView(repo string, number int, ws store.Workspace, now time.Time, l
 	pr.Title, pr.Author, pr.Verdict = last.Title, last.Author, last.Verdict
 	pr.DurationSecs = last.DurationSecs
 	pr.TokensUsed = last.TokensUsed
+	pr.FreshTokens = last.FreshTokens
 	pr.CacheReadTokens = last.CacheReadTokens
 	pr.CostUSD = last.CostUSD
-	if last.CacheReadTokens > 0 {
-		pr.FreshTokens = last.FreshTokens()
-	}
 	pr.ReviewedAt = &last.ReviewedAt
 	return "finished", pr
 }

@@ -36,12 +36,33 @@ type streamEvent struct {
 	// discarded, which is precisely the transcript you need most.
 	IsError bool            `json:"is_error"`
 	Result  json.RawMessage `json:"result"`
-	Usage   *struct {
-		InputTokens              int `json:"input_tokens"`
-		OutputTokens             int `json:"output_tokens"`
-		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	} `json:"usage"`
+	Usage   *streamUsage    `json:"usage"`
+}
+
+// streamUsage is claude's four-way usage report for one invocation. Only the
+// cache-read line is separated downstream, so addUsage folds the other three
+// together on the way in.
+type streamUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// addUsage folds one invocation's usage into the run's running total.
+//
+// Added rather than replaced because a resumed run reports only its OWN turn,
+// not the session's total (verified live: a resume whose turn produced 43
+// output tokens reported 43, not the 4,529 the session had accumulated). Same
+// conclusion as codex's per-invocation trailers.
+//
+// Cache writes count as Fresh: the model processed that content to cache it,
+// and it is a read of already-processed context that Cached exists to keep out
+// of the comparable figure.
+func addUsage(acc TokenUsage, u streamUsage) TokenUsage {
+	acc.Fresh += u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens
+	acc.Cached += u.CacheReadInputTokens
+	return acc
 }
 
 // contentBlock is one item of an assistant or user message's content array.
@@ -73,8 +94,7 @@ type streamTranscoder struct {
 	partial []byte // carry for a chunk that split mid-line
 
 	sessionID     string
-	tokens        int             // summed across every invocation, like codex's per-run trailers
-	usage         TokenUsage      // the same spend, split by kind
+	usage         TokenUsage      // summed across every invocation, like codex's per-run trailers
 	costUSD       float64         // ditto; see renderResult for what this figure means
 	report        json.RawMessage // structured_output of the most recent result message
 	failure       string          // the run's own account of why it ended without a report
@@ -237,19 +257,7 @@ func (t *streamTranscoder) renderResult(ev streamEvent) {
 		t.emit("claude", jsonCompact(string(t.report)))
 	}
 	if ev.Usage != nil {
-		// The whole-run figure, matching what codex's trailer counts: cached
-		// reads included, so the two engines' tokens_used mean the same
-		// "tokens the run moved" rather than a cost-weighted number.
-		//
-		// Summed rather than replaced because a resumed run reports only its
-		// OWN turn, not the session's total (verified live: a resume whose
-		// turn produced 43 output tokens reported 43, not the 4,529 the
-		// session had accumulated). Same conclusion as codex's trailers.
-		t.usage.Input += ev.Usage.InputTokens
-		t.usage.Output += ev.Usage.OutputTokens
-		t.usage.CacheCreation += ev.Usage.CacheCreationInputTokens
-		t.usage.CacheRead += ev.Usage.CacheReadInputTokens
-		t.tokens = t.usage.Total()
+		t.usage = addUsage(t.usage, *ev.Usage)
 	}
 	// A run that ends with no report has failed; say so in the transcript
 	// rather than leaving a bare token trailer. The CLI's own wording is the
@@ -271,7 +279,7 @@ func (t *streamTranscoder) renderResult(ev streamEvent) {
 	// cost line rides along so a live log shows spend without waiting for
 	// the review to land in history; codex reports none, so it stays off
 	// there rather than printing a misleading zero.
-	_, _ = fmt.Fprintf(t.out, "tokens used\n%s\n", withThousands(t.tokens))
+	_, _ = fmt.Fprintf(t.out, "tokens used\n%s\n", withThousands(t.usage.Total()))
 	if t.costUSD > 0 {
 		_, _ = fmt.Fprintf(t.out, "~ $%.4f at API rates\n", t.costUSD)
 	}

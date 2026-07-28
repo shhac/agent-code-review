@@ -103,7 +103,12 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 		report:  func() (Verdict, error) { return parseVerdictFile(lastMsgPath) },
 		session: func() string { return parseSessionID(buf.String()) },
 		raw:     buf.String,
-		tokens:  func() int { return parseTokensUsed(buf.String()) },
+		// codex's trailer is a single number with no cache line, and it stays
+		// in the same ~130k band across a 20-turn review that claude reports
+		// millions for — a count that re-read context every turn could not do.
+		// So it is a fresh count, recorded as one here rather than left for a
+		// reader downstream to infer from its magnitude.
+		usage: func() TokenUsage { return TokenUsage{Fresh: parseTokensUsed(buf.String())} },
 	}.do()
 }
 

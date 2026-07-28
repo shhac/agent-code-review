@@ -134,8 +134,8 @@
       {:else}
         <p class="muted">not available yet</p>
       {/each}
-      {#if usageResp?.tokens_total}
-        <div class="tokens-line"><span>Tokens spent</span><b>{tokens(usageResp?.tokens_24h || 0) || '0'} last 24h · {tokens(usageResp?.tokens_total || 0)} all time</b></div>
+      {#if usageResp?.fresh_tokens_total}
+        <div class="tokens-line"><span>Tokens processed</span><b>{tokens(usageResp?.fresh_tokens_24h || 0) || '0'} last 24h · {tokens(usageResp?.fresh_tokens_total || 0)} all time</b></div>
       {/if}
     </section>
 

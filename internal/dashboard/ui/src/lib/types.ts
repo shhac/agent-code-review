@@ -80,11 +80,11 @@ export type StatsResponse = {
 };
 
 export type MetricsResponse = {
-  summary: { reviews: number; tokens_used: number; median_duration_secs: number; cost_usd: number; median_cost_usd: number; max_cost_usd: number };
+  summary: { reviews: number; fresh_tokens: number; median_duration_secs: number; cost_usd: number; median_cost_usd: number; max_cost_usd: number };
   verdicts: Record<string, number>;
-  activity: { day: string; reviews: number; tokens_used: number }[];
-  models: { model: string; effort: string; engine_version: string; reviews: number; tokens_used: number; median_duration_secs: number; median_cost_usd: number }[];
-  scatter: { model: string; effort: string; verdict: string; tokens_used: number; duration_secs: number }[];
+  activity: { day: string; reviews: number; fresh_tokens: number }[];
+  models: { model: string; effort: string; engine_version: string; reviews: number; fresh_tokens: number; median_duration_secs: number; median_cost_usd: number }[];
+  scatter: { model: string; effort: string; verdict: string; fresh_tokens: number; duration_secs: number }[];
 };
 
 export type UsageWindow = {
@@ -120,8 +120,8 @@ export type UsageResponse = {
   engines?: EngineUsage[];
   review_paused?: boolean;
   paused_reason?: string;
-  tokens_total?: number;
-  tokens_24h?: number;
+  fresh_tokens_total?: number;
+  fresh_tokens_24h?: number;
 };
 
 export type ConfigRepo = {
@@ -230,10 +230,10 @@ export type ReviewLogPr = {
   reviewed_at?: string;
   duration_secs?: number;
   tokens_used?: number;
-  // The split behind tokens_used, when the engine reported one. Absent means
-  // it reported a single total, so there is nothing to break down.
-  fresh_tokens?: number;
-  cache_read_tokens?: number;
+  // The split behind tokens_used. Always sent: cache_read_tokens 0 is a fact
+  // about the review (nothing was re-read), not a gap in the response.
+  fresh_tokens: number;
+  cache_read_tokens: number;
   cost_usd?: number;
 };
 

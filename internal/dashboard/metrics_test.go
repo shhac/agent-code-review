@@ -12,12 +12,12 @@ import (
 func TestMetricsForFiltersAndGroupsReviewProvenance(t *testing.T) {
 	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
 	reviews := []store.Review{
-		{Model: "gpt-5.5", Effort: "high", EngineVersion: "Codex CLI 0.144.0", Verdict: "APPROVED", TokensUsed: 100, DurationSecs: 20, ReviewedAt: now},
-		{Model: "gpt-5.5", Effort: "high", EngineVersion: "Codex CLI 0.144.0", Verdict: "COMMENTED", TokensUsed: 300, DurationSecs: 40, ReviewedAt: now.Add(2 * time.Hour)},
-		{Model: "gpt-5.6-terra", Effort: "medium", EngineVersion: "Codex CLI 0.145.0", Verdict: "REQUESTED_CHANGES", TokensUsed: 200, DurationSecs: 60, ReviewedAt: now},
+		{Model: "gpt-5.5", Effort: "high", EngineVersion: "Codex CLI 0.144.0", Verdict: "APPROVED", TokensUsed: 100, FreshTokens: 100, DurationSecs: 20, ReviewedAt: now},
+		{Model: "gpt-5.5", Effort: "high", EngineVersion: "Codex CLI 0.144.0", Verdict: "COMMENTED", TokensUsed: 300, FreshTokens: 300, DurationSecs: 40, ReviewedAt: now.Add(2 * time.Hour)},
+		{Model: "gpt-5.6-terra", Effort: "medium", EngineVersion: "Codex CLI 0.145.0", Verdict: "REQUESTED_CHANGES", TokensUsed: 200, FreshTokens: 200, DurationSecs: 60, ReviewedAt: now},
 	}
 	got := metricsFor(reviews, "gpt-5.5", "high")
-	if got.Summary.Reviews != 2 || got.Summary.TokensUsed != 400 || got.Summary.MedianDuration != 40 {
+	if got.Summary.Reviews != 2 || got.Summary.FreshTokens != 400 || got.Summary.MedianDuration != 40 {
 		t.Errorf("summary = %+v", got.Summary)
 	}
 	if got.Verdicts["APPROVED"] != 1 || got.Verdicts["COMMENTED"] != 1 || got.Verdicts["REQUESTED_CHANGES"] != 0 {
@@ -35,14 +35,14 @@ func TestMetricsForBucketsDaysAndSortsGroups(t *testing.T) {
 	west := time.FixedZone("west", -5*3600)
 	reviews := []store.Review{
 		// group A (gpt-5.5/high/v1): 2 reviews on 07-08.
-		{Model: "gpt-5.5", Effort: "high", EngineVersion: "v1", Verdict: "APPROVED", TokensUsed: 100, DurationSecs: 10, ReviewedAt: time.Date(2026, 7, 8, 9, 0, 0, 0, time.UTC)},
-		{Model: "gpt-5.5", Effort: "high", EngineVersion: "v1", Verdict: "COMMENTED", TokensUsed: 100, DurationSecs: 30, ReviewedAt: time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)},
+		{Model: "gpt-5.5", Effort: "high", EngineVersion: "v1", Verdict: "APPROVED", TokensUsed: 100, FreshTokens: 100, DurationSecs: 10, ReviewedAt: time.Date(2026, 7, 8, 9, 0, 0, 0, time.UTC)},
+		{Model: "gpt-5.5", Effort: "high", EngineVersion: "v1", Verdict: "COMMENTED", TokensUsed: 100, FreshTokens: 100, DurationSecs: 30, ReviewedAt: time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)},
 		// group B (gpt-5.6/medium/v2): 1 review whose western-evening local time rolls into 07-09 UTC.
-		{Model: "gpt-5.6", Effort: "medium", EngineVersion: "v2", Verdict: "APPROVED", TokensUsed: 50, DurationSecs: 20, ReviewedAt: time.Date(2026, 7, 8, 22, 0, 0, 0, west)},
+		{Model: "gpt-5.6", Effort: "medium", EngineVersion: "v2", Verdict: "APPROVED", TokensUsed: 50, FreshTokens: 50, DurationSecs: 20, ReviewedAt: time.Date(2026, 7, 8, 22, 0, 0, 0, west)},
 		// group C (gpt-6/low/v3): 3 reviews on 07-10: the largest group.
-		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)},
-		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "SKIPPED", TokensUsed: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 2, 0, 0, 0, time.UTC)},
-		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 3, 0, 0, 0, time.UTC)},
+		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, FreshTokens: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)},
+		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "SKIPPED", TokensUsed: 10, FreshTokens: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 2, 0, 0, 0, time.UTC)},
+		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, FreshTokens: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 3, 0, 0, 0, time.UTC)},
 	}
 	got := metricsFor(reviews, "", "")
 
@@ -78,7 +78,7 @@ func TestMetricsForEmptyInputKeepsNonNilSlices(t *testing.T) {
 	// marshalling to [] (not null) so its `data?.x || []` reads stay arrays.
 	filtered := metricsFor([]store.Review{{Model: "gpt-5.5", ReviewedAt: time.Now()}}, "no-such-model", "")
 	for name, got := range map[string]metricsResp{"nil": metricsFor(nil, "", ""), "all-filtered": filtered} {
-		if got.Summary.Reviews != 0 || got.Summary.TokensUsed != 0 || got.Summary.MedianDuration != 0 {
+		if got.Summary.Reviews != 0 || got.Summary.FreshTokens != 0 || got.Summary.MedianDuration != 0 {
 			t.Errorf("%s: summary = %+v", name, got.Summary)
 		}
 		blob, err := json.Marshal(got)
@@ -160,33 +160,33 @@ func TestMetricsChartsFreshTokensNotRawTotals(t *testing.T) {
 	got := metricsFor([]store.Review{
 		// A claude review: 3.7M total, but only 250k actually processed.
 		{Model: "claude-opus-5", Verdict: "APPROVED", ReviewedAt: now,
-			TokensUsed: 3_700_000, InputTokens: 40_000, OutputTokens: 60_000,
-			CacheCreationTokens: 150_000, CacheReadTokens: 3_450_000},
-		// A codex review: one figure, no split.
-		{Model: "gpt-5.6", Verdict: "APPROVED", ReviewedAt: now, TokensUsed: 130_000},
+			TokensUsed: 3_700_000, FreshTokens: 250_000, CacheReadTokens: 3_450_000},
+		// A codex review: its whole total is fresh.
+		{Model: "gpt-5.6", Verdict: "APPROVED", ReviewedAt: now,
+			TokensUsed: 130_000, FreshTokens: 130_000},
 	}, "", "")
 
 	// 250k + 130k, not 3.7M + 130k.
-	if got.Summary.TokensUsed != 380_000 {
-		t.Errorf("summary tokens = %d, want 380000 (cached re-reads excluded)", got.Summary.TokensUsed)
+	if got.Summary.FreshTokens != 380_000 {
+		t.Errorf("summary tokens = %d, want 380000 (cached re-reads excluded)", got.Summary.FreshTokens)
 	}
-	if len(got.Activity) != 1 || got.Activity[0].TokensUsed != 380_000 {
+	if len(got.Activity) != 1 || got.Activity[0].FreshTokens != 380_000 {
 		t.Errorf("activity = %+v, want the same comparable figure", got.Activity)
 	}
 	byModel := map[string]int{}
 	for _, m := range got.Models {
-		byModel[m.Model] = m.TokensUsed
+		byModel[m.Model] = m.FreshTokens
 	}
 	if byModel["claude-opus-5"] != 250_000 {
 		t.Errorf("claude model tokens = %d, want 250000", byModel["claude-opus-5"])
 	}
-	// An engine reporting no split keeps its total, or it would chart as zero.
+	// codex records its total as fresh, or it would chart as zero.
 	if byModel["gpt-5.6"] != 130_000 {
 		t.Errorf("codex model tokens = %d, want its reported total 130000", byModel["gpt-5.6"])
 	}
 	for _, p := range got.Scatter {
-		if p.Model == "claude-opus-5" && p.TokensUsed != 250_000 {
-			t.Errorf("scatter point = %d, want the comparable figure", p.TokensUsed)
+		if p.Model == "claude-opus-5" && p.FreshTokens != 250_000 {
+			t.Errorf("scatter point = %d, want the comparable figure", p.FreshTokens)
 		}
 	}
 }

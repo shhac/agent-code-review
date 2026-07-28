@@ -38,9 +38,9 @@ describe('modelSlots', () => {
 
 describe('scatterPos', () => {
   it('insets dots from the axes, scaling to the plot maxima', () => {
-    expect(scatterPos({ tokens_used: 100, duration_secs: 100 } as any, 100, 100)).toEqual({ x: 96, y: 90 });
-    expect(scatterPos({ tokens_used: 50, duration_secs: 100 } as any, 100, 100)).toEqual({ x: 96, y: 49 });
-    expect(scatterPos({ tokens_used: 0, duration_secs: 0 } as any, 100, 100)).toEqual({ x: 8, y: 8 });
+    expect(scatterPos({ fresh_tokens: 100, duration_secs: 100 } as any, 100, 100)).toEqual({ x: 96, y: 90 });
+    expect(scatterPos({ fresh_tokens: 50, duration_secs: 100 } as any, 100, 100)).toEqual({ x: 96, y: 49 });
+    expect(scatterPos({ fresh_tokens: 0, duration_secs: 0 } as any, 100, 100)).toEqual({ x: 8, y: 8 });
   });
 });
 
@@ -84,9 +84,9 @@ describe('verdictRing', () => {
 
 describe('trendPoints', () => {
   it('centres a single day since it has no span', () => {
-    expect(trendPoints([{ day: 'a', reviews: 0, tokens_used: 50 }], 100)).toBe('50,50');
+    expect(trendPoints([{ day: 'a', reviews: 0, fresh_tokens: 50 }], 100)).toBe('50,50');
   });
   it('spreads days across the viewBox with an inverted y axis', () => {
-    expect(trendPoints([{ day: 'a', reviews: 0, tokens_used: 0 }, { day: 'b', reviews: 0, tokens_used: 100 }], 100)).toBe('0,100 100,0');
+    expect(trendPoints([{ day: 'a', reviews: 0, fresh_tokens: 0 }, { day: 'b', reviews: 0, fresh_tokens: 100 }], 100)).toBe('0,100 100,0');
   });
 });

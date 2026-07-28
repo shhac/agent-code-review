@@ -19,48 +19,34 @@ import (
 // performs the approve/comment on GitHub itself; this is the read-back so the
 // store can record history and update status.
 type Verdict struct {
-	Decision   string `json:"decision"` // APPROVED | COMMENTED | REQUESTED_CHANGES | SKIPPED | ERROR
-	Summary    string `json:"summary,omitempty"`
-	Raw        string `json:"raw,omitempty"` // full engine transcript, for debugging
-	TokensUsed int    `json:"-"`             // stream metadata, not part of the agent's report
+	Decision string `json:"decision"` // APPROVED | COMMENTED | REQUESTED_CHANGES | SKIPPED | ERROR
+	Summary  string `json:"summary,omitempty"`
+	Raw      string `json:"raw,omitempty"` // full engine transcript, for debugging
 	// CostUSD is the run's API-rate valuation as the engine reported it, not
 	// money charged: on a subscription it is what the tokens would have cost
 	// at API rates. 0 when the engine reports no cost (codex prints only a
-	// token trailer). Like TokensUsed, it is stream metadata rather than
-	// something the agent claims.
-	CostUSD float64 `json:"-"`
-	// Tokens is the run's usage split by kind, when the engine reports one.
-	// Zero across the board means it reported only a total (codex does), in
-	// which case TokensUsed is all there is.
-	Tokens TokenUsage `json:"-"`
+	// token trailer). Like Tokens, it is stream metadata rather than something
+	// the agent claims, so both are excluded from the report's JSON.
+	CostUSD float64    `json:"-"`
+	Tokens  TokenUsage `json:"-"`
 }
 
-// TokenUsage splits a run's tokens by how they were spent. The distinction
-// that matters is CacheRead: context the model re-read rather than processed
-// fresh. It dominates a long agentic session — a review can re-read millions
-// of cached tokens across its turns — so a total that includes it is an order
-// of magnitude larger than one that doesn't, and the two are not comparable
-// between engines that report differently.
+// TokenUsage is one run's token spend, split the only way that survives a
+// comparison between engines. Cached is context the model re-read rather than
+// processed, and it dominates a long agentic session — a review re-reads
+// millions of cached tokens across its turns — so a total including it runs an
+// order of magnitude above one that doesn't.
+//
+// Each driver maps its engine's reporting onto this shape, which is why the
+// mapping is stated once per engine instead of inferred downstream from
+// whatever fields happened to be non-zero.
 type TokenUsage struct {
-	Input         int
-	Output        int
-	CacheCreation int
-	CacheRead     int
+	Fresh  int
+	Cached int
 }
 
-// Total is every token the run moved, cached reads included.
-func (t TokenUsage) Total() int {
-	return t.Input + t.Output + t.CacheCreation + t.CacheRead
-}
-
-// Fresh is the tokens actually processed: everything except context re-read
-// from cache. This is the figure comparable across engines.
-func (t TokenUsage) Fresh() int {
-	return t.Input + t.Output + t.CacheCreation
-}
-
-// Reported says whether the engine gave a breakdown at all.
-func (t TokenUsage) Reported() bool { return t.Total() > 0 }
+// Total is every token the run moved, cached re-reads included.
+func (t TokenUsage) Total() int { return t.Fresh + t.Cached }
 
 // Verdict decisions, aliased from the store's canonical vocabulary (the
 // layer both packages import, so the two sets cannot drift). The first four

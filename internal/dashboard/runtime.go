@@ -33,8 +33,8 @@ type usageResp struct {
 	Engines      []engineUsage `json:"engines"`
 	ReviewPaused bool          `json:"review_paused,omitempty"`
 	PausedReason string        `json:"paused_reason,omitempty"`
-	TokensTotal  int64         `json:"tokens_total"`
-	Tokens24h    int64         `json:"tokens_24h"`
+	TokensTotal  int64         `json:"fresh_tokens_total"`
+	Tokens24h    int64         `json:"fresh_tokens_24h"`
 }
 
 // engineUsages renders every engine's cached snapshot in a stable order, with
@@ -75,12 +75,12 @@ type healthResp struct {
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
-	tokensTotal, err := s.store.TokensUsed(ctx, time.Time{})
+	tokensTotal, err := s.store.FreshTokens(ctx, time.Time{})
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	tokens24h, err := s.store.TokensUsed(ctx, time.Now().Add(-24*time.Hour))
+	tokens24h, err := s.store.FreshTokens(ctx, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		s.fail(w, err)
 		return

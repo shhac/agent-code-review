@@ -226,8 +226,8 @@ func TestClaudeReviewReadsStructuredReport(t *testing.T) {
 	if v.Decision != DecisionApproved || v.Summary != "did the thing" {
 		t.Errorf("verdict = %+v", v)
 	}
-	if v.TokensUsed != 120 {
-		t.Errorf("TokensUsed = %d, want 120", v.TokensUsed)
+	if v.Tokens.Total() != 120 {
+		t.Errorf("tokens = %d, want 120", v.Tokens.Total())
 	}
 }
 
@@ -247,8 +247,8 @@ func TestClaudeReviewResumesOnWorkingReport(t *testing.T) {
 	if v.Decision != DecisionCommented {
 		t.Errorf("decision = %q, want the resumed run's outcome", v.Decision)
 	}
-	if v.TokensUsed != 150 {
-		t.Errorf("TokensUsed = %d, want both invocations summed", v.TokensUsed)
+	if v.Tokens.Total() != 150 {
+		t.Errorf("tokens = %d, want both invocations summed", v.Tokens.Total())
 	}
 	if len(*calls) != 2 {
 		t.Fatalf("want 2 invocations, got %d", len(*calls))
@@ -330,12 +330,12 @@ func TestResumableRunToleratesMissingCostAccessor(t *testing.T) {
 		start:  func() error { return nil },
 		report: func() (Verdict, error) { return Verdict{Decision: DecisionApproved}, nil },
 		raw:    func() string { return "" },
-		tokens: func() int { return 7 },
+		usage:  func() TokenUsage { return TokenUsage{Fresh: 7} },
 	}.do()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.CostUSD != 0 || v.TokensUsed != 7 {
+	if v.CostUSD != 0 || v.Tokens.Total() != 7 {
 		t.Errorf("verdict = %+v", v)
 	}
 }

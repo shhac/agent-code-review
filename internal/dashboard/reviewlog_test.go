@@ -68,6 +68,25 @@ func TestReviewLogView(t *testing.T) {
 			t.Errorf("pr must carry the postmortem fields, got %+v", pr)
 		}
 	})
+
+	// The page shows the run's total and, beside it, how much of that total was
+	// context re-read rather than processed. Both halves ship unconditionally:
+	// making the split's presence depend on a server-side branch is what let an
+	// earlier version tell the reader "engine reported a single total" about a
+	// review that had reported a split.
+	t.Run("history row carries its spend", func(t *testing.T) {
+		ws := store.Workspace{Dir: "/wd", Finished: &store.Review{
+			Verdict: "COMMENTED", TokensUsed: 3_700_000, FreshTokens: 250_000,
+			CacheReadTokens: 3_450_000, CostUSD: 3.71, ReviewedAt: now}}
+		_, pr := reviewLogView("o/r", 5, ws, now, lease)
+		if pr.TokensUsed != 3_700_000 || pr.FreshTokens != 250_000 || pr.CacheReadTokens != 3_450_000 {
+			t.Errorf("token fields = %d/%d/%d, want 3700000/250000/3450000",
+				pr.TokensUsed, pr.FreshTokens, pr.CacheReadTokens)
+		}
+		if pr.CostUSD != 3.71 {
+			t.Errorf("cost = %v, want 3.71", pr.CostUSD)
+		}
+	})
 }
 
 // TestTailFile pins the tail-window math at the size==limit boundary: the

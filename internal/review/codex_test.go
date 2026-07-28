@@ -97,7 +97,7 @@ exit 7
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v.Decision != DecisionCommented || v.Summary != "left comments" || v.TokensUsed != 1234 || !strings.Contains(v.Raw, "raw line") {
+		if v.Decision != DecisionCommented || v.Summary != "left comments" || v.Tokens.Total() != 1234 || !strings.Contains(v.Raw, "raw line") {
 			t.Errorf("verdict = %+v, want COMMENTED with raw output and tokens", v)
 		}
 	})
@@ -112,7 +112,7 @@ exit 7
 		if err == nil {
 			t.Fatal("expected codex exec error")
 		}
-		if v.Decision != DecisionError || v.TokensUsed != 941 || !strings.Contains(v.Raw, "diagnostics") {
+		if v.Decision != DecisionError || v.Tokens.Total() != 941 || !strings.Contains(v.Raw, "diagnostics") {
 			t.Errorf("verdict = %+v, want ERROR with raw output and tokens", v)
 		}
 	})
@@ -172,8 +172,8 @@ func TestCodexResumeOnWorking(t *testing.T) {
 		if v.Decision != DecisionApproved || v.Summary != "finished after nudge" {
 			t.Errorf("verdict = %+v, want the resumed APPROVED report", v)
 		}
-		if v.TokensUsed != 200 {
-			t.Errorf("tokens = %d, want both invocations' trailers summed (200)", v.TokensUsed)
+		if v.Tokens.Total() != 200 {
+			t.Errorf("tokens = %d, want both invocations' trailers summed (200)", v.Tokens.Total())
 		}
 		calls := invocations(t, workDir)
 		if len(calls) != 2 {
@@ -273,8 +273,8 @@ func TestCodexResumeExitBranches(t *testing.T) {
 		if v.Decision != DecisionError {
 			t.Errorf("verdict = %+v, want ERROR", v)
 		}
-		if v.TokensUsed != 150 {
-			t.Errorf("tokens = %d, want both invocations summed (150)", v.TokensUsed)
+		if v.Tokens.Total() != 150 {
+			t.Errorf("tokens = %d, want both invocations summed (150)", v.Tokens.Total())
 		}
 		if *calls != 2 {
 			t.Errorf("invocations = %d; the loop must stop on a process failure, not retry to the cap", *calls)
@@ -287,7 +287,7 @@ func TestCodexResumeExitBranches(t *testing.T) {
 		if err != nil {
 			t.Fatalf("valid report must win over the non-zero exit, got %v", err)
 		}
-		if v.Decision != DecisionApproved || v.Summary != "posted before dying" || v.TokensUsed != 150 {
+		if v.Decision != DecisionApproved || v.Summary != "posted before dying" || v.Tokens.Total() != 150 {
 			t.Errorf("verdict = %+v, want the resumed APPROVED report with summed tokens", v)
 		}
 		if *calls != 2 {

@@ -73,7 +73,7 @@ type Store interface {
 	ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error)
 	// TokensUsed sums the engine-reported token spend of outcomes at or
 	// after since; the zero time sums all history.
-	TokensUsed(ctx context.Context, since time.Time) (int64, error)
+	FreshTokens(ctx context.Context, since time.Time) (int64, error)
 
 	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.
 	AllowAuthor(ctx context.Context, a AllowedAuthor) error

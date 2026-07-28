@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dur, durSecs, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
+import { dur, durSecs, exact, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
 
 describe('maxOf', () => {
   it('takes the largest selected value', () => {
@@ -41,6 +41,18 @@ describe('dur', () => {
     expect(dur('2026-07-07T12:00:00Z', '2026-07-07T12:00:00Z')).toBe('0s');
     expect(dur('2026-07-07T12:00:00Z', '2026-07-07T12:08:00Z')).toBe('8m');
     expect(dur('', '2026-07-07T12:00:00Z')).toBe('');
+  });
+});
+
+describe('exact', () => {
+  it('groups thousands without depending on the viewer locale', () => {
+    expect(exact(3_450_000)).toBe('3,450,000');
+    expect(exact(999)).toBe('999');
+    expect(exact(1000)).toBe('1,000');
+  });
+  it('renders an absent or zero count as 0', () => {
+    expect(exact(0)).toBe('0');
+    expect(exact(undefined)).toBe('0');
   });
 });
 

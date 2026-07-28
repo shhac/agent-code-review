@@ -40,30 +40,19 @@ type Review struct {
 	// and the unit `claude.max_budget_usd` is compared against. 0 when the
 	// engine reports none (codex prints only a token trailer).
 	CostUSD float64 `json:"cost_usd"`
-	// TokensUsed split by kind, when the engine reports one. All zero means
-	// it reported only a total.
-	InputTokens         int `json:"input_tokens"`
-	OutputTokens        int `json:"output_tokens"`
-	CacheCreationTokens int `json:"cache_creation_tokens"`
-	CacheReadTokens     int `json:"cache_read_tokens"`
-}
-
-// FreshTokens is the tokens a review actually processed, excluding context it
-// re-read from cache. It is the only token figure comparable across engines:
-// claude reports cached reads and they dominate a long session (millions
-// against a codex review's ~130k total), so charting raw totals compares two
-// different measurements.
-//
-// An engine that reports no split falls back to its total, on the basis that
-// a single reported figure is a fresh-token count. That holds for codex by
-// inspection — a 22-turn review reports ~150k, which cumulative per-turn
-// re-reads could not be — but it is inference from magnitude, not a
-// documented guarantee.
-func (r Review) FreshTokens() int {
-	if r.InputTokens+r.OutputTokens+r.CacheCreationTokens+r.CacheReadTokens == 0 {
-		return r.TokensUsed
-	}
-	return r.InputTokens + r.OutputTokens + r.CacheCreationTokens
+	// FreshTokens is what the run actually processed and CacheReadTokens is
+	// the context it re-read from cache; together they are TokensUsed. Re-reads
+	// dominate a long agentic session, so only FreshTokens is comparable
+	// between engines that report differently: a claude review's raw total runs
+	// ~28x a codex review's, almost all of it cache.
+	//
+	// Each driver decides its own split, so nothing downstream branches on the
+	// engine. FreshTokens 0 means unknown rather than no work: rows recorded
+	// before the column by an engine with a cache-inflated total cannot be
+	// recovered, and aggregates leave them out the way they leave out unpriced
+	// rows.
+	FreshTokens     int `json:"fresh_tokens"`
+	CacheReadTokens int `json:"cache_read_tokens"`
 }
 
 // ReviewFrom snapshots a candidate's identity into a history record: the

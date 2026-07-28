@@ -9,19 +9,25 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// Every TokensUsed here is store.Review.FreshTokens: tokens processed, with
-// cached re-reads excluded. Raw totals are not comparable between engines —
-// claude counts cached reads and they dominate a long session, so its totals
-// run ~28x a codex review's — which made a single chart across a mixed
-// history meaningless. Per-review totals and the full split stay on the
-// review itself.
+// Token figures here are store.Review.FreshTokens throughout: what the runs
+// processed, with cached re-reads left out. Raw totals are not comparable
+// between engines (claude counts cached reads and they dominate a long
+// session, so its totals run ~28x a codex review's), which made a single chart
+// across a mixed history meaningless. The per-review total keeps its own name,
+// tokens_used, and stays on the review itself — nothing here reuses that name
+// for a figure ~28x smaller.
+//
+// A review whose fresh count is unknown (0) contributes nothing rather than a
+// zero, on the same reasoning as the cost median below: those rows predate the
+// split and their only recorded figure is cache-inflated, so charting them at
+// either their total or zero states something false.
 //
 // Cost fields are the engine's API-rate valuation, not money charged; see
 // store.Review.CostUSD. MedianCost is the number to set a per-review budget
 // from, since a mean is dragged around by the long tail.
 type metricsSummary struct {
 	Reviews        int     `json:"reviews"`
-	TokensUsed     int     `json:"tokens_used"`
+	FreshTokens    int     `json:"fresh_tokens"`
 	MedianDuration int     `json:"median_duration_secs"`
 	CostUSD        float64 `json:"cost_usd"`
 	MedianCostUSD  float64 `json:"median_cost_usd"`
@@ -29,9 +35,9 @@ type metricsSummary struct {
 }
 
 type metricsDay struct {
-	Day        string `json:"day"`
-	Reviews    int    `json:"reviews"`
-	TokensUsed int    `json:"tokens_used"`
+	Day         string `json:"day"`
+	Reviews     int    `json:"reviews"`
+	FreshTokens int    `json:"fresh_tokens"`
 }
 
 type modelMetric struct {
@@ -39,7 +45,7 @@ type modelMetric struct {
 	Effort         string  `json:"effort"`
 	EngineVersion  string  `json:"engine_version"`
 	Reviews        int     `json:"reviews"`
-	TokensUsed     int     `json:"tokens_used"`
+	FreshTokens    int     `json:"fresh_tokens"`
 	MedianDuration int     `json:"median_duration_secs"`
 	MedianCostUSD  float64 `json:"median_cost_usd"`
 }
@@ -48,7 +54,7 @@ type metricsPoint struct {
 	Model       string `json:"model"`
 	Effort      string `json:"effort"`
 	Verdict     string `json:"verdict"`
-	TokensUsed  int    `json:"tokens_used"`
+	FreshTokens int    `json:"fresh_tokens"`
 	DurationSec int    `json:"duration_secs"`
 }
 
@@ -120,7 +126,7 @@ func summaryOf(reviews []store.Review) metricsSummary {
 	durations := []int{}
 	costs := []float64{}
 	for _, r := range reviews {
-		s.TokensUsed += r.FreshTokens()
+		s.FreshTokens += r.FreshTokens
 		s.CostUSD += r.CostUSD
 		if r.DurationSecs > 0 {
 			durations = append(durations, r.DurationSecs)
@@ -154,7 +160,7 @@ func activityByDay(reviews []store.Review) []metricsDay {
 			days[day] = &metricsDay{Day: day}
 		}
 		days[day].Reviews++
-		days[day].TokensUsed += r.FreshTokens()
+		days[day].FreshTokens += r.FreshTokens
 	}
 	activity := make([]metricsDay, 0, len(days))
 	for _, d := range days {
@@ -173,7 +179,7 @@ func modelGroups(reviews []store.Review) []modelMetric {
 		}
 		g := groups[key]
 		g.metric.Reviews++
-		g.metric.TokensUsed += r.FreshTokens()
+		g.metric.FreshTokens += r.FreshTokens
 		if r.DurationSecs > 0 {
 			g.durations = append(g.durations, r.DurationSecs)
 		}
@@ -194,7 +200,12 @@ func modelGroups(reviews []store.Review) []modelMetric {
 func scatterPoints(reviews []store.Review) []metricsPoint {
 	points := make([]metricsPoint, 0, len(reviews))
 	for _, r := range reviews {
-		points = append(points, metricsPoint{Model: r.Model, Effort: r.Effort, Verdict: r.Verdict, TokensUsed: r.FreshTokens(), DurationSec: r.DurationSecs})
+		// A point needs both axes to sit anywhere honest; an unknown token
+		// count would plot on the floor next to genuinely cheap reviews.
+		if r.FreshTokens == 0 {
+			continue
+		}
+		points = append(points, metricsPoint{Model: r.Model, Effort: r.Effort, Verdict: r.Verdict, FreshTokens: r.FreshTokens, DurationSec: r.DurationSecs})
 	}
 	return points
 }

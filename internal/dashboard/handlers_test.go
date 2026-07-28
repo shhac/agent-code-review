@@ -92,7 +92,7 @@ func (f *handlerStore) Promote(_ context.Context, repo string, number int) error
 	return nil
 }
 
-func (f *handlerStore) TokensUsed(_ context.Context, since time.Time) (int64, error) {
+func (f *handlerStore) FreshTokens(_ context.Context, since time.Time) (int64, error) {
 	return f.tokens[since.IsZero()], nil
 }
 
@@ -345,8 +345,8 @@ func TestHandleUsage(t *testing.T) {
 	if code != http.StatusOK || resp["available"] != false {
 		t.Fatalf("no usage cache must report available:false, got %d %v", code, resp)
 	}
-	if resp["tokens_total"].(float64) != 500000 || resp["tokens_24h"].(float64) != 12000 {
-		t.Errorf("token sums = %v / %v", resp["tokens_total"], resp["tokens_24h"])
+	if resp["fresh_tokens_total"].(float64) != 500000 || resp["fresh_tokens_24h"].(float64) != 12000 {
+		t.Errorf("token sums = %v / %v", resp["fresh_tokens_total"], resp["fresh_tokens_24h"])
 	}
 }
 

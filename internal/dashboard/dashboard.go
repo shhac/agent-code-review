@@ -48,7 +48,7 @@ type dashboardStore interface {
 	ListReviews(context.Context, int) ([]store.Review, error)
 	ListReviewsSince(context.Context, time.Time) ([]store.Review, error)
 	ListRuns(context.Context, int) ([]store.Run, error)
-	TokensUsed(context.Context, time.Time) (int64, error)
+	FreshTokens(context.Context, time.Time) (int64, error)
 	ListAllowedAuthors(context.Context, string) ([]store.AllowedAuthor, error)
 }
 

@@ -46,8 +46,13 @@ func TestClaudeSmoke(t *testing.T) {
 	if v.Summary == "" {
 		t.Error("summary missing from verdict report")
 	}
-	if v.TokensUsed == 0 {
+	if v.Tokens.Total() == 0 {
 		t.Error("token usage must be read back from the result event")
+	}
+	// A live claude run always re-reads context across turns, so a zero here
+	// means the split was parsed into the wrong half, not that nothing cached.
+	if v.Tokens.Fresh == 0 || v.Tokens.Cached == 0 {
+		t.Errorf("usage split = %+v, want both halves populated by a real run", v.Tokens)
 	}
 
 	// The transcript the dashboard tails must be the marker format, not the

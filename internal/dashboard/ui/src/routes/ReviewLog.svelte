@@ -2,7 +2,7 @@
   import { getReviewLog } from '../lib/api';
   import { parseAgentLog, verdictShaped, isAgentKind } from '../lib/agentlog';
   import { withFeed } from '../lib/feed';
-  import { durSecs, prHref, rel, tokens, usd, when } from '../lib/format';
+  import { durSecs, exact, prHref, rel, tokens, usd, when } from '../lib/format';
   import { poll } from '../lib/poll';
   import StatusBadge from '../lib/StatusBadge.svelte';
   import type { ReviewLogPr, ReviewLogRef } from '../lib/types';
@@ -38,6 +38,17 @@
 
   // A finished review wears its verdict; in-flight states wear themselves.
   $: displayStatus = state === 'finished' ? pr?.verdict || 'finished' : state;
+
+  // Three honest states for the token total, not two: a review recorded before
+  // the split existed knows neither half, and saying "none re-read from cache"
+  // about a claude run would be a confident lie.
+  $: tokenDetail = !pr?.tokens_used
+    ? ''
+    : pr.cache_read_tokens
+      ? `${exact(pr.fresh_tokens)} processed + ${exact(pr.cache_read_tokens)} re-read from cache`
+      : pr.fresh_tokens
+        ? `${exact(pr.fresh_tokens)} processed, none re-read from cache`
+        : 'recorded before this engine reported the split';
 
   // One bubble per stream event; null means the content isn't an agent
   // transcript, so the raw view is the only view.
@@ -77,7 +88,7 @@
       · took {durSecs(pr.duration_secs)}
     {/if}
     {#if pr?.tokens_used}
-      · <span title={pr.cache_read_tokens ? `${pr.fresh_tokens?.toLocaleString()} processed + ${pr.cache_read_tokens.toLocaleString()} re-read from cache` : 'engine reported a single total'}>{tokens(pr.tokens_used)} tokens{#if pr.fresh_tokens} ({tokens(pr.fresh_tokens)} processed){/if}</span>
+      · <span title={tokenDetail}>{tokens(pr.tokens_used)} tokens{#if pr.cache_read_tokens} ({tokens(pr.fresh_tokens)} processed){/if}</span>
     {/if}
     {#if pr?.cost_usd}
       · {usd(pr.cost_usd)} at API rates

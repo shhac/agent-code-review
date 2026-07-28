@@ -515,6 +515,8 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	rec := ReviewFrom(c, "COMMENTED", "test-engine", time.Now().Add(-90*time.Second))
 	rec.WorkDir = "/tmp/example-workdir-21"
 	rec.TokensUsed = 192575
+	rec.FreshTokens = 42575
+	rec.CacheReadTokens = 150000
 	rec.Model = "gpt-5.6-terra"
 	rec.Effort = "high"
 	rec.EngineVersion = "Codex CLI 0.144.0"
@@ -525,6 +527,12 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	last, ok, err := s.LastOutcome(ctx, "o/r", 21)
 	if err != nil || !ok {
 		t.Fatalf("history row missing: ok=%v err=%v", ok, err)
+	}
+	// Distinct values on purpose: the INSERT is a positional %d list and these
+	// three are all ints, so equal values would let a swap read back clean.
+	if last.TokensUsed != 192575 || last.FreshTokens != 42575 || last.CacheReadTokens != 150000 {
+		t.Errorf("token columns misaligned: total=%d fresh=%d cached=%d",
+			last.TokensUsed, last.FreshTokens, last.CacheReadTokens)
 	}
 	if last.Title != title || last.Author != "o'connor" {
 		t.Errorf("snapshot corrupted: title=%q author=%q", last.Title, last.Author)
@@ -556,14 +564,17 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	if err != nil || len(all) != 1 || all[0].Title != title {
 		t.Errorf("ListReviews must carry the snapshot too: %+v err=%v", all, err)
 	}
-	if total, err := s.TokensUsed(ctx, time.Time{}); err != nil || total != 192575 {
-		t.Errorf("TokensUsed(all time) = %d err=%v, want 192575", total, err)
+	// The SQL aggregate must sum the comparable figure, not the cache-inflated
+	// total: Overview and the Metrics page read the same history and used to
+	// disagree by everything cached.
+	if total, err := s.FreshTokens(ctx, time.Time{}); err != nil || total != 42575 {
+		t.Errorf("FreshTokens(all time) = %d err=%v, want 42575 (not the 192575 total)", total, err)
 	}
-	if recent, err := s.TokensUsed(ctx, time.Now().Add(-time.Hour)); err != nil || recent != 192575 {
-		t.Errorf("TokensUsed(last hour) = %d err=%v, want 192575", recent, err)
+	if recent, err := s.FreshTokens(ctx, time.Now().Add(-time.Hour)); err != nil || recent != 42575 {
+		t.Errorf("FreshTokens(last hour) = %d err=%v, want 42575", recent, err)
 	}
-	if none, err := s.TokensUsed(ctx, time.Now().Add(time.Hour)); err != nil || none != 0 {
-		t.Errorf("TokensUsed(future window) = %d err=%v, want 0", none, err)
+	if none, err := s.FreshTokens(ctx, time.Now().Add(time.Hour)); err != nil || none != 0 {
+		t.Errorf("FreshTokens(future window) = %d err=%v, want 0", none, err)
 	}
 }
 
@@ -856,6 +867,9 @@ func TestInitMigratesPreExistingHistory(t *testing.T) {
 	INSERT INTO history VALUES ('o/r', 7, 'legacy row', 'someone', 'sha7',
 	  'APPROVED', 'codex', 'gpt-5.6', 'high', 'codex-cli 0.144.5', now(), 42,
 	  '/tmp/wd', 1000);
+	INSERT INTO history VALUES ('o/r', 8, 'legacy claude row', 'someone', 'sha8',
+	  'APPROVED', 'claude', 'claude-opus-5', 'medium', 'claude 2.1.0', now(), 500,
+	  '/tmp/wd8', 3700000);
 	CREATE TABLE queue (repo TEXT NOT NULL, number INTEGER NOT NULL,
 	  type TEXT NOT NULL, PRIMARY KEY (repo, number));`
 	if out, err := exec.Command("duckdb", path, "-c", seed).CombinedOutput(); err != nil {
@@ -880,15 +894,32 @@ func TestInitMigratesPreExistingHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reviews) != 1 {
-		t.Fatalf("history rows = %d, want the seeded row to survive", len(reviews))
+	if len(reviews) != 2 {
+		t.Fatalf("history rows = %d, want the seeded rows to survive", len(reviews))
+	}
+	byEngine := map[string]Review{}
+	for _, r := range reviews {
+		byEngine[r.Engine] = r
 	}
 	// The value must have been carried across, not dropped with the column.
-	if got := reviews[0].EngineVersion; got != "codex-cli 0.144.5" {
+	if got := byEngine["codex"].EngineVersion; got != "codex-cli 0.144.5" {
 		t.Errorf("engine_version = %q, want the backfilled codex_version", got)
 	}
-	if reviews[0].TokensUsed != 1000 || reviews[0].Title != "legacy row" {
-		t.Errorf("unrelated columns disturbed: %+v", reviews[0])
+	if byEngine["codex"].TokensUsed != 1000 || byEngine["codex"].Title != "legacy row" {
+		t.Errorf("unrelated columns disturbed: %+v", byEngine["codex"])
+	}
+	// The fresh_tokens backfill turns on what an engine's total meant before
+	// the column existed. codex never counted cached re-reads, so its total IS
+	// the fresh count; claude's was cache-inflated and its split is gone, so
+	// the row must read as unknown rather than charting at its inflated total.
+	if got := byEngine["codex"].FreshTokens; got != 1000 {
+		t.Errorf("codex fresh_tokens = %d, want its total 1000 backfilled", got)
+	}
+	if got := byEngine["claude"].FreshTokens; got != 0 {
+		t.Errorf("claude fresh_tokens = %d, want 0 (unknown): its 3.7M total is cache-inflated", got)
+	}
+	if got := byEngine["claude"].TokensUsed; got != 3_700_000 {
+		t.Errorf("claude tokens_used = %d, want the recorded total kept", got)
 	}
 
 	// And the retired column is gone rather than lingering.

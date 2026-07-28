@@ -64,8 +64,37 @@ func TestTranscodeRendersMarkerFormat(t *testing.T) {
 	if tr.sessionID != "abc-123" {
 		t.Errorf("sessionID = %q", tr.sessionID)
 	}
-	if tr.tokens != 1234 {
-		t.Errorf("tokens = %d, want every usage field summed", tr.tokens)
+	if tr.usage.Total() != 1234 {
+		t.Errorf("tokens = %d, want every usage field summed", tr.usage.Total())
+	}
+}
+
+// The whole cross-engine chart rests on which of claude's four usage lines
+// count as fresh. Totals alone cannot pin that: any two of them can swap and
+// every sum stays identical, so this asserts the split itself, with four
+// distinct values so a transposition has nowhere to hide.
+func TestTranscodeSplitsUsageFreshFromCached(t *testing.T) {
+	_, tr := transcode(t,
+		`{"type":"result","subtype":"success","structured_output":{"decision":"APPROVED","summary":"ok"},`+
+			`"usage":{"input_tokens":1000,"output_tokens":200,"cache_creation_input_tokens":30,"cache_read_input_tokens":400000}}`,
+	)
+	if want := (TokenUsage{Fresh: 1230, Cached: 400000}); tr.usage != want {
+		t.Errorf("usage = %+v, want %+v (cache writes are work done, cache reads are not)", tr.usage, want)
+	}
+}
+
+// A resumed run reports only its own turn, so the split accumulates. Verified
+// live: a resume whose turn produced 43 output tokens reported 43, not the
+// session total.
+func TestTranscodeAccumulatesUsageAcrossInvocations(t *testing.T) {
+	_, tr := transcode(t,
+		`{"type":"result","subtype":"success","structured_output":{"decision":"WORKING","summary":"still going"},`+
+			`"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":5000}}`,
+		`{"type":"result","subtype":"success","structured_output":{"decision":"APPROVED","summary":"ok"},`+
+			`"usage":{"input_tokens":20,"output_tokens":3,"cache_read_input_tokens":7000}}`,
+	)
+	if want := (TokenUsage{Fresh: 133, Cached: 12000}); tr.usage != want {
+		t.Errorf("usage = %+v, want %+v (both invocations summed)", tr.usage, want)
 	}
 }
 

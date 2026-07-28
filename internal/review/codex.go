@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -91,25 +89,37 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 
 	sink, buf, closeSink := newAgentSink(workDir)
 	defer closeSink()
+	stream := newCodexTranscoder(sink)
 
-	// codex reports through a file (--output-last-message) and prints both its
-	// session id and a per-invocation token trailer into the transcript, so
-	// every accessor the resume policy needs is a read of one of those two.
+	// codex reports its verdict through a file (--output-last-message); the
+	// session id and the token split come off the --json event stream, which
+	// the transcoder renders into the shared marker format as it goes.
 	return resumableRun{
-		engine:  "codex exec",
-		max:     e.maxResumes,
-		start:   func() error { return e.runCmd(ctx, e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt), sink) },
-		resume:  func(id string) error { return e.runCmd(ctx, e.buildResumeArgs(id, schemaPath, lastMsgPath), sink) },
-		report:  func() (Verdict, error) { return parseVerdictFile(lastMsgPath) },
-		session: func() string { return parseSessionID(buf.String()) },
-		raw:     buf.String,
-		// codex's trailer is a single number with no cache line, and it stays
-		// in the same ~130k band across a 20-turn review that claude reports
-		// millions for — a count that re-read context every turn could not do.
-		// So it is a fresh count, recorded as one here rather than left for a
-		// reader downstream to infer from its magnitude.
-		usage: func() TokenUsage { return TokenUsage{Fresh: parseTokensUsed(buf.String())} },
+		engine: "codex exec",
+		max:    e.maxResumes,
+		start: func() error {
+			stream.userPrompt(req.Prompt)
+			return e.run(ctx, e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt), stream)
+		},
+		resume: func(id string) error {
+			stream.userPrompt(e.resumePrompt)
+			return e.run(ctx, e.buildResumeArgs(id, schemaPath, lastMsgPath), stream)
+		},
+		report:   func() (Verdict, error) { return parseVerdictFile(lastMsgPath) },
+		session:  func() string { return stream.threadID },
+		raw:      buf.String,
+		usage:    func() TokenUsage { return stream.usage },
+		rawUsage: func() string { return joinRawUsage(stream.rawUsage) },
 	}.do()
+}
+
+// run drives one invocation and flushes the transcoder's trailing line, so a
+// stream that ended without a final newline still renders before the report
+// is read back. Mirrors the claude driver's seam of the same name.
+func (e *codexEngine) run(ctx context.Context, args []string, stream *codexTranscoder) error {
+	err := e.runCmd(ctx, args, stream)
+	stream.Close()
+	return err
 }
 
 // buildArgs assembles the codex exec invocation. Pure. The CLI contract
@@ -118,6 +128,7 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string) []string {
 	args := append([]string{"exec"}, e.modelArgs()...)
 	args = append(args,
+		"--json", // events, not prose: the prose trailer has no cache line
 		"--sandbox", e.sandbox,
 		"--cd", workDir,
 		"--skip-git-repo-check", // the per-PR workdir is scratch space, not a repo
@@ -139,6 +150,7 @@ func (e *codexEngine) buildResumeArgs(sessionID, schemaPath, lastMsgPath string)
 	// JSON string syntax is valid TOML basic-string syntax (see effortArgs).
 	sandbox, _ := json.Marshal(e.sandbox)
 	args = append(args,
+		"--json",
 		"--skip-git-repo-check",
 		"-c", "sandbox_mode="+string(sandbox),
 		"--output-schema", schemaPath,
@@ -171,19 +183,6 @@ func (e *codexEngine) effortArgs() []string {
 	return []string{"-c", "model_reasoning_effort=" + string(effort)}
 }
 
-// sessionIDPattern matches the "session id:" line of codex exec's run header.
-var sessionIDPattern = regexp.MustCompile(`(?m)^session id: ([0-9a-fA-F-]{36})\s*$`)
-
-// parseSessionID extracts the run's session UUID from the engine transcript;
-// "" means the header wasn't found (and a resume is impossible).
-func parseSessionID(raw string) string {
-	m := sessionIDPattern.FindStringSubmatch(raw)
-	if m == nil {
-		return ""
-	}
-	return m[1]
-}
-
 // parseVerdictFile reads and validates the agent's final-message report.
 func parseVerdictFile(path string) (Verdict, error) {
 	data, err := os.ReadFile(path)
@@ -191,25 +190,4 @@ func parseVerdictFile(path string) (Verdict, error) {
 		return Verdict{}, err
 	}
 	return parseVerdict(data)
-}
-
-// tokensUsedPattern matches the "tokens used" trailer codex exec prints at
-// the end of a run, e.g. "tokens used\n192,575".
-var tokensUsedPattern = regexp.MustCompile(`(?m)^tokens used\n([0-9,]+)$`)
-
-// parseTokensUsed sums the run's token count from the engine transcript. Each
-// codex invocation prints its own per-invocation trailer, so with resumes the
-// transcript holds several and the total spend is their sum (verified live:
-// a resumed invocation reports only its own usage, not the session's).
-// 0 means no trailer was found (truncated or older codex).
-func parseTokensUsed(raw string) int {
-	total := 0
-	for _, m := range tokensUsedPattern.FindAllStringSubmatch(raw, -1) {
-		n, err := strconv.Atoi(strings.ReplaceAll(m[1], ",", ""))
-		if err != nil {
-			continue
-		}
-		total += n
-	}
-	return total
 }

@@ -58,8 +58,17 @@ CREATE TABLE IF NOT EXISTS history (
   -- decides the split, so a reader never has to know which engine ran.
   -- fresh_tokens 0 means unknown, not zero work: rows recorded before this
   -- column by an engine whose total was cache-inflated cannot be recovered.
-  fresh_tokens      INTEGER NOT NULL DEFAULT 0,
-  cache_read_tokens INTEGER NOT NULL DEFAULT 0
+  fresh_tokens       INTEGER NOT NULL DEFAULT 0,
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens   INTEGER NOT NULL DEFAULT 0,  -- part of output_tokens, not an addition to it
+  -- What the engine actually said about usage, verbatim, one JSON entry per
+  -- invocation. Everything above is a projection of this; keeping the source
+  -- means a pricing question about a field we never modelled (claude's 5m/1h
+  -- cache tiers, its server tool calls) is a query, not a migration.
+  usage_raw          TEXT
 );
 
 -- Idempotent migrations for stores created before these columns existed.
@@ -103,7 +112,15 @@ ALTER TABLE history ADD COLUMN IF NOT EXISTS input_tokens INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS output_tokens INTEGER DEFAULT 0;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS cache_creation_tokens INTEGER DEFAULT 0;
 UPDATE history SET fresh_tokens = input_tokens + output_tokens + cache_creation_tokens
-  WHERE input_tokens + output_tokens + cache_creation_tokens > 0;
+  WHERE fresh_tokens = 0 AND input_tokens + output_tokens + cache_creation_tokens > 0;
+-- The per-class columns. input_tokens and output_tokens above were briefly
+-- retired into fresh_tokens when nothing read them apart; pricing reads them
+-- apart, so they stay. cache_write_tokens is a new name rather than a revived
+-- cache_creation_tokens, whose rows were already folded away by the UPDATE
+-- above and must not be read back with the new meaning.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS cache_write_tokens INTEGER DEFAULT 0;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS reasoning_tokens INTEGER DEFAULT 0;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS usage_raw TEXT;
 -- Rows predating the split at all. Their tokens_used is trustworthy as a
 -- fresh count only from an engine that never counted cached re-reads, which
 -- means every engine except claude. Naming claude here is safe by
@@ -112,8 +129,6 @@ UPDATE history SET fresh_tokens = input_tokens + output_tokens + cache_creation_
 -- real zero and re-running this UPDATE leaves it at 0 either way.
 UPDATE history SET fresh_tokens = tokens_used
   WHERE fresh_tokens = 0 AND cache_read_tokens = 0 AND engine IS DISTINCT FROM 'claude';
-ALTER TABLE history DROP COLUMN IF EXISTS input_tokens;
-ALTER TABLE history DROP COLUMN IF EXISTS output_tokens;
 ALTER TABLE history DROP COLUMN IF EXISTS cache_creation_tokens;
 
 -- Per-repo allowed authors: whose PRs WE (the reviewer) may approve, not who

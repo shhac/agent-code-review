@@ -123,13 +123,14 @@ type resumableRun struct {
 	engine string // names the engine in error text
 	max    int    // resume attempts allowed
 
-	start   func() error                 // the initial invocation; error means the process failed
-	resume  func(sessionID string) error // one nudge against an existing session
-	report  func() (Verdict, error)      // latest report; errEndedOnWorking when the agent yielded early
-	session func() string                // session id to resume, "" when the run didn't expose one
-	raw     func() string                // full transcript, for Verdict.Raw and error surfacing
-	cost    func() float64               // total API-rate valuation, nil when the engine reports none
-	usage   func() TokenUsage            // token spend across every invocation, nil when unknown
+	start    func() error                 // the initial invocation; error means the process failed
+	resume   func(sessionID string) error // one nudge against an existing session
+	report   func() (Verdict, error)      // latest report; errEndedOnWorking when the agent yielded early
+	session  func() string                // session id to resume, "" when the run didn't expose one
+	raw      func() string                // full transcript, for Verdict.Raw and error surfacing
+	cost     func() float64               // total API-rate valuation, nil when the engine reports none
+	usage    func() TokenUsage            // token spend across every invocation, nil when unknown
+	rawUsage func() string                // engine usage payloads verbatim, nil when the engine exposes none
 }
 
 // do drives the initial invocation and, when a clean exit's report is WORKING
@@ -160,14 +161,15 @@ func (r resumableRun) do() (Verdict, error) {
 // whether or not a report came back, and an ERROR that hides what it cost is
 // exactly the row you want to see when the budget looks wrong.
 func (r resumableRun) resolve(verdict Verdict, parseErr, runErr error) (Verdict, error) {
-	raw, cost, usage := r.raw(), r.costUSD(), r.tokenUsage()
+	raw, cost, usage, rawUsage := r.raw(), r.costUSD(), r.tokenUsage(), r.usageRaw()
 	if parseErr == nil {
 		verdict.Raw = raw
 		verdict.CostUSD = cost
 		verdict.Tokens = usage
+		verdict.UsageRaw = rawUsage
 		return verdict, nil
 	}
-	failed := Verdict{Decision: DecisionError, Raw: raw, CostUSD: cost, Tokens: usage}
+	failed := Verdict{Decision: DecisionError, Raw: raw, CostUSD: cost, Tokens: usage, UsageRaw: rawUsage}
 	if runErr != nil {
 		return failed, fmt.Errorf("%s: %w", r.engine, runErr)
 	}
@@ -185,11 +187,34 @@ func (r resumableRun) tokenUsage() TokenUsage {
 
 // costUSD does the same for the run's API-rate valuation, which only some
 // engines report at all.
+// usageRaw reads the engine's verbatim usage payloads, absent accessor meaning
+// the engine exposes none.
+func (r resumableRun) usageRaw() string {
+	if r.rawUsage == nil {
+		return ""
+	}
+	return r.rawUsage()
+}
+
 func (r resumableRun) costUSD() float64 {
 	if r.cost == nil {
 		return 0
 	}
 	return r.cost()
+}
+
+// joinRawUsage renders the collected per-invocation usage payloads as one
+// JSON array. "" when the engine reported none, so an absent value stays
+// absent in the store rather than becoming a misleading empty array.
+func joinRawUsage(payloads []json.RawMessage) string {
+	if len(payloads) == 0 {
+		return ""
+	}
+	out, err := json.Marshal(payloads)
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // prepareWorkspace resolves the review's workspace, creating a temp one when

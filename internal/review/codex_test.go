@@ -22,6 +22,7 @@ func TestBuildArgs(t *testing.T) {
 		"exec",
 		"--model some-model",
 		`-c model_reasoning_effort="high"`,
+		"--json",
 		"--sandbox read-only",
 		"--cd /wd",
 		"--skip-git-repo-check",
@@ -62,6 +63,7 @@ func TestBuildResumeArgs(t *testing.T) {
 	for _, want := range []string{
 		"exec resume",
 		"--model some-model",
+		"--json",
 		"--skip-git-repo-check",
 		`-c sandbox_mode="read-only"`, // resume has no --sandbox flag; the mode travels as a config override
 		"--output-schema /wd/schema.json",
@@ -88,8 +90,7 @@ func TestBuildResumeArgs(t *testing.T) {
 func TestCodexReviewProcessResultBranches(t *testing.T) {
 	t.Run("valid report wins over non-zero exit", func(t *testing.T) {
 		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t, `printf '%s\n' "raw line"
-printf '%s\n' "tokens used"
-printf '%s\n' "1,234"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1234}}'
 printf '{"decision":"COMMENTED","summary":"left comments"}' > "$last_msg"
 exit 7
 `)}, "NUDGE")
@@ -104,8 +105,7 @@ exit 7
 
 	t.Run("non-zero without report returns error verdict", func(t *testing.T) {
 		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t, `printf '%s\n' diagnostics
-printf '%s\n' "tokens used"
-printf '%s\n' "941"
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":941}}'
 exit 7
 `)}, "NUDGE")
 		v, err := engine.Review(context.Background(), Request{WorkDir: t.TempDir(), Prompt: "P"})
@@ -141,11 +141,16 @@ func workingThenBody(resumeBody string) string {
 if [ "$resume" = 1 ]; then
 ` + resumeBody + `
 else
-  printf 'session id: 019f6f77-3c3d-7ce3-966d-d4b2083f4459\n'
+  printf '%s\n' '{"type":"thread.started","thread_id":"019f6f77-3c3d-7ce3-966d-d4b2083f4459"}'
   printf '{"decision":"WORKING","summary":"starting"}' > "$last_msg"
 fi
-printf '%s\n' "tokens used"
-printf '%s\n' "100"
+# codex reports the SESSION total each turn, so the resume's figure already
+# contains the first invocation's: 100, then 250 -- never 100 + 150.
+if [ "$resume" = 1 ]; then
+  printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":250}}'
+else
+  printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100}}'
+fi
 exit 0
 `
 }
@@ -160,7 +165,7 @@ func invocations(t *testing.T, workDir string) []string {
 }
 
 func TestCodexResumeOnWorking(t *testing.T) {
-	t.Run("resumes the session and sums the token trailers", func(t *testing.T) {
+	t.Run("resumes the session and takes the cumulative usage", func(t *testing.T) {
 		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t,
 			workingThenBody(`  printf '{"decision":"APPROVED","summary":"finished after nudge"}' > "$last_msg"`),
 		)}, "keep going until you arrive at a decision")
@@ -172,8 +177,8 @@ func TestCodexResumeOnWorking(t *testing.T) {
 		if v.Decision != DecisionApproved || v.Summary != "finished after nudge" {
 			t.Errorf("verdict = %+v, want the resumed APPROVED report", v)
 		}
-		if v.Tokens.Total() != 200 {
-			t.Errorf("tokens = %d, want both invocations' trailers summed (200)", v.Tokens.Total())
+		if v.Tokens.Total() != 250 {
+			t.Errorf("tokens = %d, want the resume's cumulative figure (250), not 100+250", v.Tokens.Total())
 		}
 		calls := invocations(t, workDir)
 		if len(calls) != 2 {
@@ -237,7 +242,7 @@ exit 0
 // the in-process runCmd seam: a resume invocation that dies mid-run. The
 // loop must stop on the process failure (no further resumes), and the
 // "report file wins" precedence must apply to resumed runs exactly as to
-// initial ones, with every invocation's token trailer still summed.
+// initial ones, with the resume's cumulative usage recorded.
 func TestCodexResumeExitBranches(t *testing.T) {
 	setup := func(t *testing.T, resumeReport string) (*codexEngine, string, *int) {
 		t.Helper()
@@ -248,10 +253,12 @@ func TestCodexResumeExitBranches(t *testing.T) {
 			calls++
 			report := resumeReport
 			if calls == 1 {
-				_, _ = io.WriteString(sink, "session id: 019f6f77-3c3d-7ce3-966d-d4b2083f4459\ntokens used\n100\n")
+				_, _ = io.WriteString(sink, `{"type":"thread.started","thread_id":"019f6f77-3c3d-7ce3-966d-d4b2083f4459"}`+"\n")
+				_, _ = io.WriteString(sink, `{"type":"turn.completed","usage":{"input_tokens":100}}`+"\n")
 				report = `{"decision":"WORKING","summary":"starting"}`
 			} else {
-				_, _ = io.WriteString(sink, "diagnostics\ntokens used\n50\n")
+				_, _ = io.WriteString(sink, "diagnostics\n")
+				_, _ = io.WriteString(sink, `{"type":"turn.completed","usage":{"input_tokens":150}}`+"\n")
 			}
 			if err := os.WriteFile(filepath.Join(workDir, "verdict.json"), []byte(report), 0o600); err != nil {
 				t.Fatal(err)
@@ -274,7 +281,7 @@ func TestCodexResumeExitBranches(t *testing.T) {
 			t.Errorf("verdict = %+v, want ERROR", v)
 		}
 		if v.Tokens.Total() != 150 {
-			t.Errorf("tokens = %d, want both invocations summed (150)", v.Tokens.Total())
+			t.Errorf("tokens = %d, want the resume's cumulative figure (150)", v.Tokens.Total())
 		}
 		if *calls != 2 {
 			t.Errorf("invocations = %d; the loop must stop on a process failure, not retry to the cap", *calls)
@@ -288,7 +295,7 @@ func TestCodexResumeExitBranches(t *testing.T) {
 			t.Fatalf("valid report must win over the non-zero exit, got %v", err)
 		}
 		if v.Decision != DecisionApproved || v.Summary != "posted before dying" || v.Tokens.Total() != 150 {
-			t.Errorf("verdict = %+v, want the resumed APPROVED report with summed tokens", v)
+			t.Errorf("verdict = %+v, want the resumed APPROVED report with cumulative tokens", v)
 		}
 		if *calls != 2 {
 			t.Errorf("invocations = %d, want exec + one resume", *calls)

@@ -107,11 +107,11 @@ func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error 
 // the next cycle reviews the newer commits.
 func (d *duckDB) Complete(ctx context.Context, r Review) error {
 	sql := fmt.Sprintf(`BEGIN;
-	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, engine_version, reviewed_at, duration_secs, work_dir, tokens_used, cost_usd, fresh_tokens, cache_read_tokens) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d, %s, %d, %d);
+	INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, engine_version, reviewed_at, duration_secs, work_dir, tokens_used, cost_usd, fresh_tokens, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, reasoning_tokens, usage_raw) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d, %s, %d, %d, %d, %d, %d, %d, %s);
 	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha IS NOT DISTINCT FROM %s;
 	UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE repo = %s AND number = %d;
 	COMMIT;`,
-		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), q(r.Model), q(r.Effort), q(r.EngineVersion), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed, num(r.CostUSD), r.FreshTokens, r.CacheReadTokens,
+		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), q(r.Model), q(r.Effort), q(r.EngineVersion), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed, num(r.CostUSD), r.FreshTokens, r.InputTokens, r.OutputTokens, r.CacheWriteTokens, r.CacheReadTokens, r.ReasoningTokens, q(r.UsageRaw),
 		q(r.Repo), r.Number, q(r.HeadSHA),
 		q(r.Repo), r.Number)
 	return d.exec(ctx, sql)

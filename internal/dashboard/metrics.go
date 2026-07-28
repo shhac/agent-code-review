@@ -28,12 +28,13 @@ import (
 // store.Review.CostUSD. MedianCost is the number to set a per-review budget
 // from, since a mean is dragged around by the long tail.
 type metricsSummary struct {
-	Reviews        int     `json:"reviews"`
-	FreshTokens    int     `json:"fresh_tokens"`
-	MedianDuration int     `json:"median_duration_secs"`
-	CostUSD        float64 `json:"cost_usd"`
-	MedianCostUSD  float64 `json:"median_cost_usd"`
-	MaxCostUSD     float64 `json:"max_cost_usd"`
+	Reviews         int     `json:"reviews"`
+	FreshTokens     int     `json:"fresh_tokens"`
+	CacheReadTokens int     `json:"cache_read_tokens"`
+	MedianDuration  int     `json:"median_duration_secs"`
+	CostUSD         float64 `json:"cost_usd"`
+	MedianCostUSD   float64 `json:"median_cost_usd"`
+	MaxCostUSD      float64 `json:"max_cost_usd"`
 }
 
 type metricsDay struct {
@@ -43,13 +44,18 @@ type metricsDay struct {
 }
 
 type modelMetric struct {
-	Model          string  `json:"model"`
-	Effort         string  `json:"effort"`
-	EngineVersion  string  `json:"engine_version"`
-	Reviews        int     `json:"reviews"`
-	FreshTokens    int     `json:"fresh_tokens"`
-	MedianDuration int     `json:"median_duration_secs"`
-	MedianCostUSD  float64 `json:"median_cost_usd"`
+	Model         string `json:"model"`
+	Effort        string `json:"effort"`
+	EngineVersion string `json:"engine_version"`
+	Reviews       int    `json:"reviews"`
+	FreshTokens   int    `json:"fresh_tokens"`
+	// CacheReadTokens is context re-read rather than processed. Reported
+	// beside FreshTokens rather than as a ratio so the page can show the
+	// share without the API having to pick a denominator: a row with no
+	// cache read at all is a real answer, not a divide-by-zero.
+	CacheReadTokens int     `json:"cache_read_tokens"`
+	MedianDuration  int     `json:"median_duration_secs"`
+	MedianCostUSD   float64 `json:"median_cost_usd"`
 }
 
 type metricsPoint struct {
@@ -129,6 +135,7 @@ func summaryOf(reviews []store.Review) metricsSummary {
 	costs := []float64{}
 	for _, r := range reviews {
 		s.FreshTokens += r.FreshTokens
+		s.CacheReadTokens += r.CacheReadTokens
 		s.CostUSD += r.CostUSD
 		if r.DurationSecs > 0 {
 			durations = append(durations, r.DurationSecs)
@@ -182,6 +189,7 @@ func modelGroups(reviews []store.Review) []modelMetric {
 		g := groups[key]
 		g.metric.Reviews++
 		g.metric.FreshTokens += r.FreshTokens
+		g.metric.CacheReadTokens += r.CacheReadTokens
 		if r.DurationSecs > 0 {
 			g.durations = append(g.durations, r.DurationSecs)
 		}

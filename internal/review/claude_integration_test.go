@@ -51,8 +51,11 @@ func TestClaudeSmoke(t *testing.T) {
 	}
 	// A live claude run always re-reads context across turns, so a zero here
 	// means the split was parsed into the wrong half, not that nothing cached.
-	if v.Tokens.Fresh == 0 || v.Tokens.Cached == 0 {
+	if v.Tokens.Fresh() == 0 || v.Tokens.CacheRead == 0 {
 		t.Errorf("usage split = %+v, want both halves populated by a real run", v.Tokens)
+	}
+	if v.UsageRaw == "" {
+		t.Error("the verbatim usage payload must be kept, not just the projection")
 	}
 
 	// The transcript the dashboard tails must be the marker format, not the

@@ -180,11 +180,12 @@ func (e *claudeEngine) Review(ctx context.Context, req Request) (Verdict, error)
 			stream.userPrompt(e.resumePrompt)
 			return e.run(ctx, e.buildResumeArgs(id), workDir, stream, sink)
 		},
-		report:  stream.verdict,
-		session: func() string { return stream.sessionID },
-		raw:     buf.String,
-		cost:    func() float64 { return stream.costUSD },
-		usage:   func() TokenUsage { return stream.usage },
+		report:   stream.verdict,
+		session:  func() string { return stream.sessionID },
+		raw:      buf.String,
+		cost:     func() float64 { return stream.costUSD },
+		usage:    func() TokenUsage { return stream.usage },
+		rawUsage: func() string { return joinRawUsage(stream.rawUsage) },
 	}.do()
 }
 

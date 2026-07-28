@@ -138,8 +138,13 @@ func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, clai
 	rec.Effort = p.Effort
 	rec.EngineVersion = p.EngineVersion
 	rec.TokensUsed = v.Tokens.Total()
-	rec.FreshTokens = v.Tokens.Fresh
-	rec.CacheReadTokens = v.Tokens.Cached
+	rec.FreshTokens = v.Tokens.Fresh()
+	rec.InputTokens = v.Tokens.Input
+	rec.OutputTokens = v.Tokens.Output
+	rec.CacheWriteTokens = v.Tokens.CacheWrite
+	rec.CacheReadTokens = v.Tokens.CacheRead
+	rec.ReasoningTokens = v.Tokens.Reasoning
+	rec.UsageRaw = v.UsageRaw
 	rec.CostUSD = v.CostUSD
 	return rec
 }

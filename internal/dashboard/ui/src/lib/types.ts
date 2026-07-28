@@ -80,10 +80,10 @@ export type StatsResponse = {
 };
 
 export type MetricsResponse = {
-  summary: { reviews: number; fresh_tokens: number; median_duration_secs: number; cost_usd: number; median_cost_usd: number; max_cost_usd: number };
+  summary: { reviews: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; cost_usd: number; median_cost_usd: number; max_cost_usd: number };
   verdicts: Record<string, number>;
   activity: { day: string; reviews: number; fresh_tokens: number }[];
-  models: { model: string; effort: string; engine_version: string; reviews: number; fresh_tokens: number; median_duration_secs: number; median_cost_usd: number }[];
+  models: { model: string; effort: string; engine_version: string; reviews: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; median_cost_usd: number }[];
   scatter: { model: string; effort: string; verdict: string; fresh_tokens: number; duration_secs: number }[];
 };
 

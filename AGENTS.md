@@ -68,16 +68,36 @@ internal/
 - **Engines differ only in how they spawn a CLI.** `review/driver.go` holds
   everything engine-agnostic: the verdict schema, the reporting instruction,
   the agent-log sink, and the bounded resume policy (`resumableRun`). A driver
-  supplies just its argv builders and how to read a session id, a token count,
-  and a report back out. `codex exec` reports through a file
-  (`--output-last-message`) and prints a readable transcript; `claude -p`
-  reports in-stream (`--json-schema`, delivered as a forced `StructuredOutput`
-  tool call) and emits NDJSON, which `claudestream.go` renders into the SAME
-  marker transcript so `agent.log` stays one format and the dashboard needs
-  one parser. That cross-language contract is pinned by a golden fixture
-  (`review/testdata/claude-transcript.golden`) written by the Go test and read
-  by `ui/src/lib/agentlog.test.ts`; regenerate with
+  supplies just its argv builders and how to read a session id, a token split,
+  and a report back out. Both engines are driven in JSON mode and both render
+  their own stream into the SAME marker transcript (`codexstream.go`,
+  `claudestream.go`), so `agent.log` stays one format and the dashboard needs
+  one parser. They differ in how the report comes back: `codex exec` writes it
+  to a file (`--output-last-message`), while `claude -p` reports in-stream
+  (`--json-schema`, delivered as a forced `StructuredOutput` tool call). That
+  cross-language contract is pinned by a golden fixture per engine
+  (`review/testdata/{codex,claude}-transcript.golden`) written by the Go tests
+  and read by `ui/src/lib/agentlog.test.ts`; regenerate with
   `go test ./internal/review -update-golden`.
+
+- **The two engines report usage with opposite scopes, and it is measured.**
+  claude's usage is PER-INVOCATION, so its transcoder sums; codex's
+  `turn.completed` carries the SESSION TOTAL every turn, so its transcoder
+  replaces. Summing codex (which the old prose-trailer parser did)
+  double-counts every resumed run. codex's `input_tokens` also INCLUDES its
+  cached reads, where claude reports them apart. These are engine facts, so
+  each driver states its own mapping onto `TokenUsage` and nothing downstream
+  branches on the engine. Both are pinned by tests carrying the live
+  measurements that established them.
+
+- **Token classes are recorded apart because they are priced apart.** A cached
+  read costs about a tenth of fresh input and a sixtieth of output, so a
+  blended figure cannot be priced. `history` keeps input/output/cache-write/
+  cache-read/reasoning plus `fresh_tokens` (the only cross-engine comparable
+  figure) and `usage_raw`, the engine's verbatim payload. `usage_raw` is the
+  escape hatch: claude reports 5m/1h cache-write tiers priced differently and
+  separately-billed server tool calls that are not modelled, so a later
+  pricing question is a query rather than a migration and a data gap.
 
 - **The claude engine defaults to auto permission mode, on purpose.** A review
   is open-ended tool work, so enumerating tools up front contradicts "the

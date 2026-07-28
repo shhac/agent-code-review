@@ -29,24 +29,37 @@ type Verdict struct {
 	// the agent claims, so both are excluded from the report's JSON.
 	CostUSD float64    `json:"-"`
 	Tokens  TokenUsage `json:"-"`
+	// UsageRaw is the engine's own usage payloads, verbatim, as a JSON array
+	// with one entry per invocation. Tokens is a projection of it; this is the
+	// source, kept so a field we never modelled is still recoverable.
+	UsageRaw string `json:"-"`
 }
 
-// TokenUsage is one run's token spend, split the only way that survives a
-// comparison between engines. Cached is context the model re-read rather than
-// processed, and it dominates a long agentic session — a review re-reads
-// millions of cached tokens across its turns — so a total including it runs an
-// order of magnitude above one that doesn't.
+// TokenUsage is one run's token spend, split by the classes that are priced
+// differently. Every engine reports some subset of these and each driver maps
+// its own onto them, so the mapping is stated once per engine instead of
+// inferred downstream from whatever fields happened to be non-zero.
 //
-// Each driver maps its engine's reporting onto this shape, which is why the
-// mapping is stated once per engine instead of inferred downstream from
-// whatever fields happened to be non-zero.
+// The classes are not interchangeable: a cached read costs roughly a tenth of
+// fresh input and a sixtieth of output, so a figure that blends them cannot be
+// priced, and one that includes CacheRead cannot be compared between engines
+// that report it and engines that don't.
 type TokenUsage struct {
-	Fresh  int
-	Cached int
+	Input      int // fresh input, never including cached reads
+	Output     int
+	CacheWrite int // context written to cache, which the model did process
+	CacheRead  int // context re-read from cache, which it did not
+	// Reasoning is part of Output, not an addition to it. Recorded because
+	// it is worth analysing on its own; never summed into a total.
+	Reasoning int
 }
 
 // Total is every token the run moved, cached re-reads included.
-func (t TokenUsage) Total() int { return t.Fresh + t.Cached }
+func (t TokenUsage) Total() int { return t.Input + t.Output + t.CacheWrite + t.CacheRead }
+
+// Fresh is what the run actually processed: everything except context re-read
+// from cache. The only token figure comparable across engines.
+func (t TokenUsage) Fresh() int { return t.Input + t.Output + t.CacheWrite }
 
 // Verdict decisions, aliased from the store's canonical vocabulary (the
 // layer both packages import, so the two sets cannot drift). The first four

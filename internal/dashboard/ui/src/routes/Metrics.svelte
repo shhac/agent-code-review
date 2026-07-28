@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getMetrics } from '../lib/api';
   import { withFeed } from '../lib/feed';
-  import { durSecs, maxOf, modelLabel, statusLabel, tokens, usd } from '../lib/format';
+  import { durSecs, exact, maxOf, modelLabel, statusLabel, tokens, usd } from '../lib/format';
   import { metricFacets, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing } from '../lib/metrics';
   import type { MetricsResponse } from '../lib/types';
 
@@ -17,6 +17,15 @@
 
   $: ({ models, efforts } = metricFacets(data));
   $: maxReviews = maxOf(data?.activity || [], (d) => d.reviews);
+  // Share of the model's tokens that were context re-read rather than
+  // processed. An engine that reports no cache reads gets a dash, not 0%:
+  // the two mean different things and 0% would read as "caches badly".
+  const cacheShare = (row: { fresh_tokens: number; cache_read_tokens: number }) => {
+    const total = row.fresh_tokens + row.cache_read_tokens;
+    if (!row.cache_read_tokens || total === 0) return '–';
+    return `${Math.round((row.cache_read_tokens / total) * 100)}%`;
+  };
+
   $: maxTokens = maxOf(data?.activity || [], (d) => d.fresh_tokens);
   $: tokenPoints = trendPoints(data?.activity || [], maxTokens);
   $: scatterDuration = maxOf(data?.scatter || [], (p) => p.duration_secs);
@@ -68,6 +77,6 @@
       <span class="axis x">duration →</span><span class="axis y">tokens →</span>
     </div>
     <div class="legend">{#if colour === 'model'}{#each [...slots] as [name, slot]}<span><i class={`model-${slot}`}></i>{modelLabel(name)}</span>{/each}{:else}<span><i class="approved"></i>approved</span><span><i class="commented"></i>commented</span><span><i class="changes"></i>requested changes</span><span><i class="other"></i>skipped / error</span>{/if}</div></section>
-    <section class="surface metric-panel"><div class="section-head"><h2>Model + effort breakdown</h2><span>CLI version retained per review</span></div><div class="metric-table"><p class="metric-table-head"><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Median</b><b>Cost</b><b>Version</b></p>{#each data.models as row}<p><span>{modelLabel(row.model)}</span><span>{row.effort || 'model default'}</span><span>{row.reviews}</span><span>{tokens(row.fresh_tokens) || '–'}</span><span>{durSecs(row.median_duration_secs) || '–'}</span><span>{usd(row.median_cost_usd) || '–'}</span><span class="mono">{row.engine_version || 'unavailable'}</span></p>{/each}</div></section>
+    <section class="surface metric-panel"><div class="section-head"><h2>Model + effort breakdown</h2><span>CLI version retained per review</span></div><div class="metric-table"><p class="metric-table-head"><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Cached</b><b>Median</b><b>Cost</b><b>Version</b></p>{#each data.models as row}<p><span>{modelLabel(row.model)}</span><span>{row.effort || 'model default'}</span><span>{row.reviews}</span><span>{tokens(row.fresh_tokens) || '–'}</span><span title={row.cache_read_tokens ? `${exact(row.cache_read_tokens)} tokens re-read from cache` : 'this engine reports no cache reads'}>{cacheShare(row)}</span><span>{durSecs(row.median_duration_secs) || '–'}</span><span>{usd(row.median_cost_usd) || '–'}</span><span class="mono">{row.engine_version || 'unavailable'}</span></p>{/each}</div></section>
   </div>
 {/if}

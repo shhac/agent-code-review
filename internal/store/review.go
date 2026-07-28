@@ -40,19 +40,32 @@ type Review struct {
 	// and the unit `claude.max_budget_usd` is compared against. 0 when the
 	// engine reports none (codex prints only a token trailer).
 	CostUSD float64 `json:"cost_usd"`
-	// FreshTokens is what the run actually processed and CacheReadTokens is
-	// the context it re-read from cache; together they are TokensUsed. Re-reads
-	// dominate a long agentic session, so only FreshTokens is comparable
-	// between engines that report differently: a claude review's raw total runs
-	// ~28x a codex review's, almost all of it cache.
+	// The token classes, which are priced differently and so are recorded
+	// apart: a cached read costs about a tenth of fresh input and a sixtieth
+	// of output. Each driver maps its engine's reporting onto them, so nothing
+	// downstream branches on the engine.
 	//
-	// Each driver decides its own split, so nothing downstream branches on the
-	// engine. FreshTokens 0 means unknown rather than no work: rows recorded
-	// before the column by an engine with a cache-inflated total cannot be
-	// recovered, and aggregates leave them out the way they leave out unpriced
-	// rows.
-	FreshTokens     int `json:"fresh_tokens"`
-	CacheReadTokens int `json:"cache_read_tokens"`
+	// FreshTokens is Input+Output+CacheWrite, the only figure comparable
+	// between engines (re-reads dominate a long session, so a claude review's
+	// raw total runs ~28x a codex review's, almost all of it cache). 0 means
+	// unknown rather than no work: rows recorded before these columns cannot
+	// be recovered, and aggregates leave them out the way they leave out
+	// unpriced rows.
+	//
+	// ReasoningTokens is part of OutputTokens, not an addition to it.
+	FreshTokens      int `json:"fresh_tokens"`
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	CacheWriteTokens int `json:"cache_write_tokens"`
+	CacheReadTokens  int `json:"cache_read_tokens"`
+	ReasoningTokens  int `json:"reasoning_tokens"`
+	// UsageRaw is what the engine actually said about usage, verbatim, as a
+	// JSON array with one entry per invocation. The escape hatch: claude
+	// reports 5m/1h cache-write tiers priced differently, server tool calls
+	// billed separately, and per-message iterations, none of which are
+	// modelled above. Keeping the raw payload means a later pricing or
+	// analytics question is a query rather than a migration and a data gap.
+	UsageRaw string `json:"usage_raw,omitempty"`
 }
 
 // ReviewFrom snapshots a candidate's identity into a history record: the

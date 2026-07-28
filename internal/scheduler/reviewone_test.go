@@ -102,7 +102,7 @@ func TestReviewOneCompletesEveryOutcome(t *testing.T) {
 	for _, decision := range decisions {
 		t.Run(decision, func(t *testing.T) {
 			fs := &fakeSchedStore{}
-			fe := &fakeEngine{verdict: review.Verdict{Decision: decision, Summary: "s", Tokens: review.TokenUsage{Fresh: 4242}}}
+			fe := &fakeEngine{verdict: review.Verdict{Decision: decision, Summary: "s", Tokens: review.TokenUsage{Input: 4242}}}
 			s := newTestScheduler(fs, fe)
 
 			c := store.Candidate{Repo: "o/r", Number: 5, Author: "alice", HeadSHA: "sha1"}
@@ -154,7 +154,7 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 	// Spend rides along with the provenance: both ends of the money path are
 	// covered elsewhere (the engine reports CostUSD, the store round-trips it),
 	// but this is the glue between them.
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented, Tokens: review.TokenUsage{Fresh: 42575, Cached: 150000}, CostUSD: 0.6231}}
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented, Tokens: review.TokenUsage{Input: 40000, Output: 2575, CacheRead: 150000}, CostUSD: 0.6231}}
 	s := newTestScheduler(fs, fe)
 	if err := s.reviewOne(context.Background(), store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}, config.Config{}, &codexNamedEngine{fakeEngine: fe}); err != nil {
 		t.Fatal(err)

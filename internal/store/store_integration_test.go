@@ -516,7 +516,12 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	rec.WorkDir = "/tmp/example-workdir-21"
 	rec.TokensUsed = 192575
 	rec.FreshTokens = 42575
+	rec.InputTokens = 40000
+	rec.OutputTokens = 2000
+	rec.CacheWriteTokens = 575
 	rec.CacheReadTokens = 150000
+	rec.ReasoningTokens = 900
+	rec.UsageRaw = `[{"input_tokens":40000,"service_tier":"standard"}]`
 	rec.Model = "gpt-5.6-terra"
 	rec.Effort = "high"
 	rec.EngineVersion = "Codex CLI 0.144.0"
@@ -533,6 +538,14 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	if last.TokensUsed != 192575 || last.FreshTokens != 42575 || last.CacheReadTokens != 150000 {
 		t.Errorf("token columns misaligned: total=%d fresh=%d cached=%d",
 			last.TokensUsed, last.FreshTokens, last.CacheReadTokens)
+	}
+	if last.InputTokens != 40000 || last.OutputTokens != 2000 || last.CacheWriteTokens != 575 || last.ReasoningTokens != 900 {
+		t.Errorf("per-class columns misaligned: in=%d out=%d write=%d reasoning=%d",
+			last.InputTokens, last.OutputTokens, last.CacheWriteTokens, last.ReasoningTokens)
+	}
+	// The escape hatch is only an escape hatch if it survives the round trip.
+	if !strings.Contains(last.UsageRaw, `"service_tier":"standard"`) {
+		t.Errorf("verbatim usage payload lost: %q", last.UsageRaw)
 	}
 	if last.Title != title || last.Author != "o'connor" {
 		t.Errorf("snapshot corrupted: title=%q author=%q", last.Title, last.Author)
@@ -930,5 +943,42 @@ func TestInitMigratesPreExistingHistory(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "0") {
 		t.Errorf("codex_version still present after migration:\n%s", out)
+	}
+}
+
+// The legacy recovery UPDATE folds input+output+cache_creation into
+// fresh_tokens, but a row the current drivers wrote also carries
+// cache_write_tokens, which that sum does not know about. Re-deriving such a
+// row would silently drop its cache writes, so the guard restricting the
+// UPDATE to fresh_tokens = 0 rows is load-bearing and runs on every boot.
+func TestInitLeavesModernTokenRowsAlone(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := Candidate{Repo: "o/r", Number: 9, Type: TypeNew, HeadSHA: "sha9"}
+	if err := s.Enqueue(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	rec := ReviewFrom(c, VerdictApproved, "claude", time.Time{})
+	rec.TokensUsed, rec.FreshTokens = 1000, 900
+	rec.InputTokens, rec.OutputTokens, rec.CacheWriteTokens, rec.CacheReadTokens = 400, 100, 400, 100
+	if err := s.Complete(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+
+	// Init runs the whole migration block again, as every boot does.
+	if err := s.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	after, ok, err := s.LastOutcome(ctx, "o/r", 9)
+	if err != nil || !ok {
+		t.Fatalf("row missing: ok=%v err=%v", ok, err)
+	}
+	if after.FreshTokens != 900 {
+		t.Errorf("fresh_tokens = %d, want 900 untouched: the legacy recovery re-derived it and lost the 400 cache writes", after.FreshTokens)
+	}
+	if after.CacheWriteTokens != 400 {
+		t.Errorf("cache_write_tokens = %d, want 400", after.CacheWriteTokens)
 	}
 }

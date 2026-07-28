@@ -183,3 +183,46 @@ describe('failed runs explain themselves', () => {
     expect('body' in tokens ? tokens.body : '').toBe('0');
   });
 });
+
+// The codex driver used to print this format itself; under `codex exec --json`
+// it is rendered by internal/review/codexstream.go instead, so the guarantee
+// that a codex log still parses is now a test rather than an assumption. Same
+// fixture mechanism as the claude transcript above. Regenerate with:
+//   go test ./internal/review -update-golden
+describe('codex transcripts render through the same parser', () => {
+  const transcript = readFileSync(
+    new URL('../../../../review/testdata/codex-transcript.golden', import.meta.url),
+    'utf8',
+  );
+
+  it('parses the rendered codex transcript into events', () => {
+    const events = parseAgentLog(transcript);
+    expect(events).not.toBeNull();
+    expect(events!.map((e) => e.kind)).toEqual([
+      'meta',
+      'user',
+      'exec',
+      'exec',
+      'codex',
+      'tokens',
+    ]);
+  });
+
+  it('pairs each command with its own result', () => {
+    const execs = parseAgentLog(transcript)!.filter((e): e is ExecEvent => e.kind === 'exec');
+    expect(execs.map((e) => [e.command, e.ok, e.duration])).toEqual([
+      ['gh pr diff 42', true, '500ms'],
+      ['cat /tmp/wd/notes.md', false, '500ms'],
+    ]);
+    expect(execs[0].output).toContain('diff --git a/main.go');
+    expect(execs[1].output).toBe('no such file');
+  });
+
+  it('renders the agent message as a verdict, not a JSON blob', () => {
+    const agent = parseAgentLog(transcript)!.find((e) => e.kind === 'codex')!;
+    expect(verdictShaped('body' in agent ? agent.body : '')).toEqual({
+      decision: 'COMMENTED',
+      summary: 'Left two inline notes about error handling.',
+    });
+  });
+});

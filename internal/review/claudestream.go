@@ -39,9 +39,11 @@ type streamEvent struct {
 	Usage   *streamUsage    `json:"usage"`
 }
 
-// streamUsage is claude's four-way usage report for one invocation. Only the
-// cache-read line is separated downstream, so addUsage folds the other three
-// together on the way in.
+// streamUsage is claude's usage report for one invocation. It carries more
+// structure than these four fields (5m/1h cache-write tiers, server tool
+// calls, per-message iterations); that detail is preserved verbatim in
+// rawUsage rather than modelled here, so a pricing question about a tier we
+// never mapped stays a query instead of a migration.
 type streamUsage struct {
 	InputTokens              int `json:"input_tokens"`
 	OutputTokens             int `json:"output_tokens"`
@@ -56,12 +58,14 @@ type streamUsage struct {
 // output tokens reported 43, not the 4,529 the session had accumulated). Same
 // conclusion as codex's per-invocation trailers.
 //
-// Cache writes count as Fresh: the model processed that content to cache it,
-// and it is a read of already-processed context that Cached exists to keep out
-// of the comparable figure.
+// Summing is correct for claude specifically and wrong for codex, whose
+// turn.completed reports the session total every time; see
+// codexTranscoder.recordUsage.
 func addUsage(acc TokenUsage, u streamUsage) TokenUsage {
-	acc.Fresh += u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens
-	acc.Cached += u.CacheReadInputTokens
+	acc.Input += u.InputTokens
+	acc.Output += u.OutputTokens
+	acc.CacheWrite += u.CacheCreationInputTokens
+	acc.CacheRead += u.CacheReadInputTokens
 	return acc
 }
 
@@ -94,14 +98,15 @@ type streamTranscoder struct {
 	partial []byte // carry for a chunk that split mid-line
 
 	sessionID     string
-	usage         TokenUsage      // summed across every invocation, like codex's per-run trailers
-	costUSD       float64         // ditto; see renderResult for what this figure means
-	report        json.RawMessage // structured_output of the most recent result message
-	failure       string          // the run's own account of why it ended without a report
-	promptSeen    bool            // the first text-bearing user message is the prompt, the rest are tool results
-	pendingPrompt string          // registered by the driver, rendered on the first agent activity
-	pending       []time.Time     // start times of tool calls awaiting a result, FIFO
-	suppressed    map[string]bool // tool_use ids whose result must be dropped too
+	usage         TokenUsage        // summed across every invocation
+	rawUsage      []json.RawMessage // every result event's usage, verbatim
+	costUSD       float64           // ditto; see renderResult for what this figure means
+	report        json.RawMessage   // structured_output of the most recent result message
+	failure       string            // the run's own account of why it ended without a report
+	promptSeen    bool              // the first text-bearing user message is the prompt, the rest are tool results
+	pendingPrompt string            // registered by the driver, rendered on the first agent activity
+	pending       []time.Time       // start times of tool calls awaiting a result, FIFO
+	suppressed    map[string]bool   // tool_use ids whose result must be dropped too
 
 	now func() time.Time // injectable clock so the rendered durations are testable
 }
@@ -187,7 +192,7 @@ func (t *streamTranscoder) consume(line []byte) {
 	case "user":
 		t.renderBlocks(ev, false)
 	case "result":
-		t.renderResult(ev)
+		t.renderResult(ev, line)
 	}
 }
 
@@ -246,7 +251,7 @@ func (t *streamTranscoder) emitToolResult(b contentBlock) {
 	_, _ = fmt.Fprintf(t.out, " %s%s:\n%s\n", status, elapsed, decodeToolResult(b.Content))
 }
 
-func (t *streamTranscoder) renderResult(ev streamEvent) {
+func (t *streamTranscoder) renderResult(ev streamEvent, rawLine []byte) {
 	if len(ev.StructuredOutput) > 0 && !bytes.Equal(bytes.TrimSpace(ev.StructuredOutput), []byte("null")) {
 		t.report = ev.StructuredOutput
 		// The report is the run's conclusion, and with --json-schema it
@@ -258,6 +263,9 @@ func (t *streamTranscoder) renderResult(ev streamEvent) {
 	}
 	if ev.Usage != nil {
 		t.usage = addUsage(t.usage, *ev.Usage)
+		if raw := extractUsage(rawLine); raw != nil {
+			t.rawUsage = append(t.rawUsage, raw)
+		}
 	}
 	// A run that ends with no report has failed; say so in the transcript
 	// rather than leaving a bare token trailer. The CLI's own wording is the

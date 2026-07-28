@@ -320,27 +320,6 @@ func TestParseVerdict(t *testing.T) {
 	}
 }
 
-// TestParseTokensUsed pins the "tokens used" trailer extraction from the
-// engine transcript, including the comma-grouped count and the repeated
-// final message that follows it.
-func TestParseTokensUsed(t *testing.T) {
-	raw := "codex\n{\"decision\":\"APPROVED\",\"summary\":\"done\"}\ntokens used\n192,575\n{\"decision\":\"APPROVED\",\"summary\":\"done\"}"
-	if got := parseTokensUsed(raw); got != 192575 {
-		t.Errorf("tokens = %d, want 192575", got)
-	}
-	if got := parseTokensUsed("no trailer here"); got != 0 {
-		t.Errorf("missing trailer must yield 0, got %d", got)
-	}
-	if got := parseTokensUsed("tokens used\n941"); got != 941 {
-		t.Errorf("ungrouped count must parse, got %d", got)
-	}
-	// A transcript holding several trailers (one per invocation, e.g. after
-	// resumes) reports the total spend.
-	if got := parseTokensUsed("tokens used\n1,000\nresumed\ntokens used\n234"); got != 1234 {
-		t.Errorf("multiple trailers must sum, got %d", got)
-	}
-}
-
 // TestNewEngine pins the engine registry: empty defaults to codex, unknown
 // names fail loudly at boot rather than mid-cycle.
 func TestNewEngine(t *testing.T) {

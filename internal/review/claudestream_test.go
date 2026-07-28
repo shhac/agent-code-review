@@ -78,7 +78,7 @@ func TestTranscodeSplitsUsageFreshFromCached(t *testing.T) {
 		`{"type":"result","subtype":"success","structured_output":{"decision":"APPROVED","summary":"ok"},`+
 			`"usage":{"input_tokens":1000,"output_tokens":200,"cache_creation_input_tokens":30,"cache_read_input_tokens":400000}}`,
 	)
-	if want := (TokenUsage{Fresh: 1230, Cached: 400000}); tr.usage != want {
+	if want := (TokenUsage{Input: 1000, Output: 200, CacheWrite: 30, CacheRead: 400000}); tr.usage != want {
 		t.Errorf("usage = %+v, want %+v (cache writes are work done, cache reads are not)", tr.usage, want)
 	}
 }
@@ -93,7 +93,7 @@ func TestTranscodeAccumulatesUsageAcrossInvocations(t *testing.T) {
 		`{"type":"result","subtype":"success","structured_output":{"decision":"APPROVED","summary":"ok"},`+
 			`"usage":{"input_tokens":20,"output_tokens":3,"cache_read_input_tokens":7000}}`,
 	)
-	if want := (TokenUsage{Fresh: 133, Cached: 12000}); tr.usage != want {
+	if want := (TokenUsage{Input: 120, Output: 13, CacheRead: 12000}); tr.usage != want {
 		t.Errorf("usage = %+v, want %+v (both invocations summed)", tr.usage, want)
 	}
 }

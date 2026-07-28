@@ -330,7 +330,7 @@ func TestResumableRunToleratesMissingCostAccessor(t *testing.T) {
 		start:  func() error { return nil },
 		report: func() (Verdict, error) { return Verdict{Decision: DecisionApproved}, nil },
 		raw:    func() string { return "" },
-		usage:  func() TokenUsage { return TokenUsage{Fresh: 7} },
+		usage:  func() TokenUsage { return TokenUsage{Input: 7} },
 	}.do()
 	if err != nil {
 		t.Fatal(err)

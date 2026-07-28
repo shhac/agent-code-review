@@ -54,6 +54,12 @@ type Scheduler struct {
 	usageFn     UsageFn
 	discovering atomic.Bool // in-flight guard for the discovery sweep
 
+	// priceFn values a finished review's token classes at its model's rates,
+	// for the engine that reports no cost of its own. nil, or a false second
+	// result, means no estimate is possible — which must record as "unknown"
+	// rather than as a free review.
+	priceFn PriceFn
+
 	// newEngine builds the review engine from live config at the start of
 	// each cycle, so codex.* edits apply without a restart.
 	newEngine func(config.Config) (review.Engine, error)
@@ -72,6 +78,19 @@ type Scheduler struct {
 	// heartbeat is loop's interval-re-read cadence (loopHeartbeat in
 	// production; shrunk by tests so the loop is drivable without real waits).
 	heartbeat time.Duration
+}
+
+// PriceFn values one review's token classes in USD. The second result is
+// false when the model is unknown to the price table or the row carries no
+// class split, both of which mean "cannot estimate", never "free".
+type PriceFn func(model string, input, output, cacheWrite, cacheRead int) (float64, bool)
+
+// WithPricing attaches the estimator. Optional by design: a daemon that has
+// never reached the price source reviews exactly as before, recording no
+// estimate rather than failing.
+func (s *Scheduler) WithPricing(fn PriceFn) *Scheduler {
+	s.priceFn = fn
+	return s
 }
 
 func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {

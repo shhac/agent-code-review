@@ -305,10 +305,15 @@ func readAll(resp *http.Response) ([]byte, error) {
 // interval and once at start. Mirrors usage.Cache.Poll: a background loop the
 // daemon owns, so nothing on a request path ever waits on the network.
 //
+// afterCheck runs after every check, refreshed or not, so a caller can settle
+// anything derived from the rates (backfilling valuations for rows completed
+// while the table was unreachable) without running a second loop on its own
+// schedule. Optional.
+//
 // Refresh failures are logged and retried on the next tick rather than
 // returned. Pricing is an enrichment; a network that is down must cost an
 // estimate, never a review.
-func (c *Cache) Poll(ctx context.Context, logf func(string, ...any)) {
+func (c *Cache) Poll(ctx context.Context, logf func(string, ...any), afterCheck func()) {
 	ticker := time.NewTicker(RefreshInterval)
 	defer ticker.Stop()
 	for {
@@ -322,6 +327,9 @@ func (c *Cache) Poll(ctx context.Context, logf func(string, ...any)) {
 			logf("pricing: updated, %d models from %s", c.Status().Models, SourceURL)
 		} else {
 			logf("pricing: unchanged, %d models", c.Status().Models)
+		}
+		if afterCheck != nil {
+			afterCheck()
 		}
 		select {
 		case <-ctx.Done():

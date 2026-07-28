@@ -132,7 +132,9 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// enrichment (only claude values its own runs; codex reports no cost at
 	// all, so its spend has to be derived from the rates).
 	prices := pricing.Open(config.PricingCacheDir())
-	go prices.Poll(shutdown.gracefulCtx, logf)
+	go prices.Poll(shutdown.gracefulCtx, logf, func() {
+		backfillEstimates(shutdown.gracefulCtx, prices, s, logf)
+	})
 
 	running := runningLoops(opts, cfg)
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
@@ -276,5 +278,42 @@ func waitForScheduler(done <-chan error, forceCtx context.Context, logf schedule
 	case <-forceCtx.Done():
 		logf("shutdown: force shutdown without waiting for in-flight reviewers")
 		return true
+	}
+}
+
+// backfillEstimates values rows that could be priced but were not: completed
+// while the price table was unreachable, or written by a build that recorded
+// the token split before there was anywhere to record a valuation. Runs after
+// every price check rather than once at boot, so a daemon that started
+// offline settles as soon as the table arrives.
+//
+// Gap-filling only. A row that already carries an estimate keeps it, so
+// today's rates never rewrite what a past review cost.
+func backfillEstimates(ctx context.Context, prices *pricing.Cache, s store.Store, logf scheduler.Logf) {
+	models, err := s.UnpricedModels(ctx)
+	if err != nil || len(models) == 0 {
+		if err != nil {
+			logf("pricing: could not look for unpriced reviews: %v", err)
+		}
+		return
+	}
+	rates := make(map[string]store.CostRates, len(models))
+	for _, model := range models {
+		r, ok := prices.Lookup(model)
+		if !ok {
+			continue // an unlisted model stays unpriced, rather than priced at zero
+		}
+		rates[model] = store.CostRates{Input: r.Input, Output: r.Output, CacheWrite: r.CacheWrite, CacheRead: r.CacheRead}
+	}
+	if len(rates) == 0 {
+		return
+	}
+	n, err := s.EstimateCosts(ctx, rates)
+	if err != nil {
+		logf("pricing: backfill failed: %v", err)
+		return
+	}
+	if n > 0 {
+		logf("pricing: valued %d review(s) that had no cost recorded", n)
 	}
 }

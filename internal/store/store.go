@@ -76,6 +76,13 @@ type Store interface {
 	// tokens_used: that column's meaning depends on which engine wrote it,
 	// so summing it across a mixed history compares two measurements.
 	FreshTokens(ctx context.Context, since time.Time) (int64, error)
+	// UnpricedModels and EstimateCosts fill in our own valuation for rows
+	// that were completed before it could be computed (no price table
+	// reachable, or a build that recorded the token split before there was
+	// anywhere to record a valuation). Gap-filling only: a row that already
+	// has an estimate keeps it, so a recorded cost stays the cost at the time.
+	UnpricedModels(ctx context.Context) ([]string, error)
+	EstimateCosts(ctx context.Context, rates map[string]CostRates) (int64, error)
 
 	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.
 	AllowAuthor(ctx context.Context, a AllowedAuthor) error

@@ -122,7 +122,7 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	// block a future re-review: store.LastReview filters them out of
 	// Refreshed detection, and new commits change the SHA that discovery's
 	// same-SHA suppression keys on.
-	if err := s.store.Complete(ctx, reviewRecord(c, verdict, engine.Provenance(ctx), claimedAt)); err != nil {
+	if err := s.store.Complete(ctx, reviewRecord(c, verdict, engine.Provenance(ctx), claimedAt, s.priceFn)); err != nil {
 		return err
 	}
 	return reviewErr
@@ -132,7 +132,7 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 // candidate snapshot plus the engine-reported provenance and spend. The
 // companion to store.ReviewFrom, so a new provenance field has exactly one
 // place to be threaded.
-func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, claimedAt time.Time) store.Review {
+func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, claimedAt time.Time, price PriceFn) store.Review {
 	rec := store.ReviewFrom(c, v.Decision, p.Engine, claimedAt)
 	rec.Model = p.Model
 	rec.Effort = p.Effort
@@ -146,6 +146,14 @@ func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, clai
 	rec.ReasoningTokens = v.Tokens.Reasoning
 	rec.UsageRaw = v.UsageRaw
 	rec.CostUSD = v.CostUSD
+	// Our own valuation, frozen here at the rates in force now. Recorded even
+	// when the engine reported its own: the two side by side are the only
+	// check that our class mapping and rates are right.
+	if price != nil {
+		if est, ok := price(rec.Model, rec.InputTokens, rec.OutputTokens, rec.CacheWriteTokens, rec.CacheReadTokens); ok {
+			rec.EstCostUSD = est
+		}
+	}
 	return rec
 }
 

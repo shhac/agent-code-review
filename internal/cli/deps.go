@@ -13,6 +13,7 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/discover"
+	"github.com/shhac/agent-code-review/internal/pricing"
 	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/scheduler"
@@ -152,5 +153,26 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 		}
 	}
 
-	return scheduler.New(cfgFn, s, disc, ghUser, logf, usageFn), nil
+	// Pricing is read from the cache dir, never fetched here: `run --once`
+	// and the daemon both value reviews from whatever the last refresh left on
+	// disk, and neither waits on the network to record an outcome. An empty
+	// cache simply records no estimate.
+	prices := pricing.Open(config.PricingCacheDir())
+	return scheduler.New(cfgFn, s, disc, ghUser, logf, usageFn).WithPricing(estimator(prices)), nil
+}
+
+// estimator adapts the price table to the scheduler's PriceFn. A model the
+// table does not list, or a review with no class split, yields false: the row
+// records no estimate rather than a zero that would read as a free review.
+func estimator(prices *pricing.Cache) scheduler.PriceFn {
+	return func(model string, input, output, cacheWrite, cacheRead int) (float64, bool) {
+		if input+output == 0 {
+			return 0, false
+		}
+		rates, ok := prices.Lookup(model)
+		if !ok {
+			return 0, false
+		}
+		return rates.Cost(input, output, cacheWrite, cacheRead), true
+	}
 }

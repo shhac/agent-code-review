@@ -4,6 +4,8 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -990,5 +992,69 @@ func TestInitLeavesModernTokenRowsAlone(t *testing.T) {
 	}
 	if after.CacheWriteTokens != 400 {
 		t.Errorf("cache_write_tokens = %d, want 400", after.CacheWriteTokens)
+	}
+}
+
+// EstimateCosts fills gaps and only gaps: a row already valued keeps its
+// figure, so a later run at newer rates cannot rewrite what a past review
+// cost. A model the table does not list stays unpriced rather than free.
+func TestEstimateCostsFillsOnlyTheGaps(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	add := func(number int, model string, est float64, in, out, cw, cr int) {
+		c := Candidate{Repo: "o/r", Number: number, Type: TypeNew, HeadSHA: fmt.Sprintf("sha%d", number)}
+		if err := s.Enqueue(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+		rec := ReviewFrom(c, VerdictApproved, "codex", time.Time{})
+		rec.Model, rec.EstCostUSD = model, est
+		rec.InputTokens, rec.OutputTokens, rec.CacheWriteTokens, rec.CacheReadTokens = in, out, cw, cr
+		if err := s.Complete(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(1, "priced-model", 0, 100_000, 10_000, 0, 200_000) // needs a valuation
+	add(2, "priced-model", 9.99, 100_000, 10_000, 0, 0)    // already valued
+	add(3, "unlisted-model", 0, 50_000, 5_000, 0, 0)       // no rates for it
+	add(4, "priced-model", 0, 0, 0, 0, 0)                  // no split to price
+
+	models, err := s.UnpricedModels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only rows that could be valued and have not been: not the valued one,
+	// not the one with no split.
+	if got := len(models); got != 2 {
+		t.Errorf("unpriced models = %v, want the two with a split and no estimate", models)
+	}
+
+	n, err := s.EstimateCosts(ctx, map[string]CostRates{
+		"priced-model": {Input: 2e-06, Output: 1e-05, CacheRead: 2e-07},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("valued %d rows, want just the one gap", n)
+	}
+
+	byNumber := map[int]Review{}
+	all, err := s.ListReviews(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range all {
+		byNumber[r.Number] = r
+	}
+	// 100k*2e-6 + 10k*1e-5 + 200k*2e-7 = 0.2 + 0.1 + 0.04
+	if got := byNumber[1].EstCostUSD; math.Abs(got-0.34) > 1e-9 {
+		t.Errorf("gap row valued %v, want 0.34", got)
+	}
+	if got := byNumber[2].EstCostUSD; got != 9.99 {
+		t.Errorf("already-valued row = %v, want its 9.99 kept", got)
+	}
+	if got := byNumber[3].EstCostUSD; got != 0 {
+		t.Errorf("unlisted model = %v, want no estimate rather than a zero-priced one", got)
 	}
 }

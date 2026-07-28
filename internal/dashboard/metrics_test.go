@@ -99,3 +99,55 @@ func TestMetricsSinceDefaultsToThirtyDays(t *testing.T) {
 		t.Errorf("default start = %s", got)
 	}
 }
+
+// The cost aggregates are what a per-review budget gets set from, so the
+// arithmetic and the zero-cost exclusion both need pinning. codex reports no
+// cost, so its rows arrive as 0; folding those into the median would halve it
+// on a mixed history and produce a budget far too tight.
+func TestMetricsCostAggregatesIgnoreUnpricedReviews(t *testing.T) {
+	now := time.Now()
+	got := metricsFor([]store.Review{
+		{Model: "claude-opus-5", Effort: "medium", Verdict: "APPROVED", CostUSD: 0.40, ReviewedAt: now},
+		{Model: "claude-opus-5", Effort: "medium", Verdict: "COMMENTED", CostUSD: 0.60, ReviewedAt: now},
+		{Model: "claude-opus-5", Effort: "medium", Verdict: "APPROVED", CostUSD: 3.00, ReviewedAt: now},
+		// codex rows: priced at 0 because the engine reports no cost.
+		{Model: "gpt-5.6", Effort: "high", Verdict: "APPROVED", CostUSD: 0, ReviewedAt: now},
+		{Model: "gpt-5.6", Effort: "high", Verdict: "APPROVED", CostUSD: 0, ReviewedAt: now},
+	}, "", "")
+
+	// Total spans everything (unpriced rows contribute 0 honestly).
+	if got.Summary.CostUSD != 4.0 {
+		t.Errorf("total cost = %v, want 4.0", got.Summary.CostUSD)
+	}
+	// Median and peak consider only priced rows: 0.40/0.60/3.00 -> 0.60.
+	// Including the two zeros would give 0.40, a materially tighter budget.
+	if got.Summary.MedianCostUSD != 0.60 {
+		t.Errorf("median cost = %v, want 0.60 (zero-cost rows must be excluded)", got.Summary.MedianCostUSD)
+	}
+	if got.Summary.MaxCostUSD != 3.00 {
+		t.Errorf("peak cost = %v, want 3.00", got.Summary.MaxCostUSD)
+	}
+
+	// Per-model: the unpriced group reports no median rather than a fake 0.
+	byModel := map[string]modelMetric{}
+	for _, m := range got.Models {
+		byModel[m.Model] = m
+	}
+	if byModel["claude-opus-5"].MedianCostUSD != 0.60 {
+		t.Errorf("claude median = %v, want 0.60", byModel["claude-opus-5"].MedianCostUSD)
+	}
+	if byModel["gpt-5.6"].MedianCostUSD != 0 {
+		t.Errorf("unpriced model median = %v, want 0", byModel["gpt-5.6"].MedianCostUSD)
+	}
+}
+
+// A history with no priced reviews at all must report no median, not a
+// division-by-zero or a spurious figure.
+func TestMetricsCostAggregatesWithNothingPriced(t *testing.T) {
+	got := metricsFor([]store.Review{
+		{Model: "gpt-5.6", Verdict: "APPROVED", CostUSD: 0, ReviewedAt: time.Now()},
+	}, "", "")
+	if got.Summary.MedianCostUSD != 0 || got.Summary.MaxCostUSD != 0 || got.Summary.CostUSD != 0 {
+		t.Errorf("summary = %+v, want all-zero cost", got.Summary)
+	}
+}

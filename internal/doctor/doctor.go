@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/pricing"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 	"github.com/shhac/agent-code-review/internal/usage"
@@ -48,7 +49,25 @@ func Run(ctx context.Context, cfg config.Config) []Check {
 		binaryCheck(ctx, "duckdb", store.DuckDBBin(), "--version", "install duckdb (brew install duckdb), or set AGENT_CODE_REVIEW_DUCKDB_PATH"),
 	}
 	checks = append(checks, engineChecks(ctx, engine, cfg)...)
+	checks = append(checks, pricingCheck(config.PricingCacheDir()))
 	return append(checks, configCheck(review.Preflight(cfg.Review)))
+}
+
+// pricingCheck reports the model price table. Never blocking: only claude
+// values its own runs, so the table is what lets codex spend be estimated at
+// all, but a review runs identically without it. The daemon refreshes it in
+// the background, so an absent table on a machine that has never run `serve`
+// is expected rather than a fault.
+func pricingCheck(dir string) Check {
+	st := pricing.Open(dir).Status()
+	if st.Models == 0 {
+		return Check{Name: "pricing", OK: false, Blocking: false,
+			Detail: "no model price table cached",
+			Hint:   "run `agent-code-review serve` once; it fetches and refreshes it every " + pricing.RefreshInterval.String()}
+	}
+	age := time.Since(st.FetchedAt).Truncate(time.Minute)
+	return Check{Name: "pricing", OK: true, Blocking: false,
+		Detail: fmt.Sprintf("%d models, checked %s ago", st.Models, age)}
 }
 
 // configCheck folds every static configuration problem into ONE check.

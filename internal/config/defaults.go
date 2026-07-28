@@ -205,6 +205,13 @@ func (c Config) StorePath() string {
 	return filepath.Join(xdg.DataDir(appName), "queue.duckdb")
 }
 
+// PricingCacheDir is where the model price table is kept. Cache rather than
+// data: it is re-fetchable, so losing it costs a download rather than a
+// record, and it must never be backed up as if it were ours.
+func PricingCacheDir() string {
+	return xdg.CacheDir(appName)
+}
+
 // durationOr parses s as a positive Go duration, else returns def: the one
 // parse-or-default rule for every interval dial.
 func durationOr(s string, def time.Duration) time.Duration {

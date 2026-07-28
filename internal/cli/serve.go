@@ -19,6 +19,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/doctor"
 	"github.com/shhac/agent-code-review/internal/logbuf"
+	"github.com/shhac/agent-code-review/internal/pricing"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/scheduler"
 	"github.com/shhac/agent-code-review/internal/store"
@@ -125,6 +126,13 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	for _, src := range usageSources(cfg) {
 		go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), src)
 	}
+
+	// The model price table is the other background poll: refreshed on its own
+	// slow interval, read from disk so a boot never waits on it, and purely an
+	// enrichment (only claude values its own runs; codex reports no cost at
+	// all, so its spend has to be derived from the rates).
+	prices := pricing.Open(config.PricingCacheDir())
+	go prices.Poll(shutdown.gracefulCtx, logf)
 
 	running := runningLoops(opts, cfg)
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)

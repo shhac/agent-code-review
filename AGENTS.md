@@ -90,6 +90,18 @@ internal/
   branches on the engine. Both are pinned by tests carrying the live
   measurements that established them.
 
+- **Model prices come from LiteLLM, cached, never vendored.** Only claude
+  values its own runs; codex reports no cost anywhere, so its spend has to be
+  derived. `internal/pricing` keeps a copy of LiteLLM's price database in the
+  app's CACHE dir (`xdg.CacheDir`) rather than its data dir: it is
+  re-fetchable, so losing it costs a download rather than a record, and
+  nothing bundles the file into the binary. The daemon polls every 6h with a
+  conditional GET on the stored ETag, so an unchanged database costs a 304
+  with an empty body instead of 1.6MB. A refresh parses before it writes and
+  swaps in by rename, so a truncated or reshaped download leaves the last good
+  copy intact. Pricing is an enrichment: an absent or stale table costs an
+  estimate, never a review, which is why its doctor check is non-blocking.
+
 - **Token classes are recorded apart because they are priced apart.** A cached
   read costs about a tenth of fresh input and a sixtieth of output, so a
   blended figure cannot be priced. `history` keeps input/output/cache-write/

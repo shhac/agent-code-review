@@ -48,12 +48,8 @@ func newCodex(c config.CodexSettings, resumePrompt string) *codexEngine {
 		// scopes that to the per-PR workdir.
 		sandbox = "workspace-write"
 	}
-	resumes := defaultMaxResumes
-	if c.MaxResumes != nil && *c.MaxResumes >= 0 {
-		resumes = *c.MaxResumes
-	}
 	e := &codexEngine{bin: bin, model: c.Model, effort: c.Effort, sandbox: sandbox, args: c.Args,
-		maxResumes: resumes, resumePrompt: resumePrompt}
+		maxResumes: resolveMaxResumes(c.MaxResumes), resumePrompt: resumePrompt}
 	e.runCmd = e.execCodex
 	return e
 }
@@ -115,10 +111,7 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 // (flag set, extra args, reporting instruction appended to the prompt) is
 // pinned by table tests instead of live codex runs.
 func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string) []string {
-	args := []string{"exec"}
-	if e.model != "" {
-		args = append(args, "--model", e.model)
-	}
+	args := append([]string{"exec"}, e.modelArgs()...)
 	args = append(args,
 		"--sandbox", e.sandbox,
 		"--cd", workDir,
@@ -127,12 +120,7 @@ func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string)
 		"--output-last-message", lastMsgPath,
 	)
 	args = append(args, e.args...)
-	if e.effort != "" {
-		// JSON string syntax is valid TOML basic-string syntax, which keeps this
-		// config override safe even when a future effort name contains punctuation.
-		effort, _ := json.Marshal(e.effort)
-		args = append(args, "-c", "model_reasoning_effort="+string(effort))
-	}
+	args = append(args, e.effortArgs()...)
 	return append(args, prompt+reportingInstruction)
 }
 
@@ -142,12 +130,8 @@ func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string)
 // mode is re-asserted through its config key so the resumed turns keep the
 // same write scope. Pure, pinned by table tests like buildArgs.
 func (e *codexEngine) buildResumeArgs(sessionID, schemaPath, lastMsgPath string) []string {
-	args := []string{"exec", "resume"}
-	if e.model != "" {
-		args = append(args, "--model", e.model)
-	}
-	// JSON string syntax is valid TOML basic-string syntax (see the effort
-	// override below).
+	args := append([]string{"exec", "resume"}, e.modelArgs()...)
+	// JSON string syntax is valid TOML basic-string syntax (see effortArgs).
 	sandbox, _ := json.Marshal(e.sandbox)
 	args = append(args,
 		"--skip-git-repo-check",
@@ -156,11 +140,30 @@ func (e *codexEngine) buildResumeArgs(sessionID, schemaPath, lastMsgPath string)
 		"--output-last-message", lastMsgPath,
 	)
 	args = append(args, e.args...)
-	if e.effort != "" {
-		effort, _ := json.Marshal(e.effort)
-		args = append(args, "-c", "model_reasoning_effort="+string(effort))
-	}
+	args = append(args, e.effortArgs()...)
 	return append(args, sessionID, e.resumePrompt)
+}
+
+// modelArgs and effortArgs are the flags both invocations share. Kept as two
+// helpers rather than one because they sit at different positions in the argv
+// (model right after the subcommand, effort after the caller's extra args),
+// which is why a single commonArgs like claude.go's does not fit here.
+func (e *codexEngine) modelArgs() []string {
+	if e.model == "" {
+		return nil
+	}
+	return []string{"--model", e.model}
+}
+
+// effortArgs encodes the reasoning effort as a `-c` config override. JSON
+// string syntax is valid TOML basic-string syntax, which keeps this safe even
+// when a future effort name contains punctuation.
+func (e *codexEngine) effortArgs() []string {
+	if e.effort == "" {
+		return nil
+	}
+	effort, _ := json.Marshal(e.effort)
+	return []string{"-c", "model_reasoning_effort=" + string(effort)}
 }
 
 // sessionIDPattern matches the "session id:" line of codex exec's run header.

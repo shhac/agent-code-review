@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -108,5 +110,34 @@ func TestAccessTokenFrom(t *testing.T) {
 func TestToClaudeWindowNilPassesThrough(t *testing.T) {
 	if got := toClaudeWindow(nil, claudeWeeklyMins); got != nil {
 		t.Errorf("nil window = %+v, want nil", got)
+	}
+}
+
+// The file-store path is the one branch a machine without a keychain entry
+// relies on, and it was previously reachable only through an integration test
+// that skips whenever no real credential exists.
+func TestCredentialFileToken(t *testing.T) {
+	dir := t.TempDir()
+
+	good := filepath.Join(dir, "creds.json")
+	if err := os.WriteFile(good, []byte(`{"claudeAiOauth":{"accessToken":"tok-abc"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if token, err := credentialFileToken(good); err != nil || token != "tok-abc" {
+		t.Errorf("token = %q, err = %v", token, err)
+	}
+
+	// A missing file must name the fix, not surface a raw ENOENT.
+	_, err := credentialFileToken(filepath.Join(dir, "absent.json"))
+	if err == nil || !strings.Contains(err.Error(), "claude auth login") {
+		t.Errorf("missing file error = %v, want an actionable hint", err)
+	}
+
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := credentialFileToken(bad); err == nil {
+		t.Error("a malformed credential file must fail")
 	}
 }

@@ -106,6 +106,16 @@ func parseVerdict(data []byte) (Verdict, error) {
 // engine's max_resumes setting is unset.
 const defaultMaxResumes = 2
 
+// resolveMaxResumes applies the shared nil-or-negative-means-default policy to
+// an engine's max_resumes setting. Both drivers carry the same *int and the
+// same rule, so it lives beside the default it falls back to.
+func resolveMaxResumes(configured *int) int {
+	if configured != nil && *configured >= 0 {
+		return *configured
+	}
+	return defaultMaxResumes
+}
+
 // resumableRun is one review expressed as the parts the resume policy needs.
 // Every field is engine-specific; the policy that combines them is not, which
 // is the whole reason this lives here instead of in each driver.

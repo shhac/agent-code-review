@@ -139,19 +139,41 @@ func claudePlan(ctx context.Context, bin string) string {
 // claudeOAuthToken loads the stored credential: the macOS keychain first,
 // then the file store used elsewhere.
 func claudeOAuthToken() (string, error) {
-	if runtime.GOOS == "darwin" {
-		out, err := exec.Command("security", "find-generic-password", "-s", keychainService, "-w").Output()
-		if err == nil {
-			if token, err := accessTokenFrom(out); err == nil {
-				return token, nil
-			}
-		}
+	if token, ok := keychainToken(); ok {
+		return token, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(credentialsFile)))
+	return credentialFileToken(filepath.Join(home, filepath.FromSlash(credentialsFile)))
+}
+
+// keychainToken reads the credential from the macOS keychain. Every failure —
+// wrong platform, no entry, unreadable payload — reports "not found" rather
+// than an error, because the file store is a legitimate next place to look
+// rather than a fallback from something broken.
+func keychainToken() (string, bool) {
+	if runtime.GOOS != "darwin" {
+		return "", false
+	}
+	out, err := exec.Command("security", "find-generic-password", "-s", keychainService, "-w").Output()
+	if err != nil {
+		return "", false
+	}
+	token, err := accessTokenFrom(out)
+	if err != nil {
+		return "", false
+	}
+	return token, true
+}
+
+// credentialFileToken reads the credential from the file store. Split out so
+// the not-found and malformed paths are testable without a real $HOME or
+// keychain; previously they were reachable only from an integration test that
+// skips whenever no real credential exists.
+func credentialFileToken(path string) (string, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("no stored claude credential; run `claude auth login`")
 	}

@@ -151,7 +151,10 @@ func TestReviewOneEngineErrorStillCompletes(t *testing.T) {
 
 func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 	fs := &fakeSchedStore{}
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+	// Spend rides along with the provenance: both ends of the money path are
+	// covered elsewhere (the engine reports CostUSD, the store round-trips it),
+	// but this is the glue between them.
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented, TokensUsed: 192575, CostUSD: 0.6231}}
 	s := newTestScheduler(fs, fe)
 	if err := s.reviewOne(context.Background(), store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}, config.Config{}, &codexNamedEngine{fakeEngine: fe}); err != nil {
 		t.Fatal(err)
@@ -162,6 +165,9 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 	got := fs.completed[0]
 	if got.Model != "gpt-5.6-terra" || got.Effort != "high" || got.EngineVersion != "Codex CLI 0.144.0" {
 		t.Errorf("provenance = %+v", got)
+	}
+	if got.TokensUsed != 192575 || got.CostUSD != 0.6231 {
+		t.Errorf("spend = %d tokens / $%v, want the engine's reported figures", got.TokensUsed, got.CostUSD)
 	}
 }
 

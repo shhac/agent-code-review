@@ -106,6 +106,39 @@ func (c Config) Engine() string {
 	return "codex"
 }
 
+// EngineBin is the configured engine's binary; empty means the engine picks
+// its own default name.
+//
+// This and its EngineModel/EngineEffort siblings exist so callers needing
+// "whichever engine will actually run" go through one place, rather than
+// branching on Engine() and reaching into Review.Codex or Review.Claude
+// themselves. Adding a third engine then touches this file once instead of
+// every consumer.
+func (c Config) EngineBin() string {
+	if c.Engine() == "claude" {
+		return c.Review.Claude.Bin
+	}
+	return c.Review.Codex.Bin
+}
+
+// EngineModel is the configured engine's model; empty means the engine's own
+// default.
+func (c Config) EngineModel() string {
+	if c.Engine() == "claude" {
+		return c.Review.Claude.Model
+	}
+	return c.Review.Codex.Model
+}
+
+// EngineEffort is the configured engine's reasoning effort; empty means the
+// engine's own default.
+func (c Config) EngineEffort() string {
+	if c.Engine() == "claude" {
+		return c.Review.Claude.Effort
+	}
+	return c.Review.Codex.Effort
+}
+
 // TailscalePort is the Tailscale serve/funnel port (default 443).
 func (c Config) TailscalePort() int {
 	if c.Dashboard.Tailscale.Port != 0 {

@@ -277,3 +277,22 @@ func TestInitAndReadWrite(t *testing.T) {
 		t.Errorf("round-trip gh_user = %q", got.GHUser)
 	}
 }
+
+// The engine getters are the single place that answers "which engine's dials
+// apply"; before them, doctor and the dashboard each branched on Engine() and
+// reached into Review.Codex/Review.Claude themselves.
+func TestEngineDialsFollowConfiguredEngine(t *testing.T) {
+	cfg := Config{Review: ReviewSettings{
+		Codex:  CodexSettings{Bin: "codex-dev", Model: "gpt-5.6", Effort: "high"},
+		Claude: ClaudeSettings{Bin: "claude-dev", Model: "claude-opus-5", Effort: "medium"},
+	}}
+
+	// Unset engine resolves to codex, matching Engine()'s own default.
+	if got := [3]string{cfg.EngineBin(), cfg.EngineModel(), cfg.EngineEffort()}; got != [3]string{"codex-dev", "gpt-5.6", "high"} {
+		t.Errorf("unset engine dials = %v, want codex's", got)
+	}
+	cfg.Review.Engine = "claude"
+	if got := [3]string{cfg.EngineBin(), cfg.EngineModel(), cfg.EngineEffort()}; got != [3]string{"claude-dev", "claude-opus-5", "medium"} {
+		t.Errorf("claude engine dials = %v, want claude's", got)
+	}
+}

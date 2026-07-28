@@ -73,17 +73,24 @@ func Blocking(checks []Check) []Check {
 
 // engineChecks probes the configured engine's CLI: present, and logged in.
 // Only the configured engine is required, so a machine set up for one engine
-// isn't told off for lacking the other.
+// isn't told off for lacking the other. The switch stays because the two auth
+// probes genuinely differ (codex reports via exit code, claude via JSON); only
+// the binary lookup is shared, and that goes through the config getter.
 func engineChecks(ctx context.Context, engine string, cfg config.Config) []Check {
+	bin := cfg.EngineBin()
 	switch engine {
 	case "claude":
-		bin := orDefault(cfg.Review.Claude.Bin, "claude")
+		if bin == "" {
+			bin = "claude"
+		}
 		return []Check{
 			binaryCheck(ctx, "engine:claude", bin, "--version", "install Claude Code, or set claude.bin"),
 			claudeAuthCheck(ctx, bin),
 		}
 	default:
-		bin := orDefault(cfg.Review.Codex.Bin, "codex")
+		if bin == "" {
+			bin = "codex"
+		}
 		return []Check{
 			binaryCheck(ctx, "engine:codex", bin, "--version", "install the Codex CLI, or set codex.bin"),
 			authCheck(ctx, "engine:codex-auth", bin, []string{"login", "status"}, "run `codex login`"),
@@ -148,13 +155,6 @@ func run(ctx context.Context, bin string, args ...string) (string, error) {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()
 	return string(out), err
-}
-
-func orDefault(v, fallback string) string {
-	if v == "" {
-		return fallback
-	}
-	return v
 }
 
 func firstLine(s string) string {

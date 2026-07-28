@@ -113,10 +113,6 @@ func newClaude(c config.ClaudeSettings, resumePrompt string) *claudeEngine {
 	if effort == "" {
 		effort = defaultEffort
 	}
-	resumes := defaultMaxResumes
-	if c.MaxResumes != nil && *c.MaxResumes >= 0 {
-		resumes = *c.MaxResumes
-	}
 	tools := c.AllowedTools
 	if len(tools) == 0 && mode != autoPermissionMode {
 		tools = fallbackAllowedTools
@@ -124,7 +120,7 @@ func newClaude(c config.ClaudeSettings, resumePrompt string) *claudeEngine {
 	e := &claudeEngine{
 		bin: bin, model: model, effort: effort, permissionMode: mode,
 		allowedTools: tools, maxBudgetUSD: c.MaxBudgetUSD, args: c.Args,
-		maxResumes: resumes, resumePrompt: resumePrompt,
+		maxResumes: resolveMaxResumes(c.MaxResumes), resumePrompt: resumePrompt,
 	}
 	e.runCmd = e.execClaude
 	return e

@@ -109,8 +109,5 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
 // so the dashboard shows what will actually run rather than always codex's.
 // Empty values mean "the engine picks"; the UI renders that as a default.
 func engineConfigOf(cfg config.Config) configEngineResp {
-	if cfg.Engine() == "claude" {
-		return configEngineResp{Model: cfg.Review.Claude.Model, Effort: cfg.Review.Claude.Effort}
-	}
-	return configEngineResp{Model: cfg.Review.Codex.Model, Effort: cfg.Review.Codex.Effort}
+	return configEngineResp{Model: cfg.EngineModel(), Effort: cfg.EngineEffort()}
 }

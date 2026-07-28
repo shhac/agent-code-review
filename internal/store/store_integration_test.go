@@ -1058,3 +1058,42 @@ func TestEstimateCostsFillsOnlyTheGaps(t *testing.T) {
 		t.Errorf("unlisted model = %v, want no estimate rather than a zero-priced one", got)
 	}
 }
+
+// AppendHistory differs from Complete in exactly one way that matters: the
+// queue row survives. An abandoned review still has work pending, so retiring
+// its row would be the black hole the record exists to prevent.
+func TestAppendHistoryLeavesTheQueueRowPending(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := Candidate{Repo: "o/r", Number: 42, Type: TypeNew, HeadSHA: "sha42"}
+	if err := s.Enqueue(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	rec := ReviewFrom(c, VerdictError, EngineAbandoned, time.Now().Add(-3*time.Minute))
+	rec.WorkDir = "/tmp/interrupted-workdir"
+	if err := s.AppendHistory(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+
+	queued, err := s.ListQueue(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queued) != 1 {
+		t.Fatalf("queue rows = %d, want the pending work to survive the record", len(queued))
+	}
+
+	last, ok, err := s.LastOutcome(ctx, "o/r", 42)
+	if err != nil || !ok {
+		t.Fatalf("history row missing: ok=%v err=%v", ok, err)
+	}
+	// The work dir is the point: it is what keeps the interrupted run's
+	// transcript reachable once the next claim allocates a fresh one.
+	if last.WorkDir != "/tmp/interrupted-workdir" {
+		t.Errorf("work_dir = %q, want the interrupted run's kept", last.WorkDir)
+	}
+	if last.DurationSecs <= 0 {
+		t.Errorf("duration = %d, want the time spent before the interruption", last.DurationSecs)
+	}
+}

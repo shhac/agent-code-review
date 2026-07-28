@@ -153,3 +153,12 @@ func (d *duckDB) countUnpriced(ctx context.Context) (int64, error) {
 	}
 	return int64(getInt(rows[0], "n")), nil
 }
+
+// AppendHistory records an outcome WITHOUT touching the queue, which is the
+// whole difference from Complete: an abandoned review still has work pending,
+// so its row has to stay queued. The verdict is ERROR, which is deliberately
+// not a "real" verdict, so the abandoned attempt cannot pass for a review that
+// happened.
+func (d *duckDB) AppendHistory(ctx context.Context, r Review) error {
+	return d.exec(ctx, historyInsert(r))
+}

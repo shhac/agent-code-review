@@ -63,10 +63,16 @@ func TestRealVerdictMapping(t *testing.T) {
 type reconcileStore struct {
 	store.Store
 
-	runs    []store.Run
-	queue   []store.Candidate
-	failed  []string // run IDs finished as failed
-	cleared []int    // queue row numbers whose claims were cleared
+	runs      []store.Run
+	queue     []store.Candidate
+	failed    []string // run IDs finished as failed
+	cleared   []int    // queue row numbers whose claims were cleared
+	abandoned []store.Review
+}
+
+func (f *reconcileStore) AppendHistory(_ context.Context, r store.Review) error {
+	f.abandoned = append(f.abandoned, r)
+	return nil
 }
 
 func (f *reconcileStore) RunningRuns(context.Context) ([]store.Run, error) { return f.runs, nil }
@@ -116,6 +122,23 @@ func TestReconcile(t *testing.T) {
 	}
 	if len(fs.failed) != 1 || fs.failed[0] != "dead-local" {
 		t.Errorf("failed runs = %v, want [dead-local] only", fs.failed)
+	}
+	// Every released claim leaves a record. Without one the interruption is
+	// invisible: no history row, and a work_dir the next claim overwrites, so
+	// the transcript of a review that may have spent minutes and dollars is
+	// unreachable.
+	if len(fs.abandoned) != 2 {
+		t.Fatalf("abandoned records = %d, want one per released claim", len(fs.abandoned))
+	}
+	for _, r := range fs.abandoned {
+		// ERROR is deliberately not a "real" verdict, so the abandoned attempt
+		// cannot pass for a review that happened and the PR stays eligible.
+		if r.Verdict != store.VerdictError || store.IsRealVerdict(r.Verdict) {
+			t.Errorf("abandoned record = %q, want a non-real ERROR verdict", r.Verdict)
+		}
+		if r.Engine != store.EngineAbandoned {
+			t.Errorf("engine = %q, want %q rather than a guess at which engine ran", r.Engine, store.EngineAbandoned)
+		}
 	}
 	if len(fs.cleared) != 2 || fs.cleared[0] != 1 || fs.cleared[1] != 5 {
 		t.Errorf("cleared claims = %v, want [1 5]", fs.cleared)

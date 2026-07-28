@@ -10,8 +10,9 @@ import (
 // Synthetic engine markers: history rows produced without invoking a review
 // engine record their provenance in the engine column instead.
 const (
-	EnginePrecheck = "precheck" // scheduler's pre-review candidacy recheck
-	EngineManual   = "manual"   // `queue skip` by a human
+	EnginePrecheck  = "precheck"  // scheduler's pre-review candidacy recheck
+	EngineManual    = "manual"    // `queue skip` by a human
+	EngineAbandoned = "abandoned" // a claim released after the daemon died mid-review
 )
 
 // Review records one completed outcome for a PR at a specific head SHA,

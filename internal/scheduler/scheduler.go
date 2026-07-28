@@ -33,6 +33,7 @@ type SchedulerStore interface {
 	ListQueue(context.Context, string) ([]store.Candidate, error)
 	Claim(context.Context, string, int, store.Lease) (bool, error)
 	ClearClaim(context.Context, string, int) error
+	AppendHistory(context.Context, store.Review) error
 	Complete(context.Context, store.Review) error
 	IsAuthorAllowed(context.Context, string, string) (bool, error)
 	ActiveRun(context.Context, time.Duration) (store.Run, bool, error)

@@ -83,6 +83,9 @@ type Store interface {
 	// has an estimate keeps it, so a recorded cost stays the cost at the time.
 	UnpricedModels(ctx context.Context) ([]string, error)
 	EstimateCosts(ctx context.Context, rates map[string]CostRates) (int64, error)
+	// AppendHistory records an outcome without retiring the queue row, for an
+	// attempt that ended with work still pending (a daemon killed mid-review).
+	AppendHistory(ctx context.Context, r Review) error
 
 	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.
 	AllowAuthor(ctx context.Context, a AllowedAuthor) error

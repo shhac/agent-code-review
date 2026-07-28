@@ -25,6 +25,7 @@ internal/
 ├── review/                     # Engine interface + codex/claude drivers + prompt/rule assembly
 ├── scheduler/                  # run-lock, heartbeat loops, parallelism cap, cycle orchestration
 ├── usage/                      # per-engine subscription-headroom polling + usage-floor predicate
+├── doctor/                     # preflight: gh/duckdb/engine binary, auth, and config sanity
 ├── logbuf/                     # in-memory ring for the daemon's own log tail
 └── dashboard/                  # embedded web UI + JSON API over the store
     ├── dashboard.go            # server core + thin read handlers
@@ -139,6 +140,16 @@ internal/
   source. Queue order is FIFO by first discovery (`discovered_at` is
   first-seen, never bumped). Idle review cycles exit before the run-lock;
   the 1m default cadence records nothing while the queue is empty or held.
+- **Every external dependency fails late; diagnose it early.** A missing or
+  logged-out engine CLI, an absent duckdb, or a model the permission
+  classifier rejects all surface the same way at run time: repeated ERROR
+  history rows whose cause sits in the engine transcript. `internal/doctor`
+  probes them up front; `serve` runs the same checks at boot and LOGS failures
+  rather than refusing to start (the dashboard is still worth serving, and a
+  missing CLI may come back). Static config checks that need engine knowledge
+  live in `review.Preflight`, not in doctor, so they stay next to the engine
+  they describe.
+
 - **Nothing environment-specific in code.** Repos, prompts, and cadence are
   config; the allowed-authors list (whose PRs we may approve) is per-repo
   runtime data in the store (managed via `authors`). Never hardcode a GitHub

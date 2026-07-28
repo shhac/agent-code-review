@@ -39,10 +39,7 @@ func newDuckDB(path string, readOnly bool) (*duckDB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create store dir: %w", err)
 	}
-	bin := "duckdb"
-	if custom := os.Getenv("AGENT_CODE_REVIEW_DUCKDB_PATH"); custom != "" {
-		bin = custom
-	}
+	bin := DuckDBBin()
 	if _, err := exec.LookPath(bin); err != nil {
 		return nil, fmt.Errorf("DuckDB CLI not found (%s). Install with: brew install duckdb", bin)
 	}
@@ -131,4 +128,14 @@ func parseNDJSON(stdout string) ([]map[string]any, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// DuckDBBin is the duckdb binary this driver shells out to, honouring the
+// override env var. Exported so a preflight check probes the same binary the
+// store will actually use, rather than duplicating the lookup.
+func DuckDBBin() string {
+	if custom := os.Getenv("AGENT_CODE_REVIEW_DUCKDB_PATH"); custom != "" {
+		return custom
+	}
+	return "duckdb"
 }

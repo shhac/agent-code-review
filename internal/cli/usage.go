@@ -45,6 +45,7 @@ COMMANDS:
 
   config init | path | show                         Starter config / file location / full dump
   config list | get <key> | set <key> <v> | unset   Typed settings (schedule, candidates, codex, ...)
+  doctor                                            Check this machine can run a review
   usage                                              This help
 
 CONFIG: ~/.config/agent-code-review/config.json (respects XDG_CONFIG_HOME).
@@ -85,6 +86,14 @@ REVIEW: the engine (codex or claude) receives the main prompt + approval directi
   already be authenticated (it never handles engine credentials). Anything else
   (skills, extra CLIs, team conventions) belongs in YOUR prompts, never in
   shipped defaults.
+
+DOCTOR: every external dependency fails LATE and quietly -- a missing or
+  logged-out engine CLI surfaces only as repeated ERROR history rows whose
+  cause sits in the engine transcript, and a model the permission classifier
+  rejects fails identically on every PR. 'doctor' probes them up front (gh +
+  auth, duckdb, the configured engine's CLI + auth + settings) and exits
+  non-zero on a blocking failure, so it can gate a deploy. serve runs the same
+  checks at boot and logs failures rather than refusing to start.
 
 STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
   binary on PATH (brew install duckdb); override with AGENT_CODE_REVIEW_DUCKDB_PATH.

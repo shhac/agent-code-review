@@ -80,6 +80,11 @@ make build      # -> ./agent-code-review
 - **`codex`** or **`claude`**: the review engine, whichever `review.engine`
   selects (default `codex`). Only the selected one is needed, and it must
   already be authenticated: this tool never handles engine credentials.
+
+Run `agent-code-review doctor` to check all of the above at once. Each of
+these otherwise fails only at review time, as an `ERROR` history row whose
+cause is buried in the engine transcript; `doctor` exits non-zero on a
+blocking failure, and `serve` runs the same checks at boot and logs them.
 - Optional: **`tailscale`** for `--tailscale serve|funnel`.
 
 These are the tool's ONLY assumptions. Anything your prompts reference beyond

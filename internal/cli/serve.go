@@ -17,6 +17,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/dashboard"
 	"github.com/shhac/agent-code-review/internal/discover"
+	"github.com/shhac/agent-code-review/internal/doctor"
 	"github.com/shhac/agent-code-review/internal/logbuf"
 	"github.com/shhac/agent-code-review/internal/scheduler"
 	"github.com/shhac/agent-code-review/internal/store"
@@ -105,6 +106,14 @@ func runServe(ctx context.Context, opts serveOpts) error {
 			logf("warning: the dashboard has no auth: funnel exposes it (including queue add/reorder) to the public internet; prefer --tailscale serve unless that's intended")
 		}
 		defer func() { _ = tsDown() }()
+	}
+
+	// Diagnose before the loops start. Not fatal: the dashboard is still
+	// worth serving, a missing CLI may come back, and refusing to boot would
+	// be a worse failure than reviewing nothing. But the reason belongs in
+	// the log now rather than inferred later from a queue full of ERRORs.
+	for _, c := range doctor.Blocking(doctor.Run(shutdown.reviewCtx, cfg)) {
+		logf("preflight: %s FAILED: %s (%s)", c.Name, c.Detail, c.Hint)
 	}
 
 	// Poll every engine's usage in the background so the dashboard can show

@@ -9,6 +9,13 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
+// Every TokensUsed here is store.Review.FreshTokens: tokens processed, with
+// cached re-reads excluded. Raw totals are not comparable between engines —
+// claude counts cached reads and they dominate a long session, so its totals
+// run ~28x a codex review's — which made a single chart across a mixed
+// history meaningless. Per-review totals and the full split stay on the
+// review itself.
+//
 // Cost fields are the engine's API-rate valuation, not money charged; see
 // store.Review.CostUSD. MedianCost is the number to set a per-review budget
 // from, since a mean is dragged around by the long tail.
@@ -113,7 +120,7 @@ func summaryOf(reviews []store.Review) metricsSummary {
 	durations := []int{}
 	costs := []float64{}
 	for _, r := range reviews {
-		s.TokensUsed += r.TokensUsed
+		s.TokensUsed += r.FreshTokens()
 		s.CostUSD += r.CostUSD
 		if r.DurationSecs > 0 {
 			durations = append(durations, r.DurationSecs)
@@ -147,7 +154,7 @@ func activityByDay(reviews []store.Review) []metricsDay {
 			days[day] = &metricsDay{Day: day}
 		}
 		days[day].Reviews++
-		days[day].TokensUsed += r.TokensUsed
+		days[day].TokensUsed += r.FreshTokens()
 	}
 	activity := make([]metricsDay, 0, len(days))
 	for _, d := range days {
@@ -166,7 +173,7 @@ func modelGroups(reviews []store.Review) []modelMetric {
 		}
 		g := groups[key]
 		g.metric.Reviews++
-		g.metric.TokensUsed += r.TokensUsed
+		g.metric.TokensUsed += r.FreshTokens()
 		if r.DurationSecs > 0 {
 			g.durations = append(g.durations, r.DurationSecs)
 		}
@@ -187,7 +194,7 @@ func modelGroups(reviews []store.Review) []modelMetric {
 func scatterPoints(reviews []store.Review) []metricsPoint {
 	points := make([]metricsPoint, 0, len(reviews))
 	for _, r := range reviews {
-		points = append(points, metricsPoint{Model: r.Model, Effort: r.Effort, Verdict: r.Verdict, TokensUsed: r.TokensUsed, DurationSec: r.DurationSecs})
+		points = append(points, metricsPoint{Model: r.Model, Effort: r.Effort, Verdict: r.Verdict, TokensUsed: r.FreshTokens(), DurationSec: r.DurationSecs})
 	}
 	return points
 }

@@ -2,7 +2,7 @@
   import { getReviewLog } from '../lib/api';
   import { parseAgentLog, verdictShaped, isAgentKind } from '../lib/agentlog';
   import { withFeed } from '../lib/feed';
-  import { durSecs, prHref, rel, tokens, when } from '../lib/format';
+  import { durSecs, prHref, rel, tokens, usd, when } from '../lib/format';
   import { poll } from '../lib/poll';
   import StatusBadge from '../lib/StatusBadge.svelte';
   import type { ReviewLogPr, ReviewLogRef } from '../lib/types';
@@ -77,7 +77,10 @@
       · took {durSecs(pr.duration_secs)}
     {/if}
     {#if pr?.tokens_used}
-      · {tokens(pr.tokens_used)} tokens
+      · <span title={pr.cache_read_tokens ? `${pr.fresh_tokens?.toLocaleString()} processed + ${pr.cache_read_tokens.toLocaleString()} re-read from cache` : 'engine reported a single total'}>{tokens(pr.tokens_used)} tokens{#if pr.fresh_tokens} ({tokens(pr.fresh_tokens)} processed){/if}</span>
+    {/if}
+    {#if pr?.cost_usd}
+      · {usd(pr.cost_usd)} at API rates
     {/if}
     {#if pr?.reviewed_at}
       · completed <span title={when(pr.reviewed_at)}>{rel(pr.reviewed_at)} ago</span>

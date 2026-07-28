@@ -74,6 +74,7 @@ type streamTranscoder struct {
 
 	sessionID     string
 	tokens        int             // summed across every invocation, like codex's per-run trailers
+	usage         TokenUsage      // the same spend, split by kind
 	costUSD       float64         // ditto; see renderResult for what this figure means
 	report        json.RawMessage // structured_output of the most recent result message
 	failure       string          // the run's own account of why it ended without a report
@@ -244,8 +245,11 @@ func (t *streamTranscoder) renderResult(ev streamEvent) {
 		// OWN turn, not the session's total (verified live: a resume whose
 		// turn produced 43 output tokens reported 43, not the 4,529 the
 		// session had accumulated). Same conclusion as codex's trailers.
-		t.tokens += ev.Usage.InputTokens + ev.Usage.OutputTokens +
-			ev.Usage.CacheCreationInputTokens + ev.Usage.CacheReadInputTokens
+		t.usage.Input += ev.Usage.InputTokens
+		t.usage.Output += ev.Usage.OutputTokens
+		t.usage.CacheCreation += ev.Usage.CacheCreationInputTokens
+		t.usage.CacheRead += ev.Usage.CacheReadInputTokens
+		t.tokens = t.usage.Total()
 	}
 	// A run that ends with no report has failed; say so in the transcript
 	// rather than leaving a bare token trailer. The CLI's own wording is the

@@ -151,3 +151,42 @@ func TestMetricsCostAggregatesWithNothingPriced(t *testing.T) {
 		t.Errorf("summary = %+v, want all-zero cost", got.Summary)
 	}
 }
+
+// Charting raw totals compared two different measurements: claude counts
+// cached re-reads (millions per review), codex reports a single figure that
+// doesn't. Every cross-engine token aggregate must use the comparable one.
+func TestMetricsChartsFreshTokensNotRawTotals(t *testing.T) {
+	now := time.Now()
+	got := metricsFor([]store.Review{
+		// A claude review: 3.7M total, but only 250k actually processed.
+		{Model: "claude-opus-5", Verdict: "APPROVED", ReviewedAt: now,
+			TokensUsed: 3_700_000, InputTokens: 40_000, OutputTokens: 60_000,
+			CacheCreationTokens: 150_000, CacheReadTokens: 3_450_000},
+		// A codex review: one figure, no split.
+		{Model: "gpt-5.6", Verdict: "APPROVED", ReviewedAt: now, TokensUsed: 130_000},
+	}, "", "")
+
+	// 250k + 130k, not 3.7M + 130k.
+	if got.Summary.TokensUsed != 380_000 {
+		t.Errorf("summary tokens = %d, want 380000 (cached re-reads excluded)", got.Summary.TokensUsed)
+	}
+	if len(got.Activity) != 1 || got.Activity[0].TokensUsed != 380_000 {
+		t.Errorf("activity = %+v, want the same comparable figure", got.Activity)
+	}
+	byModel := map[string]int{}
+	for _, m := range got.Models {
+		byModel[m.Model] = m.TokensUsed
+	}
+	if byModel["claude-opus-5"] != 250_000 {
+		t.Errorf("claude model tokens = %d, want 250000", byModel["claude-opus-5"])
+	}
+	// An engine reporting no split keeps its total, or it would chart as zero.
+	if byModel["gpt-5.6"] != 130_000 {
+		t.Errorf("codex model tokens = %d, want its reported total 130000", byModel["gpt-5.6"])
+	}
+	for _, p := range got.Scatter {
+		if p.Model == "claude-opus-5" && p.TokensUsed != 250_000 {
+			t.Errorf("scatter point = %d, want the comparable figure", p.TokensUsed)
+		}
+	}
+}

@@ -185,6 +185,7 @@ func (e *claudeEngine) Review(ctx context.Context, req Request) (Verdict, error)
 		raw:     buf.String,
 		tokens:  func() int { return stream.tokens },
 		cost:    func() float64 { return stream.costUSD },
+		usage:   func() TokenUsage { return stream.usage },
 	}.do()
 }
 

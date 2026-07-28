@@ -29,7 +29,38 @@ type Verdict struct {
 	// token trailer). Like TokensUsed, it is stream metadata rather than
 	// something the agent claims.
 	CostUSD float64 `json:"-"`
+	// Tokens is the run's usage split by kind, when the engine reports one.
+	// Zero across the board means it reported only a total (codex does), in
+	// which case TokensUsed is all there is.
+	Tokens TokenUsage `json:"-"`
 }
+
+// TokenUsage splits a run's tokens by how they were spent. The distinction
+// that matters is CacheRead: context the model re-read rather than processed
+// fresh. It dominates a long agentic session — a review can re-read millions
+// of cached tokens across its turns — so a total that includes it is an order
+// of magnitude larger than one that doesn't, and the two are not comparable
+// between engines that report differently.
+type TokenUsage struct {
+	Input         int
+	Output        int
+	CacheCreation int
+	CacheRead     int
+}
+
+// Total is every token the run moved, cached reads included.
+func (t TokenUsage) Total() int {
+	return t.Input + t.Output + t.CacheCreation + t.CacheRead
+}
+
+// Fresh is the tokens actually processed: everything except context re-read
+// from cache. This is the figure comparable across engines.
+func (t TokenUsage) Fresh() int {
+	return t.Input + t.Output + t.CacheCreation
+}
+
+// Reported says whether the engine gave a breakdown at all.
+func (t TokenUsage) Reported() bool { return t.Total() > 0 }
 
 // Verdict decisions, aliased from the store's canonical vocabulary (the
 // layer both packages import, so the two sets cannot drift). The first four

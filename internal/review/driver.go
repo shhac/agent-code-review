@@ -130,6 +130,7 @@ type resumableRun struct {
 	raw     func() string                // full transcript, for Verdict.Raw and error surfacing
 	tokens  func() int                   // total token spend across every invocation, 0 when unknown
 	cost    func() float64               // total API-rate valuation, nil when the engine reports none
+	usage   func() TokenUsage            // token split by kind, nil when the engine reports only a total
 }
 
 // do drives the initial invocation and, when a clean exit's report is WORKING
@@ -160,14 +161,15 @@ func (r resumableRun) do() (Verdict, error) {
 // whether or not a report came back, and an ERROR that hides what it cost is
 // exactly the row you want to see when the budget looks wrong.
 func (r resumableRun) resolve(verdict Verdict, parseErr, runErr error) (Verdict, error) {
-	raw, tokens, cost := r.raw(), r.tokens(), r.costUSD()
+	raw, tokens, cost, usage := r.raw(), r.tokens(), r.costUSD(), r.tokenUsage()
 	if parseErr == nil {
 		verdict.Raw = raw
 		verdict.TokensUsed = tokens
 		verdict.CostUSD = cost
+		verdict.Tokens = usage
 		return verdict, nil
 	}
-	failed := Verdict{Decision: DecisionError, Raw: raw, TokensUsed: tokens, CostUSD: cost}
+	failed := Verdict{Decision: DecisionError, Raw: raw, TokensUsed: tokens, CostUSD: cost, Tokens: usage}
 	if runErr != nil {
 		return failed, fmt.Errorf("%s: %w", r.engine, runErr)
 	}
@@ -176,6 +178,15 @@ func (r resumableRun) resolve(verdict Verdict, parseErr, runErr error) (Verdict,
 
 // costUSD reads the run's spend, treating an absent accessor as "this engine
 // doesn't report cost" rather than requiring every driver to supply a stub.
+// tokenUsage reads the run's token split, treating an absent accessor as
+// "this engine reports only a total" rather than requiring a stub.
+func (r resumableRun) tokenUsage() TokenUsage {
+	if r.usage == nil {
+		return TokenUsage{}
+	}
+	return r.usage()
+}
+
 func (r resumableRun) costUSD() float64 {
 	if r.cost == nil {
 		return 0

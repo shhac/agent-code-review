@@ -230,6 +230,11 @@ export type ReviewLogPr = {
   reviewed_at?: string;
   duration_secs?: number;
   tokens_used?: number;
+  // The split behind tokens_used, when the engine reported one. Absent means
+  // it reported a single total, so there is nothing to break down.
+  fresh_tokens?: number;
+  cache_read_tokens?: number;
+  cost_usd?: number;
 };
 
 export type ReviewLogRef = {

@@ -49,7 +49,16 @@ CREATE TABLE IF NOT EXISTS history (
   work_dir      TEXT,                           -- the engine workspace used, kept for postmortem log access
   tokens_used   INTEGER   NOT NULL DEFAULT 0,   -- engine-reported token spend; 0 when unknown
   cost_usd      DOUBLE                          -- engine-reported API-rate valuation of the run, NOT money charged
-                          NOT NULL DEFAULT 0    -- (on a subscription, what the tokens would cost at API rates); 0 when unreported
+                          NOT NULL DEFAULT 0,   -- (on a subscription, what the tokens would cost at API rates); 0 when unreported
+  -- tokens_used split by kind, when the engine reports one (claude does;
+  -- codex reports a single total, so these stay 0 and tokens_used is all
+  -- there is). cache_read_tokens is why the split matters: it is context the
+  -- model re-read rather than processed, it dominates a long session, and a
+  -- total including it is not comparable with an engine that excludes it.
+  input_tokens          INTEGER NOT NULL DEFAULT 0,
+  output_tokens         INTEGER NOT NULL DEFAULT 0,
+  cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens     INTEGER NOT NULL DEFAULT 0
 );
 
 -- Idempotent migrations for stores created before these columns existed.
@@ -83,6 +92,12 @@ ALTER TABLE history DROP COLUMN IF EXISTS codex_version;
 -- Per-review spend. Rows predating the column, and every codex row (codex
 -- prints a token trailer but no cost), read as 0.
 ALTER TABLE history ADD COLUMN IF NOT EXISTS cost_usd DOUBLE DEFAULT 0;
+-- Token split. Rows predating it, and every codex row, keep 0 here and carry
+-- their figure in tokens_used alone.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS input_tokens INTEGER DEFAULT 0;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS output_tokens INTEGER DEFAULT 0;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS cache_creation_tokens INTEGER DEFAULT 0;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS cache_read_tokens INTEGER DEFAULT 0;
 
 -- Per-repo allowed authors: whose PRs WE (the reviewer) may approve, not who
 -- can approve. A PR may receive an APPROVE only when its author's handle is

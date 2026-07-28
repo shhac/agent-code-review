@@ -83,8 +83,19 @@ func TestReviewLogView(t *testing.T) {
 			t.Errorf("token fields = %d/%d/%d, want 3700000/250000/3450000",
 				pr.TokensUsed, pr.FreshTokens, pr.CacheReadTokens)
 		}
-		if pr.CostUSD != 3.71 {
-			t.Errorf("cost = %v, want 3.71", pr.CostUSD)
+		if pr.CostUSD != 3.71 || pr.CostEstimated {
+			t.Errorf("cost = %v estimated=%v, want the engine's reported 3.71", pr.CostUSD, pr.CostEstimated)
+		}
+	})
+
+	// A codex review has no reported cost, so ours is the only figure there
+	// is. The page must show it AND say it is ours.
+	t.Run("history row with only our valuation says so", func(t *testing.T) {
+		ws := store.Workspace{Dir: "/wd", Finished: &store.Review{
+			Verdict: "APPROVED", EstCostUSD: 0.42, ReviewedAt: now}}
+		_, pr := reviewLogView("o/r", 5, ws, now, lease)
+		if pr.CostUSD != 0.42 || !pr.CostEstimated {
+			t.Errorf("cost = %v estimated=%v, want 0.42 marked as ours", pr.CostUSD, pr.CostEstimated)
 		}
 	})
 }

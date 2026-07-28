@@ -91,7 +91,7 @@
       · <span title={tokenDetail}>{tokens(pr.tokens_used)} tokens{#if pr.cache_read_tokens} ({tokens(pr.fresh_tokens)} processed){/if}</span>
     {/if}
     {#if pr?.cost_usd}
-      · {usd(pr.cost_usd)} at API rates
+      · <span title={pr.cost_estimated ? 'estimated from this run\'s token classes at published rates; this engine reports no cost of its own' : 'as reported by the engine'}>{usd(pr.cost_usd)}{pr.cost_estimated ? ' est.' : ''} at API rates</span>
     {/if}
     {#if pr?.reviewed_at}
       · completed <span title={when(pr.reviewed_at)}>{rel(pr.reviewed_at)} ago</span>

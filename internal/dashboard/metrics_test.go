@@ -190,3 +190,44 @@ func TestMetricsChartsFreshTokensNotRawTotals(t *testing.T) {
 		}
 	}
 }
+
+// Only claude values its own runs. Before estimates, a mixed history's cost
+// total described the claude third of it and read every codex review as free.
+// The effective figure is what makes the total mean something, and the counts
+// beside it are what stop an inferred total passing as a measured one.
+func TestMetricsCostUsesEstimatesWhereTheEngineReportedNone(t *testing.T) {
+	now := time.Now()
+	got := metricsFor([]store.Review{
+		// claude: reports its own, and we valued it too.
+		{Model: "claude-opus-5", Verdict: "APPROVED", ReviewedAt: now, CostUSD: 4.00, EstCostUSD: 3.60},
+		// codex: reports nothing, so ours is the only figure there is.
+		{Model: "gpt-5.6", Verdict: "APPROVED", ReviewedAt: now, EstCostUSD: 0.50},
+		{Model: "gpt-5.6", Verdict: "APPROVED", ReviewedAt: now, EstCostUSD: 1.50},
+		// Priced by neither: unknown, and unknown must not read as free.
+		{Model: "gpt-5.6", Verdict: "SKIPPED", ReviewedAt: now},
+	}, "", "")
+
+	// 4.00 reported + 0.50 + 1.50 estimated. The reported figure wins on the
+	// row that has both, so 3.60 must not appear anywhere in the total.
+	if got.Summary.CostUSD != 6.00 {
+		t.Errorf("total cost = %v, want 6.00 (reported wins, estimates fill the gap)", got.Summary.CostUSD)
+	}
+	if got.Summary.PricedReviews != 3 || got.Summary.EstimatedReviews != 2 {
+		t.Errorf("priced=%d estimated=%d, want 3 and 2: the unpriced review is in neither",
+			got.Summary.PricedReviews, got.Summary.EstimatedReviews)
+	}
+	// Median over the three priced reviews, never dragged down by the unknown.
+	if got.Summary.MedianCostUSD != 1.50 {
+		t.Errorf("median = %v, want 1.50 over the priced reviews only", got.Summary.MedianCostUSD)
+	}
+	if got.Summary.MaxCostUSD != 4.00 {
+		t.Errorf("max = %v, want 4.00", got.Summary.MaxCostUSD)
+	}
+
+	// The cross-check covers only the review carrying both figures: it is a
+	// comparison of the two methods, not a second total.
+	if got.Summary.CheckReviews != 1 || got.Summary.CheckReportedUSD != 4.00 || got.Summary.CheckEstimatedUSD != 3.60 {
+		t.Errorf("cross-check = %d reviews, reported %v vs estimated %v; want 1, 4.00, 3.60",
+			got.Summary.CheckReviews, got.Summary.CheckReportedUSD, got.Summary.CheckEstimatedUSD)
+	}
+}

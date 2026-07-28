@@ -38,10 +38,14 @@ type prInfo struct {
 	// cached re-reads explains the magnitude. Both are always sent, so the
 	// page reads facts about the review rather than inferring which branch
 	// the server took.
-	FreshTokens     int        `json:"fresh_tokens"`
-	CacheReadTokens int        `json:"cache_read_tokens"`
-	CostUSD         float64    `json:"cost_usd,omitempty"`
-	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
+	FreshTokens     int     `json:"fresh_tokens"`
+	CacheReadTokens int     `json:"cache_read_tokens"`
+	CostUSD         float64 `json:"cost_usd,omitempty"`
+	// CostEstimated marks CostUSD as ours rather than the engine's, so the
+	// page can say which it is showing instead of presenting an inference as
+	// a measurement.
+	CostEstimated bool       `json:"cost_estimated,omitempty"`
+	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
 }
 
 // reviewLogResp is the /api/review-log envelope. The zero value is the
@@ -73,7 +77,8 @@ func reviewLogView(repo string, number int, ws store.Workspace, now time.Time, l
 	pr.TokensUsed = last.TokensUsed
 	pr.FreshTokens = last.FreshTokens
 	pr.CacheReadTokens = last.CacheReadTokens
-	pr.CostUSD = last.CostUSD
+	pr.CostUSD = last.EffectiveCostUSD()
+	pr.CostEstimated = last.CostEstimated()
 	pr.ReviewedAt = &last.ReviewedAt
 	return "finished", pr
 }

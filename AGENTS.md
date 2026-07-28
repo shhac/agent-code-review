@@ -102,6 +102,20 @@ internal/
   copy intact. Pricing is an enrichment: an absent or stale table costs an
   estimate, never a review, which is why its doctor check is non-blocking.
 
+- **Two spend figures per review, one rule.** `cost_usd` is what the engine
+  reported (claude only); `est_cost_usd` is our valuation of the same run's
+  token classes at the model's rates. `EffectiveCostUSD` is reported-wins,
+  estimate-fills-the-gap, and it is deliberately expressible in SQL
+  (`COALESCE(NULLIF(cost_usd, 0), est_cost_usd)`) — the fresh-token heuristic
+  it echoes was not, which is how a Go aggregate and a SQL one came to
+  disagree by 28x. Estimates are frozen at completion, and the boot backfill
+  only ever fills a gap, so today's rates never rewrite what a past review
+  cost. We estimate claude too even though it reports: the two figures side by
+  side are the only check that our class mapping and rates are right, and the
+  metrics summary surfaces that drift. 0 with no estimate means unknown, never
+  free — aggregates count priced reviews separately so an inferred total
+  cannot pass as a measured one.
+
 - **Token classes are recorded apart because they are priced apart.** A cached
   read costs about a tenth of fresh input and a sixtieth of output, so a
   blended figure cannot be priced. `history` keeps input/output/cache-write/

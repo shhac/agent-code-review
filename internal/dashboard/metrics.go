@@ -17,10 +17,12 @@ import (
 // tokens_used, and stays on the review itself — nothing here reuses that name
 // for a figure ~28x smaller.
 //
-// A review whose fresh count is unknown (0) contributes nothing rather than a
-// zero, on the same reasoning as the cost median below: those rows predate the
-// split and their only recorded figure is cache-inflated, so charting them at
-// either their total or zero states something false.
+// A review whose fresh count is unknown (0) predates the split, and its only
+// recorded figure is cache-inflated, so no aggregate here may use it. The sums
+// simply add nothing for it; the scatter drops its point outright, because
+// unlike a sum a point cannot represent "unknown" and would sit on the floor
+// among genuinely cheap reviews. Such a review still counts as a review
+// everywhere, the same way an unpriced one does below.
 //
 // Cost fields are the engine's API-rate valuation, not money charged; see
 // store.Review.CostUSD. MedianCost is the number to set a per-review budget

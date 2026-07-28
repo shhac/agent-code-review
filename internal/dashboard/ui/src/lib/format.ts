@@ -81,9 +81,6 @@ export function tokens(n: number | undefined) {
 	return `${Math.round(n / 1_000_000_000)}b`;
 }
 
-// Per-review spend at API rates, not money charged. Sub-cent figures are
-// common, so small values keep more precision rather than rounding to $0.00.
-// Zero means the engine reported no cost (codex), not that the run was free.
 // exact renders the full count with thousands separators, for the few places
 // that need the real number rather than tokens()' chart-friendly rounding.
 // Not toLocaleString: the dashboard formats deterministically everywhere else,
@@ -93,6 +90,9 @@ export function exact(n: number | undefined) {
 	return `${n}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+// Per-review spend at API rates, not money charged. Sub-cent figures are
+// common, so small values keep more precision rather than rounding to $0.00.
+// Zero means the engine reported no cost (codex), not that the run was free.
 export function usd(n: number | undefined) {
 	if (!n || n <= 0) return '';
 	if (n < 0.01) return `$${n.toFixed(4)}`;

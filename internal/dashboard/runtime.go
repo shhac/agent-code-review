@@ -33,8 +33,8 @@ type usageResp struct {
 	Engines      []engineUsage `json:"engines"`
 	ReviewPaused bool          `json:"review_paused,omitempty"`
 	PausedReason string        `json:"paused_reason,omitempty"`
-	TokensTotal  int64         `json:"fresh_tokens_total"`
-	Tokens24h    int64         `json:"fresh_tokens_24h"`
+	FreshTotal   int64         `json:"fresh_tokens_total"`
+	Fresh24h     int64         `json:"fresh_tokens_24h"`
 }
 
 // engineUsages renders every engine's cached snapshot in a stable order, with
@@ -75,12 +75,12 @@ type healthResp struct {
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
-	tokensTotal, err := s.store.FreshTokens(ctx, time.Time{})
+	freshTotal, err := s.store.FreshTokens(ctx, time.Time{})
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	tokens24h, err := s.store.FreshTokens(ctx, time.Now().Add(-24*time.Hour))
+	fresh24h, err := s.store.FreshTokens(ctx, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -88,8 +88,8 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	if s.usage == nil {
 		writeJSON(w, http.StatusOK, usageResp{
 			Available: false, Engine: s.config().Engine(),
-			Engines:     engineUsages(nil, s.config().Engine()),
-			TokensTotal: tokensTotal, Tokens24h: tokens24h,
+			Engines:    engineUsages(nil, s.config().Engine()),
+			FreshTotal: freshTotal, Fresh24h: fresh24h,
 		})
 		return
 	}
@@ -107,8 +107,8 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		Engines:      engineUsages(snaps, active),
 		ReviewPaused: paused,
 		PausedReason: reason,
-		TokensTotal:  tokensTotal,
-		Tokens24h:    tokens24h,
+		FreshTotal:   freshTotal,
+		Fresh24h:     fresh24h,
 	})
 }
 

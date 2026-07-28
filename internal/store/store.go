@@ -71,8 +71,10 @@ type Store interface {
 	ReviewByLogKey(ctx context.Context, repo string, number int, logKey string) (Review, bool, error)
 	// ListReviewsSince returns all outcomes at or after since, oldest first.
 	ListReviewsSince(ctx context.Context, since time.Time) ([]Review, error)
-	// TokensUsed sums the engine-reported token spend of outcomes at or
-	// after since; the zero time sums all history.
+	// FreshTokens sums the comparable (cache-excluded) token spend of
+	// outcomes at or after since; the zero time sums all history. Not
+	// tokens_used: that column's meaning depends on which engine wrote it,
+	// so summing it across a mixed history compares two measurements.
 	FreshTokens(ctx context.Context, since time.Time) (int64, error)
 
 	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.

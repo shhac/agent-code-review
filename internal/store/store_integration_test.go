@@ -290,7 +290,7 @@ func TestCompleteSHAGate(t *testing.T) {
 // TestListReviewsSince pins the dashboard feed's time filter: the boundary
 // row (reviewed_at == since) is included, earlier rows are excluded, results
 // come oldest-first, and a zero since means "no lower bound" (matching
-// TokensUsed) rather than silently matching nothing via `>= NULL`.
+// FreshTokens) rather than silently matching nothing via `>= NULL`.
 func TestListReviewsSince(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

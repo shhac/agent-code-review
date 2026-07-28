@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/review"
 )
 
 // TestConfigKeyValidators pins the shared validation each `config set`
@@ -33,10 +34,12 @@ func TestConfigKeyValidators(t *testing.T) {
 	}
 
 	validateEngine := validateOneOf("engine", engineValues)
-	if err := validateEngine("codex"); err != nil {
-		t.Errorf("codex is the valid engine: %v", err)
+	for _, wired := range review.Engines {
+		if err := validateEngine(wired); err != nil {
+			t.Errorf("%s is a wired engine: %v", wired, err)
+		}
 	}
-	if err := validateEngine("claude"); err == nil {
+	if err := validateEngine("gemini"); err == nil {
 		t.Error("unknown engine must fail until it's wired")
 	}
 	if err := validateEngine(""); err != nil {
@@ -78,6 +81,12 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"schedule.usage_floor.5h_percent":     "25",
 		"schedule.usage_floor.weekly_percent": "0",
 		"codex.max_resumes":                   "3",
+		"claude.bin":                          "claude",
+		"claude.model":                        "opus",
+		"claude.effort":                       "high",
+		"claude.permission_mode":              "dontAsk",
+		"claude.max_budget_usd":               "2.5",
+		"claude.max_resumes":                  "3",
 	}
 	for _, key := range configKeysFromSpecs(configKeySpecs()) {
 		sample, ok := samples[key.Name]

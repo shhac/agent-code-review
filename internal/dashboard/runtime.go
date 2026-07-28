@@ -9,7 +9,11 @@ import (
 )
 
 type usageResp struct {
-	Available    bool            `json:"available"`
+	Available bool `json:"available"`
+	// Engine names whose headroom this is: usage follows the configured
+	// review engine, so the panel must say which account it is metering
+	// rather than assuming codex.
+	Engine       string          `json:"engine"`
 	Usage        *usage.Snapshot `json:"usage,omitempty"`
 	ReviewPaused bool            `json:"review_paused,omitempty"`
 	PausedReason string          `json:"paused_reason,omitempty"`
@@ -26,7 +30,8 @@ type healthResp struct {
 	Status string `json:"status"`
 }
 
-// handleUsage returns the cached Codex rate-limit snapshot (refreshed by the
+// handleUsage returns the cached rate-limit snapshot for the configured
+// review engine (refreshed by the
 // daemon on dashboard.usage_poll_interval) plus the usage-floor verdict the
 // scheduler applies to it, so the UI can show why reviews are paused. It
 // also carries the history's token-spend sums (all time and the last 24h);
@@ -46,7 +51,7 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.usage == nil {
-		writeJSON(w, http.StatusOK, usageResp{Available: false, TokensTotal: tokensTotal, Tokens24h: tokens24h})
+		writeJSON(w, http.StatusOK, usageResp{Available: false, Engine: s.config().Engine(), TokensTotal: tokensTotal, Tokens24h: tokens24h})
 		return
 	}
 	snap := s.usage.Get()
@@ -54,6 +59,7 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	paused, reason := usage.BelowFloor(snap, cfg.UsageFloor5h(), cfg.UsageFloorWeekly())
 	writeJSON(w, http.StatusOK, usageResp{
 		Available:    !snap.FetchedAt.IsZero(),
+		Engine:       cfg.Engine(),
 		Usage:        &snap,
 		ReviewPaused: paused,
 		PausedReason: reason,

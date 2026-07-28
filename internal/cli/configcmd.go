@@ -15,6 +15,20 @@ var (
 	engineValues        = review.Engines
 	sandboxValues       = []string{"read-only", "workspace-write", "danger-full-access"}
 	tailscaleModeValues = []string{"serve", "funnel"}
+
+	// Claude Code has no model-catalog command to probe (codex has `codex
+	// debug models`), so its vocabularies are listed here. Aliases track the
+	// latest model of each tier, which is what a long-lived config wants;
+	// pinning a dated id stays possible, it just isn't offered.
+	claudeModelValues = []string{
+		"claude-opus-5", "claude-sonnet-5", "claude-fable-5", // pinned ids, as the default is
+		"opus", "sonnet", "fable", "haiku", // aliases, which track the latest of each tier
+	}
+	claudeEffortValues = []string{"low", "medium", "high", "xhigh", "max"}
+	// Only the non-interactive modes: `plan` produces no review and `manual`
+	// waits for an approval no headless run can give. `auto` is the default;
+	// the rest are static allow-list modes for a tighter or looser run.
+	claudePermissionModeValues = []string{"auto", "acceptEdits", "dontAsk", "bypassPermissions"}
 )
 
 // configKeySpec describes one editable scalar once: the lib-agent-cli key
@@ -111,6 +125,18 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *string { return &c.Review.Codex.Sandbox }, validateOneOf("sandbox mode", sandboxValues)), sandboxValues),
 		plain(optionalIntKey("codex.max_resumes", "Resume nudges when a codex run ends on an intermediate WORKING report (default 2, 0 disables)",
 			func(c *config.Config) **int { return &c.Review.Codex.MaxResumes }, 0, 10)),
+		plain(stringKey("claude.bin", "Claude Code binary (default claude)",
+			func(c *config.Config) *string { return &c.Review.Claude.Bin }, nil)),
+		static(stringKey("claude.model", "Model passed to claude --model (alias or full id; default claude-opus-5)",
+			func(c *config.Config) *string { return &c.Review.Claude.Model }, nil), claudeModelValues),
+		static(stringKey("claude.effort", "Reasoning effort passed to claude --effort (default medium)",
+			func(c *config.Config) *string { return &c.Review.Claude.Effort }, validateOneOf("effort", claudeEffortValues)), claudeEffortValues),
+		static(stringKey("claude.permission_mode", "Claude permission mode, the analogue of codex.sandbox (default auto: a classifier vets each action, no allow-list needed)",
+			func(c *config.Config) *string { return &c.Review.Claude.PermissionMode }, validateOneOf("permission mode", claudePermissionModeValues)), claudePermissionModeValues),
+		plain(floatKey("claude.max_budget_usd", "Hard per-invocation ceiling passed to claude --max-budget-usd (0 = uncapped)",
+			func(c *config.Config) *float64 { return &c.Review.Claude.MaxBudgetUSD }, 0, 1000)),
+		plain(optionalIntKey("claude.max_resumes", "Resume nudges when a claude run ends without a final report (default 2, 0 disables)",
+			func(c *config.Config) **int { return &c.Review.Claude.MaxResumes }, 0, 10)),
 		plain(stringKey("dashboard.addr", "Dashboard listen address (default :8330)",
 			func(c *config.Config) *string { return &c.Dashboard.Addr }, nil)),
 		static(stringKey("dashboard.tailscale.mode", `Tailscale exposure: "", "serve", or "funnel"`,

@@ -373,9 +373,11 @@ func TestHandleConfig(t *testing.T) {
 	if resp["review_running"] != true || resp["discovery_running"] != false {
 		t.Errorf("running flags = %v / %v", resp["review_running"], resp["discovery_running"])
 	}
-	codex := resp["codex"].(map[string]any)
-	if codex["model"] != "gpt-5.6-terra" || codex["effort"] != "high" {
-		t.Errorf("codex config = %v", codex)
+	// The dials reported are the ACTIVE engine's, so the dashboard shows what
+	// will actually run rather than always codex's.
+	engineCfg := resp["engine_config"].(map[string]any)
+	if resp["engine"] != "codex" || engineCfg["model"] != "gpt-5.6-terra" || engineCfg["effort"] != "high" {
+		t.Errorf("engine=%v config = %v", resp["engine"], engineCfg)
 	}
 	repos := resp["repos"].([]any)
 	got := make([]string, 0, len(repos))

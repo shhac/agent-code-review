@@ -2,7 +2,8 @@
 
 PR review queue + scheduler for AI agents. Discovers candidate pull requests
 across your repos, keeps a DuckDB-backed queue, and reviews each one by handing
-an assembled prompt to a pluggable engine (default: Codex). Ships a dashboard
+an assembled prompt to a pluggable engine (Codex or Claude Code; default:
+Codex). Ships a dashboard
 you can expose over Tailscale.
 
 - **Deterministic discovery**: finds New and Refreshed candidate PRs via `gh`
@@ -19,20 +20,26 @@ you can expose over Tailscale.
 - **Durable queue**: candidates, positions, and review history (verdict,
   duration, token spend, workspace) in DuckDB, so "we already reviewed this at
   SHA X" survives restarts (that's what powers Refreshed detection).
-- **Pluggable review engine**: `codex` today; the agent does the actual
-  review, posts to GitHub, and reports back what it did. The tool assumes only
-  the `gh` and `codex` CLIs; your prompts may direct the agent to use anything
+- **Pluggable review engine**: `codex` (default) or `claude`; the agent does
+  the actual review, posts to GitHub, and reports back what it did. Both report
+  through the same verdict contract and write the same review log, so switching
+  is a one-key config change. The tool assumes only the `gh` CLI plus whichever
+  engine CLI you selected; your prompts may direct the agent to use anything
   else you have set up (skills, extra CLIs), but the tool never assumes it.
 - **Live review logs**: the engine tees its output into the review workspace,
   so an in-flight review can be watched via `queue log -f` or the dashboard's
   per-review page (and read back after it finishes).
 - **Serve + dashboard**: an always-on daemon with a web UI, optionally exposed
   via `--tailscale serve|funnel`. Most config edits (cadence, parallelism,
-  usage floors, repos, prompts, codex settings) reload live within ~30s; only
+  usage floors, repos, prompts, engine settings) reload live within ~30s; only
   the loop on/off switches and the listen/Tailscale settings need a restart.
-- **Usage floors**: the review loop pauses itself when a Codex rate-limit
-  window has less than `schedule.usage_floor.*` percent remaining (default
-  10), and resumes when the window refills.
+- **Usage floors**: the review loop pauses itself when the configured
+  engine's rate-limit window has less than `schedule.usage_floor.*` percent
+  remaining (default 10), and resumes when the window refills. Metering follows
+  the engine, so it always reflects the account reviews actually spend from.
+- **Per-review spend**: every review records its token count, and its
+  API-rate cost where the engine reports one, so a per-review budget can be
+  set from your own data rather than guessed.
 - **Everything is config**: repos, allow-list, thresholds, cadence, prompt, and
   rules all live in `config.json`. No GitHub handles or repos are hardcoded.
 
@@ -68,7 +75,9 @@ make build      # -> ./agent-code-review
 - **`gh`** (GitHub CLI), authenticated. Used for candidate discovery.
 - **`duckdb`** CLI: the queue store (`brew install duckdb`; override the binary
   with `AGENT_CODE_REVIEW_DUCKDB_PATH`).
-- **`codex`**: the default review engine (configurable).
+- **`codex`** or **`claude`**: the review engine, whichever `review.engine`
+  selects (default `codex`). Only the selected one is needed, and it must
+  already be authenticated: this tool never handles engine credentials.
 - Optional: **`tailscale`** for `--tailscale serve|funnel`.
 
 These are the tool's ONLY assumptions. Anything your prompts reference beyond
@@ -225,7 +234,7 @@ per candidate type).
 
 `~/.config/agent-code-review/config.json` (respects `XDG_CONFIG_HOME`). See
 `config.example.json` for the full shape: `repos`, `gh_user`, `candidates`,
-`schedule`, `review` (engine + prompt + rules + codex), `store`, and `dashboard`
+`schedule`, `review` (engine + prompt + rules + codex/claude), `store`, and `dashboard`
 (addr + tailscale). The allowed-authors list is **not** in config; it lives in
 the store; manage it with `authors`.
 
@@ -238,8 +247,8 @@ the store; manage it with `authors`.
   and unwatched repos rejected; drag-to-reorder; ✕ removal). A reviewing
   badge links to that review's live log page; held rows show an on-hold badge
   with the reason and a countdown, plus a ▶ "review now" action that clears
-  the hold (reordering alone never does). Beside it: **Codex usage
-  meters** (5h + weekly windows, polled every `dashboard.usage_poll_interval`,
+  the hold (reordering alone never does). Beside it: **engine usage
+  meters** (labelled with the engine being metered) (5h + weekly windows, polled every `dashboard.usage_poll_interval`,
   default 10m) with total token spend, a **last-24h chart** of
   approved / commented / changes-requested outcomes per hour, and paginated
   recent runs. Auto-refreshes.

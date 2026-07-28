@@ -26,6 +26,9 @@
   $: lastRun = runs[0];
   $: usage = usageResp?.usage || null;
   $: usagePaused = !!usageResp?.review_paused;
+  // The panel meters whichever engine reviews run on, so it names that
+  // engine rather than assuming codex.
+  $: usageEngine = usageResp?.engine || 'Engine';
   $: usageWindows = [
     { label: 'Primary', window: usage?.primary },
     { label: 'Secondary', window: usage?.secondary },
@@ -102,7 +105,7 @@
     </section>
 
     <section>
-      <div class="section-head compact"><h2>Codex usage</h2>{#if usage?.plan}<span>plan {usage.plan}</span>{/if}</div>
+      <div class="section-head compact"><h2>{usageEngine} usage</h2>{#if usage?.plan}<span>plan {usage.plan}</span>{/if}</div>
       {#if !usageResp?.available}
         <p class="muted">not available yet</p>
       {:else if usage?.error}

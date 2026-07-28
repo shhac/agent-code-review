@@ -1,11 +1,14 @@
-// Parser for the codex exec output stream the engine tees into agent.log.
-// The stream is a sequence of blocks introduced by bare marker lines:
+// Parser for the transcript a review engine tees into agent.log. `codex exec`
+// prints this format natively; the claude driver renders its stream-json into
+// the same shape (see internal/review/claudestream.go) so one parser serves
+// every engine. The stream is a sequence of blocks introduced by bare marker
+// lines:
 //
-//   user      the prompt handed to the agent
-//   thinking  a reasoning summary (absent when summaries are off)
-//   codex     an agent message
-//   exec      a command; a " succeeded|exited|failed in <dur>:" line ends it
-//             and its output follows
+//   user            the prompt handed to the agent
+//   thinking        a reasoning summary (absent when summaries are off)
+//   codex | claude  an agent message, named for the engine that produced it
+//   exec            a command; a " succeeded|exited|failed in <dur>:" line ends
+//                   it and its output follows
 //
 // Parallel tool calls interleave: several exec markers can appear before any
 // result line, then the results arrive together. Results carry no id, so
@@ -24,28 +27,37 @@ export type ExecEvent = {
   duration?: string;
 };
 
+// The agent-message kinds, one per engine. Kept as a set so callers can ask
+// "is this the agent talking?" without naming every engine.
+export const agentKinds = ['codex', 'claude'] as const;
+export type AgentKind = (typeof agentKinds)[number];
+
+export function isAgentKind(kind: string): kind is AgentKind {
+  return (agentKinds as readonly string[]).includes(kind);
+}
+
 export type LogEvent =
   | { kind: 'meta'; body: string }
   | { kind: 'user'; body: string }
   | { kind: 'thinking'; body: string }
-  | { kind: 'codex'; body: string }
+  | { kind: AgentKind; body: string }
   | { kind: 'tokens'; body: string }
   | ExecEvent;
 
-const markers = new Set(['user', 'thinking', 'codex', 'exec', 'tokens used']);
+const markers = new Set(['user', 'thinking', ...agentKinds, 'exec', 'tokens used']);
 const execResult = /^ (succeeded|exited|failed)\b.*?(?: in ([^\s:]+))?:?\s*$/;
 
-// parseCodexLog splits the raw stream into events, or returns null when the
+// parseAgentLog splits the raw stream into events, or returns null when the
 // content doesn't look like a codex exec stream (no markers) so the caller
 // can fall back to the raw view.
-export function parseCodexLog(raw: string): LogEvent[] | null {
+export function parseAgentLog(raw: string): LogEvent[] | null {
   const lines = raw.split('\n');
   if (!lines.some((l) => markers.has(l))) return null;
 
   const events: LogEvent[] = [];
   // Prose blocks accumulate into `body`; exec blocks are event objects
   // mutated in place so interleaved results can attach to earlier commands.
-  let kind: 'meta' | 'user' | 'thinking' | 'codex' | 'exec' | 'tokens' = 'meta';
+  let kind: 'meta' | 'user' | 'thinking' | AgentKind | 'exec' | 'tokens' = 'meta';
   let body: string[] = [];
   const pending: ExecEvent[] = []; // exec events awaiting a result line
   // Where a non-marker line lands while in an exec section: the one cursor.
@@ -63,7 +75,7 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
     if (markers.has(line)) {
       if (kind !== 'exec') flushProse();
       sink = null;
-      kind = line === 'tokens used' ? 'tokens' : (line as 'user' | 'thinking' | 'codex' | 'exec');
+      kind = line === 'tokens used' ? 'tokens' : (line as 'user' | 'thinking' | AgentKind | 'exec');
       if (kind === 'exec') {
         const ev: ExecEvent = { kind: 'exec', command: '', output: '' };
         events.push(ev);
@@ -108,7 +120,7 @@ export function parseCodexLog(raw: string): LogEvent[] | null {
 // "tokens used", the count, then a repeat of the final agent message; the
 // repeat is already its own bubble, so only the count survives.
 function dropRepeatedFinalMessage(text: string, events: LogEvent[]): string {
-  const prev = [...events].reverse().find((e) => e.kind === 'codex');
+  const prev = [...events].reverse().find((e) => isAgentKind(e.kind));
   const [count, ...rest] = text.split('\n');
   if (prev && 'body' in prev && rest.join('\n').trim() === prev.body) return count;
   return text;

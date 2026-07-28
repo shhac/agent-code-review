@@ -1,7 +1,14 @@
-// Package usage reads Codex rate-limit status the same way the desktop app
-// does: spawn `codex app-server`, speak JSON-RPC over stdio (initialize →
-// account/rateLimits/read), and parse the snapshot. A Cache polls on an
-// interval so the dashboard can show usage without a subprocess per request.
+// Package usage reads the review engine's remaining subscription headroom, so
+// the scheduler can leave room for interactive work (see BelowFloor) and the
+// dashboard can show it. Every engine reports through the same Snapshot; only
+// the retrieval differs, because each vendor exposes it differently:
+//
+//	codex   spawn `codex app-server` and speak JSON-RPC over stdio, the way
+//	        the desktop app does (initialize → account/rateLimits/read)
+//	claude  read the account's OAuth usage endpoint (see claude.go)
+//
+// A Cache polls on an interval so the dashboard needs no round trip per
+// request.
 package usage
 
 import (
@@ -83,9 +90,27 @@ type rpcResponse struct {
 	} `json:"error"`
 }
 
-// Fetch spawns the codex app-server, requests the account rate limits, and
-// tears the process down. bin is the codex binary ("codex" when empty).
-func Fetch(ctx context.Context, bin string) (Snapshot, error) {
+// Source identifies whose headroom to read: the engine that will spend it,
+// and where its CLI lives. Headroom is a property of the account the engine
+// bills against, so it has to follow the configured engine rather than being
+// polled unconditionally.
+type Source struct {
+	Engine string // "codex" (default) | "claude"
+	Bin    string // that engine's binary; empty means its own default name
+}
+
+// Fetch reads one snapshot from the source's engine. An unrecognised engine
+// falls back to codex, matching NewEngine's default.
+func Fetch(ctx context.Context, src Source) (Snapshot, error) {
+	if src.Engine == "claude" {
+		return fetchClaude(ctx, src.Bin)
+	}
+	return fetchCodex(ctx, src.Bin)
+}
+
+// fetchCodex spawns the codex app-server, requests the account rate limits,
+// and tears the process down. bin is the codex binary ("codex" when empty).
+func fetchCodex(ctx context.Context, bin string) (Snapshot, error) {
 	if bin == "" {
 		bin = "codex"
 	}
@@ -204,11 +229,11 @@ func (c *Cache) Get() Snapshot {
 
 // Poll fetches immediately, then every interval until ctx is done. Failures
 // are recorded on the snapshot (Error + FetchedAt) rather than wedging.
-func (c *Cache) Poll(ctx context.Context, interval time.Duration, bin string) {
+func (c *Cache) Poll(ctx context.Context, interval time.Duration, src Source) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		snap, err := Fetch(ctx, bin)
+		snap, err := Fetch(ctx, src)
 		if err != nil {
 			snap = Snapshot{Error: err.Error(), FetchedAt: time.Now()}
 		}

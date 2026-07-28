@@ -26,7 +26,7 @@ func TestConfigCompletionHooks(t *testing.T) {
 		want        []string
 	}{
 		{"schedule.enabled", "", []string{"false", "true"}},
-		{"review.engine", "", []string{"codex"}},
+		{"review.engine", "", []string{"claude", "codex"}}, // completion sorts; review.Engines is default-first
 		{"codex.sandbox", "workspace", []string{"workspace-write"}},
 		{"dashboard.tailscale.mode", "", []string{"funnel", "serve"}},
 	} {

@@ -12,7 +12,7 @@ const usageText = `agent-code-review: PR review queue + scheduler for AI agents
 WHAT IT DOES:
   Discovers candidate PRs across configured repos (via gh), keeps a DuckDB-backed
   queue, and reviews them by handing an assembled prompt to a pluggable engine
-  (default: codex). Ships a dashboard you can expose over Tailscale.
+  (codex or claude; default: codex). Ships a dashboard you can expose over Tailscale.
 
 COMMANDS:
   serve [--http :8330] [--tailscale serve|funnel]   Run the daemon (dashboard + loops)
@@ -77,12 +77,14 @@ APPROVAL: allowed authors (whose PRs WE may approve; we are the reviewer) are
   self-authored PR. Only this PR's author↔allowed pair is passed to the engine,
   never the whole list.
 
-REVIEW: the engine (codex) receives the main prompt + approval directive +
+REVIEW: the engine (codex or claude) receives the main prompt + approval directive +
   post-outcome instructions (review.on_approve / on_comment / on_reject) + any
   matching rule fragments, performs the review itself, posts to GitHub, and
   reports back what it did (APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED).
-  The tool assumes ONLY the gh and codex CLIs. Anything else (skills, extra
-  CLIs, team conventions) belongs in YOUR prompts, never in shipped defaults.
+  The tool assumes ONLY the gh CLI plus the selected engine's CLI, which must
+  already be authenticated (it never handles engine credentials). Anything else
+  (skills, extra CLIs, team conventions) belongs in YOUR prompts, never in
+  shipped defaults.
 
 STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
   binary on PATH (brew install duckdb); override with AGENT_CODE_REVIEW_DUCKDB_PATH.
@@ -193,8 +195,9 @@ SLOTS:
   on-approve   What to do after submitting an approving review
   on-comment   What to do after commenting without approving
   on-reject    What to do after requesting changes
-  resume       Nudge sent when a run ends on an intermediate WORKING report
-               (has a built-in default; codex.max_resumes bounds the retries)
+  resume       Nudge sent when a run ends without a final outcome (codex: an
+               intermediate WORKING report; claude: no structured report at all)
+               (has a built-in default; <engine>.max_resumes bounds the retries)
 
 COMMANDS:
   prompts show                 One record per slot (notes main_prompt_path override)
@@ -281,8 +284,8 @@ KEYS:
   discovery.enabled                    true|false: daemon scrapes for candidates
   discovery.interval                   scrape cadence, e.g. 10m (gh only, no LLM)
   schedule.max_parallel                1..32 concurrent reviews per cycle
-  schedule.usage_floor.5h_percent      pause reviews when the 5h Codex window has
-                                       less than this % remaining (default 10, 0 off)
+  schedule.usage_floor.5h_percent      pause reviews when the engine's 5h usage window
+                                       has less than this % remaining (default 10, 0 off)
   schedule.usage_floor.weekly_percent  same for the weekly window (default 10, 0 off)
   candidates.new_max_age_days          New candidate window (default 14)
   candidates.refreshed_max_age_days    Refreshed candidate window (default 21)
@@ -290,11 +293,14 @@ KEYS:
                                        (default 90m, 0s disables)
   candidates.quiet_period              PR must go untouched this long before discovery
                                        accepts it (default 15m, 0s disables)
-  review.engine                        codex
+  review.engine                        codex (default) | claude
   codex.bin | codex.model | codex.effort | codex.sandbox
+  claude.bin | claude.model | claude.effort | claude.permission_mode
+  claude.max_budget_usd                per-review ceiling at API rates (0 = uncapped;
+                                       set it from the Metrics page's median + peak)
   dashboard.addr                       listen address (default :8330)
   dashboard.tailscale.mode             "" | serve | funnel
-  dashboard.usage_poll_interval        Codex usage refresh cadence (default 10m)
+  dashboard.usage_poll_interval        engine usage refresh cadence (default 10m)
   store.path                           DuckDB file location
 
 EXAMPLES:
@@ -304,7 +310,15 @@ EXAMPLES:
 
 NOTES: repos, authors, and prompts have their own command groups (repos usage,
 authors usage, prompts usage); rules live under prompts (prompts rules usage).
-codex.args is edited in the file directly (config path).`
+codex.args / claude.args / claude.allowed_tools are edited in the file directly
+(config path).
+
+ENGINES: both report through the same verdict contract and write the same review
+log, so switching review.engine is a one-key change; only that engine's settings
+block applies. Usage metering and per-review cost follow the selection too.
+  codex   sandboxed 'codex exec'; reports tokens, no cost
+  claude  'claude -p', defaults to Opus 5 at medium effort with the permission
+          classifier vetting each action; reports tokens AND API-rate cost`
 
 func registerUsage(root *cobra.Command) {
 	root.AddCommand(&cobra.Command{

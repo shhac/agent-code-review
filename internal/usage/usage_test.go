@@ -71,7 +71,7 @@ func fakeCodex(t *testing.T, body string) string {
 
 func TestFetchReadsAppServerRateLimits(t *testing.T) {
 	bin := fakeCodex(t, `printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"planType":"pro","primary":{"usedPercent":25,"windowDurationMins":300,"resetsAt":123},"secondary":{"usedPercent":50,"windowDurationMins":10080,"resetsAt":456}}}}'`)
-	snap, err := Fetch(context.Background(), bin)
+	snap, err := Fetch(context.Background(), Source{Engine: "codex", Bin: bin})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestCachePollRecordsFetchFailures(t *testing.T) {
 	cache := NewCache()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go cache.Poll(ctx, time.Hour, fakeCodex(t, "exit 12"))
+	go cache.Poll(ctx, time.Hour, Source{Engine: "codex", Bin: fakeCodex(t, "exit 12")})
 	deadline := time.Now().Add(time.Second)
 	for cache.Get().Error == "" && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)

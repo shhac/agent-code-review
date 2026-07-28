@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -33,7 +34,9 @@ type configDiscoveryResp struct {
 	Interval string `json:"interval"`
 }
 
-type configCodexResp struct {
+// configEngineResp is the active engine's managed dials. Which engine they
+// came from is the sibling Engine field; the UI labels them with it.
+type configEngineResp struct {
 	Model  string `json:"model"`
 	Effort string `json:"effort"`
 }
@@ -47,7 +50,7 @@ type configResp struct {
 	ReviewRunning    bool                `json:"review_running"`
 	DiscoveryRunning bool                `json:"discovery_running"`
 	Engine           string              `json:"engine"`
-	Codex            configCodexResp     `json:"codex"`
+	EngineConfig     configEngineResp    `json:"engine_config"`
 	Version          string              `json:"version"`
 }
 
@@ -90,11 +93,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		ReviewRunning:    s.running.Review,
 		DiscoveryRunning: s.running.Discovery,
 		Engine:           cfg.Engine(),
-		Codex: configCodexResp{
-			Model:  cfg.Review.Codex.Model,
-			Effort: cfg.Review.Codex.Effort,
-		},
-		Version: s.version,
+		EngineConfig:     engineConfigOf(cfg),
+		Version:          s.version,
 	})
 }
 
@@ -103,4 +103,14 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
 		authors, err := s.store.ListAllowedAuthors(ctx, r.URL.Query().Get("repo"))
 		return authorsResp{Authors: authors}, err
 	})
+}
+
+// engineConfigOf reports the managed dials of whichever engine is configured,
+// so the dashboard shows what will actually run rather than always codex's.
+// Empty values mean "the engine picks"; the UI renders that as a default.
+func engineConfigOf(cfg config.Config) configEngineResp {
+	if cfg.Engine() == "claude" {
+		return configEngineResp{Model: cfg.Review.Claude.Model, Effort: cfg.Review.Claude.Effort}
+	}
+	return configEngineResp{Model: cfg.Review.Codex.Model, Effort: cfg.Review.Codex.Effort}
 }

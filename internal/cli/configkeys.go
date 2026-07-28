@@ -109,6 +109,29 @@ func optionalIntKey(name, desc string, field func(*config.Config) **int, min, ma
 		nil)
 }
 
+// floatKey is intKey for a fractional dial. Zero means unset, matching
+// intKey: the only float key so far is a spend ceiling, where "0" and "no
+// ceiling" are the same statement.
+func floatKey(name, desc string, field func(*config.Config) *float64, min, max float64) libcli.ConfigKey {
+	return configKeyOf(name, desc, field,
+		func(v string) (float64, error) { return parseBoundedFloat(v, min, max) },
+		func(v float64) (string, bool) {
+			if v == 0 {
+				return "", false
+			}
+			return strconv.FormatFloat(v, 'f', -1, 64), true
+		},
+		0)
+}
+
+func parseBoundedFloat(value string, min, max float64) (float64, error) {
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil || f < min || f > max {
+		return 0, output.Newf(output.FixableByAgent, "Value must be a number in [%g, %g], got %s", min, max, value)
+	}
+	return f, nil
+}
+
 // parseBoundedInt is the shared validation for integer config keys: one
 // source for the bounds check and its error wording.
 func parseBoundedInt(value string, min, max int) (int, error) {

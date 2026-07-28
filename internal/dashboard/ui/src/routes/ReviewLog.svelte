@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getReviewLog } from '../lib/api';
-  import { parseCodexLog, verdictShaped } from '../lib/codexlog';
+  import { parseAgentLog, verdictShaped, isAgentKind } from '../lib/agentlog';
   import { withFeed } from '../lib/feed';
   import { durSecs, prHref, rel, tokens, when } from '../lib/format';
   import { poll } from '../lib/poll';
@@ -39,9 +39,9 @@
   // A finished review wears its verdict; in-flight states wear themselves.
   $: displayStatus = state === 'finished' ? pr?.verdict || 'finished' : state;
 
-  // One bubble per stream event; null means the content isn't a codex
-  // stream, so the raw view is the only view.
-  $: events = content ? parseCodexLog(content) : null;
+  // One bubble per stream event; null means the content isn't an agent
+  // transcript, so the raw view is the only view.
+  $: events = content ? parseAgentLog(content) : null;
 
   const lineCount = (s: string) => s.split('\n').length;
   const kindLabel: Record<string, string> = {
@@ -49,11 +49,13 @@
     user: 'prompt',
     thinking: 'thinking',
     codex: 'agent',
+    claude: 'agent',
     tokens: 'tokens used',
   };
-  // The tokens trailer renders as a meta-styled bubble; everything else wears
-  // its own kind as the style class.
-  const bubbleClass: Record<string, string> = { tokens: 'meta' };
+  // The tokens trailer renders as a meta-styled bubble; every agent message
+  // shares one style regardless of engine; everything else wears its own kind
+  // as the style class.
+  const bubbleClass: Record<string, string> = { tokens: 'meta', claude: 'codex' };
 </script>
 
 <section class="page-head">
@@ -113,14 +115,14 @@
             {/if}
           </article>
         {:else if ev.kind === 'user' || ev.kind === 'meta'}
-          <article class="log-bubble {ev.kind}">
+          <article class="log-bubble {bubbleClass[ev.kind] ?? ev.kind}">
             <details>
               <summary><span class="kind">{kindLabel[ev.kind]}</span> {lineCount(ev.body)} lines</summary>
               <pre>{ev.body}</pre>
             </details>
           </article>
         {:else}
-          {@const verdict = ev.kind === 'codex' ? verdictShaped(ev.body) : null}
+          {@const verdict = isAgentKind(ev.kind) ? verdictShaped(ev.body) : null}
           <article class="log-bubble {bubbleClass[ev.kind] ?? ev.kind}">
             <header>
               <span class="kind">{kindLabel[ev.kind]}</span>

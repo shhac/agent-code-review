@@ -18,7 +18,7 @@ one JSON record per line on stdout. Errors go to stderr as one JSON line
 non-zero exit.
 
 It maintains a DuckDB-backed queue of candidate PRs and reviews them with a
-pluggable engine (default: Codex). Configuration lives at
+pluggable engine (Codex or Claude Code; default: Codex). Configuration lives at
 `~/.config/agent-code-review/config.json`: repos, the approval allow-list, age
 thresholds, schedule, and the review prompt + rules.
 
@@ -80,7 +80,8 @@ hardcodes repos or GitHub handles; everything is config.
 
 ## Notes
 
-- Requires `gh` (authenticated), the `duckdb` CLI, and `codex` on `$PATH`.
+- Requires `gh` (authenticated), the `duckdb` CLI, and the configured review
+  engine (`codex` by default, or `claude`) on `$PATH`, already authenticated.
 - Candidate rules: **NEW** (never reviewed, ≤14d) and **REFRESHED** (head SHA
   changed since our last review, ≤21d). Processed FIFO by first discovery, up
   to 4 in parallel. Already-approved PRs are skipped, and any recorded outcome
@@ -91,8 +92,9 @@ hardcodes repos or GitHub handles; everything is config.
   bypasses them. Manual rows also skip the pre-review candidacy recheck.
 - Most config edits reload live within ~30s (cadence, parallelism, usage
   floors, repos, prompts); only the loop switches and dashboard/Tailscale
-  settings need a daemon restart. The review loop pauses itself when a Codex
-  window drops below `schedule.usage_floor.*` percent remaining.
+  settings need a daemon restart. The review loop pauses itself when the
+  configured engine's usage window drops below `schedule.usage_floor.*`
+  percent remaining (metering follows `review.engine`).
 - The agent does the actual review and GitHub actions, then reports back what
   it did (APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED). The assembled prompt
   carries a built-in approval directive that defaults to comment-only; approval

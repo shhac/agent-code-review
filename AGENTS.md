@@ -22,9 +22,9 @@ internal/
 ├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults
 ├── store/                      # Store interface + DuckDB subprocess driver + schema.sql
 ├── discover/                   # gh pr list → New/Refreshed classification
-├── review/                     # Engine interface + codex driver + prompt/rule assembly
+├── review/                     # Engine interface + codex/claude drivers + prompt/rule assembly
 ├── scheduler/                  # run-lock, heartbeat loops, parallelism cap, cycle orchestration
-├── usage/                      # codex app-server rate-limit polling + usage-floor predicate
+├── usage/                      # per-engine subscription-headroom polling + usage-floor predicate
 ├── logbuf/                     # in-memory ring for the daemon's own log tail
 └── dashboard/                  # embedded web UI + JSON API over the store
     ├── dashboard.go            # server core + thin read handlers
@@ -60,8 +60,55 @@ internal/
   scheduler/store/discovery are testable Go. The review itself and all
   post-outcome behaviour are expressed as **prompt** (config `review.main_prompt`,
   `on_approve`/`on_comment`/`on_reject`, `review.rules`) handed to the engine,
-  never as Go control flow. The tool assumes only the gh + codex CLIs; skills
-  and extra CLIs are user-prompt territory. See `design-docs/2026-07-architecture.md`.
+  never as Go control flow. The tool assumes only the gh CLI plus the selected
+  engine's CLI; skills and extra CLIs are user-prompt territory. See
+  `design-docs/2026-07-architecture.md`.
+
+- **Engines differ only in how they spawn a CLI.** `review/driver.go` holds
+  everything engine-agnostic: the verdict schema, the reporting instruction,
+  the agent-log sink, and the bounded resume policy (`resumableRun`). A driver
+  supplies just its argv builders and how to read a session id, a token count,
+  and a report back out. `codex exec` reports through a file
+  (`--output-last-message`) and prints a readable transcript; `claude -p`
+  reports in-stream (`--json-schema`, delivered as a forced `StructuredOutput`
+  tool call) and emits NDJSON, which `claudestream.go` renders into the SAME
+  marker transcript so `agent.log` stays one format and the dashboard needs
+  one parser. That cross-language contract is pinned by a golden fixture
+  (`review/testdata/claude-transcript.golden`) written by the Go test and read
+  by `ui/src/lib/agentlog.test.ts`; regenerate with
+  `go test ./internal/review -update-golden`.
+
+- **The claude engine defaults to auto permission mode, on purpose.** A review
+  is open-ended tool work, so enumerating tools up front contradicts "the
+  engine owns everything fuzzy". Auto mode routes each action through a
+  classifier instead. It is also the better security posture: a PR's diff,
+  description, and comments are untrusted input, and the classifier reads user
+  messages, tool calls, and CLAUDE.md but NOT tool results, so instructions
+  smuggled into a PR cannot talk it into approving an action. Consequences to
+  keep in mind: allow rules resolve BEFORE the classifier, so
+  `claude.allowed_tools` must stay empty in auto mode or it exempts exactly
+  what should be vetted (the static modes fall back to a gh-plus-reads floor
+  instead, since they cannot reach gh on their own); auto mode needs Opus
+  4.6+, Sonnet 4.6+, or Fable 5, so pinning `claude.model` to haiku breaks
+  every review; and under `-p` there is nobody to prompt, so repeated
+  classifier blocks abort the run rather than falling back.
+
+- **Usage metering follows the configured engine.** `usage.Source` picks the
+  reader: codex speaks JSON-RPC to `codex app-server`; claude reads the
+  account's OAuth usage endpoint, since Claude Code exposes no usage command
+  and reports no headroom in its run output. Both map onto the same
+  `Snapshot`, so `schedule.usage_floor` and the dashboard panel are engine-
+  agnostic. Every path fails open: an errored snapshot never pauses reviews,
+  because review availability must not depend on the meter working. The
+  claude reader touches a stored credential; it must never log it, copy it
+  into a Snapshot, or include it in an error string.
+
+  Distinct from usage: `history.cost_usd` is per-review spend, recorded from
+  the engine's own report (claude's result event; codex reports none, so those
+  rows are 0). It is an API-rate valuation, not money charged, which is also
+  the unit `claude.max_budget_usd` is compared against, so the Metrics page's
+  median and peak are what a budget should be set from. Usage is account
+  headroom; cost is what one review consumed.
 - **DuckDB via subprocess.** CGO-free so the binary cross-compiles through the
   family release pipeline. Mirrors `agent-sql`'s driver. Requires the `duckdb`
   CLI at runtime.

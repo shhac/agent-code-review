@@ -107,10 +107,13 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		defer func() { _ = tsDown() }()
 	}
 
-	// Poll Codex usage in the background so the dashboard can show remaining
-	// quota without a subprocess per request.
+	// Poll the review engine's usage in the background so the dashboard can
+	// show remaining quota without a round trip per request. The source
+	// follows the configured engine: headroom belongs to the account that
+	// engine spends against, so polling the other one would meter a quota
+	// nothing is consuming. Resolved once at boot, like the loop switches.
 	usageCache := usage.NewCache()
-	go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), cfg.Review.Codex.Bin)
+	go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), usageSource(cfg))
 
 	running := runningLoops(opts, cfg)
 	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
@@ -149,6 +152,15 @@ func runningLoops(opts serveOpts, cfg config.Config) dashboard.Running {
 		Discovery: !off && !opts.noDiscovery && cfg.DiscoveryEnabled(),
 		Review:    !off && !opts.noReviews && cfg.ScheduleEnabled(),
 	}
+}
+
+// usageSource points the usage poller at the configured engine's account.
+func usageSource(cfg config.Config) usage.Source {
+	engine := cfg.Engine()
+	if engine == "claude" {
+		return usage.Source{Engine: engine, Bin: cfg.Review.Claude.Bin}
+	}
+	return usage.Source{Engine: engine, Bin: cfg.Review.Codex.Bin}
 }
 
 func startDashboard(addr string, dash *dashboard.Server, logf scheduler.Logf, stop func()) (*http.Server, error) {

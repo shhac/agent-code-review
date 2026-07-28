@@ -11,12 +11,12 @@
     "rereview_cooldown": "90m",
     "quiet_period": "15m"
   },
-  "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates (deterministic gh calls, no LLM); schedule runs review cycles (codex invocations, hence max_parallel). The eligibility holds keep a tight review interval cheap: idle cycles are no-ops.",
+  "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates (deterministic gh calls, no LLM); schedule runs review cycles (engine invocations, hence max_parallel). The eligibility holds keep a tight review interval cheap: idle cycles are no-ops.",
   "schedule": {
     "enabled": true,
     "interval": "1m",
     "max_parallel": 4,
-    "//usage_floor_note": "Pause the review loop when a Codex window has less than this % remaining; reviews resume when the window refills. 0 disables a floor. Omit for the default of 10.",
+    "//usage_floor_note": "Pause the review loop when the review engine's 5h or weekly usage window has less than this % remaining; reviews resume when the window refills. 0 disables a floor. Omit for the default of 10.",
     "usage_floor": {
       "5h_percent": 10,
       "weekly_percent": 10
@@ -27,8 +27,9 @@
     "interval": "10m"
   },
   "review": {
+    "//engine_note": "Which agent CLI performs reviews: \"codex\" (default) or \"claude\". Both report through the same verdict contract and write the same agent.log, so switching is a one-key change; only the matching engine block below applies. Usage metering follows this setting too.",
     "engine": "codex",
-    "//main_prompt_note": "The tool assumes only the gh and codex CLIs. Your prompt may direct the agent to use anything else you have set up (skills such as pr-issue-review, extra CLIs such as agent-* tools); that is your prompt's business, and you grant any extra access via codex.args.",
+    "//main_prompt_note": "The tool assumes only the gh CLI plus whichever engine CLI you selected. Your prompt may direct the agent to use anything else you have set up (skills such as pr-issue-review, extra CLIs such as agent-* tools); that is your prompt's business, and you grant any extra access via codex.args / claude.allowed_tools.",
     "main_prompt": "Act as a friendly PR unblocker. Review this pull request thoroughly: read the diff, the PR description, and any linked context via the gh CLI. Leave one GitHub review with inline comments that help the author move forward.",
     "//post_outcome_note": "on_approve / on_comment / on_reject run after the agent lands on that outcome (reject = requested changes). Put your workspace-specific conventions here (team channels, emoji rituals, notification tooling); the tool ships none of that.",
     "on_approve": "",
@@ -36,7 +37,7 @@
     "on_reject": "",
     "//rules_note": "Comment-only vs approval is a built-in, always-present directive (default: comment-only; approval only when the author is on the allowed-authors list for this repo and it isn't self-authored); you do not need a rule for it. Rules add EXTRA instructions when their condition matches (author_allowed / author_not_allowed / author_is_gh_user / candidate_type / repos). Give a rule an \"outcome\" (approve|comment|reject) to attach it under that post-outcome section instead of the prompt body, so behaviour can branch on the allow-list deterministically. Manage rules with the 'prompts rules' command (agent-code-review prompts rules usage).",
     "rules": [],
-    "//resume_prompt_note": "When a codex run ends on an intermediate WORKING report (the agent yielded its turn before finishing), the driver resumes the session with this nudge instead of recording an ERROR. Empty uses a built-in default; codex.max_resumes bounds the attempts.",
+    "//resume_prompt_note": "When a run ends without a final outcome (codex: an intermediate WORKING report; claude: no structured report at all), the driver resumes that session with this nudge instead of recording an ERROR. Empty uses a built-in default; the engine's max_resumes bounds the attempts.",
     "resume_prompt": "",
     "codex": {
       "bin": "codex",
@@ -48,6 +49,24 @@
       "//args_note": "workspace-write disables network by default, but the agent must reach GitHub via gh; this override re-enables network while keeping writes scoped to the per-PR workdir.",
       "args": ["-c", "sandbox_workspace_write.network_access=true"],
       "//max_resumes_note": "How many times to resume a session that ended on a WORKING report before recording an ERROR. Unset means 2; 0 disables resuming.",
+      "max_resumes": 2
+    },
+    "//claude_note": "Applies only when engine is \"claude\". Requires an authenticated Claude Code CLI (`claude auth login`); the tool never handles credentials. Reviews draw on that account's subscription, and schedule.usage_floor meters it the same way it meters codex.",
+    "claude": {
+      "bin": "claude",
+      "//model_note": "Defaults to claude-opus-5 when empty. Pinned rather than inherited from your account's session default, so a review's depth and cost do not change under you when that default moves. Override with an alias (opus, sonnet, haiku, fable) or a full id. NOTE: the default 'auto' permission mode requires Opus 4.6+, Sonnet 4.6+, or Fable 5; haiku and older models are unsupported there and would fail every review, so pair them with a static permission_mode.",
+      "model": "claude-opus-5",
+      "//effort_note": "Defaults to medium when empty. Pinned rather than inherited from the session default, for the same reason as the model, plus one specific to this engine: a run reports no effort back, so an unpinned effort is also an unrecorded one and history could not correlate cost with effort. medium rather than the xhigh that general Opus 5 coding guidance suggests, because code review is the workload that guidance is least true of: this model holds precision and recall at lower effort. Raise this first if review quality slips. One of low, medium, high, xhigh, max.",
+      "effort": "medium",
+      "//permission_mode_note": "The analogue of codex.sandbox: what the agent may do without a prompt no headless run can answer. Default 'auto' routes each action through a classifier, so the agent can use whatever tools your prompt calls for without enumerating them here; it also strips tool RESULTS before judging, so a hostile PR diff cannot talk it into approving something. The static alternatives: acceptEdits (reads + file writes + common filesystem commands, everything else needs an allowed_tools entry), dontAsk (tighter still), bypassPermissions (no checks at all; only if you trust every prompt completely).",
+      "permission_mode": "auto",
+      "//allowed_tools_note": "Pre-approved tools, in permission-rule syntax. Leave EMPTY in auto mode: allow rules resolve ahead of the classifier, so listing something here exempts it from the vetting auto mode exists to do. In the static modes an empty list falls back to the minimum a review needs (gh, plus reads).",
+      "allowed_tools": [],
+      "//max_budget_usd_note": "Hard per-invocation ceiling (claude --max-budget-usd). On a subscription the figure is the notional API-rate valuation of the run, so this bounds a runaway review rather than literal spend. 0 means uncapped. Set it from your own data rather than guessing: every review records its cost, and the dashboard Metrics page shows the median and peak once a few have landed. A cap below your peak truncates real reviews, which is worse than no cap.",
+      "max_budget_usd": 0,
+      "//args_note": "Extra args appended to `claude -p`, for anything not covered above (--mcp-config, --add-dir, --agents).",
+      "args": [],
+      "//max_resumes_note": "How many times to resume a session that ended without a final report before recording an ERROR. Unset means 2; 0 disables resuming.",
       "max_resumes": 2
     }
   },

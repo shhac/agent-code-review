@@ -103,6 +103,9 @@ export type UsageSnapshot = {
 
 export type UsageResponse = {
   available: boolean;
+  // Which engine's account this headroom belongs to: usage follows the
+  // configured review engine, so the panel labels itself from this.
+  engine?: string;
   usage?: UsageSnapshot;
   review_paused?: boolean;
   paused_reason?: string;
@@ -138,7 +141,7 @@ export type ConfigResponse = {
   review_running: boolean;
   discovery_running: boolean;
   engine: string;
-  codex: {
+  engine_config: {
     model: string;
     effort: string;
   };

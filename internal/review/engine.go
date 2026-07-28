@@ -75,7 +75,7 @@ type Engine interface {
 // completion. (config.Engine()'s display default must restate the first
 // entry — config cannot import review without a cycle; TestNewEngine pins
 // the two in step.)
-var Engines = []string{"codex"}
+var Engines = []string{"codex", "claude"}
 
 // NewEngine builds the configured engine.
 func NewEngine(cfg config.ReviewSettings) (Engine, error) {
@@ -86,6 +86,8 @@ func NewEngine(cfg config.ReviewSettings) (Engine, error) {
 	switch engine {
 	case "codex":
 		return newCodex(cfg.Codex, ResumePrompt(cfg)), nil
+	case "claude":
+		return newClaude(cfg.Claude, ResumePrompt(cfg)), nil
 	default:
 		return nil, fmt.Errorf("Unknown review engine: %q. Valid: %s", engine, strings.Join(Engines, ", "))
 	}

@@ -78,6 +78,25 @@ type CodexSettings struct {
 	MaxResumes *int     `json:"max_resumes,omitempty"` // resumes when a run ends on a WORKING report; nil = default 2, 0 disables
 }
 
+// ClaudeSettings configures the claude review engine (`claude -p`).
+//
+// PermissionMode is the analogue of codex's Sandbox: it decides what the agent
+// may do without a prompt it could never answer headlessly. AllowedTools
+// narrows that further per tool. MaxBudgetUSD is a hard per-invocation ceiling
+// with no codex equivalent; on a subscription the figure is the notional
+// API-rate valuation of the run, so it bounds runaway reviews rather than
+// literal spend.
+type ClaudeSettings struct {
+	Bin            string   `json:"bin,omitempty"`             // default "claude"
+	Model          string   `json:"model,omitempty"`           // alias ("opus", "sonnet") or full id
+	Effort         string   `json:"effort,omitempty"`          // low|medium|high|xhigh|max; empty = session default
+	PermissionMode string   `json:"permission_mode,omitempty"` // default "acceptEdits"
+	AllowedTools   []string `json:"allowed_tools,omitempty"`   // extra pre-approved tools
+	MaxBudgetUSD   float64  `json:"max_budget_usd,omitempty"`  // --max-budget-usd; 0 = uncapped
+	Args           []string `json:"args,omitempty"`            // extra args appended to `claude -p`
+	MaxResumes     *int     `json:"max_resumes,omitempty"`     // resumes when a run ends without a final report; nil = default 2, 0 disables
+}
+
 // ReviewSettings selects and configures the pluggable review engine.
 //
 // OnApprove/OnComment/OnReject are post-outcome prompt fragments: instructions
@@ -86,15 +105,16 @@ type CodexSettings struct {
 // emoji conventions, extra CLIs) belongs HERE, in the user's config, never in
 // the tool or its shipped defaults. The tool itself assumes only gh and codex.
 type ReviewSettings struct {
-	Engine         string        `json:"engine,omitempty"`           // "codex" (default) | "claude" (later)
-	MainPrompt     string        `json:"main_prompt,omitempty"`      // inline main review prompt
-	MainPromptPath string        `json:"main_prompt_path,omitempty"` // or load it from a file
-	OnApprove      string        `json:"on_approve,omitempty"`
-	OnComment      string        `json:"on_comment,omitempty"`
-	OnReject       string        `json:"on_reject,omitempty"`     // reject = requested changes
-	ResumePrompt   string        `json:"resume_prompt,omitempty"` // nudge when resuming a run that ended on WORKING; empty = built-in default
-	Rules          []Rule        `json:"rules,omitempty"`
-	Codex          CodexSettings `json:"codex,omitempty"`
+	Engine         string         `json:"engine,omitempty"`           // "codex" (default) | "claude"
+	MainPrompt     string         `json:"main_prompt,omitempty"`      // inline main review prompt
+	MainPromptPath string         `json:"main_prompt_path,omitempty"` // or load it from a file
+	OnApprove      string         `json:"on_approve,omitempty"`
+	OnComment      string         `json:"on_comment,omitempty"`
+	OnReject       string         `json:"on_reject,omitempty"`     // reject = requested changes
+	ResumePrompt   string         `json:"resume_prompt,omitempty"` // nudge when resuming a run that ended on WORKING; empty = built-in default
+	Rules          []Rule         `json:"rules,omitempty"`
+	Codex          CodexSettings  `json:"codex,omitempty"`
+	Claude         ClaudeSettings `json:"claude,omitempty"`
 }
 
 // StoreSettings locates the persistent DuckDB file.

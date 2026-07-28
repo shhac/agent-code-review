@@ -91,6 +91,14 @@ export function usd(n: number | undefined) {
 	return `$${Math.round(n)}`;
 }
 
+// How a review with no recorded model is labelled. One helper because the
+// same fact is rendered in four places on the Metrics page; when this said
+// 'Codex default' inline, generalising one site for the second engine left
+// the other three mislabelling claude reviews as Codex.
+export function modelLabel(model: string | undefined) {
+	return model || 'engine default';
+}
+
 export function keyOf(c: Candidate) {
   return `${c.repo}#${c.number}`;
 }

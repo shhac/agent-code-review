@@ -125,3 +125,26 @@ func TestRunEmitsUniqueCheckNames(t *testing.T) {
 		}
 	}
 }
+
+// authCheck is the exit-code auth gate for gh AND for codex, the default
+// engine — so it runs on more machines than its JSON-based claude sibling,
+// which is the one that got tested first.
+func TestAuthCheck(t *testing.T) {
+	okBin := fakeClaude(t, "Logged in using ChatGPT", 0)
+	c := authCheck(t.Context(), "engine:codex-auth", okBin, []string{"login", "status"}, "run `codex login`")
+	if !c.OK || !strings.Contains(c.Detail, "Logged in") {
+		t.Errorf("logged-in check = %+v, want OK carrying the CLI's first line", c)
+	}
+
+	// Non-zero exit is the logged-out signal for this family of probes.
+	failBin := fakeClaude(t, "not logged in", 1)
+	c = authCheck(t.Context(), "engine:codex-auth", failBin, []string{"login", "status"}, "run `codex login`")
+	if c.OK || c.Detail != "not authenticated" || c.Hint == "" {
+		t.Errorf("logged-out check = %+v, want a blocking failure with a hint", c)
+	}
+
+	c = authCheck(t.Context(), "gh-auth", "definitely-not-a-real-binary-xyz", []string{"auth", "status"}, "install gh")
+	if c.OK || !strings.Contains(c.Detail, "not on PATH") {
+		t.Errorf("missing binary = %+v, want a not-on-PATH failure", c)
+	}
+}

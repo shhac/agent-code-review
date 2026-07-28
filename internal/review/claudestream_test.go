@@ -245,3 +245,35 @@ func TestTranscodeOmitsCostWhenUnreported(t *testing.T) {
 		t.Errorf("an unreported cost must not render:\n%s", got)
 	}
 }
+
+// The CLI varies these wire shapes: a message's content is usually an array of
+// blocks but can be a bare string, and a tool result can be a string, an array
+// of parts, or something this code has no schema for. Only the common shapes
+// were driven, so the fallbacks were untested — and a regression there
+// degrades the transcript the dashboard and `queue log -f` both render.
+func TestTranscodeHandlesWireShapeVariance(t *testing.T) {
+	// A bare-string user message still counts as the prompt.
+	got, _ := transcode(t, `{"type":"user","message":{"content":"a bare string prompt"}}`)
+	if !strings.Contains(got, "user\na bare string prompt") {
+		t.Errorf("bare-string message content must render:\n%s", got)
+	}
+
+	// A tool result delivered as parts is joined, not dropped.
+	got, _ = transcode(t,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"first"},{"type":"text","text":"second"}]}]}}`,
+	)
+	if !strings.Contains(got, "first\nsecond") {
+		t.Errorf("multi-part tool result must be joined:\n%s", got)
+	}
+
+	// An unrecognised result shape falls back to its raw form rather than
+	// vanishing: an unreadable transcript beats a silently empty one.
+	got, _ = transcode(t,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"x"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":{"unexpected":"shape"}}]}}`,
+	)
+	if !strings.Contains(got, "unexpected") {
+		t.Errorf("unknown tool-result shape must fall back to raw:\n%s", got)
+	}
+}

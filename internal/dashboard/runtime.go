@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/logbuf"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/usage"
@@ -85,31 +86,36 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	if s.usage == nil {
-		writeJSON(w, http.StatusOK, usageResp{
-			Available: false, Engine: s.config().Engine(),
-			Engines:    engineUsages(nil, s.config().Engine()),
-			FreshTotal: freshTotal, Fresh24h: fresh24h,
-		})
-		return
+	var snaps map[string]usage.Snapshot
+	if s.usage != nil {
+		snaps = s.usage.All()
 	}
-	cfg := s.config()
+	writeJSON(w, http.StatusOK, usageView(s.config(), snaps, freshTotal, fresh24h))
+}
+
+// usageView shapes the usage response. Pure, so the floor and availability
+// rules table-test without an HTTP round trip or a poller; the handler keeps
+// only the two store reads and the transport. A nil snapshot map is the
+// no-poller case (one-shot runs, --read-only), which reports unavailable
+// rather than pretending to headroom it never measured.
+func usageView(cfg config.Config, snaps map[string]usage.Snapshot, freshTotal, fresh24h int64) usageResp {
 	active := cfg.Engine()
-	snaps := s.usage.All()
+	resp := usageResp{
+		Engine:     active,
+		Engines:    engineUsages(snaps, active),
+		FreshTotal: freshTotal,
+		Fresh24h:   fresh24h,
+	}
+	if snaps == nil {
+		return resp
+	}
 	// The floor applies to the ACTIVE engine only: that is the account
 	// reviews spend from, so another engine's headroom must not pause or
 	// unpause the loop.
 	snap := snaps[active]
-	paused, reason := usage.BelowFloor(snap, cfg.UsageFloor5h(), cfg.UsageFloorWeekly())
-	writeJSON(w, http.StatusOK, usageResp{
-		Available:    snap.OK(),
-		Engine:       active,
-		Engines:      engineUsages(snaps, active),
-		ReviewPaused: paused,
-		PausedReason: reason,
-		FreshTotal:   freshTotal,
-		Fresh24h:     fresh24h,
-	})
+	resp.Available = snap.OK()
+	resp.ReviewPaused, resp.PausedReason = usage.BelowFloor(snap, cfg.UsageFloor5h(), cfg.UsageFloorWeekly())
+	return resp
 }
 
 // handleLogs returns the newest captured daemon log lines, oldest first.

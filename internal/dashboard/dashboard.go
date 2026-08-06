@@ -34,23 +34,44 @@ type Running struct {
 	Review    bool
 }
 
-// dashboardStore is the dashboard's read/write view of persistence. The web
-// server deliberately does not know about scheduler claims, run locks, or
-// author mutations it never performs.
-type dashboardStore interface {
+// The dashboard's view of persistence, split by the surface that uses it
+// rather than declared as one list. The repo's own convention: scheduler.
+// SchedulerStore is three methods and discover.candidateStore is four,
+// because "an interface names what its consumer actually uses" is what makes
+// a fake in a queue test stop having to satisfy authors and runs methods it
+// never calls. This was the one place declaring thirteen at once.
+//
+// dashboardStore composes them, so wiring a real store is still one
+// assignment; handlers take the narrow piece they need.
+type queueStore interface {
 	ListQueue(context.Context, string) ([]store.Candidate, error)
 	Enqueue(context.Context, store.Candidate) error
 	Dequeue(context.Context, string, int) error
 	Promote(context.Context, string, int) error
 	Reorder(context.Context, []store.QueuePosition) error
 	LastOutcome(context.Context, string, int) (store.Review, bool, error)
+}
+
+type historyStore interface {
 	ReviewByLogKey(context.Context, string, int, string) (store.Review, bool, error)
 	ListReviews(context.Context, int) ([]store.Review, error)
 	ListReviewsSince(context.Context, time.Time) ([]store.Review, error)
 	ListRuns(context.Context, int) ([]store.Run, error)
 	FreshTokens(context.Context, time.Time) (int64, error)
+}
+
+type rosterStore interface {
 	ListAuthors(ctx context.Context, repo, group string) ([]store.Author, error)
 	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
+}
+
+// dashboardStore is the whole surface the web server uses. It deliberately
+// does not know about scheduler claims, run locks, or author mutations it
+// never performs.
+type dashboardStore interface {
+	queueStore
+	historyStore
+	rosterStore
 }
 
 // Server renders the queue, config, and prompt views. Config comes through a

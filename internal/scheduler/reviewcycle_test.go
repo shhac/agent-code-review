@@ -252,3 +252,39 @@ func TestTail(t *testing.T) {
 		t.Errorf("truncated tail = %q", got)
 	}
 }
+
+// TestProcessQueueStartsNothingAfterStopRequested pins the priority of the
+// shutdown check over a free semaphore slot. select chooses uniformly at
+// random among ready cases, and a free slot is almost always ready, so
+// deciding this inside the select alone let a graceful shutdown launch new
+// reviews roughly half the time. Each one is a full engine invocation, so a
+// coin flip is not an acceptable answer to "should we start another".
+//
+// Run enough times that the old random behaviour could not pass by luck: at
+// 50% per attempt, 40 iterations fail with probability 1 - 2^-40.
+func TestProcessQueueStartsNothingAfterStopRequested(t *testing.T) {
+	for i := range 40 {
+		fs := &fakeCycleStore{}
+		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+		s := newCycleScheduler(fs, fe)
+
+		// Already cancelled before the queue is processed, exactly as it is
+		// when a candidate list survives the cycle's earlier checks and the
+		// signal lands during them.
+		stopCtx, stop := context.WithCancel(context.Background())
+		stop()
+
+		s.processQueue(stopCtx, context.Background(), []pending{
+			{candidate: store.Candidate{Repo: "o/r", Number: 1, HeadSHA: "s1"}},
+			{candidate: store.Candidate{Repo: "o/r", Number: 2, HeadSHA: "s2"}},
+		}, config.Config{Schedule: config.ScheduleSettings{MaxParallel: 4}, Review: config.ReviewSettings{MainPrompt: "MAIN"}})
+
+		if len(fs.claims) != 0 {
+			t.Fatalf("iteration %d: claimed %d candidate(s) after shutdown was requested; "+
+				"no new review may start once the first signal has landed", i, len(fs.claims))
+		}
+		if fe.prompt != "" {
+			t.Fatalf("iteration %d: an engine ran after shutdown was requested", i)
+		}
+	}
+}

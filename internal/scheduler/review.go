@@ -35,6 +35,21 @@ func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates 
 	sem := make(chan struct{}, cfg.MaxParallel())
 	var wg sync.WaitGroup
 	for _, p := range candidates {
+		// Cancellation is checked BEFORE the select, because select chooses
+		// uniformly at random among ready cases. A free semaphore slot is
+		// almost always ready, so leaving this to the select below started a
+		// new review roughly half the time after a shutdown was requested,
+		// which is the opposite of what the first Ctrl-C promises and costs a
+		// whole engine invocation each time it happens.
+		if stopCtx.Err() != nil {
+			s.logf("cycle: shutdown requested, waiting for in-flight reviewer(s)")
+			wg.Wait()
+			return
+		}
+		if reviewCtx.Err() != nil {
+			wg.Wait()
+			return
+		}
 		select {
 		case sem <- struct{}{}:
 		case <-stopCtx.Done():

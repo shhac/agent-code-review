@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -180,5 +181,29 @@ func TestFindReviewWorkspaceByLogKey(t *testing.T) {
 	}
 	if ws.Dir != "/chosen" || ws.Finished == nil || ws.Queued != nil {
 		t.Errorf("review key must select the exact history row, got %+v", ws)
+	}
+}
+
+// The two quoting helpers exist so a call site states its nullability policy
+// instead of inheriting one. That distinction has teeth: a NULL group_name is
+// deliberately read back as the approver group for rows written before the
+// column existed, so a column that quietly became NULL would hand out
+// approve-level policy.
+func TestTextAndNullTextDifferOnEmpty(t *testing.T) {
+	if got := text(""); got != "''" {
+		t.Errorf(`text("") = %s, want an empty string literal`, got)
+	}
+	if got := nullText(""); got != "NULL" {
+		t.Errorf(`nullText("") = %s, want NULL`, got)
+	}
+	// Both escape embedded quotes; neither may produce an injectable literal.
+	const nasty = "o'brien'; DROP TABLE queue; --"
+	for name, got := range map[string]string{"text": text(nasty), "nullText": nullText(nasty)} {
+		if strings.Count(got, "'")%2 != 0 {
+			t.Errorf("%s(%q) = %s: unbalanced quotes", name, nasty, got)
+		}
+		if !strings.Contains(got, "o''brien''") {
+			t.Errorf("%s(%q) = %s: embedded quotes not doubled", name, nasty, got)
+		}
 	}
 }

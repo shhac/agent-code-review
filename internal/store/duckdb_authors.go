@@ -14,10 +14,17 @@ import (
 // invisible to a lookup for "org/repo": the author fell through to
 // authors.unlisted and silently lost whatever group they had been given.
 func sameAuthor(repo, handle string) string {
-	return fmt.Sprintf("lower(repo) = lower(%s) AND lower(github_handle) = lower(%s)", q(repo), q(handle))
+	return fmt.Sprintf("lower(repo) = lower(%s) AND lower(github_handle) = lower(%s)", text(repo), text(handle))
 }
 
 func (d *duckDB) SetAuthorGroup(ctx context.Context, a Author) error {
+	// A NULL group_name is deliberately read back as the approver group, for
+	// rows written before the column existed. That makes an empty group on a
+	// NEW row an approve-level escalation rather than a no-op, so it is
+	// refused here rather than relying on every caller to validate first.
+	if a.Group == "" {
+		return fmt.Errorf("author %s/%s: group is required", a.Repo, a.GitHubHandle)
+	}
 	// The primary key is exact text, so an upsert keyed on the literal
 	// strings would leave "Org/Repo alice" and "org/repo Alice" as two rows
 	// that both satisfy every lookup and race for its LIMIT 1. Retiring any
@@ -27,7 +34,7 @@ func (d *duckDB) SetAuthorGroup(ctx context.Context, a Author) error {
 	INSERT INTO allowed_authors (repo, github_handle, group_name, name, email, slack_id)
 	VALUES (%s, %s, %s, %s, %s, %s)`,
 		sameAuthor(a.Repo, a.GitHubHandle),
-		q(a.Repo), q(a.GitHubHandle), q(a.Group), q(a.Name), q(a.Email), q(a.SlackID))
+		text(a.Repo), text(a.GitHubHandle), text(a.Group), nullText(a.Name), nullText(a.Email), nullText(a.SlackID))
 	return d.exec(ctx, sql)
 }
 
@@ -38,10 +45,10 @@ func (d *duckDB) RemoveAuthor(ctx context.Context, repo, handle string) error {
 func (d *duckDB) ListAuthors(ctx context.Context, repo, group string) ([]Author, error) {
 	sql := "SELECT * FROM allowed_authors WHERE 1 = 1"
 	if repo != "" {
-		sql += fmt.Sprintf(" AND lower(repo) = lower(%s)", q(repo))
+		sql += fmt.Sprintf(" AND lower(repo) = lower(%s)", text(repo))
 	}
 	if group != "" {
-		sql += " AND group_name = " + q(group)
+		sql += " AND group_name = " + text(group)
 	}
 	// Alphabetical by author (the entity this list is about), case-insensitive:
 	// DuckDB's default TEXT ordering would sort "Zed" before "alice". Repo
@@ -67,7 +74,7 @@ func (d *duckDB) AuthorGroup(ctx context.Context, repo, handle string) (config.M
 		`SELECT repo, group_name FROM allowed_authors
 		 WHERE (lower(repo) = lower(%s) OR repo = %s) AND lower(github_handle) = lower(%s)
 		 ORDER BY (lower(repo) = lower(%s)) DESC LIMIT 1`,
-		q(repo), q(WildcardRepo), q(handle), q(repo)))
+		text(repo), text(WildcardRepo), text(handle), text(repo)))
 	if err != nil || len(rows) == 0 {
 		return config.Membership{}, err
 	}

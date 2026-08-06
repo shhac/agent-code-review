@@ -55,8 +55,8 @@ func TestQ(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := q(tc.in); got != tc.want {
-				t.Errorf("q(%q) = %s, want %s", tc.in, got, tc.want)
+			if got := nullText(tc.in); got != tc.want {
+				t.Errorf("nullText(%q) = %s, want %s", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -72,10 +72,10 @@ func TestQNeverBreaksOutOfLiteral(t *testing.T) {
 		"'||(SELECT 1)||'",
 	}
 	for _, in := range hostile {
-		got := q(in)
+		got := nullText(in)
 		inner := strings.TrimSuffix(strings.TrimPrefix(got, "'"), "'")
 		if strings.Contains(strings.ReplaceAll(inner, "''", ""), "'") {
-			t.Errorf("q(%q) = %s: lone quote survives inside the literal", in, got)
+			t.Errorf("nullText(%q) = %s: lone quote survives inside the literal", in, got)
 		}
 	}
 }

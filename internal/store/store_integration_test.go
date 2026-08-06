@@ -557,7 +557,7 @@ func TestAbsentRowEdges(t *testing.T) {
 // TestCompleteSnapshotRoundTrip pins the display snapshot: Title and Author
 // written by Complete must read back intact through history (guards the
 // positional INSERT's column/value alignment), including hostile strings
-// through the q() escaping on the new columns.
+// through the nullText() escaping on the new columns.
 func TestCompleteSnapshotRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

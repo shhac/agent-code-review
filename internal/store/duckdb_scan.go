@@ -97,12 +97,25 @@ func scanCandidate(r map[string]any) Candidate {
 	return c
 }
 
-// q renders a SQL string literal (single quotes doubled). NULL for empty.
-func q(s string) string {
+// text renders a SQL string literal (single quotes doubled). An empty string
+// stays an empty string.
+func text(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// nullText is text for columns where empty MEANS absent, so it renders NULL.
+//
+// Named for the policy it applies rather than for being short. As `q` it was
+// the only quoting helper, so every call site inherited "empty becomes NULL"
+// whether or not that was right for the column, and nothing at the call site
+// said so. The distinction is not cosmetic: a NULL group_name is deliberately
+// read back as the approver group for legacy rows, so a column that quietly
+// became NULL could hand someone approve-level policy.
+func nullText(s string) string {
 	if s == "" {
 		return "NULL"
 	}
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	return text(s)
 }
 
 // ts renders a TIMESTAMP literal in UTC, or NULL for the zero time.

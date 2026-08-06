@@ -23,6 +23,13 @@ import (
 // editing the hold dials never shrinks or lifts holds already granted, and
 // future triggers (e.g. an explicit delay-on-click) can impose holds that no
 // derivation could reconstruct.
+// prWhere is the identity predicate for a queue row. Six mutations select the
+// row this way; naming it once means a change to how a PR is identified (repo
+// casing, say) cannot land in five of them.
+func prWhere(repo string, number int) string {
+	return fmt.Sprintf("repo = %s AND number = %d", text(repo), number)
+}
+
 func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	// An empty SHA would render as NULL: history.head_sha is NOT NULL, so
 	// such a row could never Complete — it would error every cycle until
@@ -56,16 +63,16 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  eligible_at = `+holdCase("eligible_at")+`,
 	  hold_reason = `+holdCase("hold_reason")+`,
 	  source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE queue.source END`,
-		q(c.Repo), c.Number, q(orDefault(c.Type, TypeNew)), q(c.Title), q(c.Author), q(c.URL), q(c.HeadSHA),
-		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), q(orDefault(c.Source, SourceDiscovered)),
-		tsp(c.EligibleAt), q(c.HoldReason))
+		nullText(c.Repo), c.Number, nullText(orDefault(c.Type, TypeNew)), nullText(c.Title), nullText(c.Author), nullText(c.URL), nullText(c.HeadSHA),
+		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), nullText(orDefault(c.Source, SourceDiscovered)),
+		tsp(c.EligibleAt), nullText(c.HoldReason))
 	return d.exec(ctx, sql)
 }
 
 func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error) {
 	sql := "SELECT * FROM queue"
 	if repo != "" {
-		sql += " WHERE repo = " + q(repo)
+		sql += " WHERE repo = " + nullText(repo)
 	}
 	// Manual queue positions win outright; among the default 0s the queue is
 	// FIFO on first discovery: earlier-discovered work is actioned first, so
@@ -83,10 +90,10 @@ func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error
 func (d *duckDB) Claim(ctx context.Context, repo string, number int, l Lease) (bool, error) {
 	rows, err := d.query(ctx, fmt.Sprintf(
 		`UPDATE queue SET claimed_at = %s, work_dir = %s, claim_host = %s, claim_pid = %d
-		 WHERE repo = %s AND number = %d AND (claimed_at IS NULL OR claimed_at < %s)
+		 WHERE %s AND (claimed_at IS NULL OR claimed_at < %s)
 		 RETURNING 1 AS claimed`,
-		ts(l.At), q(l.WorkDir), q(l.Host), l.PID,
-		q(repo), number, ts(l.At.Add(-l.StaleAfter))))
+		ts(l.At), nullText(l.WorkDir), nullText(l.Host), l.PID,
+		prWhere(repo, number), ts(l.At.Add(-l.StaleAfter))))
 	if err != nil {
 		return false, err
 	}
@@ -95,8 +102,8 @@ func (d *duckDB) Claim(ctx context.Context, repo string, number int, l Lease) (b
 
 func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error {
 	return d.exec(ctx, fmt.Sprintf(
-		"UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE repo = %s AND number = %d",
-		q(repo), number))
+		"UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE %s",
+		prWhere(repo, number)))
 }
 
 // Complete runs as one multi-statement batch; a single duckdb invocation is
@@ -108,12 +115,12 @@ func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error 
 func (d *duckDB) Complete(ctx context.Context, r Review) error {
 	sql := fmt.Sprintf(`BEGIN;
 	%s
-	DELETE FROM queue WHERE repo = %s AND number = %d AND head_sha IS NOT DISTINCT FROM %s;
-	UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE repo = %s AND number = %d;
+	DELETE FROM queue WHERE %s AND head_sha IS NOT DISTINCT FROM %s;
+	UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE %s;
 	COMMIT;`,
 		historyInsert(r),
-		q(r.Repo), r.Number, q(r.HeadSHA),
-		q(r.Repo), r.Number)
+		prWhere(r.Repo, r.Number), nullText(r.HeadSHA),
+		prWhere(r.Repo, r.Number))
 	return d.exec(ctx, sql)
 }
 
@@ -122,11 +129,11 @@ func (d *duckDB) Complete(ctx context.Context, r Review) error {
 // Shared so a new column cannot be added to one path and missed by the other.
 func historyInsert(r Review) string {
 	return fmt.Sprintf(`INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, engine_version, reviewed_at, duration_secs, work_dir, tokens_used, cost_usd, est_cost_usd, fresh_tokens, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, reasoning_tokens, usage_raw) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d, %s, %s, %d, %d, %d, %d, %d, %d, %s);`,
-		q(r.Repo), r.Number, q(r.Title), q(r.Author), q(r.HeadSHA), q(r.Verdict), q(r.Engine), q(r.Model), q(r.Effort), q(r.EngineVersion), ts(r.ReviewedAt), r.DurationSecs, q(r.WorkDir), r.TokensUsed, num(r.CostUSD), num(r.EstCostUSD), r.FreshTokens, r.InputTokens, r.OutputTokens, r.CacheWriteTokens, r.CacheReadTokens, r.ReasoningTokens, q(r.UsageRaw))
+		nullText(r.Repo), r.Number, nullText(r.Title), nullText(r.Author), nullText(r.HeadSHA), nullText(r.Verdict), nullText(r.Engine), nullText(r.Model), nullText(r.Effort), nullText(r.EngineVersion), ts(r.ReviewedAt), r.DurationSecs, nullText(r.WorkDir), r.TokensUsed, num(r.CostUSD), num(r.EstCostUSD), r.FreshTokens, r.InputTokens, r.OutputTokens, r.CacheWriteTokens, r.CacheReadTokens, r.ReasoningTokens, nullText(r.UsageRaw))
 }
 
 func (d *duckDB) Dequeue(ctx context.Context, repo string, number int) error {
-	return d.exec(ctx, fmt.Sprintf("DELETE FROM queue WHERE repo = %s AND number = %d", q(repo), number))
+	return d.exec(ctx, fmt.Sprintf("DELETE FROM queue WHERE %s", prWhere(repo, number)))
 }
 
 func (d *duckDB) Reorder(ctx context.Context, positions []QueuePosition) error {
@@ -136,7 +143,7 @@ func (d *duckDB) Reorder(ctx context.Context, positions []QueuePosition) error {
 	updates := make([]string, 0, len(positions))
 	where := make([]string, 0, len(positions))
 	for _, p := range positions {
-		match := fmt.Sprintf("repo = %s AND number = %d", q(p.Repo), p.Number)
+		match := prWhere(p.Repo, p.Number)
 		updates = append(updates, fmt.Sprintf("WHEN %s THEN %d", match, p.Position))
 		where = append(where, "("+match+")")
 	}
@@ -152,6 +159,6 @@ func (d *duckDB) Reorder(ctx context.Context, positions []QueuePosition) error {
 // removing and manually re-adding the PR at the front.
 func (d *duckDB) Promote(ctx context.Context, repo string, number int) error {
 	return d.exec(ctx, fmt.Sprintf(
-		"UPDATE queue SET queue_pos = -1, eligible_at = NULL, hold_reason = NULL, source = 'manual' WHERE repo = %s AND number = %d",
-		q(repo), number))
+		"UPDATE queue SET queue_pos = -1, eligible_at = NULL, hold_reason = NULL, source = 'manual' WHERE %s",
+		prWhere(repo, number)))
 }

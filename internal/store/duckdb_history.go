@@ -13,7 +13,7 @@ import (
 var realVerdictsSQL = func() string {
 	quoted := make([]string, len(realVerdicts))
 	for i, v := range realVerdicts {
-		quoted[i] = q(v)
+		quoted[i] = nullText(v)
 	}
 	return "(" + strings.Join(quoted, ", ") + ")"
 }()
@@ -21,12 +21,12 @@ var realVerdictsSQL = func() string {
 func (d *duckDB) LastReview(ctx context.Context, repo string, number int) (Review, bool, error) {
 	return queryOne(ctx, d, fmt.Sprintf(
 		"SELECT * FROM history WHERE repo = %s AND number = %d AND verdict IN %s ORDER BY reviewed_at DESC LIMIT 1",
-		q(repo), number, realVerdictsSQL), scanReview)
+		nullText(repo), number, realVerdictsSQL), scanReview)
 }
 
 func (d *duckDB) LastOutcome(ctx context.Context, repo string, number int) (Review, bool, error) {
 	return queryOne(ctx, d, fmt.Sprintf(
-		"SELECT * FROM history WHERE repo = %s AND number = %d ORDER BY reviewed_at DESC LIMIT 1", q(repo), number), scanReview)
+		"SELECT * FROM history WHERE repo = %s AND number = %d ORDER BY reviewed_at DESC LIMIT 1", nullText(repo), number), scanReview)
 }
 
 func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
@@ -39,7 +39,7 @@ func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
 
 func (d *duckDB) ReviewByLogKey(ctx context.Context, repo string, number int, logKey string) (Review, bool, error) {
 	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT * FROM history WHERE repo = %s AND number = %d ORDER BY reviewed_at DESC", q(repo), number))
+		"SELECT * FROM history WHERE repo = %s AND number = %d ORDER BY reviewed_at DESC", nullText(repo), number))
 	if err != nil {
 		return Review{}, false, err
 	}
@@ -87,13 +87,19 @@ type CostRates struct {
 	CacheRead  float64
 }
 
+// unpricedRows is the "could be valued but has not been" predicate: a class
+// split recorded, no estimate yet. Named once because three queries select on
+// it (list the models, apply the estimates, count what is left) and a drift
+// between them would make the backfill report a number it did not do.
+const unpricedRows = "est_cost_usd = 0 AND input_tokens + output_tokens > 0"
+
 // UnpricedModels lists the models on rows that could be valued but have not
-// been: a class split recorded, no estimate yet. That is a row completed while
-// the price table was unreachable, or one written by a build that recorded the
-// split before there was anywhere to put a valuation.
+// been. That is a row completed while the price table was unreachable, or one
+// written by a build that recorded the split before there was anywhere to put
+// a valuation.
 func (d *duckDB) UnpricedModels(ctx context.Context) ([]string, error) {
 	rows, err := d.query(ctx, `SELECT DISTINCT model FROM history
-	  WHERE est_cost_usd = 0 AND input_tokens + output_tokens > 0 AND model IS NOT NULL AND model <> ''`)
+	  WHERE `+unpricedRows+` AND model IS NOT NULL AND model <> ''`)
 	if err != nil {
 		return nil, err
 	}
@@ -128,8 +134,8 @@ func (d *duckDB) EstimateCosts(ctx context.Context, rates map[string]CostRates) 
 		r := rates[model]
 		fmt.Fprintf(&b, `UPDATE history SET est_cost_usd =
 		  input_tokens * %s + output_tokens * %s + cache_write_tokens * %s + cache_read_tokens * %s
-		WHERE est_cost_usd = 0 AND input_tokens + output_tokens > 0 AND model = %s;`+"\n",
-			num(r.Input), num(r.Output), num(r.CacheWrite), num(r.CacheRead), q(model))
+		WHERE `+unpricedRows+` AND model = %s;`+"\n",
+			num(r.Input), num(r.Output), num(r.CacheWrite), num(r.CacheRead), nullText(model))
 	}
 	before, err := d.countUnpriced(ctx)
 	if err != nil {
@@ -147,7 +153,7 @@ func (d *duckDB) EstimateCosts(ctx context.Context, rates map[string]CostRates) 
 
 func (d *duckDB) countUnpriced(ctx context.Context) (int64, error) {
 	rows, err := d.query(ctx, `SELECT count(*) AS n FROM history
-	  WHERE est_cost_usd = 0 AND input_tokens + output_tokens > 0`)
+	  WHERE `+unpricedRows)
 	if err != nil || len(rows) == 0 {
 		return 0, err
 	}

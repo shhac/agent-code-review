@@ -158,30 +158,56 @@ func Blocking(checks []Check) []Check {
 	return failed
 }
 
+// engineProbe is how one engine is diagnosed: its default binary name, and
+// how to ask it whether it is authenticated. The two auth probes genuinely
+// differ (codex reports via exit code, claude via JSON), which is the only
+// reason this is a table of functions rather than a table of flags.
+type engineProbe struct {
+	defaultBin  string
+	installHint string
+	auth        func(ctx context.Context, bin string) Check
+}
+
+// engineProbes is keyed by engine name, with no default entry.
+//
+// It replaced a switch whose `default:` meant codex, so an engine name the
+// switch did not recognise was probed AS codex: a future third engine, or a
+// typo that slipped past validation, would have been reported healthy on the
+// strength of codex being installed. Unknown is now its own answer.
+var engineProbes = map[string]engineProbe{
+	"codex": {
+		defaultBin:  "codex",
+		installHint: "install the Codex CLI, or set codex.bin",
+		auth: func(ctx context.Context, bin string) Check {
+			return authCheck(ctx, "engine:codex-auth", bin, []string{"login", "status"}, "run `codex login`")
+		},
+	},
+	"claude": {
+		defaultBin:  "claude",
+		installHint: "install Claude Code, or set claude.bin",
+		auth:        claudeAuthCheck,
+	},
+}
+
 // engineChecks probes one engine's CLI: present, and logged in. Only engines
 // a group can actually route to are probed, so a machine set up for one engine
-// isn't told off for lacking the other. The switch stays because the two auth
-// probes genuinely differ (codex reports via exit code, claude via JSON); only
-// the binary lookup is shared, and that goes through the config getter.
+// isn't told off for lacking the other.
 func engineChecks(ctx context.Context, engine string, cfg config.Config) []Check {
+	probe, known := engineProbes[engine]
+	if !known {
+		return []Check{{
+			Name: "engine:" + engine, Blocking: true,
+			Detail: fmt.Sprintf("no probe for engine %q", engine),
+			Hint:   "valid engines: " + strings.Join(config.EngineNames, ", "),
+		}}
+	}
 	bin := cfg.BinFor(engine)
-	switch engine {
-	case "claude":
-		if bin == "" {
-			bin = "claude"
-		}
-		return []Check{
-			binaryCheck(ctx, "engine:claude", bin, "--version", "install Claude Code, or set claude.bin"),
-			claudeAuthCheck(ctx, bin),
-		}
-	default:
-		if bin == "" {
-			bin = "codex"
-		}
-		return []Check{
-			binaryCheck(ctx, "engine:codex", bin, "--version", "install the Codex CLI, or set codex.bin"),
-			authCheck(ctx, "engine:codex-auth", bin, []string{"login", "status"}, "run `codex login`"),
-		}
+	if bin == "" {
+		bin = probe.defaultBin
+	}
+	return []Check{
+		binaryCheck(ctx, "engine:"+engine, bin, "--version", probe.installHint),
+		probe.auth(ctx, bin),
 	}
 }
 

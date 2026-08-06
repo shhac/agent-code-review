@@ -142,6 +142,19 @@ func prKey(repo string, number int) string {
 	return prref.Ref{Repo: repo, Number: number}.String()
 }
 
+// reportConfigProblems surfaces every statically detectable misconfiguration
+// through the caller's warning channel.
+//
+// A preflight step callers invoke, not something buildScheduler does on the
+// way past. Emitting diagnostics from a constructor made "build a scheduler"
+// mean "build a scheduler and also run half of doctor", which serve then did
+// twice: once here and once through its own doctor.Run at boot.
+func reportConfigProblems(cfg config.Config, warnf func(notice, hint string)) {
+	for _, problem := range doctor.ConfigProblems(cfg) {
+		warnf(problem, "agent-code-review doctor")
+	}
+}
+
 // buildScheduler wires the discoverer and resolved gh user around an
 // already-open store. Config flows through the getter so cadence, dials, and
 // codex settings reload live (the engine itself is rebuilt each cycle); the
@@ -160,9 +173,6 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 		if _, err := review.NewEngine(cfg.Review.WithPolicy(config.Policy{Engine: engine})); err != nil {
 			return nil, err
 		}
-	}
-	for _, problem := range doctor.ConfigProblems(cfg) {
-		warnf(problem, "agent-code-review doctor")
 	}
 	disc := discover.New(cfgFn, s, logf)
 

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/store"
 )
 
 func registerRun(root *cobra.Command) {
@@ -30,6 +31,7 @@ func registerRun(root *cobra.Command) {
 
 			// nil usage getter: a manual one-shot run bypasses the usage floor.
 			warnf := func(notice, hint string) { output.WriteNotice(os.Stderr, notice, hint) }
+			reportConfigProblems(cfg, warnf)
 			sched, err := buildScheduler(ctx, config.Read, s, stderrLogf, warnf, nil)
 			if err != nil {
 				return err
@@ -48,18 +50,10 @@ func registerRun(root *cobra.Command) {
 			if err != nil {
 				return err
 			}
-			byVerdict := map[string]int{}
-			for _, r := range outcomes {
-				byVerdict[r.Verdict]++
-			}
 			if err := emitEach(outcomes, nil); err != nil {
 				return err
 			}
-			return emit(map[string]any{
-				"cycle_duration_secs": int(time.Since(started).Seconds()),
-				"outcomes":            len(outcomes),
-				"by_verdict":          byVerdict,
-			})
+			return emit(cycleSummary(outcomes, time.Since(started)))
 		},
 	}
 	// --once is accepted for CLI-surface stability but is a no-op: run always
@@ -67,4 +61,20 @@ func registerRun(root *cobra.Command) {
 	// can't read as if it gates behavior.)
 	cmd.Flags().Bool("once", true, "Run exactly one cycle (default; currently the only mode)")
 	root.AddCommand(cmd)
+}
+
+// cycleSummary is the trailing record `run` prints after the outcome rows:
+// how long the cycle took and what it produced, bucketed by verdict. Pure, so
+// the shape stdout promises is testable without a store or a cycle, matching
+// the rest of the repo's extract-the-core convention.
+func cycleSummary(outcomes []store.Review, elapsed time.Duration) map[string]any {
+	byVerdict := map[string]int{}
+	for _, r := range outcomes {
+		byVerdict[r.Verdict]++
+	}
+	return map[string]any{
+		"cycle_duration_secs": int(elapsed.Seconds()),
+		"outcomes":            len(outcomes),
+		"by_verdict":          byVerdict,
+	}
 }

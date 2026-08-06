@@ -218,3 +218,24 @@ func TestConfigProblemsIncludesAuthorGroups(t *testing.T) {
 		t.Errorf("an unlisted fallback naming an undefined group must be reported, got %v", problems)
 	}
 }
+
+// An engine with no probe must say so rather than being diagnosed as codex.
+// The switch this replaced had a default branch that meant codex, so a third
+// engine (or a typo that slipped past validation) was reported healthy on the
+// strength of a different CLI being installed.
+func TestEngineChecksRefusesToGuessAnUnknownEngine(t *testing.T) {
+	checks := engineChecks(t.Context(), "gemini", config.Config{})
+	if len(checks) != 1 {
+		t.Fatalf("an unknown engine gets one check, not a codex probe: %+v", checks)
+	}
+	c := checks[0]
+	if c.OK || !c.Blocking {
+		t.Errorf("an unprobeable engine must fail as blocking, got %+v", c)
+	}
+	if !strings.Contains(c.Detail, "gemini") {
+		t.Errorf("the detail must name the engine, got %q", c.Detail)
+	}
+	if !strings.Contains(c.Hint, "codex") || !strings.Contains(c.Hint, "claude") {
+		t.Errorf("the hint must list the engines that do exist, got %q", c.Hint)
+	}
+}

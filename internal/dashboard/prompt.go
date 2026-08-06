@@ -14,18 +14,45 @@ type promptOutcomesResp struct {
 	OnReject  string `json:"on_reject"`
 }
 
+// promptGroup is one cohort the preview can be assembled for. The DEFINED
+// groups, not the ones that happen to have members: a group with nobody in it
+// yet is exactly the one you are previewing while you write its prompt.
+type promptGroup struct {
+	Name    string `json:"name"`
+	Review  string `json:"review"`
+	Builtin bool   `json:"builtin"`
+}
+
 type promptResp struct {
 	MainPrompt string             `json:"main_prompt"`
 	Outcomes   promptOutcomesResp `json:"outcomes"`
 	Rules      []config.Rule      `json:"rules"`
-	Repos      []string           `json:"repos"` // watched repos, for the preview repo picker
+	Repos      []string           `json:"repos"`  // watched repos, for the preview repo picker
+	Groups     []promptGroup      `json:"groups"` // ditto, for the preview group picker
 	Note       string             `json:"note"`
+}
+
+// promptGroups lists the cohorts for the picker. Review level travels with the
+// name so the control can say what choosing one means without a second fetch.
+func promptGroups(cfg config.Config) []promptGroup {
+	cohorts := cfg.Cohorts()
+	out := make([]promptGroup, 0, len(cohorts))
+	for _, c := range cohorts {
+		review := c.Review
+		if review == "" {
+			review = config.ReviewComment
+		}
+		out = append(out, promptGroup{Name: c.Name, Review: review, Builtin: c.Builtin})
+	}
+	return out
 }
 
 // handlePrompt exposes the review prompt read-only: the main prompt, the
 // post-outcome slots, and the rule fragments. The assembled preview itself is
 // served by handlePromptPreview, which takes candidate facts as query params so
-// the UI can toggle allow-list / self-authorship / candidate type / repo.
+// the UI can pick the author, the group, self-authorship, candidate type and
+// repo. The repo and group lists ship here so those pickers need no second
+// endpoint.
 func (s *Server) handlePrompt(w http.ResponseWriter, _ *http.Request) {
 	cfg := s.config()
 	writeJSON(w, http.StatusOK, promptResp{
@@ -35,9 +62,10 @@ func (s *Server) handlePrompt(w http.ResponseWriter, _ *http.Request) {
 			OnComment: cfg.Review.OnComment,
 			OnReject:  cfg.Review.OnReject,
 		},
-		Rules: cfg.Review.Rules,
-		Repos: cfg.SortedRepos(),
-		Note:  "Previews use a synthetic candidate. The engine driver appends a reporting instruction (final message = JSON verdict) on top of this.",
+		Rules:  cfg.Review.Rules,
+		Repos:  cfg.SortedRepos(),
+		Groups: promptGroups(cfg),
+		Note:   "Previews use a synthetic candidate. The engine driver appends a reporting instruction (final message = JSON verdict) on top of this.",
 	})
 }
 

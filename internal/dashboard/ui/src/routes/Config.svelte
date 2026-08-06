@@ -65,7 +65,7 @@
 <section class="page-head">
   <p class="eyebrow">Read-only</p>
   <h1>Configuration</h1>
-  <p>Edit via the `repos` / `authors` CLIs and config.json. Run `authors who &lt;handle&gt; --repo &lt;owner/name&gt;` to see which layer decided what.</p>
+  <p>Edit via the <code>repos</code> / <code>authors</code> CLIs and config.json. Run <code>authors who &lt;handle&gt; --repo &lt;owner/name&gt;</code> to see which layer decided what.</p>
 </section>
 {#if configData}
   <div class="stack">

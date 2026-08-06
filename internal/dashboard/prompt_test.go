@@ -120,3 +120,79 @@ func TestHandlePromptPreviewApprovalPolicy(t *testing.T) {
 		}
 	}
 }
+
+// The preview pickers need the DEFINED groups, not the ones that happen to
+// have members: a cohort with nobody in it yet is exactly the one you preview
+// while writing its prompt. Deriving them from the roster would miss those and
+// the built-ins.
+func TestPromptGroupsListsDefinedAndBuiltinCohorts(t *testing.T) {
+	got := promptGroups(config.Config{
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{
+				"contractors": {Review: config.ReviewComment},
+				"nobody-yet":  {Review: config.ReviewIgnore},
+				"no-level":    {}, // an omitted review level means comment
+			},
+		},
+	})
+
+	byName := map[string]promptGroup{}
+	for _, g := range got {
+		byName[g.Name] = g
+	}
+	for _, name := range []string{"contractors", "nobody-yet", "no-level", "approver", "commenter", "ignored"} {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("group %q missing from the picker list: %+v", name, got)
+		}
+	}
+	if g := byName["nobody-yet"]; g.Review != config.ReviewIgnore || g.Builtin {
+		t.Errorf("a declared group with no members must still be offered: %+v", g)
+	}
+	if g := byName["no-level"]; g.Review != config.ReviewComment {
+		t.Errorf("a group with no review level resolves to comment, got %q", g.Review)
+	}
+	if g := byName["approver"]; !g.Builtin {
+		t.Errorf("approver must be marked built-in: %+v", g)
+	}
+}
+
+// The two pickers compose, and the group wins: picking an author AND a group
+// answers "what would they get if I moved them", which is the point of being
+// able to set both.
+func TestPromptPreviewGroupOverridesTheRosterLookup(t *testing.T) {
+	cfg := config.Config{
+		Review: config.ReviewSettings{MainPrompt: "MAIN"},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{
+				"contractors": {Review: config.ReviewComment, Prompt: "CONTRACTOR-FRAGMENT"},
+			},
+			Overrides: []config.AuthorOverride{{
+				Handle: "alice",
+				Group:  config.Group{Prompt: "ALICE-FRAGMENT"},
+			}},
+		},
+	}
+	s := &Server{config: func() config.Config { return cfg }}
+
+	code, resp := serveJSON[promptPreviewResp](t, s.handlePromptPreview, http.MethodGet,
+		"/api/prompt/preview?author=alice&group=contractors&repo=org/repo", "")
+	if code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", code)
+	}
+	if resp.Candidate.Group != "contractors" {
+		t.Errorf("the picked group must win over the roster, got %q", resp.Candidate.Group)
+	}
+	if resp.Candidate.Author != "alice" {
+		t.Errorf("the picked author must shape the candidate, got %q", resp.Candidate.Author)
+	}
+	// Both fragments: the simulated cohort's, and the author's own override.
+	for _, want := range []string{"CONTRACTOR-FRAGMENT", "ALICE-FRAGMENT"} {
+		if !strings.Contains(resp.Preview, want) {
+			t.Errorf("preview missing %q:\n%s", want, resp.Preview)
+		}
+	}
+	// The trace the panel renders must attribute each field to a layer.
+	if len(resp.Policy) == 0 {
+		t.Error("the preview must carry the policy trace the panel renders")
+	}
+}

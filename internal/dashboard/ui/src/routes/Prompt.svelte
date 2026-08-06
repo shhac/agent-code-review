@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getPrompt, getPromptPreview } from '../lib/api';
+  import { getAuthors, getPrompt, getPromptPreview } from '../lib/api';
   import PromptBox from '../lib/PromptBox.svelte';
   import PillToggle from '../lib/PillToggle.svelte';
   import { withFeed } from '../lib/feed';
@@ -14,15 +14,24 @@
 
   let promptData: PromptResponse | null = null;
   let preview: PromptPreviewResponse | null = null;
+  let handles: string[] = [];
 
-  // Candidate the preview is assembled for; the switches drive these.
-  let allowed = true;
+  // Candidate the preview is assembled for; the controls drive these.
+  // Author and group answer different questions and compose:
+  //   neither        → what an unrostered stranger gets
+  //   group only     → what anyone in that cohort gets, even with no members yet
+  //   author only    → what that person ACTUALLY gets (real roster row, their
+  //                    overrides fire)
+  //   author + group → what they WOULD get if you moved them to that group
+  let author = '';
+  let group = '';
   let self = false;
   let candidateType = 'new';
   let repo = EXAMPLE_REPO;
 
   $: outcomes = Object.entries(promptData?.outcomes || {}).filter(([, v]) => v);
   $: repoOptions = [EXAMPLE_REPO, ...(promptData?.repos || [])];
+  $: groupOptions = promptData?.groups || [];
   // Flatten a rule's condition into [key, value] pill pairs.
   $: condPairs = (when: RuleCondition | undefined): [string, string][] =>
     Object.entries(when || {}).map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : String(v)]);
@@ -36,10 +45,11 @@
     const request = ++previewRequest;
     try {
       const next = await getPromptPreview({
-        author_allowed: allowed,
         author_is_gh_user: self,
         candidate_type: candidateType,
         repo,
+        author: author || undefined,
+        group: group || undefined,
       });
       if (request === previewRequest) preview = next;
     } catch {
@@ -48,10 +58,20 @@
   }
 
   // Re-assemble whenever any switch changes (also fires once on init).
-  $: allowed, self, candidateType, repo, loadPreview();
+  $: author, group, self, candidateType, repo, loadPreview();
 
   async function load() {
     promptData = await getPrompt();
+    // Roster handles for the author picker. A failure here costs the picker
+    // its options, never the page.
+    try {
+      const au = await getAuthors();
+      handles = [...new Set((au.authors || []).map((a) => a.github_handle))].sort((a, b) =>
+        a.toLowerCase().localeCompare(b.toLowerCase()),
+      );
+    } catch {
+      handles = [];
+    }
     return 'read-only';
   }
 
@@ -99,7 +119,14 @@
     <section class="surface">
       <div class="section-head"><h2>Assembled preview</h2><span>{promptData.note}</span></div>
       <div class="preview-controls">
-        <label class="toggle" class:on={allowed}><input type="checkbox" bind:checked={allowed} /> Author allowed</label>
+        <select class="repo-select" bind:value={author} title="Preview as a real rostered author: their group is read from the roster and their overrides fire">
+          <option value="">any author (not rostered)</option>
+          {#each handles as h}<option value={h}>@{h}</option>{/each}
+        </select>
+        <select class="repo-select" bind:value={group} title="Simulate membership of a group. With an author selected this previews what they WOULD get if moved here.">
+          <option value="">group: from roster</option>
+          {#each groupOptions as g}<option value={g.name}>{g.name} · {g.review}</option>{/each}
+        </select>
         <label class="toggle" class:on={self}><input type="checkbox" bind:checked={self} /> Self-authored</label>
         <PillToggle options={candidateTypes} bind:value={candidateType} />
         <select class="repo-select" bind:value={repo}>
@@ -107,6 +134,20 @@
         </select>
       </div>
       {#if preview}
+        <div class="trace">
+          <span class="tchip matched" title="the group this candidate's author resolved to">
+            <span class="tname">group</span><span class="ttgt">{preview.candidate.group}</span>
+          </span>
+          <span class="tchip" class:matched={preview.candidate.author_allowed}>
+            <span class="tname">approve</span>
+            <span class="tverdict">{preview.candidate.author_allowed ? 'permitted' : 'forbidden'}</span>
+          </span>
+          {#each preview.policy || [] as step}
+            <span class="tchip matched" title={`${step.field} = ${step.value}`}>
+              <span class="tname">{step.field}</span><span class="ttgt">{step.source}</span>
+            </span>
+          {/each}
+        </div>
         {#if preview.rules?.length}
           <div class="trace">
             {#each preview.rules as t}

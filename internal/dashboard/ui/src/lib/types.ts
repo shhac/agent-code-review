@@ -204,11 +204,18 @@ export type RuleCondition = {
 
 export type Rule = { name: string; prompt: string; when?: RuleCondition };
 
+export type PromptGroup = {
+  name: string;
+  review: string; // ignore | comment | approve
+  builtin: boolean;
+};
+
 export type PromptResponse = {
   main_prompt?: string;
   outcomes?: Record<string, string>;
   rules?: Rule[];
   repos?: string[];
+  groups?: PromptGroup[];
   note?: string;
 };
 

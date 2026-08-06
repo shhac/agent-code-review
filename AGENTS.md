@@ -80,6 +80,26 @@ internal/
   and read by `ui/src/lib/agentlog.test.ts`; regenerate with
   `go test ./internal/review -update-golden`.
 
+- **The engine subprocess must leave our process group, or Ctrl-C is not
+  graceful.** A terminal delivers SIGINT to the whole FOREGROUND PROCESS
+  GROUP, and a child inherits its parent's group, so the first Ctrl-C reached
+  the engine directly and killed reviews that were minutes and over a million
+  tokens in. The context plumbing was never consulted: gracefulCtx/reviewCtx
+  are correct, the signal just arrived somewhere else first, and every
+  interrupted review recorded ERROR with its spend already gone. Engines are
+  therefore started with `Setpgid`, and cancellation kills the negative pid so
+  the whole group (engines spawn shells, toolchains, gh) goes with it. Only
+  once the engine is out of the terminal's reach does the graceful/force split
+  mean anything. Cheap subprocesses (gh, duckdb, version probes) stay in the
+  group deliberately: dying on Ctrl-C is the right behaviour for them.
+
+- **Cancellation is checked before the semaphore, not inside the same select.**
+  `select` picks uniformly at random among ready cases and a free parallelism
+  slot is almost always ready, so leaving "should we start another review" to
+  the select alone launched new engine invocations roughly half the time after
+  shutdown was requested. A coin flip is not an acceptable answer to a
+  question that costs a full review.
+
 - **The positional prompt goes behind a `--` terminator.** `claude`'s
   `--allowedTools` is VARIADIC (`<tools...>`), so it keeps consuming argv until
   the next flag. With the prompt merely appended last it was swallowed as one

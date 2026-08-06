@@ -58,6 +58,9 @@ func (e *codexEngine) execCodex(ctx context.Context, args []string, sink io.Writ
 	cmd := exec.CommandContext(ctx, e.bin, args...)
 	cmd.Stdout = sink
 	cmd.Stderr = sink
+	// Out of the terminal's process group, so a graceful Ctrl-C cannot kill a
+	// review mid-run. Only reviewCtx (the SECOND signal) ends this.
+	detachFromTerminalSignals(cmd)
 	return cmd.Run()
 }
 

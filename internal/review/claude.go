@@ -134,6 +134,9 @@ func (e *claudeEngine) execClaude(ctx context.Context, args []string, workDir st
 	cmd.Dir = workDir // claude has no --cd; the workdir IS the process cwd
 	cmd.Stdout = stream
 	cmd.Stderr = sink
+	// Out of the terminal's process group, so a graceful Ctrl-C cannot kill a
+	// review mid-run. Only reviewCtx (the SECOND signal) ends this.
+	detachFromTerminalSignals(cmd)
 	return cmd.Run()
 }
 

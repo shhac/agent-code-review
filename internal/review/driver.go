@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 )
 
 // verdictSchema constrains the agent's report. codex applies the schema to
@@ -52,6 +53,13 @@ Every message you emit matches the provided output schema. While you are still w
 // agentLogName is the live log file every engine tees its output into inside
 // the review workdir; consumers locate it through LogPath.
 const agentLogName = "agent.log"
+
+// engineWaitDelay bounds how long a forced shutdown waits after killing the
+// engine's process group before giving up on draining its output. Generous,
+// because the normal path never reaches it: it only applies once cancellation
+// has already killed the group, and exists so one wedged descendant still
+// holding the transcript pipe cannot hang the daemon's exit.
+const engineWaitDelay = 10 * time.Second
 
 // LogPath locates the review agent's live log inside its workspace. The
 // engine tees its output there as the run progresses; the CLI's `queue log`

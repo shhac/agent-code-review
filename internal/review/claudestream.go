@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -93,76 +92,41 @@ const structuredOutputTool = "StructuredOutput"
 // It implements io.Writer so the subprocess seam matches codex's: production
 // hands it the process stdout, tests write a canned stream into it directly.
 type streamTranscoder struct {
-	out io.Writer
+	markerSink // line reassembly, marker writing, the prompt banner
 
-	partial []byte // carry for a chunk that split mid-line
-
-	sessionID     string
-	usage         TokenUsage        // summed across every invocation
-	rawUsage      []json.RawMessage // every result event's usage, verbatim
-	costUSD       float64           // ditto; see renderResult for what this figure means
-	report        json.RawMessage   // structured_output of the most recent result message
-	failure       string            // the run's own account of why it ended without a report
-	promptSeen    bool              // the first text-bearing user message is the prompt, the rest are tool results
-	pendingPrompt string            // registered by the driver, rendered on the first agent activity
-	pending       []time.Time       // start times of tool calls awaiting a result, FIFO
-	suppressed    map[string]bool   // tool_use ids whose result must be dropped too
+	sessionID  string
+	usage      TokenUsage        // summed across every invocation
+	rawUsage   []json.RawMessage // every result event's usage, verbatim
+	costUSD    float64           // ditto; see renderResult for what this figure means
+	report     json.RawMessage   // structured_output of the most recent result message
+	failure    string            // the run's own account of why it ended without a report
+	promptSeen bool              // the first text-bearing user message is the prompt, the rest are tool results
+	pending    []time.Time       // start times of tool calls awaiting a result, FIFO
+	suppressed map[string]bool   // tool_use ids whose result must be dropped too
 
 	now func() time.Time // injectable clock so the rendered durations are testable
 }
 
 func newStreamTranscoder(out io.Writer) *streamTranscoder {
-	return &streamTranscoder{out: out, suppressed: map[string]bool{}, now: time.Now}
+	return &streamTranscoder{markerSink: markerSink{out: out}, suppressed: map[string]bool{}, now: time.Now}
 }
 
-// userPrompt registers the text being sent to the agent. `claude -p` does not
-// echo the prompt back as a stream event the way codex prints it under its
-// `user` marker, so the driver supplies it and the transcoder renders it
-// once, after the run banner and before the first agent activity. Rendering
-// it lazily rather than immediately is what keeps the banner above it: the
-// init event carrying the session id only arrives after the driver has
-// already handed over the prompt.
+// userPrompt overrides the embedded registration to also record that the
+// prompt has been seen. That flag is claude-specific: its stream replays the
+// prompt as a `user` message, so without it the driver-supplied text and the
+// stream's echo of the same text would both render.
 func (t *streamTranscoder) userPrompt(text string) {
 	t.promptSeen = true
-	t.pendingPrompt = text
+	t.markerSink.userPrompt(text)
 }
 
-// flushPrompt renders the registered prompt, once, immediately before the
-// first thing the agent does with it.
-func (t *streamTranscoder) flushPrompt() {
-	if t.pendingPrompt == "" {
-		return
-	}
-	text := t.pendingPrompt
-	t.pendingPrompt = ""
-	t.emit("user", text)
-}
-
-// Write splits the incoming bytes into whole JSON lines, carrying any partial
-// tail to the next call.
-func (t *streamTranscoder) Write(p []byte) (int, error) {
-	t.partial = append(t.partial, p...)
-	for {
-		i := bytes.IndexByte(t.partial, '\n')
-		if i < 0 {
-			return len(p), nil
-		}
-		line := t.partial[:i]
-		t.partial = t.partial[i+1:]
-		t.consume(line)
-	}
-}
+func (t *streamTranscoder) Write(p []byte) (int, error) { return t.writeLines(p, t.consume) }
 
 // Close renders any trailing line the stream ended without a newline on, plus
 // a prompt no event ever arrived to flush (a run that died before its first
-// message still shows what it was asked).
-func (t *streamTranscoder) Close() {
-	if len(bytes.TrimSpace(t.partial)) > 0 {
-		t.consume(t.partial)
-	}
-	t.partial = nil
-	t.flushPrompt()
-}
+// message still shows what it was asked). No token trailer here, unlike
+// codex's: claude prints one per result event, from renderResult.
+func (t *streamTranscoder) Close() { t.flushPartial(t.consume) }
 
 // consume renders one stream line. A line that isn't a JSON event is passed
 // through verbatim: claude occasionally prints plain warnings, and dropping
@@ -420,21 +384,4 @@ func renderToolUse(b contentBlock) string {
 		return b.Name
 	}
 	return b.Name + " " + string(b.Input)
-}
-
-// withThousands formats a token count the way codex prints its trailer, so
-// the UI renders both engines' counts identically.
-func withThousands(n int) string {
-	s := strconv.Itoa(n)
-	if len(s) <= 3 {
-		return s
-	}
-	var out []byte
-	for i, c := range []byte(s) {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			out = append(out, ',')
-		}
-		out = append(out, c)
-	}
-	return string(out)
 }

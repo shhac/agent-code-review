@@ -91,61 +91,28 @@ func (u codexUsage) tokenUsage() TokenUsage {
 // It implements io.Writer so the subprocess seam matches claude's: production
 // hands it the process stdout, tests write a canned stream into it directly.
 type codexTranscoder struct {
-	out io.Writer
+	markerSink // line reassembly, marker writing, the prompt banner
 
-	partial []byte // carry for a chunk that split mid-line
-
-	threadID      string
-	usage         TokenUsage
-	rawUsage      []json.RawMessage // every turn.completed usage, verbatim
-	pendingPrompt string            // registered by the driver, rendered on first activity
-	running       map[string]time.Time
-	sawUsage      bool
+	threadID string
+	usage    TokenUsage
+	rawUsage []json.RawMessage // every turn.completed usage, verbatim
+	running  map[string]time.Time
+	sawUsage bool
 
 	now func() time.Time // injectable clock so the rendered durations are testable
 }
 
 func newCodexTranscoder(out io.Writer) *codexTranscoder {
-	return &codexTranscoder{out: out, running: map[string]time.Time{}, now: time.Now}
+	return &codexTranscoder{markerSink: markerSink{out: out}, running: map[string]time.Time{}, now: time.Now}
 }
 
-// userPrompt registers the text being sent to the agent. Under --json codex
-// no longer echoes the prompt the way its prose output did, so the driver
-// supplies it and the transcoder renders it once, after the run banner and
-// before the first agent activity.
-func (t *codexTranscoder) userPrompt(text string) { t.pendingPrompt = text }
-
-func (t *codexTranscoder) flushPrompt() {
-	if t.pendingPrompt == "" {
-		return
-	}
-	text := t.pendingPrompt
-	t.pendingPrompt = ""
-	t.emit("user", text)
-}
-
-func (t *codexTranscoder) Write(p []byte) (int, error) {
-	t.partial = append(t.partial, p...)
-	for {
-		i := bytes.IndexByte(t.partial, '\n')
-		if i < 0 {
-			return len(p), nil
-		}
-		line := t.partial[:i]
-		t.partial = t.partial[i+1:]
-		t.consume(line)
-	}
-}
+func (t *codexTranscoder) Write(p []byte) (int, error) { return t.writeLines(p, t.consume) }
 
 // Close renders any trailing line the stream ended without a newline on, plus
 // a prompt no event ever arrived to flush (a run that died before its first
 // message still shows what it was asked), then the token trailer.
 func (t *codexTranscoder) Close() {
-	if len(bytes.TrimSpace(t.partial)) > 0 {
-		t.consume(t.partial)
-	}
-	t.partial = nil
-	t.flushPrompt()
+	t.flushPartial(t.consume)
 	if t.sawUsage {
 		_, _ = fmt.Fprintf(t.out, "tokens used\n%s\n", withThousands(t.usage.Fresh()))
 	}
@@ -239,30 +206,4 @@ func (t *codexTranscoder) renderCommand(eventType string, item codexItem) {
 		elapsed = " in " + t.now().Sub(started).Truncate(10*time.Millisecond).String()
 	}
 	_, _ = fmt.Fprintf(t.out, " %s%s:\n%s\n", status, elapsed, strings.TrimRight(item.AggregatedOutput, "\n"))
-}
-
-func (t *codexTranscoder) emit(marker, body string) {
-	body = strings.TrimRight(body, "\n")
-	if marker == "" {
-		_, _ = fmt.Fprintf(t.out, "%s\n", body)
-		return
-	}
-	_, _ = fmt.Fprintf(t.out, "%s\n%s\n", marker, body)
-}
-
-// extractUsage pulls the verbatim usage object out of an event line, so the
-// history row can keep what the engine actually said alongside the fields we
-// model. Fields we never map (service tiers, per-turn breakdowns, whatever
-// codex adds next) survive in the store without needing a schema change.
-func extractUsage(line []byte) json.RawMessage {
-	var envelope struct {
-		Usage json.RawMessage `json:"usage"`
-	}
-	if err := json.Unmarshal(line, &envelope); err != nil {
-		return nil
-	}
-	if len(bytes.TrimSpace(envelope.Usage)) == 0 {
-		return nil
-	}
-	return envelope.Usage
 }

@@ -13,15 +13,28 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
+// pending is a queued candidate paired with its author's resolved policy.
+// They travel together from the moment the cycle resolves them, because every
+// decision left (which engine, whether its headroom allows a start, what the
+// prompt says) reads that one answer.
+type pending struct {
+	candidate store.Candidate
+	policy    config.Policy
+}
+
 // processQueue reviews candidates concurrently, capped at cfg.MaxParallel.
 // The input is already sorted New-before-Refreshed, oldest-first by the
-// store. The cycle's config snapshot and engine travel as parameters so
-// every goroutine works from one coherent config; nothing cycle-scoped
-// lives on the long-lived Scheduler struct.
-func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates []store.Candidate, cfg config.Config, engine review.Engine) {
+// store. The cycle's config snapshot travels as a parameter so every
+// goroutine works from one coherent config; nothing cycle-scoped lives on the
+// long-lived Scheduler struct.
+//
+// The engine is built per candidate rather than per cycle: an author's group
+// can name its own engine, model, and effort, so two PRs in one cycle can be
+// reviewed by different CLIs.
+func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates []pending, cfg config.Config) {
 	sem := make(chan struct{}, cfg.MaxParallel())
 	var wg sync.WaitGroup
-	for _, c := range candidates {
+	for _, p := range candidates {
 		select {
 		case sem <- struct{}{}:
 		case <-stopCtx.Done():
@@ -33,13 +46,23 @@ func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates 
 			return
 		}
 		wg.Add(1)
-		go func(c store.Candidate) {
+		go func(p pending) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := s.reviewOne(reviewCtx, c, cfg, engine); err != nil {
-				s.logf("review %s#%d: %v", c.Repo, c.Number, err)
+			// Built before the claim, so a group pointing at an unbuildable
+			// engine leaves its candidate pending and retryable rather than
+			// claimed and stuck. Boot validation covers the reachable set, so
+			// reaching here means config changed under a running daemon.
+			engine, err := s.newEngine(cfg, p.policy)
+			if err != nil {
+				s.logf("review %s#%d: build %s engine: %v",
+					p.candidate.Repo, p.candidate.Number, cfg.EngineFor(p.policy), err)
+				return
 			}
-		}(c)
+			if err := s.reviewOne(reviewCtx, p, cfg, engine); err != nil {
+				s.logf("review %s#%d: %v", p.candidate.Repo, p.candidate.Number, err)
+			}
+		}(p)
 	}
 	wg.Wait()
 }
@@ -72,7 +95,8 @@ func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate, started 
 // completes it: every outcome (including SKIPPED/ERROR) is recorded in
 // history as the queue row is removed (atomically, SHA-gated; see
 // Store.Complete).
-func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config.Config, engine review.Engine) error {
+func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config, engine review.Engine) error {
+	c := p.candidate
 	// A work_dir already on the row is the previous claim's: this candidate is
 	// back in the queue because a daemon died mid-review. Read before the
 	// claim overwrites it, because its log is the only surviving record of the
@@ -113,12 +137,7 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	}
 	// Leave the tmp dir in place; a future run may reuse it (per the spec).
 
-	membership, err := s.store.AuthorGroup(ctx, c.Repo, c.Author)
-	if err != nil {
-		return err
-	}
-	policy := cfg.ResolvePolicy(c.Repo, c.Author, membership)
-	facts := review.DeriveFacts(c, s.ghUser, policy)
+	facts := review.DeriveFacts(c, s.ghUser, p.policy)
 	prompt := review.BuildPrompt(cfg, c, facts)
 
 	if resumeSession != "" {

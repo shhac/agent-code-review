@@ -146,8 +146,9 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	if err != nil {
 		return err
 	}
-	schedDone, err := startScheduler(ctx, running, config.Read, s, logf,
-		func() usage.Snapshot { return usageCache.Get(config.Read().Engine()) }, shutdown)
+	// The cache was already keyed by engine so the dashboard could show both;
+	// the floor now reads it the same way, because a cycle can run either.
+	schedDone, err := startScheduler(ctx, running, config.Read, s, logf, usageCache.Get, shutdown)
 	if err != nil {
 		return err
 	}

@@ -323,6 +323,18 @@ func (r ReviewSettings) WithPolicy(p Policy) ReviewSettings {
 	return r
 }
 
+// EngineFor is the engine that will actually review a candidate whose author
+// resolved to this policy: the policy's own engine when it names one, else the
+// configured default. Callers that need to ask something OF that engine (its
+// usage headroom, its binary) go through here rather than checking p.Engine
+// and forgetting the empty case.
+func (c Config) EngineFor(p Policy) string {
+	if p.Engine != "" {
+		return p.Engine
+	}
+	return c.Engine()
+}
+
 // ReachableEngines lists every engine any candidate could actually be reviewed
 // by: the configured default plus every engine a group or override names,
 // deduplicated, default first. Doctor and boot validation probe this set

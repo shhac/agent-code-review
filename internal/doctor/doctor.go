@@ -42,15 +42,75 @@ type Check struct {
 // Run executes every check against the given config. Never returns an error:
 // a failed check IS the result, and the caller decides what a failure means.
 func Run(ctx context.Context, cfg config.Config) []Check {
-	engine := cfg.Engine()
 	checks := []Check{
 		binaryCheck(ctx, "gh", "gh", "--version", "install the GitHub CLI (brew install gh)"),
 		authCheck(ctx, "gh-auth", "gh", []string{"auth", "status"}, "run `gh auth login`"),
 		binaryCheck(ctx, "duckdb", store.DuckDBBin(), "--version", "install duckdb (brew install duckdb), or set AGENT_CODE_REVIEW_DUCKDB_PATH"),
 	}
-	checks = append(checks, engineChecks(ctx, engine, cfg)...)
+	// Every engine any author group can route to, not just the configured
+	// one: a typo in a rarely-used group would otherwise surface at 3am as an
+	// ERROR row. Not every WIRED engine either, which would fail a deploy over
+	// an engine nothing references.
+	for _, engine := range cfg.ReachableEngines() {
+		checks = append(checks, engineChecks(ctx, engine, cfg)...)
+	}
 	checks = append(checks, pricingCheck(config.PricingCacheDir()))
-	return append(checks, configCheck(review.Preflight(cfg.Review)))
+	return append(checks, configCheck(ConfigProblems(cfg)))
+}
+
+// ConfigProblems is every statically detectable misconfiguration: the author
+// groups themselves, plus each engine-settings combination a group can
+// actually produce. Preflight's checks are model-and-mode specific (the
+// auto-mode model trap), and a group naming its own model is exactly what can
+// introduce a bad pairing that the base config does not have.
+//
+// Exported so boot validation reports the same problems `doctor` does.
+func ConfigProblems(cfg config.Config) []string {
+	problems := cfg.ValidateAuthors()
+	for _, rs := range reachableSettings(cfg) {
+		for _, p := range review.Preflight(rs.settings) {
+			problems = append(problems, rs.where+p)
+		}
+	}
+	return problems
+}
+
+// reachableSettings enumerates the distinct engine configurations a review can
+// actually run under: the base settings, then each group's and each override's
+// patch of them. Deduplicated on the fields Preflight judges, so a dozen
+// groups sharing one model report one problem rather than a dozen; `where`
+// attributes each to whoever introduced it.
+func reachableSettings(cfg config.Config) []struct {
+	where    string
+	settings config.ReviewSettings
+} {
+	type entry = struct {
+		where    string
+		settings config.ReviewSettings
+	}
+	seen := map[string]bool{}
+	var out []entry
+	add := func(where string, policy config.Policy) {
+		settings := cfg.Review.WithPolicy(policy)
+		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s",
+			settings.Engine, settings.Claude.Model, settings.Claude.Effort,
+			settings.Claude.PermissionMode, settings.Codex.Model, settings.Codex.Effort)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, entry{where: where, settings: settings})
+	}
+	add("", config.Policy{})
+	for _, name := range cfg.GroupNames() {
+		if g, ok := cfg.Group(name); ok {
+			add("group "+name+": ", config.Policy{Engine: g.Engine, Model: g.Model, Effort: g.Effort})
+		}
+	}
+	for _, o := range cfg.Authors.Overrides {
+		add("override "+o.Handle+": ", config.Policy{Engine: o.Engine, Model: o.Model, Effort: o.Effort})
+	}
+	return out
 }
 
 // pricingCheck reports the model price table. Never blocking: only claude
@@ -99,13 +159,13 @@ func Blocking(checks []Check) []Check {
 	return failed
 }
 
-// engineChecks probes the configured engine's CLI: present, and logged in.
-// Only the configured engine is required, so a machine set up for one engine
+// engineChecks probes one engine's CLI: present, and logged in. Only engines
+// a group can actually route to are probed, so a machine set up for one engine
 // isn't told off for lacking the other. The switch stays because the two auth
 // probes genuinely differ (codex reports via exit code, claude via JSON); only
 // the binary lookup is shared, and that goes through the config getter.
 func engineChecks(ctx context.Context, engine string, cfg config.Config) []Check {
-	bin := cfg.EngineBin()
+	bin := cfg.BinFor(engine)
 	switch engine {
 	case "claude":
 		if bin == "" {

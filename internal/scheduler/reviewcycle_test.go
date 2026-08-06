@@ -46,7 +46,7 @@ func (f *fakeCycleStore) ListQueue(context.Context, string) ([]store.Candidate, 
 func newCycleScheduler(fs *fakeCycleStore, fe *fakeEngine) *Scheduler {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
 	s := New(func() config.Config { return cfg }, fs, nil, "the-gh-user", nil, nil)
-	s.newEngine = func(config.Config) (review.Engine, error) { return fe, nil }
+	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
 	return s
 }
@@ -82,6 +82,7 @@ func TestProcessQueueGracefulStop(t *testing.T) {
 	s := New(func() config.Config {
 		return config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
 	}, fs, nil, "the-gh-user", nil, nil)
+	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
 	stopCtx, stop := context.WithCancel(context.Background())
 	defer stop()
@@ -89,10 +90,10 @@ func TestProcessQueueGracefulStop(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.processQueue(stopCtx, context.Background(), []store.Candidate{
-			{Repo: "o/r", Number: 1, HeadSHA: "s1"},
-			{Repo: "o/r", Number: 2, HeadSHA: "s2"},
-		}, config.Config{Schedule: config.ScheduleSettings{MaxParallel: 1}, Review: config.ReviewSettings{MainPrompt: "MAIN"}}, fe)
+		s.processQueue(stopCtx, context.Background(), []pending{
+			{candidate: store.Candidate{Repo: "o/r", Number: 1, HeadSHA: "s1"}},
+			{candidate: store.Candidate{Repo: "o/r", Number: 2, HeadSHA: "s2"}},
+		}, config.Config{Schedule: config.ScheduleSettings{MaxParallel: 1}, Review: config.ReviewSettings{MainPrompt: "MAIN"}})
 	}()
 
 	if got := <-fe.started; got != 1 {
@@ -169,15 +170,22 @@ func TestReviewCycle(t *testing.T) {
 		}
 	})
 
-	t.Run("engine build error aborts before the run-lock", func(t *testing.T) {
+	// An unbuildable engine is now per candidate, not per cycle: a group
+	// pointing at a broken engine must not stop everyone else's reviews. Its
+	// own candidate is left pending and retryable (never claimed, never
+	// completed) rather than failing the whole cycle.
+	t.Run("engine build error skips its candidate, not the cycle", func(t *testing.T) {
 		fs := &fakeCycleStore{queue: []store.Candidate{{Repo: "o/r", Number: 1}}}
 		s := newCycleScheduler(fs, &fakeEngine{})
-		s.newEngine = func(config.Config) (review.Engine, error) { return nil, errors.New("bad engine") }
-		if err := s.reviewCycleOnce(context.Background()); err == nil {
-			t.Fatal("engine build error must propagate")
+		s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return nil, errors.New("bad engine") }
+		if err := s.reviewCycleOnce(context.Background()); err != nil {
+			t.Fatalf("one bad engine must not fail the cycle, got %v", err)
 		}
-		if len(fs.started) != 0 {
-			t.Error("no run may be recorded when the engine can't be built")
+		if len(fs.claims) != 0 {
+			t.Errorf("a candidate whose engine can't be built must not be claimed, got %+v", fs.claims)
+		}
+		if len(fs.completed) != 0 {
+			t.Errorf("no outcome may be recorded, got %+v", fs.completed)
 		}
 	})
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/discover"
+	"github.com/shhac/agent-code-review/internal/doctor"
 	"github.com/shhac/agent-code-review/internal/pricing"
 	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/review"
@@ -138,8 +139,16 @@ func prKey(repo string, number int) string {
 // the usage-floor pause; nil (one-shot runs) bypasses the floor.
 func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Store, logf func(string, ...any), warnf func(notice, hint string), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
 	cfg := cfgFn()
-	if _, err := review.NewEngine(cfg.Review); err != nil {
-		return nil, err
+	// Every engine a group or override can route to, not just the configured
+	// one: an engine is now chosen per candidate, so a typo in a rarely-used
+	// group must fail at boot rather than at 3am on the one PR that hits it.
+	for _, engine := range cfg.ReachableEngines() {
+		if _, err := review.NewEngine(cfg.Review.WithPolicy(config.Policy{Engine: engine})); err != nil {
+			return nil, err
+		}
+	}
+	for _, problem := range doctor.ConfigProblems(cfg) {
+		warnf(problem, "agent-code-review doctor")
 	}
 	disc := discover.New(cfgFn, s, logf)
 

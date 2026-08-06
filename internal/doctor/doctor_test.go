@@ -148,3 +148,73 @@ func TestAuthCheck(t *testing.T) {
 		t.Errorf("missing binary = %+v, want a not-on-PATH failure", c)
 	}
 }
+
+// Every engine an author group can route to must be probed, since the engine
+// is chosen per candidate: probing only the configured one lets a typo in a
+// rarely-used group surface at 3am instead of at boot. Probing every WIRED
+// engine would be the opposite mistake, failing a deploy over an engine
+// nothing references.
+func TestRunProbesTheReachableEngineSet(t *testing.T) {
+	engineChecksIn := func(cfg config.Config) map[string]bool {
+		found := map[string]bool{}
+		for _, c := range Run(t.Context(), cfg) {
+			if name, ok := strings.CutPrefix(c.Name, "engine:"); ok {
+				engine, _, _ := strings.Cut(name, "-")
+				found[engine] = true
+			}
+		}
+		return found
+	}
+
+	onlyDefault := engineChecksIn(config.Config{Review: config.ReviewSettings{Engine: "codex"}})
+	if !onlyDefault["codex"] || onlyDefault["claude"] {
+		t.Errorf("with no group naming claude, only codex should be probed, got %v", onlyDefault)
+	}
+
+	withGroup := engineChecksIn(config.Config{
+		Review: config.ReviewSettings{Engine: "codex"},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{"core": {Review: config.ReviewApprove, Engine: "claude"}},
+		},
+	})
+	if !withGroup["codex"] || !withGroup["claude"] {
+		t.Errorf("a group naming claude makes it reachable, so both should be probed, got %v", withGroup)
+	}
+}
+
+// Preflight's checks are model-and-mode specific, and a group naming its own
+// model is exactly what introduces a bad pairing the base config lacks. The
+// problem must name the group so it can be found.
+func TestConfigProblemsCoversEveryGroupsSettings(t *testing.T) {
+	cfg := config.Config{
+		Review: config.ReviewSettings{
+			Engine: "claude",
+			Claude: config.ClaudeSettings{Model: "claude-opus-5", PermissionMode: "auto"},
+		},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{"cheap": {Review: config.ReviewComment, Model: "haiku"}},
+		},
+	}
+	problems := ConfigProblems(cfg)
+	if len(problems) == 0 {
+		t.Fatal("a group pinning an auto-mode-incompatible model must be reported")
+	}
+	if !strings.Contains(strings.Join(problems, "; "), "group cheap") {
+		t.Errorf("the problem must name the group that introduced it, got %v", problems)
+	}
+	// The base config is fine on its own, so this is only findable per group.
+	if base := ConfigProblems(config.Config{Review: cfg.Review}); len(base) != 0 {
+		t.Errorf("the base config alone has no problem, got %v", base)
+	}
+}
+
+// Author-group misconfiguration is a config problem like any other, so it
+// arrives through the same single folded check.
+func TestConfigProblemsIncludesAuthorGroups(t *testing.T) {
+	problems := ConfigProblems(config.Config{
+		Authors: config.AuthorSettings{Unlisted: map[string]string{"*": "ghosts"}},
+	})
+	if len(problems) == 0 || !strings.Contains(problems[0], "ghosts") {
+		t.Errorf("an unlisted fallback naming an undefined group must be reported, got %v", problems)
+	}
+}

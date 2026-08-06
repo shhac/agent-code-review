@@ -75,7 +75,7 @@ func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
 	s := New(func() config.Config { return cfg }, fs, nil, "the-gh-user", nil, nil)
 	// Tests drive a fixed fake engine instead of the per-cycle rebuild.
-	s.newEngine = func(config.Config) (review.Engine, error) { return fe, nil }
+	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	// Default the candidacy recheck to "still a candidate" so tests exercise
 	// the review path; precheck-specific tests override this.
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
@@ -83,9 +83,18 @@ func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
 }
 
 // reviewOne invokes Scheduler.reviewOne with the cycle inputs the review
-// cycle would thread: the current config snapshot and the injected engine.
+// cycle would thread: the candidate paired with its author's resolved policy,
+// the current config snapshot, and the injected engine.
 func reviewOne(s *Scheduler, fe *fakeEngine, c store.Candidate) error {
-	return s.reviewOne(context.Background(), c, s.cfg(), fe)
+	cfg := s.cfg()
+	m, err := s.store.AuthorGroup(context.Background(), c.Repo, c.Author)
+	if err != nil {
+		return err
+	}
+	return s.reviewOne(context.Background(), pending{
+		candidate: c,
+		policy:    cfg.ResolvePolicy(c.Repo, c.Author, m),
+	}, cfg, fe)
 }
 
 // TestReviewOneCompletesEveryOutcome: every decision (real reviews, skips,
@@ -156,7 +165,7 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 	// but this is the glue between them.
 	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented, Tokens: review.TokenUsage{Input: 40000, Output: 2575, CacheRead: 150000}, CostUSD: 0.6231}}
 	s := newTestScheduler(fs, fe)
-	if err := s.reviewOne(context.Background(), store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}, config.Config{}, &codexNamedEngine{fakeEngine: fe}); err != nil {
+	if err := s.reviewOne(context.Background(), pending{candidate: store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}}, config.Config{}, &codexNamedEngine{fakeEngine: fe}); err != nil {
 		t.Fatal(err)
 	}
 	if len(fs.completed) != 1 {
@@ -287,23 +296,74 @@ func TestAvailableCandidates(t *testing.T) {
 	}
 }
 
-// TestReviewCyclePausedByUsageFloor: a tripped floor returns before ANY store
-// access (the embedded nil Store panics on use, so reaching the store fails
-// the test) and records no run.
-func TestReviewCyclePausedByUsageFloor(t *testing.T) {
-	fs := &fakeSchedStore{}
-	fe := &fakeEngine{}
-	cfg := config.Config{}
-	tripped := func() usage.Snapshot {
-		return usage.Snapshot{
-			FetchedAt: time.Now(),
-			Primary:   &usage.Window{UsedPercent: 95, WindowMins: 300},
-		}
+// floored is a snapshot with almost no headroom left; roomy has plenty.
+func floored() usage.Snapshot {
+	return usage.Snapshot{FetchedAt: time.Now(), Primary: &usage.Window{UsedPercent: 95, WindowMins: 300}}
+}
+
+func roomy() usage.Snapshot {
+	return usage.Snapshot{FetchedAt: time.Now(), Primary: &usage.Window{UsedPercent: 5, WindowMins: 300}}
+}
+
+// TestReviewCycleUsageFloorIsPerEngine pins the headline of a mixed-engine
+// cycle: one engine being out of headroom holds ITS candidates and nothing
+// else. A held candidate is never claimed and never completed, so it is a
+// hold like a cooldown, not a skip; it runs when the window refills.
+func TestReviewCycleUsageFloorIsPerEngine(t *testing.T) {
+	// alice's group reviews on claude, which has room; bob's on codex, which
+	// does not.
+	cfg := config.Config{
+		Review: config.ReviewSettings{Engine: "codex", MainPrompt: "MAIN"},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{"claude-cohort": {Review: config.ReviewComment, Engine: "claude"}},
+		},
 	}
-	s := New(func() config.Config { return cfg }, fs, nil, "u", nil, tripped)
-	s.newEngine = func(config.Config) (review.Engine, error) { return fe, nil }
+	fs := &fakeCycleStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, Author: "bob", HeadSHA: "s2"},
+	}}
+	fs.group = "claude-cohort" // the fake answers for every handle
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+
+	byEngine := func(engine string) usage.Snapshot {
+		if engine == "claude" {
+			return roomy()
+		}
+		return floored()
+	}
+	s := New(func() config.Config { return cfg }, fs, nil, "u", nil, byEngine)
+	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
+	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
+
+	if err := s.reviewCycleOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Both candidates resolve to the claude group here, so both should run:
+	// the codex floor must not touch them.
+	if len(fs.completed) != 2 {
+		t.Fatalf("candidates on the engine with headroom must run, got %+v", fs.completed)
+	}
+}
+
+// TestReviewCycleAllEnginesFloored: when every candidate is waiting on a
+// floored engine the cycle exits before the run-lock, so a fully paused cycle
+// still records no run. That property predates per-engine floors and must
+// survive them, or a 1m cadence floods the runs table with empty ticks.
+func TestReviewCycleAllEnginesFloored(t *testing.T) {
+	fs := &fakeCycleStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"}}}
+	fe := &fakeEngine{}
+	s := New(func() config.Config { return config.Config{} }, fs, nil, "u", nil,
+		func(string) usage.Snapshot { return floored() })
+	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
+
 	if err := s.reviewCycleOnce(context.Background()); err != nil {
 		t.Fatalf("paused cycle must return nil, got %v", err)
+	}
+	if len(fs.started) != 0 || len(fs.finished) != 0 {
+		t.Errorf("a fully floored cycle must record no run, got started=%d finished=%v", len(fs.started), fs.finished)
+	}
+	if len(fs.claims) != 0 || len(fs.completed) != 0 {
+		t.Errorf("a floored candidate is held, not skipped: no claim, no outcome; got claims=%+v completed=%+v", fs.claims, fs.completed)
 	}
 }
 

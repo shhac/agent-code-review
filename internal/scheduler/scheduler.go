@@ -20,11 +20,14 @@ import (
 // Logf is a minimal logging sink (fmt.Printf-shaped).
 type Logf func(format string, args ...any)
 
-// UsageFn supplies the latest Codex usage snapshot. Callers with no usage
-// data (one-shot runs) pass nil; New normalizes that to an empty-snapshot
-// getter, so the fail-open rule lives in exactly one place:
-// usage.BelowFloor, which never pauses on an empty snapshot.
-type UsageFn func() usage.Snapshot
+// UsageFn supplies the latest usage snapshot for ONE engine. It takes the
+// engine name because a single cycle can run several: an author's group picks
+// the engine that reviews their PRs, so headroom has to be asked about per
+// engine rather than once for the configured one. Callers with no usage data
+// (one-shot runs) pass nil; New normalizes that to an empty-snapshot getter,
+// so the fail-open rule lives in exactly one place: usage.BelowFloor, which
+// never pauses on an empty snapshot.
+type UsageFn func(engine string) usage.Snapshot
 
 // SchedulerStore is the subset of persistence the scheduler owns. Keeping it
 // here makes scheduler tests declare only the effects they exercise instead
@@ -61,9 +64,10 @@ type Scheduler struct {
 	// rather than as a free review.
 	priceFn PriceFn
 
-	// newEngine builds the review engine from live config at the start of
-	// each cycle, so codex.* edits apply without a restart.
-	newEngine func(config.Config) (review.Engine, error)
+	// newEngine builds the review engine for ONE candidate, from live config
+	// patched with that author's policy: codex.* edits apply without a
+	// restart, and a group naming its own engine/model/effort gets it.
+	newEngine func(config.Config, config.Policy) (review.Engine, error)
 	// stillCandidate re-checks a PR's candidacy just before the engine runs
 	// (discover.StillCandidate in production; swapped in tests).
 	stillCandidate func(ctx context.Context, repo string, number int, login, head string) (bool, string, error)
@@ -99,12 +103,14 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 		logf = func(string, ...any) {}
 	}
 	if usageFn == nil {
-		usageFn = func() usage.Snapshot { return usage.Snapshot{} }
+		usageFn = func(string) usage.Snapshot { return usage.Snapshot{} }
 	}
 	sched := &Scheduler{
 		cfg: cfg, store: s, disc: d, ghUser: ghUser,
 		logf: logf, usageFn: usageFn,
-		newEngine:      func(c config.Config) (review.Engine, error) { return review.NewEngine(c.Review) },
+		newEngine: func(c config.Config, p config.Policy) (review.Engine, error) {
+			return review.NewEngine(c.Review.WithPolicy(p))
+		},
 		stillCandidate: discover.StillCandidateAt,
 		pidAlive:       pidAlive,
 		heartbeat:      loopHeartbeat,

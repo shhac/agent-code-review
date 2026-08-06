@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
 	"github.com/shhac/agent-code-review/internal/usage"
 )
@@ -22,19 +23,12 @@ func (s *Scheduler) reviewCycleOnce(ctx context.Context) error {
 }
 
 func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
-	// Usage floor: leave headroom in the Codex windows for interactive work.
-	// Checked before the run-lock so a paused cycle records no run. The loop
-	// keeps ticking, so reviews resume as soon as the window refills.
 	select {
 	case <-stopCtx.Done():
 		return nil
 	default:
 	}
 	cfg := s.cfg()
-	if paused, reason := usage.BelowFloor(s.usageFn(), cfg.UsageFloor5h(), cfg.UsageFloorWeekly()); paused {
-		s.logf("cycle: paused by usage floor (%s)", reason)
-		return nil
-	}
 
 	staleAfter := cfg.LeaseWindow()
 	queue, err := s.store.ListQueue(reviewCtx, "")
@@ -46,9 +40,19 @@ func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
 		return nil
 	}
 
-	engine, err := s.newEngine(cfg)
+	// Each author's policy decides which engine reviews their PR, so it is
+	// resolved once here and threaded down: the usage floor, the engine build,
+	// and the prompt then all read the same answer.
+	pending, err := s.resolvePending(reviewCtx, cfg, available)
 	if err != nil {
-		return fmt.Errorf("build review engine: %w", err)
+		return err
+	}
+	runnable := s.dropFlooredEngines(cfg, pending)
+	// Every candidate is waiting on a floored engine. Exit before the run-lock
+	// so a fully paused cycle still records no run, which is what kept the runs
+	// table free of empty ticks when the floor was a whole-cycle gate.
+	if len(runnable) == 0 {
+		return nil
 	}
 
 	s.logf("cycle: started at %s", time.Now().Format(time.RFC3339))
@@ -72,9 +76,52 @@ func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
 		s.logf("cycle: finished at %s (%s)", time.Now().Format(time.RFC3339), status)
 	}()
 
-	s.logf("cycle: %d candidate(s) to review", len(available))
-	s.processQueue(stopCtx, reviewCtx, available, cfg, engine)
+	s.logf("cycle: %d candidate(s) to review", len(runnable))
+	s.processQueue(stopCtx, reviewCtx, runnable, cfg)
 	return nil
+}
+
+// resolvePending pairs each candidate with its author's resolved policy.
+// A roster lookup that fails aborts the cycle rather than defaulting: guessing
+// a policy is how a PR gets approved that shouldn't be.
+func (s *Scheduler) resolvePending(ctx context.Context, cfg config.Config, candidates []store.Candidate) ([]pending, error) {
+	out := make([]pending, 0, len(candidates))
+	for _, c := range candidates {
+		membership, err := s.store.AuthorGroup(ctx, c.Repo, c.Author)
+		if err != nil {
+			return nil, fmt.Errorf("resolve author group for %s#%d: %w", c.Repo, c.Number, err)
+		}
+		out = append(out, pending{candidate: c, policy: cfg.ResolvePolicy(c.Repo, c.Author, membership)})
+	}
+	return out, nil
+}
+
+// dropFlooredEngines removes candidates whose engine has too little headroom
+// left, leaving room for interactive work on that account.
+//
+// This is a HOLD, not a skip: a dropped candidate is never claimed, completed,
+// or recorded, so it simply waits in the queue like a cooldown or a settling
+// hold and runs the moment its window refills. Nothing is lost by dropping it,
+// which is why the floor can be per candidate rather than per cycle: an engine
+// that is out of headroom stops its own work without stopping the other's.
+func (s *Scheduler) dropFlooredEngines(cfg config.Config, candidates []pending) []pending {
+	runnable := make([]pending, 0, len(candidates))
+	floored := map[string]int{}
+	for _, p := range candidates {
+		engine := cfg.EngineFor(p.policy)
+		paused, reason := usage.BelowFloor(s.usageFn(engine), cfg.UsageFloor5h(), cfg.UsageFloorWeekly())
+		if !paused {
+			runnable = append(runnable, p)
+			continue
+		}
+		if floored[engine] == 0 {
+			// Once per engine per cycle: "why is nothing moving" must be
+			// answerable from the log without one line per waiting PR.
+			s.logf("cycle: %s is at its usage floor (%s), holding its candidates", engine, reason)
+		}
+		floored[engine]++
+	}
+	return runnable
 }
 
 // availableCandidates filters the queue to rows that are actually reviewable

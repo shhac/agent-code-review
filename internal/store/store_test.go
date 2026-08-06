@@ -207,3 +207,61 @@ func TestTextAndNullTextDifferOnEmpty(t *testing.T) {
 		}
 	}
 }
+
+// Scanners used to swallow a value they could not interpret and hand back a
+// zero, so a renamed or retyped column read as legitimate data: a review with
+// no tokens, a run at the zero instant. That is the worst shape a storage bug
+// can take, because nothing anywhere reports it.
+//
+// The distinction that keeps this from being noisy: an ABSENT column is not
+// drift. Queries select subsets and several columns are genuinely optional, so
+// absent still yields the zero value.
+func TestScannersReportDriftButTolerateAbsentColumns(t *testing.T) {
+	t.Run("a column that is present but unreadable is an error", func(t *testing.T) {
+		for name, values := range map[string]map[string]any{
+			"int":       {"repo": "o/r", "number": "not-a-number"},
+			"float":     {"repo": "o/r", "cost_usd": "not-a-float"},
+			"timestamp": {"repo": "o/r", "reviewed_at": "the day before yesterday"},
+			"type":      {"repo": "o/r", "number": []any{1, 2}},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if _, err := scanReview(values); err == nil {
+					t.Errorf("an uninterpretable %s column must be reported, not read as zero", name)
+				}
+			})
+		}
+	})
+
+	t.Run("absent and null columns are not drift", func(t *testing.T) {
+		// The shape a narrow SELECT produces: a few columns, the rest absent.
+		got, err := scanReview(map[string]any{"repo": "o/r", "number": float64(7), "usage_raw": nil})
+		if err != nil {
+			t.Fatalf("a narrow select must scan cleanly, got %v", err)
+		}
+		if got.Repo != "o/r" || got.Number != 7 {
+			t.Errorf("present columns must still be read: %+v", got)
+		}
+		if got.TokensUsed != 0 || !got.ReviewedAt.IsZero() {
+			t.Errorf("absent columns keep their zero values: %+v", got)
+		}
+	})
+
+	t.Run("every scanner reports drift, not just reviews", func(t *testing.T) {
+		if _, err := scanCandidate(map[string]any{"number": "nope"}); err == nil {
+			t.Error("scanCandidate swallowed an unreadable number")
+		}
+		if _, err := scanRun(map[string]any{"pid": "nope"}); err == nil {
+			t.Error("scanRun swallowed an unreadable pid")
+		}
+		if _, err := scanAuthor(map[string]any{"repo": "o/r"}); err != nil {
+			t.Errorf("scanAuthor has no numeric columns, so it cannot drift here: %v", err)
+		}
+	})
+
+	t.Run("the error names the column", func(t *testing.T) {
+		_, err := scanReview(map[string]any{"tokens_used": "nope"})
+		if err == nil || !strings.Contains(err.Error(), "tokens_used") {
+			t.Errorf("the error must name the column so the drift is findable, got %v", err)
+		}
+	})
+}

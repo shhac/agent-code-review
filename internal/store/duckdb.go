@@ -90,26 +90,38 @@ func (d *duckDB) exec(ctx context.Context, sql string) error {
 	return err
 }
 
-func queryOne[T any](ctx context.Context, d *duckDB, sql string, scan func(map[string]any) T) (T, bool, error) {
+func queryOne[T any](ctx context.Context, d *duckDB, sql string, scan func(map[string]any) (T, error)) (T, bool, error) {
 	rows, err := d.query(ctx, sql)
 	var zero T
 	if err != nil || len(rows) == 0 {
 		return zero, false, err
 	}
-	return scan(rows[0]), true, nil
+	// A row that cannot be decoded is an error, not a zero value: the scanner
+	// used to swallow one and hand back a review with no tokens or a run at
+	// the zero instant, which reads as data rather than as the storage bug it
+	// is.
+	v, err := scan(rows[0])
+	if err != nil {
+		return zero, false, err
+	}
+	return v, true, nil
 }
 
 // queryMany is the shared tail of all List* methods: every result row goes
 // through one scanner, and the preallocated non-nil slice keeps the
 // empty-result contract ([] not null after JSON encoding).
-func queryMany[T any](ctx context.Context, d *duckDB, sql string, scan func(map[string]any) T) ([]T, error) {
+func queryMany[T any](ctx context.Context, d *duckDB, sql string, scan func(map[string]any) (T, error)) ([]T, error) {
 	rows, err := d.query(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]T, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, scan(r))
+		v, err := scan(r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
 	}
 	return out, nil
 }

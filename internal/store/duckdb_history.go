@@ -39,12 +39,15 @@ func (d *duckDB) ListReviews(ctx context.Context, limit int) ([]Review, error) {
 
 func (d *duckDB) ReviewByLogKey(ctx context.Context, repo string, number int, logKey string) (Review, bool, error) {
 	rows, err := d.query(ctx, fmt.Sprintf(
-		"SELECT * FROM history WHERE repo = %s AND number = %d ORDER BY reviewed_at DESC", nullText(repo), number))
+		"SELECT * FROM history WHERE %s ORDER BY reviewed_at DESC", prWhere(repo, number)))
 	if err != nil {
 		return Review{}, false, err
 	}
-	for _, row := range rows {
-		r := scanReview(row)
+	for _, values := range rows {
+		r, err := scanReview(values)
+		if err != nil {
+			return Review{}, false, err
+		}
 		if r.LogKey == logKey {
 			return r, true, nil
 		}

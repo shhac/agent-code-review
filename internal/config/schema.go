@@ -31,6 +31,45 @@ type Rule struct {
 	Prompt string    `json:"prompt"`
 }
 
+// Group is one author cohort's complete review policy: what we may do with
+// their PRs, which engine does it, and what extra instruction the agent gets.
+// Every field is optional; an empty field inherits from the layer beneath it
+// (see Config.ResolvePolicy). Group definitions live here, in config, next to
+// the prompts and engine dials they carry; which authors are IN a group is
+// roster data and lives in the store.
+type Group struct {
+	Review string `json:"review,omitempty"` // "ignore" | "comment" | "approve"; empty = comment
+	Engine string `json:"engine,omitempty"` // overrides review.engine for this cohort
+	Model  string `json:"model,omitempty"`  // overrides the resolved engine's model
+	Effort string `json:"effort,omitempty"` // overrides the resolved engine's reasoning effort
+	Prompt string `json:"prompt,omitempty"` // appended to the review instructions
+}
+
+// AuthorOverride narrows a policy below the group: the same patchable fields,
+// applied to one handle, optionally on one set of repos. It is literally a
+// group patch, hence the embedding, so a field means the same thing in both
+// places and a new dial is added once.
+type AuthorOverride struct {
+	Handle string   `json:"handle"`
+	Repos  []string `json:"repos,omitempty"` // "owner/name" or "*"; empty = every repo
+	Group
+}
+
+// AuthorSettings is the group system: the cohort definitions, where authors
+// with no membership row land, and the per-handle narrowings on top.
+type AuthorSettings struct {
+	// Unlisted maps a repo ("owner/name", or "*" for the fallback) to the
+	// group an author with no membership row resolves to. It supersedes
+	// AllowedAuthorsOnlyRepos, which is still honored for configs that have
+	// not adopted this (see Config.unlistedGroup).
+	Unlisted map[string]string `json:"unlisted,omitempty"`
+	// Groups are the cohort definitions by name. The built-in names
+	// (approver / commenter / ignored) exist without being declared; defining
+	// one here of the same name replaces it.
+	Groups    map[string]Group `json:"groups,omitempty"`
+	Overrides []AuthorOverride `json:"overrides,omitempty"`
+}
+
 // CandidateSettings holds the age windows from the schedule spec plus the two
 // eligibility holds: how long after our own review a PR stays on hold
 // (rereview_cooldown) and how long a PR must sit untouched before we accept it
@@ -149,8 +188,10 @@ type Config struct {
 	// comment-only. Use for repos where reviewing every PR would be noise.
 	AllowedAuthorsOnlyRepos []string `json:"allowed_authors_only_repos,omitempty"`
 	GHUser                  string   `json:"gh_user,omitempty"` // optional; else derived via `gh api user`
-	// The allowed-authors list (whose PRs we may approve) lives in the store,
-	// per repo, not here; manage it with `agent-code-review authors`.
+	// Authors is the group system: cohort definitions, the unlisted fallback,
+	// and per-handle overrides. Which authors are IN each group lives in the
+	// store, per repo; manage it with `agent-code-review authors`.
+	Authors    AuthorSettings    `json:"authors,omitempty"`
 	Candidates CandidateSettings `json:"candidates,omitempty"`
 	Schedule   ScheduleSettings  `json:"schedule,omitempty"`
 	Discovery  DiscoverySettings `json:"discovery,omitempty"`

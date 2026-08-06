@@ -1151,3 +1151,78 @@ func TestAppendHistoryLeavesTheQueueRowPending(t *testing.T) {
 		t.Errorf("duration = %d, want the time spent before the interruption", last.DurationSecs)
 	}
 }
+
+// TestInitMigratesPreGroupsRoster runs Init against an allowed_authors table
+// shaped the way it was before groups existed: no group_name column at all.
+//
+// Every other roster test starts from a temp store whose CREATE TABLE already
+// has the column, so the migration block is a no-op there and the path that
+// actually matters was never exercised. This is the one that runs against a
+// live database on upgrade, so the guarantee it carries (existing rows keep
+// meaning exactly what they meant, with no user action) needs a regression
+// test rather than a manual check.
+func TestInitMigratesPreGroupsRoster(t *testing.T) {
+	if _, err := exec.LookPath("duckdb"); err != nil {
+		t.Skip("duckdb CLI not on PATH")
+	}
+	path := filepath.Join(t.TempDir(), "pre-groups.duckdb")
+
+	// Seed the old shape directly, bypassing Store so no current-schema DDL runs.
+	seed := `CREATE TABLE allowed_authors (
+	  repo TEXT NOT NULL, github_handle TEXT NOT NULL, name TEXT, email TEXT,
+	  slack_id TEXT, PRIMARY KEY (repo, github_handle));
+	INSERT INTO allowed_authors VALUES ('org/repo-a', 'alice', 'Alice A', 'a@example.com', 'U1');
+	INSERT INTO allowed_authors VALUES ('*', 'bob', NULL, NULL, NULL);`
+	if out, err := exec.Command("duckdb", path, "-c", seed).CombinedOutput(); err != nil {
+		t.Fatalf("seed pre-groups store: %v\n%s", err, out)
+	}
+
+	s, err := Open("duckdb", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	ctx := context.Background()
+	// Init twice: the migration must be idempotent, since it runs every boot.
+	for i := range 2 {
+		if err := s.Init(ctx); err != nil {
+			t.Fatalf("Init #%d: %v", i+1, err)
+		}
+	}
+
+	authors, err := s.ListAuthors(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authors) != 2 {
+		t.Fatalf("roster rows = %d, want both seeded rows to survive", len(authors))
+	}
+	for _, a := range authors {
+		// The allow list meant exactly one thing, so the backfill renames an
+		// implicit policy rather than making a new decision.
+		if a.Group != config.GroupApprover {
+			t.Errorf("%s@%s backfilled to %q, want %q", a.GitHubHandle, a.Repo, a.Group, config.GroupApprover)
+		}
+	}
+	if authors[0].GitHubHandle != "alice" || authors[0].Name != "Alice A" ||
+		authors[0].Email != "a@example.com" || authors[0].SlackID != "U1" {
+		t.Errorf("unrelated columns disturbed: %+v", authors[0])
+	}
+
+	// And the lookup that gates approval agrees, on both the repo-keyed row
+	// and the wildcard one.
+	for _, tc := range []struct{ repo, handle string }{{"org/repo-a", "alice"}, {"org/other", "bob"}} {
+		m, err := s.AuthorGroup(ctx, tc.repo, tc.handle)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Group != config.GroupApprover {
+			t.Errorf("AuthorGroup(%q, %q) = %+v, want the approver group", tc.repo, tc.handle, m)
+		}
+		// An upgraded store must still approve exactly who it approved before.
+		if !(config.Config{}).ResolvePolicy(tc.repo, tc.handle, m).MayApprove() {
+			t.Errorf("%s@%s lost approvability across the upgrade", tc.handle, tc.repo)
+		}
+	}
+}

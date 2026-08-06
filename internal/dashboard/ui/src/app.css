@@ -226,9 +226,10 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .review-list .ticket-pr { font-size: 15px; }
 .review-list .ticket-copy strong { font-size: 14px; }
 .authors { display: grid; }
+.tag-mute { opacity: 0.75; }
 .authors p {
   margin: 0; display: grid; gap: 14px; align-items: baseline; padding: 11px 20px;
-  grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 1fr) minmax(150px, 1fr) minmax(120px, .8fr);
+  grid-template-columns: minmax(170px, 1.2fr) minmax(140px, 1fr) minmax(90px, .7fr) minmax(150px, 1fr) minmax(120px, .8fr);
   border-top: 1px solid var(--line);
 }
 .authors p.authors-head { border-top: 0; padding-bottom: 4px; }

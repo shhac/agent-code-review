@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strings"
+
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
@@ -28,11 +30,15 @@ func reposLsCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := config.Read()
 			return emitEach(cfg.SortedRepos(), func(_ int, r string) any {
-				scope := "any"
-				if cfg.AuthorScopedRepo(r) {
-					scope = "allowed-authors-only"
+				// The resolved answer, not the raw setting: an author with no
+				// roster row on this repo gets this group, whether that came
+				// from authors.unlisted or the legacy repo list.
+				unlisted := cfg.UnlistedPolicy(r)
+				return map[string]any{
+					"repo":            r,
+					"unlisted_group":  unlisted.Group,
+					"unlisted_review": unlisted.Review,
 				}
-				return map[string]string{"repo": r, "authors": scope}
 			})
 		},
 	}
@@ -40,18 +46,30 @@ func reposLsCmd() *cobra.Command {
 
 func reposAddCmd() *cobra.Command {
 	var allowedOnly bool
+	var unlisted string
 	cmd := &cobra.Command{
-		Use:   "add <owner/repo>",
+		Use:   "add <owner/repo> [--unlisted group]",
 		Short: "Add a repo to the watch list",
-		Long: "Watch a repo for candidate PRs. By default any open PR is discovered\n" +
-			"(the allowed-authors list then only governs approve vs comment-only);\n" +
-			"--allowed-authors-only scopes discovery itself to allowed authors, for\n" +
-			"repos where reviewing every PR would be noise.",
+		Long: "Watch a repo for candidate PRs.\n\n" +
+			"--unlisted names the group an author with no roster row falls into\n" +
+			"here, which is what decides whether strangers are discovered at all\n" +
+			"(a group whose review level is \"ignore\") and how they are reviewed if\n" +
+			"they are. Left alone, an existing setting is preserved.\n\n" +
+			"--allowed-authors-only is the pre-groups shorthand for \"discover only\n" +
+			"rostered authors here\". It still works and still reconciles, but\n" +
+			"--unlisted supersedes it and can say more than on/off.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			repo := args[0]
 			if !config.ValidRepoName(repo) {
 				return invalidRepo(repo)
+			}
+			cfgNow := config.Read()
+			if unlisted != "" {
+				if _, ok := cfgNow.Group(unlisted); !ok {
+					return output.New("Unknown group "+unlisted+". Valid: "+
+						strings.Join(cfgNow.GroupNames(), ", "), output.FixableByAgent)
+				}
 			}
 			watched := false
 			if err := config.Update(func(cfg *config.Config) error {
@@ -59,7 +77,15 @@ func reposAddCmd() *cobra.Command {
 				if !watched {
 					cfg.Repos = append(cfg.Repos, repo)
 				}
-				// Reconcile the scope list with the flag (add or remove membership).
+				if unlisted != "" {
+					if cfg.Authors.Unlisted == nil {
+						cfg.Authors.Unlisted = map[string]string{}
+					}
+					cfg.Authors.Unlisted[repo] = unlisted
+				}
+				// Reconcile the legacy scope list with its flag (add or remove
+				// membership), unchanged: it is the only thing that flag has
+				// ever managed, so a config using it keeps behaving the same.
 				scoped := cfg.AuthorScopedRepo(repo)
 				if allowedOnly && !scoped {
 					cfg.AllowedAuthorsOnlyRepos = append(cfg.AllowedAuthorsOnlyRepos, repo)
@@ -70,19 +96,24 @@ func reposAddCmd() *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			scope := "any"
-			if allowedOnly {
-				scope = "allowed-authors-only"
-			}
 			verb := "added"
 			if watched {
 				verb = "updated"
 			}
-			return emit(map[string]any{verb: repo, "authors": scope})
+			resolved := config.Read().UnlistedPolicy(repo)
+			return emit(map[string]any{
+				verb:              repo,
+				"unlisted_group":  resolved.Group,
+				"unlisted_review": resolved.Review,
+			})
 		},
 	}
-	cmd.Flags().BoolVar(&allowedOnly, "allowed-authors-only", false,
-		"Only discover PRs authored by allowed authors in this repo")
+	f := cmd.Flags()
+	f.StringVar(&unlisted, "unlisted", "",
+		"Group an author with no roster row falls into on this repo")
+	f.BoolVar(&allowedOnly, "allowed-authors-only", false,
+		"Pre-groups shorthand: only discover PRs from rostered authors here")
+	_ = cmd.RegisterFlagCompletionFunc("unlisted", completeGroup)
 	return cmd
 }
 
@@ -108,6 +139,10 @@ func reposRmCmd() *cobra.Command {
 				}
 				cfg.Repos = kept
 				cfg.AllowedAuthorsOnlyRepos, _ = filterFold(cfg.AllowedAuthorsOnlyRepos, self, repo)
+				// Both ways of scoping a repo's unlisted authors go with it;
+				// leaving either behind would silently reapply if the repo is
+				// ever re-added.
+				delete(cfg.Authors.Unlisted, repo)
 				return nil
 			}); err != nil {
 				return err

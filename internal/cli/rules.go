@@ -19,7 +19,7 @@ func rulesCmd() *cobra.Command {
 		Long: "Rules add EXTRA instructions to the assembled prompt when their condition\n" +
 			"matches a candidate. With an 'outcome' they attach under that post-outcome\n" +
 			"section (approve/comment/reject) instead of the prompt body, so behaviour\n" +
-			"can branch on the allowed-authors list deterministically. Comment-only vs\n" +
+			"can branch on the author's resolved group deterministically. Comment-only vs\n" +
 			"approval itself is a built-in directive; you never need a rule for it.",
 		Args: cobra.NoArgs,
 	}
@@ -53,6 +53,12 @@ func ruleRecord(index int, r config.Rule) map[string]any {
 	if len(r.When.Repos) > 0 {
 		rec["repos"] = r.When.Repos
 	}
+	if len(r.When.Groups) > 0 {
+		rec["groups"] = r.When.Groups
+	}
+	if len(r.When.Authors) > 0 {
+		rec["authors"] = r.When.Authors
+	}
 	return rec
 }
 
@@ -74,15 +80,20 @@ func rulesAddCmd() *cobra.Command {
 		name, prompt, outcome, candidateType string
 		authorAllowed, authorNotAllowed      bool
 		authorIsGHUser, authorNotGHUser      bool
-		repos                                []string
+		repos, groups, authors               []string
 	)
 	cmd := &cobra.Command{
 		Use:   "add --name N --prompt TEXT [--outcome approve|comment|reject] [conditions]",
 		Short: "Add a conditional prompt rule",
 		Long: "Append a rule. --prompt is the fragment to add; the condition flags gate\n" +
 			"when it fires (unset = wildcard). --outcome routes it under a post-outcome\n" +
-			"section instead of the prompt body. --author-allowed and --author-not-allowed\n" +
-			"are the two allow-list branches and are mutually exclusive.",
+			"section instead of the prompt body.\n\n" +
+			"--group and --author gate on the author's resolved policy: use them for\n" +
+			"anything a group's own flat prompt cannot express, such as a fragment\n" +
+			"that only applies to one cohort on refreshed PRs, or under one outcome.\n" +
+			"--author-allowed and --author-not-allowed predate groups and now mean\n" +
+			"\"the resolved policy does (not) permit approval\"; they remain mutually\n" +
+			"exclusive.",
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			rule := config.Rule{
@@ -93,6 +104,8 @@ func rulesAddCmd() *cobra.Command {
 					AuthorNotGHUser:  authorNotGHUser,
 					AuthorAllowed:    authorAllowed,
 					AuthorNotAllowed: authorNotAllowed,
+					Groups:           groups,
+					Authors:          authors,
 					CandidateType:    candidateType,
 					Repos:            repos,
 					Outcome:          outcome,
@@ -120,15 +133,19 @@ func rulesAddCmd() *cobra.Command {
 	f.StringVar(&name, "name", "", "Unique rule name (used by rules rm)")
 	f.StringVar(&prompt, "prompt", "", "The instruction fragment to add when the rule matches")
 	f.StringVar(&outcome, "outcome", "", "Route under this post-outcome section: approve|comment|reject")
-	f.BoolVar(&authorAllowed, "author-allowed", false, "Only when the PR author IS on the allowed-authors list")
-	f.BoolVar(&authorNotAllowed, "author-not-allowed", false, "Only when the PR author is NOT on the allowed-authors list")
+	f.BoolVar(&authorAllowed, "author-allowed", false, "Only when the author's resolved policy permits approval")
+	f.BoolVar(&authorNotAllowed, "author-not-allowed", false, "Only when the author's resolved policy forbids approval")
 	f.BoolVar(&authorIsGHUser, "author-is-gh-user", false, "Only when the PR is self-authored (author == our gh user)")
 	f.BoolVar(&authorNotGHUser, "author-not-gh-user", false, "Only when the PR is NOT self-authored (author != our gh user)")
 	f.StringVar(&candidateType, "candidate-type", "", "Only for this candidate kind: new|refreshed")
 	f.StringArrayVar(&repos, "repo", nil, "Only for these repos (owner/name; repeatable, any-of)")
+	f.StringArrayVar(&groups, "group", nil, "Only when the author's resolved group is one of these (repeatable, any-of)")
+	f.StringArrayVar(&authors, "author", nil, "Only for these handles (repeatable, any-of, case-insensitive)")
 	_ = cmd.RegisterFlagCompletionFunc("outcome", completeStatic(config.Outcomes))
 	_ = cmd.RegisterFlagCompletionFunc("candidate-type", completeStatic(config.CandidateTypes))
 	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
+	_ = cmd.RegisterFlagCompletionFunc("group", completeGroup)
+	_ = cmd.RegisterFlagCompletionFunc("author", completeAnyAuthorHandle)
 	return cmd
 }
 
@@ -158,6 +175,15 @@ func validateRule(r config.Rule) error {
 	for _, repo := range r.When.Repos {
 		if !config.ValidRepoName(repo) {
 			return invalidRepo(repo)
+		}
+	}
+	// A rule gated on a group nobody defined can never match, so it is a typo
+	// caught here rather than a fragment that silently never fires.
+	cfg := config.Read()
+	for _, group := range r.When.Groups {
+		if _, ok := cfg.Group(group); !ok {
+			return output.New("Unknown group "+group+" in --group. Valid: "+
+				strings.Join(cfg.GroupNames(), ", "), output.FixableByAgent)
 		}
 	}
 	return nil

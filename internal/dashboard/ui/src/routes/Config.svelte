@@ -13,6 +13,16 @@
     return 'off';
   }
 
+  // What a roster row actually grants, in one cell: the review level, plus
+  // any engine dials the group or an override pinned. A row whose group config
+  // no longer defines resolves to comment, which is what shows here.
+  function policySummary(a: AllowedAuthor): string {
+    const p = a.policy;
+    if (!p) return '';
+    const dials = [p.engine, p.model, p.effort].filter(Boolean).join(' / ');
+    return dials ? `${p.review} (${dials})` : p.review;
+  }
+
   let configData: ConfigResponse | null = null;
   let authors: AllowedAuthor[] = [];
   $: settingsGroups = configData ? ([
@@ -22,13 +32,13 @@
     ]],
     ['Review loop', [
       ['State (this daemon)', loopState(configData.review_running, configData.schedule.enabled)],
-      ['Engine', configData.engine],
+      ['Default engine', configData.engine],
       [`${configData.engine} model`, configData.engine_config.model || 'engine default'],
       [`${configData.engine} effort`, configData.engine_config.effort || 'model default'],
       ['Interval', configData.schedule.interval],
       ['Max parallel', String(configData.schedule.max_parallel)],
-      ['Usage floor (5h)', configData.schedule.usage_floor_5h_percent ? `pause below ${configData.schedule.usage_floor_5h_percent}% remaining` : 'disabled'],
-      ['Usage floor (weekly)', configData.schedule.usage_floor_weekly_percent ? `pause below ${configData.schedule.usage_floor_weekly_percent}% remaining` : 'disabled'],
+      ['Usage floor (5h)', configData.schedule.usage_floor_5h_percent ? `hold below ${configData.schedule.usage_floor_5h_percent}% remaining, per engine` : 'disabled'],
+      ['Usage floor (weekly)', configData.schedule.usage_floor_weekly_percent ? `hold below ${configData.schedule.usage_floor_weekly_percent}% remaining, per engine` : 'disabled'],
     ]],
     ['Discovery', [
       ['State (this daemon)', loopState(configData.discovery_running, configData.discovery.enabled)],
@@ -55,7 +65,7 @@
 <section class="page-head">
   <p class="eyebrow">Read-only</p>
   <h1>Configuration</h1>
-  <p>Edit via the `repos` / `authors` CLIs and config.json.</p>
+  <p>Edit via the `repos` / `authors` CLIs and config.json. Run `authors who &lt;handle&gt; --repo &lt;owner/name&gt;` to see which layer decided what.</p>
 </section>
 {#if configData}
   <div class="stack">
@@ -64,7 +74,14 @@
       {#if configData.repos?.length}
         <ul class="repo-list">
           {#each configData.repos as r}
-            <li><span>{r.name}</span>{#if r.allowed_authors_only}<span class="tag">allowed authors only</span>{/if}</li>
+            <li>
+              <span>{r.name}</span>
+              {#if r.unlisted_group}
+                <span class="tag" class:tag-mute={r.allowed_authors_only}>
+                  unlisted &rarr; {r.unlisted_group}
+                </span>
+              {/if}
+            </li>
           {/each}
         </ul>
       {:else}
@@ -85,10 +102,10 @@
       </div>
     </section>
     <section class="surface">
-      <div class="section-head"><h2>Allowed authors</h2><span>whose PRs we may approve</span></div>
+      <div class="section-head"><h2>Author roster</h2><span>which group each author is in</span></div>
       {#if authors.length}
         <div class="authors">
-          <p class="authors-head"><b>Repo</b><b>GitHub</b><b>Name</b><b>Slack</b></p>
+          <p class="authors-head"><b>Repo</b><b>GitHub</b><b>Group</b><b>Gets</b><b>Name</b></p>
           {#each authors as a}
             <p>
               <span>
@@ -99,13 +116,14 @@
                 {/if}
               </span>
               <span><a href={`https://github.com/${a.github_handle}`} target="_blank" rel="noopener">@{a.github_handle}</a></span>
+              <span>{a.group}</span>
+              <span class="mono muted">{policySummary(a)}</span>
               <span>{a.name || ''}</span>
-              <span class="mono muted">{a.slack_id || ''}</span>
             </p>
           {/each}
         </div>
       {:else}
-        <div class="empty">No allowed authors. Every PR is comment-only.</div>
+        <div class="empty">No roster entries. Every author follows authors.unlisted.</div>
       {/if}
     </section>
   </div>

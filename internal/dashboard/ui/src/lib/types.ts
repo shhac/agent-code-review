@@ -126,7 +126,10 @@ export type UsageResponse = {
 
 export type ConfigRepo = {
   name: string;
+  // True when an author with no roster row is not discovered here, derived
+  // from the repo's unlisted policy rather than a separate setting.
   allowed_authors_only?: boolean;
+  unlisted_group?: string;
 };
 
 export type ConfigResponse = {
@@ -162,9 +165,22 @@ export type ConfigResponse = {
 export type AllowedAuthor = {
   repo: string;
   github_handle: string;
+  group: string;
   name?: string;
   email?: string;
   slack_id?: string;
+  // What the group actually resolves to, sent with the row because a group
+  // config no longer defines is invisible otherwise.
+  policy?: AuthorPolicy;
+};
+
+export type AuthorPolicy = {
+  group: string;
+  review: string; // "ignore" | "comment" | "approve"
+  engine?: string;
+  model?: string;
+  effort?: string;
+  prompt?: string;
 };
 
 export type AuthorsResponse = {
@@ -176,6 +192,8 @@ export type RuleCondition = {
   author_not_gh_user?: boolean;
   author_allowed?: boolean;
   author_not_allowed?: boolean;
+  groups?: string[];
+  authors?: string[];
   candidate_type?: string;
   repos?: string[];
   outcome?: string;
@@ -198,14 +216,23 @@ export type RuleTrace = {
   reason?: string;
 };
 
+export type PolicyStep = {
+  field: string;
+  value: string;
+  source: string;
+};
+
 export type PromptPreviewResponse = {
   candidate: {
     repo: string;
     candidate_type: string;
+    author: string;
+    group: string;
     author_allowed: boolean;
     author_is_gh_user: boolean;
   };
   preview: string;
+  policy: PolicyStep[];
   rules: RuleTrace[];
 };
 

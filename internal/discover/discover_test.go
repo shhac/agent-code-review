@@ -15,10 +15,10 @@ import (
 // unset it falls back to `last`, mirroring the real store (a real review is
 // also the latest outcome unless a skip/error came after it).
 type fakeStore struct {
-	last           store.Review
-	hasLast        bool
-	outcome        store.Review
-	hasOutcome     bool
+	last         store.Review
+	hasLast      bool
+	outcome      store.Review
+	hasOutcome   bool
 	authorGroups map[string]string // handle → group; absent = unlisted
 	enqueued     []store.Candidate
 }

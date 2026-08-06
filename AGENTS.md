@@ -14,7 +14,7 @@ internal/
 │   ├── serve.go                # `serve` daemon: scheduler + dashboard + tailscale.Wire
 │   ├── run.go                  # `run --once`: single review cycle
 │   ├── queue.go                # `queue ls/add/rm/promote/skip/log`
-│   ├── authors.go              # `authors allow/deny/ls`: whose PRs we may approve
+│   ├── authors.go              # `authors set/rm/ls/groups/who`: the author roster
 │   ├── repos.go                # `repos ls/add/rm`: the watched repos (config)
 │   ├── prompts.go              # `prompts show/set/unset/preview`: review prompts
 │   ├── configcmd.go            # `config init/path/show/list/get/set/unset`
@@ -208,6 +208,19 @@ internal/
   source. Queue order is FIFO by first discovery (`discovered_at` is
   first-seen, never bumped). Idle review cycles exit before the run-lock;
   the 1m default cadence records nothing while the queue is empty or held.
+
+- **The engine is a per-candidate choice, so the usage floor is per engine.**
+  A group can name its own engine, model, and effort, so one cycle can run
+  both CLIs. Each candidate's policy is resolved ONCE at the top of the cycle
+  and travels with it, so the engine build, the headroom check, and the prompt
+  all read one answer. The floor is therefore an eligibility FILTER, not a
+  cycle gate: a candidate whose engine is out of headroom is never claimed,
+  completed, or recorded, so it waits exactly like a cooldown hold and runs
+  when the window refills. That framing is what makes it cheap, since the
+  queue already had the vocabulary for "pending but not yet actionable". A
+  fully floored cycle still exits before the run-lock so it records no run.
+  An unbuildable engine is likewise per candidate: one group pointing at a
+  broken engine must not stop everyone else's reviews.
 - **Every external dependency fails late; diagnose it early.** A missing or
   logged-out engine CLI, an absent duckdb, or a model the permission
   classifier rejects all surface the same way at run time: repeated ERROR
@@ -216,12 +229,40 @@ internal/
   rather than refusing to start (the dashboard is still worth serving, and a
   missing CLI may come back). Static config checks that need engine knowledge
   live in `review.Preflight`, not in doctor, so they stay next to the engine
-  they describe.
+  they describe. The probe set is the REACHABLE engines (the default plus every
+  engine a group or override names), not the configured one (a typo in a
+  rarely-used group would surface at 3am as an ERROR row) and not every wired
+  engine (which would fail a deploy over an engine nothing references);
+  Preflight runs per distinct settings combination, because a group's own model
+  is exactly what introduces a pairing the base config does not have.
 
-- **Nothing environment-specific in code.** Repos, prompts, and cadence are
-  config; the allowed-authors list (whose PRs we may approve) is per-repo
-  runtime data in the store (managed via `authors`). Never hardcode a GitHub
-  handle or repo, not in code, docs, or the example config.
+- **An author resolves to a group, and the group IS the policy.** An author
+  belongs to one group per repo; the group carries the review level (an ordered
+  ladder: `ignore` < `comment` < `approve`), the engine/model/effort, and a
+  prompt fragment. That ladder replaced two separate switches that were asking
+  one question in two places: `allowed_authors_only_repos` decided whether we
+  discovered an author's PRs, and the allow-list decided whether we could
+  approve them.
+
+  The split is deliberate and load-bearing. Group DEFINITIONS live in config
+  beside the prompts and engine dials they carry; MEMBERSHIP lives in the store
+  because it churns and varies per repo. Resolution is pure (`config.Config`
+  plus one membership row), so it table-tests without a store, and it builds its
+  own trace as it goes: a cascade is only as usable as its explanation, which is
+  why `authors who` and `prompts preview --explain` ship with the feature rather
+  than after it.
+
+  Two invariants sit ABOVE the cascade and no group or override may touch them:
+  you cannot approve your own PR, and an unknown group resolves to `comment`
+  (still reviewed, never approved on a policy nobody wrote). `ignore` is a
+  DISCOVERY filter, not a veto: a manual `queue add` still reviews, matching
+  every other gate manual adds already bypass. See
+  `design-docs/decisions/2026-08-author-groups.md`.
+
+- **Nothing environment-specific in code.** Repos, prompts, groups, and cadence
+  are config; who is IN each group is per-repo runtime data in the store
+  (managed via `authors`). Never hardcode a GitHub handle or repo, not in code,
+  docs, or the example config.
 
 - **Crash/concurrency safety.** Claims are compare-and-swap leases carrying
   host+pid (`Store.Claim` returns whether you won; losing is a clean skip),

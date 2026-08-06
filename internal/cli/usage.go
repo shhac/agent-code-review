@@ -30,12 +30,14 @@ COMMANDS:
   queue skip <owner/repo> <number>                   Record a SKIPPED outcome (re-eligible on new commits)
   queue log <owner/repo> <number> [-f]               Stream the review agent's log (live or postmortem)
 
-  repos ls | add <owner/repo> [--allowed-authors-only] | rm <owner/repo>
+  repos ls | add <owner/repo> [--unlisted G] | rm <owner/repo>
                                                      Manage the watched repos (config)
 
-  authors ls [--repo R]                              List allowed authors
-  authors allow <owner/repo|*> <handle> [--name ...] Allow an author's PRs to be approved
-  authors deny <owner/repo|*> <handle>               Make an author's PRs comment-only again
+  authors ls [--repo R] [--group G]                  Roster entries + the policy each resolves to
+  authors set <owner/repo|*> <handle> <group>        Put an author in a group for a repo
+  authors rm <owner/repo|*> <handle>                 Remove a roster entry (falls back to authors.unlisted)
+  authors groups                                     The defined groups and what each one grants
+  authors who <handle> --repo <owner/repo>           Resolve one author's policy, with the deciding layer
 
   prompts show | set <slot> <text> | unset | preview Manage the review prompts
                                                      (slots: main, on-approve, on-comment, on-reject, resume)
@@ -52,7 +54,7 @@ CONFIG: ~/.config/agent-code-review/config.json (respects XDG_CONFIG_HOME).
   Most settings reload live (within ~30s): cadence, parallelism, usage floors,
   repos, prompts, codex settings. Restart only for the loop on/off switches,
   dashboard address, and Tailscale mode.
-  Everything tunable lives here: watched repos, the approval allow-list, age
+  Everything tunable lives here: watched repos, the author groups, age
   thresholds (14d New / 21d Refreshed), schedule cadence + parallelism, the
   review engine + main prompt + rules, the DuckDB path, and dashboard/Tailscale.
   See config.example.json. No repos or GitHub handles are hardcoded.
@@ -62,21 +64,35 @@ CANDIDATES (discovery is deterministic: gh + rules, never the LLM):
               approved, ≤ new_max_age_days
   REFRESHED: open, not draft, re-review requested, not currently approved, head
               SHA differs from our last recorded review, ≤ refreshed_max_age_days
-  Repos in allowed_authors_only_repos additionally require the PR author to be
-  on the allowed-authors list. Manual adds (queue add / dashboard) fetch live
-  metadata via gh and reject closed/merged PRs.
+  An author whose resolved group has review level "ignore" is never discovered
+  at all; a manual add still reviews them. Manual adds (queue add / dashboard)
+  fetch live metadata via gh and reject closed/merged PRs.
   Discovered candidates can carry an eligibility hold: settling (PR updated
   within candidates.quiet_period) or cooldown (we reviewed it within
   candidates.rereview_cooldown). Held rows sit visibly in the queue but are
   skipped by review cycles until eligible_at; queue promote or a manual add
   bypasses holds.
 
-APPROVAL: allowed authors (whose PRs WE may approve; we are the reviewer) are
-  stored in DuckDB, per repo (manage with 'authors'). The assembled prompt always
-  carries a built-in approval directive that DEFAULTS to comment-only; an APPROVE
-  is permitted only when the author is allowed for this repo and it isn't a
-  self-authored PR. Only this PR's author↔allowed pair is passed to the engine,
-  never the whole list.
+AUTHOR GROUPS: an author belongs to ONE group per repo, and the group IS the
+  policy. Review level is an ordered ladder:
+    ignore   never discovered (a manual queue add still reviews)
+    comment  reviewed, never approved
+    approve  approvable when the review warrants it
+  A group also carries the engine, model, effort, and an extra prompt fragment;
+  authors.overrides narrows any of that per handle, optionally per repo. Empty
+  fields inherit; prompts accumulate.
+  WHO is in a group lives in DuckDB, per repo ('authors set'); the groups
+  themselves live in config, beside the prompts they carry. Resolution: the
+  repo's roster row, else the '*' row, else authors.unlisted[repo], else
+  authors.unlisted['*']. 'authors who' shows which layer decided what.
+  The assembled prompt always carries a built-in approval directive that
+  DEFAULTS to comment-only. An APPROVE needs an approve-level group AND a PR
+  that isn't self-authored: the self-review veto sits above the cascade and no
+  group or override can lift it. Only this PR's own resolved policy reaches the
+  engine, never the roster.
+  A group naming its own engine means one cycle can run both engines, so the
+  usage floor is applied per engine: one being out of headroom holds only its
+  own candidates.
 
 REVIEW: the engine (codex or claude) receives the main prompt + approval directive +
   post-outcome instructions (review.on_approve / on_comment / on_reject) + any
@@ -157,41 +173,74 @@ Discovery, the dashboard add-PR form, and the scheduler only operate on repos
 in this list. Ships empty: nothing is watched until you add it.
 
 COMMANDS:
-  repos ls                 One record per watched repo, with its author scope
-  repos add <owner/repo> [--allowed-authors-only]
-    Add a repo (idempotent; re-running toggles the scope). By default any open
-    PR is discovered; --allowed-authors-only scopes discovery to PRs authored
-    by allowed authors, for repos where reviewing every PR would be noise.
-  repos rm <owner/repo>    Stop watching a repo (clears its scope too)
+  repos ls                 One record per watched repo, with the group its
+                           unlisted authors resolve to
+  repos add <owner/repo> [--unlisted <group>] [--allowed-authors-only]
+    Add a repo (idempotent). --unlisted names the group an author with no
+    roster row falls into here, which decides whether strangers are discovered
+    at all (a group whose review level is "ignore") and how they are reviewed
+    if they are. Left off, an existing setting is preserved.
+    --allowed-authors-only is the pre-groups shorthand for "only discover
+    rostered authors here". It still works and still reconciles, but --unlisted
+    supersedes it and can say more than on/off.
+  repos rm <owner/repo>    Stop watching a repo (clears its unlisted setting)
 
 EXAMPLES:
   agent-code-review repos add example-org/example-repo
+  agent-code-review repos add example-org/example-repo --unlisted ignored
   agent-code-review repos ls`
 
-const authorsUsageText = `authors: Allowed authors, whose PRs WE may approve (stored in DuckDB)
+const authorsUsageText = `authors: The author roster, i.e. who is in which group (stored in DuckDB)
 
-We are the reviewer. This list controls whose PRs this tool will APPROVE; it
-is not about who can approve. Authors not on the list still get reviewed, but
-comment-only. Only the single author<->allowed pair for the PR under review is
-ever passed to the engine, never the whole list.
+We are the reviewer. An author belongs to ONE group per repo, and the group is
+a complete review policy defined in config under authors.groups:
+
+  review   ignore  | never discovered (a manual queue add still reviews)
+           comment | reviewed, never approved
+           approve | approvable when the review warrants it
+  engine   which agent CLI reviews their PRs (overrides review.engine)
+  model    the engine's model for their PRs
+  effort   the engine's reasoning effort for their PRs
+  prompt   an extra instruction appended to their reviews
+
+approver / commenter / ignored exist without being declared. Only the resolved
+policy for the PR under review reaches the engine, never the roster.
+
+RESOLUTION (most specific wins; "authors who" shows which layer decided what):
+  1. the roster row for this repo, else the row for "*"
+  2. else authors.unlisted[<repo>], else authors.unlisted["*"]
+  3. then every matching authors.overrides entry patches it, field by field,
+     in config order. Empty inherits; prompt fragments accumulate.
 
 COMMANDS:
-  authors ls [--repo <owner/repo|*>]
-    List allowed authors, optionally for one repo. "*" entries apply everywhere.
+  authors ls [--repo <owner/repo|*>] [--group <group>]
+    Roster entries with the policy each resolves to. A row naming a group that
+    config no longer defines shows up here, resolved as comment-only.
 
-  authors allow <owner/repo|*> <github-handle> [--name N] [--email E] [--slack-id S]
-    Allow an author's PRs to be approved for a repo (upserts metadata).
+  authors set <owner/repo|*> <github-handle> <group> [--name N] [--email E] [--slack-id S]
+    Put an author in a group for a repo (upserts metadata). An undefined group
+    is refused here rather than silently resolving to comment-only later.
 
-  authors deny <owner/repo|*> <github-handle>
-    Remove an author (their PRs become comment-only again).
+  authors rm <owner/repo|*> <github-handle>
+    Remove a roster entry; the author falls back to authors.unlisted.
+
+  authors groups
+    The defined groups, what each grants, and which repos send their unlisted
+    authors to it.
+
+  authors who <github-handle> --repo <owner/repo>
+    Resolve one author's policy for one repo, with the deciding layer per
+    field. This is the answer to "why did that PR get approved / ignored".
 
 EXAMPLES:
-  agent-code-review authors allow example-org/example-repo example-handle --name "Example Engineer"
-  agent-code-review authors allow '*' example-handle     # approvable on every repo
-  agent-code-review authors deny '*' example-handle
+  agent-code-review authors set example-org/example-repo example-handle core --name "Example Engineer"
+  agent-code-review authors set '*' example-handle contractor   # that group on every repo
+  agent-code-review authors who example-handle --repo example-org/example-repo
+  agent-code-review authors rm '*' example-handle
 
-NOTES: matching is case-insensitive. Self-authored PRs are always comment-only
-regardless of this list.`
+NOTES: handles and repos match case-insensitively, as GitHub treats them; group
+names match exactly, since they are yours and are validated when you set them.
+Self-authored PRs are always comment-only whatever the group grants.`
 
 const promptsUsageText = `prompts: The review prompts (stored in config.json)
 
@@ -213,22 +262,26 @@ COMMANDS:
   prompts set <slot> <text>    Set a slot (multi-word text can be one quoted arg)
   prompts unset <slot>         Clear a slot
   prompts rules ...            Conditional prompt fragments (prompts rules usage)
-  prompts preview [--author-not-allowed] [--candidate-type new|refreshed]
+  prompts preview [--author H] [--group G] [--candidate-type new|refreshed]
                   [--repo owner/name] [--author-is-gh-user] [--explain]
     Print the fully assembled prompt for a synthetic candidate you shape with
-    flags, so any rule can be made to fire; --explain adds a per-rule trace of
-    what matched and why.
+    flags, so any rule can be made to fire. --author names a REAL handle: their
+    roster row is read and their per-author overrides fire, so this answers
+    "what would this person's PR actually get". --group simulates a membership
+    instead, for "what would anyone in this group get". --explain adds two
+    traces: how the policy resolved, and each rule's fate.
 
 EXAMPLES:
   agent-code-review prompts set main "Review this PR thoroughly via the gh CLI and leave one review."
   agent-code-review prompts set on-approve "Notify the team channel per our conventions."
-  agent-code-review prompts preview --author-not-allowed --explain
+  agent-code-review prompts preview --author example-handle --repo example-org/example-repo --explain
 
 NOTES: put workspace-specific conventions (channels, emoji, extra CLIs) in
-these slots; the tool itself assumes only the gh and codex CLIs. Conditional
-extras (per repo / candidate type / allow-list branch), including ones that
-attach to a specific outcome, are rules; manage them with 'prompts rules'
-(prompts rules usage).`
+these slots; the tool itself assumes only the gh and codex CLIs. An
+unconditional per-cohort instruction belongs on the GROUP (authors.groups.*
+.prompt), not here. Conditional extras (per repo / candidate type / group /
+handle), including ones that attach to a specific outcome, are rules; manage
+them with 'prompts rules' (prompts rules usage).`
 
 const rulesUsageText = `prompts rules: Conditional prompt fragments (stored in config.json)
 
@@ -239,41 +292,53 @@ directive; you never need a rule for it.
 Without an --outcome the fragment appends to the prompt body (fires for any
 outcome). WITH an --outcome it attaches under that post-outcome section
 (approve / comment / reject) alongside the base on_* slot, so behaviour can
-branch deterministically, e.g. on the allowed-authors list, without relying on
+branch deterministically, e.g. on the author's group, without relying on
 prompt phrasing. Fragments are ADDITIVE: the base slot is the shared part, the
 rule carries the conditional part.
 
+An UNCONDITIONAL per-cohort instruction belongs on the group itself
+(authors.groups.<name>.prompt), not here. Rules are for what a flat group
+prompt cannot express: a fragment for one cohort only on refreshed PRs, or
+only under one outcome, or only on one repo.
+
 CONDITIONS (unset = wildcard; all set must hold):
-  --author-allowed        PR author IS on the allowed-authors list for the repo
-  --author-not-allowed     PR author is NOT on it (mutually exclusive with above)
+  --group <name>           author's resolved group (repeatable, any-of)
+  --author <handle>        author handle (repeatable, any-of, case-insensitive)
+  --author-allowed         the resolved policy PERMITS approval
+  --author-not-allowed     the resolved policy FORBIDS it (mutually exclusive)
   --author-is-gh-user      self-authored (author == our gh user)
   --author-not-gh-user     NOT self-authored (mutually exclusive with above)
   --candidate-type new|refreshed
   --repo owner/name        repeatable, any-of
-Note: --author-allowed means "on the allow-list," not "was approvable"; a
-self-authored PR by an allow-listed author is still comment-only, yet counts
-as author-allowed. To split self-review out, add --author-not-gh-user to the
-allow-list rules and give self-authored PRs their own --author-is-gh-user rule.
+Note: --author-allowed means "the policy permits approval," not "was
+approvable": a self-authored PR by an approve-level author is still
+comment-only, yet still counts as author-allowed. To split self-review out,
+add --author-not-gh-user to those rules and give self-authored PRs their own
+--author-is-gh-user rule.
 
 COMMANDS:
   prompts rules ls         One record per rule, in config order (NDJSON)
   prompts rules add --name N --prompt TEXT [--outcome approve|comment|reject] [conditions]
-    Append a rule. Name must be unique; a rule with both allow-list flags is
-    rejected (it could never match).
+    Append a rule. Name must be unique; a rule with both approval flags, or
+    naming an undefined group, is rejected (it could never match).
   prompts rules rm <name>  Remove rule(s) with this name (case-insensitive)
 
 EXAMPLES:
-  # On comment, branch the notification reaction on the allow-list (the
+  # On comment, branch the notification reaction on approvability (the
   # channels, emoji, and tooling here are examples; use your own conventions):
   agent-code-review prompts rules add --name comment-not-allowed --outcome comment \
     --author-not-allowed --prompt "React :eyes: on the PR's Slack message."
   agent-code-review prompts rules add --name comment-allowed --outcome comment \
     --author-allowed --prompt "React :memo: on the PR's Slack message."
+  # One cohort, only on re-reviews:
+  agent-code-review prompts rules add --name contractor-refresh \
+    --group contractor --candidate-type refreshed \
+    --prompt "Check the previous review's comments were addressed before anything else."
   agent-code-review prompts rules ls
 
 NOTES: put the shared part (e.g. locating the Slack message) in the on-comment
 slot via 'prompts set', and the branch-specific part in these rules. See exactly
-how they assemble with 'prompts preview [--author-not-allowed] [--explain]'.`
+how they assemble with 'prompts preview [--group <name>] [--explain]'.`
 
 const configUsageText = `config: Persisted settings (stored in config.json)
 

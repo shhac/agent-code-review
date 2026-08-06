@@ -70,6 +70,8 @@ export const getPromptPreview = (p: {
   author_is_gh_user: boolean;
   candidate_type: string;
   repo?: string;
+  group?: string;
+  author?: string;
 }) => {
   const params = new URLSearchParams({
     author_allowed: String(p.author_allowed),
@@ -77,6 +79,10 @@ export const getPromptPreview = (p: {
     candidate_type: p.candidate_type,
   });
   if (p.repo) params.set('repo', p.repo);
+  // A named group is simulated; a named author additionally fires their own
+  // overrides, which is the only way to preview one.
+  if (p.group) params.set('group', p.group);
+  if (p.author) params.set('author', p.author);
   return fetchJSON<PromptPreviewResponse>(`/api/prompt/preview?${params.toString()}`);
 };
 export const getLogs = () => fetchJSON<LogsResponse>('/api/logs');

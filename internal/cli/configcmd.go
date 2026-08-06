@@ -55,7 +55,7 @@ func registerConfig(root *cobra.Command) {
 				if err != nil {
 					return err
 				}
-				return emit(map[string]string{"created": path, "next": "add repos via 'repos add', allow authors via 'authors allow', set prompts via 'prompts set'"})
+				return emit(map[string]string{"created": path, "next": "add repos via 'repos add', define cohorts under authors.groups, roster people via 'authors set', set prompts via 'prompts set'"})
 			},
 		},
 		&cobra.Command{

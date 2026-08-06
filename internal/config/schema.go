@@ -187,10 +187,11 @@ type DashboardSettings struct {
 // Config is the whole on-disk document.
 type Config struct {
 	Repos []string `json:"repos,omitempty"`
-	// AllowedAuthorsOnlyRepos scopes discovery for the listed repos to PRs
-	// authored by allowed authors. Repos not listed discover any open PR (the
-	// default); the allowed-authors list then only governs approve vs
-	// comment-only. Use for repos where reviewing every PR would be noise.
+	// AllowedAuthorsOnlyRepos is the pre-groups way to scope discovery: listed
+	// repos only discovered PRs from rostered authors. Superseded by
+	// Authors.Unlisted, which says the same thing and more, but still honored
+	// so a config that has not adopted groups keeps its exact behaviour (see
+	// Config.unlistedGroup). New configs should use authors.unlisted.
 	AllowedAuthorsOnlyRepos []string `json:"allowed_authors_only_repos,omitempty"`
 	GHUser                  string   `json:"gh_user,omitempty"` // optional; else derived via `gh api user`
 	// Authors is the group system: cohort definitions, the unlisted fallback,

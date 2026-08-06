@@ -8,8 +8,8 @@ you can expose over Tailscale.
 
 - **Deterministic discovery**: finds New and Refreshed candidate PRs via `gh`
   on its own cadence (`discovery.interval`, with its own `discovery.enabled` switch), never involving the LLM;
-  already-approved PRs are skipped, and repos can be scoped to allowed authors
-  only (`repos add --allowed-authors-only`).
+  already-approved PRs are skipped, and an author group can take a repo's
+  unrostered authors out of discovery entirely (`repos add --unlisted ...`).
 - **Eligibility holds**: discovered candidates wait out a **quiet period**
   (`candidates.quiet_period`, default 15m: don't review a PR mid-rebase or
   mid-fix push) and a **re-review cooldown** (`candidates.rereview_cooldown`,
@@ -42,7 +42,7 @@ you can expose over Tailscale.
 - **Per-review spend**: every review records its token count, and its
   API-rate cost where the engine reports one, so a per-review budget can be
   set from your own data rather than guessed.
-- **Everything is config**: repos, allow-list, thresholds, cadence, prompt, and
+- **Everything is config**: repos, author groups, thresholds, cadence, prompt, and
   rules all live in `config.json`. No GitHub handles or repos are hardcoded.
 
 ## Installation
@@ -98,11 +98,11 @@ tool neither requires nor mentions it.
    ```bash
    agent-code-review config init
    ```
-2. Add the repos to watch and the authors whose PRs may be approved:
+2. Add the repos to watch and put people in groups:
 
    ```bash
    agent-code-review repos add your-org/your-repo
-   agent-code-review authors allow '*' some-handle --name "Some Engineer"
+   agent-code-review authors set '*' some-handle approver --name "Some Engineer"
    ```
 3. Set your prompts and dials, then kick a single cycle:
 
@@ -134,16 +134,18 @@ queue promote <owner/repo> <number>
 queue skip    <owner/repo> <number>
 queue log     <owner/repo> <number> [-f|--follow]
 
-repos ls | add <owner/repo> [--allowed-authors-only] | rm <owner/repo>
+repos ls | add <owner/repo> [--unlisted <group>] | rm <owner/repo>
 
-prompts show | set <slot> <text> | unset <slot> | preview [--author-not-allowed]
+prompts show | set <slot> <text> | unset <slot> | preview [--author H] [--group G]
 
 config init | path | show
 config list | get <key> | set <key> <value> | unset <key>
 
-authors ls    [--repo R]
-authors allow <owner/repo|*> <handle> [--name N --email E --slack-id ID]
-authors deny  <owner/repo|*> <handle>
+authors ls     [--repo R] [--group G]
+authors set    <owner/repo|*> <handle> <group> [--name N --email E --slack-id ID]
+authors rm     <owner/repo|*> <handle>
+authors groups
+authors who    <handle> --repo <owner/repo>
 
 usage
 ```
@@ -195,22 +197,65 @@ The review loop itself defaults to a tight `schedule.interval` of 1m: idle
 cycles (nothing eligible) are free no-ops that record nothing, so the cadence
 costs nothing while holds and same-SHA suppression keep the queue quiet.
 
-## Allowed authors
+## Author groups
 
-We are the reviewer. This list controls **whose PRs we will approve** (not who
-can approve). Decided per repo, and stored in DuckDB (not config) so it can vary
-per repo and change at runtime:
+We are the reviewer. An author belongs to **one group per repo**, and the group
+is a complete review policy: what we may do with their PRs, which engine does
+it, and what extra instruction the agent gets.
 
-```bash
-agent-code-review authors allow owner/name alice --name "Alice" --slack-id U01
-agent-code-review authors allow '*' bob            # bob's PRs approvable on every repo
-agent-code-review authors ls --repo owner/name
-agent-code-review authors deny owner/name alice    # back to comment-only
+Review level is an ordered ladder:
+
+| level | meaning |
+| --- | --- |
+| `ignore` | never discovered (a manual `queue add` still reviews them) |
+| `comment` | reviewed, never approved |
+| `approve` | approvable when the review warrants it |
+
+Groups are defined in config, beside the prompts they carry:
+
+```jsonc
+"authors": {
+  // Where an author with no roster row lands, per repo. "*" is the fallback.
+  "unlisted": { "*": "outsider", "owner/infra": "nobody" },
+
+  "groups": {
+    "core":     { "review": "approve", "engine": "claude", "model": "opus", "effort": "high" },
+    "outsider": { "review": "comment", "prompt": "State our conventions explicitly." },
+    "nobody":   { "review": "ignore" }
+  },
+
+  // Narrower than a group: patches fields onto whatever group resolved.
+  "overrides": [
+    { "handle": "bob", "repos": ["owner/name"], "model": "claude-opus-5", "effort": "medium",
+      "prompt": "Open every post with one sentence addressing them as Lizard Elder." }
+  ]
+}
 ```
 
-At review time the CLI looks up whether the PR's author is allowed for that
-PR's repo and passes **only that one author↔allowed pair** into the engine's
-prompt, never the whole list.
+Who is in each group is roster data: it churns and varies per repo, so it
+lives in DuckDB rather than config.
+
+```bash
+agent-code-review authors set owner/name alice core --name "Alice" --slack-id U01
+agent-code-review authors set '*' bob outsider     # that group on every repo
+agent-code-review authors ls --repo owner/name     # rows + the policy each resolves to
+agent-code-review authors groups                   # the cohorts and what each grants
+agent-code-review authors who alice --repo owner/name
+agent-code-review authors rm owner/name alice      # back to authors.unlisted
+```
+
+Resolution is two steps. First the group: the roster row for this repo, else
+the row for `*`, else `authors.unlisted[repo]`, else `authors.unlisted["*"]`.
+Then the fields: the group, then every matching override in config order, one
+field at a time, where empty inherits and prompt fragments accumulate.
+
+`authors who` prints the layer that decided each field, which is the answer to
+"why did that PR get approved / ignored". At review time only this PR's own
+resolved policy reaches the engine, never the roster.
+
+Configs written before groups keep working untouched: existing allow-list rows
+resolve to the built-in `approver` group, and `allowed_authors_only_repos`
+still means what it meant.
 
 ## How review works
 
@@ -225,25 +270,33 @@ output into the workspace's `agent.log`, watchable live with
 `queue log <owner/repo> <n> --follow` or the dashboard's per-review page.
 
 The approval directive is always present and **defaults to comment-only**. An
-`APPROVE` is only ever permitted when the author is on the allowed-authors list
-for this repo **and** it isn't a self-authored PR, never as a fallback when a
-rule happens to be missing. In the comment-only case the directive gives no
-reason, so it can't leak who the gh user is.
+`APPROVE` is only ever permitted when the author's resolved group is at the
+`approve` level **and** it isn't a self-authored PR, never as a fallback when a
+rule happens to be missing. The self-review veto sits above the group cascade:
+no group and no override can grant approving your own PR. In the comment-only
+case the directive gives no reason, so it can't leak who the gh user is.
 
 **Post-outcome instructions** (`review.on_approve`, `review.on_comment`,
 `review.on_reject`) tell the agent what to do after landing on each outcome
 (reject = requested changes). This is where workspace-specific conventions
 live (team channels, emoji rituals, notification tooling); the tool ships
-none of that. `review.rules` add further conditional instructions (per repo,
-per candidate type).
+none of that. A group's own `prompt` covers the unconditional per-cohort case;
+`review.rules` add further conditional instructions (per group, per handle, per
+repo, per candidate type, optionally scoped to one outcome).
+
+Because a group can name its own engine, one cycle can run both engines. The
+usage floor is therefore applied **per engine**: when one is out of headroom
+its candidates wait in the queue like any other hold, while candidates bound
+for the other engine run as normal.
 
 ## Configuration
 
 `~/.config/agent-code-review/config.json` (respects `XDG_CONFIG_HOME`). See
 `config.example.json` for the full shape: `repos`, `gh_user`, `candidates`,
-`schedule`, `review` (engine + prompt + rules + codex/claude), `store`, and `dashboard`
-(addr + tailscale). The allowed-authors list is **not** in config; it lives in
-the store; manage it with `authors`.
+`schedule`, `review` (engine + prompt + rules + codex/claude), `authors`
+(groups + unlisted + overrides), `store`, and `dashboard` (addr + tailscale).
+Group *membership* is **not** in config; it lives in the store; manage it with
+`authors set`.
 
 ## Dashboard
 

@@ -185,8 +185,10 @@ func (c Config) WatchesRepo(repo string) bool {
 	return RepoMatches(c.Repos, repo)
 }
 
-// AuthorScopedRepo reports whether repo's discovery is limited to PRs from
-// allowed authors (case-insensitive membership in AllowedAuthorsOnlyRepos).
+// AuthorScopedRepo reports membership of the legacy AllowedAuthorsOnlyRepos
+// list (case-insensitive). Only unlistedGroup reads it now, as the fallback
+// for a config that predates authors.unlisted; nothing else should, or the
+// two ways of scoping a repo would disagree.
 func (c Config) AuthorScopedRepo(repo string) bool {
 	return RepoMatches(c.AllowedAuthorsOnlyRepos, repo)
 }

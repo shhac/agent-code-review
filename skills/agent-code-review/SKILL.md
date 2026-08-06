@@ -5,7 +5,7 @@ description: |
   - Inspecting or managing the queue of PRs awaiting automated review
   - Adding/removing/promoting/skipping candidate PRs by hand
   - Running a single review cycle or the serve daemon + dashboard
-  - Checking the review configuration (repos, allow-list, schedule)
+  - Checking the review configuration (repos, author groups, schedule)
   Triggers: "code review queue", "pr review queue", "agent-code-review", "review candidates", "review dashboard", "unblock PRs"
 allowed-tools: Bash(agent-code-review *) Read Grep Glob
 ---
@@ -19,7 +19,7 @@ non-zero exit.
 
 It maintains a DuckDB-backed queue of candidate PRs and reviews them with a
 pluggable engine (Codex or Claude Code; default: Codex). Configuration lives at
-`~/.config/agent-code-review/config.json`: repos, the approval allow-list, age
+`~/.config/agent-code-review/config.json`: repos, the author groups, age
 thresholds, schedule, and the review prompt + rules.
 
 ## Inspect the queue
@@ -46,19 +46,29 @@ agent-code-review queue rm      owner/name 1234   # remove, recording nothing
 agent-code-review queue log     owner/name 1234 -f # stream the review agent's log (live or postmortem)
 ```
 
-## Manage allowed authors (whose PRs we may approve, per repo, in DuckDB)
+## Manage the author roster (which group each author is in, per repo, in DuckDB)
 
 ```bash
-agent-code-review authors allow owner/name alice --name "Alice" --slack-id U01
-agent-code-review authors allow '*' bob            # bob's PRs approvable on every repo
-agent-code-review authors ls --repo owner/name
-agent-code-review authors deny owner/name alice
+agent-code-review authors set owner/name alice core --name "Alice" --slack-id U01
+agent-code-review authors set '*' bob outsider     # that group on every repo
+agent-code-review authors ls --repo owner/name     # rows + the policy each resolves to
+agent-code-review authors groups                   # the cohorts and what each grants
+agent-code-review authors who alice --repo owner/name
+agent-code-review authors rm owner/name alice
 ```
 
-We are the reviewer: this controls whose PRs WE will approve, not who can
-approve. An author listed for a PR's repo (or `*`) may receive an APPROVE;
-anyone else is comment-only. Only this PR's author↔allowed pair reaches the
-engine.
+We are the reviewer. An author belongs to ONE group per repo, and the group
+(defined in config under `authors.groups`) is a complete review policy: the
+review level (`ignore` = never discovered, though a manual `queue add` still
+reviews; `comment` = reviewed but never approved; `approve` = approvable), plus
+the engine, model, effort, and an extra prompt fragment. `authors.overrides`
+narrows any of that per handle.
+
+Resolution: the roster row for this repo, else the row for `*`, else
+`authors.unlisted[repo]`, else `authors.unlisted["*"]`; then every matching
+override patches it field by field. `authors who` names the deciding layer per
+field, which is how to answer "why did that PR get approved / ignored". Only
+this PR's own resolved policy reaches the engine, never the roster.
 
 ## Run reviews
 
@@ -92,13 +102,16 @@ hardcodes repos or GitHub handles; everything is config.
   bypasses them. Manual rows also skip the pre-review candidacy recheck.
 - Most config edits reload live within ~30s (cadence, parallelism, usage
   floors, repos, prompts); only the loop switches and dashboard/Tailscale
-  settings need a daemon restart. The review loop pauses itself when the
-  configured engine's usage window drops below `schedule.usage_floor.*`
-  percent remaining (metering follows `review.engine`).
+  settings need a daemon restart. A candidate is HELD when the engine that
+  would review it drops below `schedule.usage_floor.*` percent remaining. The
+  floor is per engine, since a group can name its own: one engine being out of
+  headroom does not hold candidates bound for the other. A held candidate is
+  never claimed or recorded, so it runs when the window refills.
 - The agent does the actual review and GitHub actions, then reports back what
   it did (APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED). The assembled prompt
   carries a built-in approval directive that defaults to comment-only; approval
-  is permitted only for an allowed author's non-self-authored PR. Post-outcome
+  needs an `approve`-level group AND a non-self-authored PR (the self-review
+  veto sits above the group cascade and no group can lift it). Post-outcome
   behaviour comes from review.on_approve/on_comment/on_reject in config.
 - Manage watched repos with `repos ls|add|rm`, prompts with
   `prompts show|set|unset|preview`, and scalar dials with

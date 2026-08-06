@@ -134,13 +134,6 @@ func tsp(t *time.Time) string {
 	return ts(*t)
 }
 
-func orDefault(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
-}
-
 func getString(r map[string]any, key string) string {
 	v, ok := r[key]
 	if !ok || v == nil {

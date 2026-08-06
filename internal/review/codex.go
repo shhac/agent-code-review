@@ -84,7 +84,11 @@ func (e *codexEngine) codexVersion(ctx context.Context) string {
 }
 
 func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) {
-	workDir, schemaPath, err := prepareWorkspace(req.WorkDir)
+	workDir, err := prepareWorkspace(req.WorkDir)
+	if err != nil {
+		return Verdict{Decision: DecisionError}, err
+	}
+	schemaPath, err := writeVerdictSchema(workDir)
 	if err != nil {
 		return Verdict{Decision: DecisionError}, err
 	}

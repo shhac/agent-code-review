@@ -37,7 +37,7 @@ func TestStartGracefulStartsConfiguredLoopsAndDrainsOnStop(t *testing.T) {
 }
 
 func TestStartGracefulForceContextReturnsWithoutWaitingForLoops(t *testing.T) {
-	stopCtx, stop := context.WithCancel(context.Background())
+	gracefulCtx, stop := context.WithCancel(context.Background())
 	defer stop()
 	reviewCtx, force := context.WithCancel(context.Background())
 	defer force()
@@ -50,7 +50,7 @@ func TestStartGracefulForceContextReturnsWithoutWaitingForLoops(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- s.StartGraceful(stopCtx, reviewCtx, true, true) }()
+	go func() { done <- s.StartGraceful(gracefulCtx, reviewCtx, true, true) }()
 	<-started
 	<-started
 	force()
@@ -167,7 +167,7 @@ func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 // suite would still have passed.
 //
 // The property under test is the contract serve prints on the first signal:
-// cancelling stopCtx alone stops NEW work while the in-flight review runs to
+// cancelling gracefulCtx alone stops NEW work while the in-flight review runs to
 // completion; only reviewCtx ends the running one.
 func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	fs := &fakeCycleStore{queue: []store.Candidate{
@@ -190,12 +190,12 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	s.reconcile = func(context.Context) error { return nil }
 	s.heartbeat = time.Millisecond
 
-	stopCtx, stop := context.WithCancel(context.Background())
+	gracefulCtx, stop := context.WithCancel(context.Background())
 	reviewCtx, force := context.WithCancel(context.Background())
 	defer force()
 
 	done := make(chan error, 1)
-	go func() { done <- s.StartGraceful(stopCtx, reviewCtx, false, true) }()
+	go func() { done <- s.StartGraceful(gracefulCtx, reviewCtx, false, true) }()
 
 	// Wait for the first reviewer to be in flight, then request the graceful
 	// stop while it is still running.

@@ -34,7 +34,7 @@ type pending struct {
 // reviewed by different CLIs.
 // It returns how many reviewers failed, so the cycle can record a status that
 // reflects what happened rather than always claiming success.
-func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates []pending, cfg config.Config) int {
+func (s *Scheduler) processQueue(gracefulCtx, reviewCtx context.Context, candidates []pending, cfg config.Config) int {
 	sem := make(chan struct{}, cfg.MaxParallel())
 	var wg sync.WaitGroup
 	var failed atomic.Int64
@@ -45,7 +45,7 @@ func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates 
 		// new review roughly half the time after a shutdown was requested,
 		// which is the opposite of what the first Ctrl-C promises and costs a
 		// whole engine invocation each time it happens.
-		if stopCtx.Err() != nil {
+		if gracefulCtx.Err() != nil {
 			s.logf("cycle: shutdown requested, waiting for in-flight reviewer(s)")
 			wg.Wait()
 			return int(failed.Load())
@@ -56,7 +56,7 @@ func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates 
 		}
 		select {
 		case sem <- struct{}{}:
-		case <-stopCtx.Done():
+		case <-gracefulCtx.Done():
 			s.logf("cycle: shutdown requested, waiting for in-flight reviewer(s)")
 			wg.Wait()
 			return int(failed.Load())

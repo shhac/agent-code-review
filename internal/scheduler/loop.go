@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// StartGraceful runs the requested loops until stopCtx is cancelled: discovery
-// receives stopCtx and is cancelled immediately, while in-flight reviewers
+// StartGraceful runs the requested loops until gracefulCtx is cancelled: discovery
+// receives gracefulCtx and is cancelled immediately, while in-flight reviewers
 // receive reviewCtx and drain unless that second context is cancelled too.
 // Loops fire immediately on start.
 //
@@ -17,7 +17,11 @@ import (
 // this boot turned off. Callers with both switches off should not start the
 // scheduler at all — called that way, this returns once reconciliation is
 // done.
-func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context, discovery, review bool) error {
+// gracefulCtx stops NEW work; reviewCtx ends work already running. Same two
+// names serve.go uses, because the pair was called gracefulCtx/reviewCtx above
+// this boundary and stopCtx/reviewCtx below it, in the one code path where
+// confusing them kills a review mid-flight.
+func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discovery, review bool) error {
 	// A crashed daemon leaves a running run row (which would block cycles
 	// for the whole lease window) and claimed queue rows (which would wait
 	// it out too). Reconcile before the first tick so a restart resumes
@@ -33,7 +37,7 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context, discovery,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.loopRunner(stopCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
+			s.loopRunner(gracefulCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
 		}()
 	}
 	if review {
@@ -41,8 +45,8 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context, discovery,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.loopRunner(stopCtx, func() time.Duration { return s.cfg().Interval() }, "review", func(context.Context) error {
-				return s.reviewCycle(stopCtx, reviewCtx)
+			s.loopRunner(gracefulCtx, func() time.Duration { return s.cfg().Interval() }, "review", func(context.Context) error {
+				return s.reviewCycle(gracefulCtx, reviewCtx)
 			})
 		}()
 	}
@@ -54,7 +58,7 @@ func (s *Scheduler) StartGraceful(stopCtx, reviewCtx context.Context, discovery,
 	}()
 	select {
 	case <-done:
-		return stopCtx.Err()
+		return gracefulCtx.Err()
 	case <-reviewCtx.Done():
 		return reviewCtx.Err()
 	}

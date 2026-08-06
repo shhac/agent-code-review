@@ -22,9 +22,9 @@ func (s *Scheduler) reviewCycleOnce(ctx context.Context) error {
 	return s.reviewCycle(ctx, ctx)
 }
 
-func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
+func (s *Scheduler) reviewCycle(gracefulCtx, reviewCtx context.Context) error {
 	select {
-	case <-stopCtx.Done():
+	case <-gracefulCtx.Done():
 		return nil
 	default:
 	}
@@ -81,7 +81,7 @@ func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
 	// signal the runs table and the dashboard carry about whether a cycle was
 	// healthy, so reporting success regardless made a wholly failed cycle
 	// indistinguishable from a clean one.
-	if failed := s.processQueue(stopCtx, reviewCtx, runnable, cfg); failed > 0 {
+	if failed := s.processQueue(gracefulCtx, reviewCtx, runnable, cfg); failed > 0 {
 		status = "failed"
 		s.logf("cycle: %d of %d reviewer(s) failed", failed, len(runnable))
 	}

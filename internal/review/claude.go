@@ -159,7 +159,7 @@ func (e *claudeEngine) claudeVersion(ctx context.Context) string {
 }
 
 func (e *claudeEngine) Review(ctx context.Context, req Request) (Verdict, error) {
-	workDir, _, err := prepareWorkspace(req.WorkDir)
+	workDir, err := prepareWorkspace(req.WorkDir)
 	if err != nil {
 		return Verdict{Decision: DecisionError}, err
 	}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -63,8 +64,8 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  eligible_at = `+holdCase("eligible_at")+`,
 	  hold_reason = `+holdCase("hold_reason")+`,
 	  source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE queue.source END`,
-		nullText(c.Repo), c.Number, nullText(orDefault(c.Type, TypeNew)), nullText(c.Title), nullText(c.Author), nullText(c.URL), nullText(c.HeadSHA),
-		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), nullText(orDefault(c.Source, SourceDiscovered)),
+		nullText(c.Repo), c.Number, nullText(cmp.Or(c.Type, TypeNew)), nullText(c.Title), nullText(c.Author), nullText(c.URL), nullText(c.HeadSHA),
+		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), nullText(cmp.Or(c.Source, SourceDiscovered)),
 		tsp(c.EligibleAt), nullText(c.HoldReason))
 	return d.exec(ctx, sql)
 }

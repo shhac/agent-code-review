@@ -249,18 +249,23 @@ func joinRawUsage(payloads []json.RawMessage) string {
 // prepareWorkspace resolves the review's workspace, creating a temp one when
 // the caller supplied none, and writes the shared verdict schema into it.
 // Both drivers hand the schema to their CLI as a file path.
-func prepareWorkspace(workDir string) (dir, schemaPath string, err error) {
-	if workDir == "" {
-		workDir, err = os.MkdirTemp("", "agent-code-review-")
-		if err != nil {
-			return "", "", err
-		}
+func prepareWorkspace(workDir string) (string, error) {
+	if workDir != "" {
+		return workDir, nil
 	}
-	schemaPath = filepath.Join(workDir, "verdict.schema.json")
-	if err := os.WriteFile(schemaPath, []byte(verdictSchema), 0o600); err != nil {
-		return "", "", err
+	return os.MkdirTemp("", "agent-code-review-")
+}
+
+// writeVerdictSchema puts the output schema on disk for the engine that takes
+// a PATH to one. Split out because claude takes the schema inline and never
+// reads a file, so writing it unconditionally made a workspace that could not
+// hold it fail claude reviews over something claude does not use.
+func writeVerdictSchema(workDir string) (string, error) {
+	path := filepath.Join(workDir, "verdict.schema.json")
+	if err := os.WriteFile(path, []byte(verdictSchema), 0o600); err != nil {
+		return "", err
 	}
-	return workDir, schemaPath, nil
+	return path, nil
 }
 
 // logSessionPattern matches the session-id banner both transcoders render at

@@ -27,16 +27,23 @@
   $: condPairs = (when: RuleCondition | undefined): [string, string][] =>
     Object.entries(when || {}).map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : String(v)]);
 
+  // Toggling a switch fires a fetch, and responses can land out of order, so a
+  // slower earlier request could overwrite a newer one's preview and leave the
+  // panel disagreeing with the switches above it. Only the latest request is
+  // allowed to apply its result.
+  let previewRequest = 0;
   async function loadPreview() {
+    const request = ++previewRequest;
     try {
-      preview = await getPromptPreview({
+      const next = await getPromptPreview({
         author_allowed: allowed,
         author_is_gh_user: self,
         candidate_type: candidateType,
         repo,
       });
+      if (request === previewRequest) preview = next;
     } catch {
-      preview = null;
+      if (request === previewRequest) preview = null;
     }
   }
 

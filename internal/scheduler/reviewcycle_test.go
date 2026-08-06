@@ -84,13 +84,13 @@ func TestProcessQueueGracefulStop(t *testing.T) {
 	}, fs, nil, "the-gh-user", nil, nil)
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
-	stopCtx, stop := context.WithCancel(context.Background())
+	gracefulCtx, stop := context.WithCancel(context.Background())
 	defer stop()
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.processQueue(stopCtx, context.Background(), []pending{
+		s.processQueue(gracefulCtx, context.Background(), []pending{
 			{candidate: store.Candidate{Repo: "o/r", Number: 1, HeadSHA: "s1"}},
 			{candidate: store.Candidate{Repo: "o/r", Number: 2, HeadSHA: "s2"}},
 		}, config.Config{Schedule: config.ScheduleSettings{MaxParallel: 1}, Review: config.ReviewSettings{MainPrompt: "MAIN"}})
@@ -271,10 +271,10 @@ func TestProcessQueueStartsNothingAfterStopRequested(t *testing.T) {
 		// Already cancelled before the queue is processed, exactly as it is
 		// when a candidate list survives the cycle's earlier checks and the
 		// signal lands during them.
-		stopCtx, stop := context.WithCancel(context.Background())
+		gracefulCtx, stop := context.WithCancel(context.Background())
 		stop()
 
-		s.processQueue(stopCtx, context.Background(), []pending{
+		s.processQueue(gracefulCtx, context.Background(), []pending{
 			{candidate: store.Candidate{Repo: "o/r", Number: 1, HeadSHA: "s1"}},
 			{candidate: store.Candidate{Repo: "o/r", Number: 2, HeadSHA: "s2"}},
 		}, config.Config{Schedule: config.ScheduleSettings{MaxParallel: 4}, Review: config.ReviewSettings{MainPrompt: "MAIN"}})

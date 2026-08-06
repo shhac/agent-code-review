@@ -20,8 +20,12 @@ import (
 type fakeSchedStore struct {
 	store.Store // panic on anything not overridden
 
-	mu        sync.Mutex
-	group     string
+	mu    sync.Mutex
+	group string // the group every handle resolves to, unless byHandle says otherwise
+	// byHandle answers per author. A cycle can run several engines at once, so
+	// a fake that gives every handle the same group cannot express the case the
+	// per-engine floor exists for: one candidate held while another runs.
+	byHandle  map[string]string
 	groupErr  error // simulate the roster lookup failing
 	claimLost bool  // simulate losing the compare-and-swap to another worker
 	claims    []store.Lease
@@ -40,8 +44,29 @@ func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, l store.Lease
 	return true, nil
 }
 
-func (f *fakeSchedStore) AuthorGroup(context.Context, string, string) (config.Membership, error) {
-	return config.Membership{Group: f.group, Repo: config.WildcardRepo}, f.groupErr
+func (f *fakeSchedStore) AuthorGroup(_ context.Context, _, handle string) (config.Membership, error) {
+	if f.groupErrFor(handle) != nil {
+		return config.Membership{}, f.groupErrFor(handle)
+	}
+	group := f.group
+	if g, ok := f.byHandle[handle]; ok {
+		group = g
+	}
+	return config.Membership{Group: group, Repo: config.WildcardRepo}, nil
+}
+
+// groupErrFor scopes the simulated lookup failure: an entry of "" in byHandle
+// marks the one author whose row cannot be read, so a test can prove that ONE
+// bad lookup holds back the healthy candidates too. A bare groupErr fails for
+// every handle.
+func (f *fakeSchedStore) groupErrFor(handle string) error {
+	if f.groupErr == nil {
+		return nil
+	}
+	if g, ok := f.byHandle[handle]; ok && g != "" {
+		return nil
+	}
+	return f.groupErr
 }
 
 func (f *fakeSchedStore) Complete(_ context.Context, r store.Review) error {
@@ -309,20 +334,27 @@ func roomy() usage.Snapshot {
 // cycle: one engine being out of headroom holds ITS candidates and nothing
 // else. A held candidate is never claimed and never completed, so it is a
 // hold like a cooldown, not a skip; it runs when the window refills.
+//
+// The mixed shape is the whole point. Both candidates on one engine could not
+// catch a regression that claims or completes a floored candidate, because
+// there would be no floored candidate in the cycle to get it wrong about.
 func TestReviewCycleUsageFloorIsPerEngine(t *testing.T) {
-	// alice's group reviews on claude, which has room; bob's on codex, which
-	// does not.
+	// alice's group reviews on claude, which has room; bob falls through to the
+	// default codex engine, which does not.
 	cfg := config.Config{
 		Review: config.ReviewSettings{Engine: "codex", MainPrompt: "MAIN"},
 		Authors: config.AuthorSettings{
-			Groups: map[string]config.Group{"claude-cohort": {Review: config.ReviewComment, Engine: "claude"}},
+			Groups: map[string]config.Group{
+				"claude-cohort": {Review: config.ReviewComment, Engine: "claude"},
+				"codex-cohort":  {Review: config.ReviewComment, Engine: "codex"},
+			},
 		},
 	}
 	fs := &fakeCycleStore{queue: []store.Candidate{
 		{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"},
 		{Repo: "o/r", Number: 2, Author: "bob", HeadSHA: "s2"},
 	}}
-	fs.group = "claude-cohort" // the fake answers for every handle
+	fs.byHandle = map[string]string{"alice": "claude-cohort", "bob": "codex-cohort"}
 	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
 
 	byEngine := func(engine string) usage.Snapshot {
@@ -338,10 +370,49 @@ func TestReviewCycleUsageFloorIsPerEngine(t *testing.T) {
 	if err := s.reviewCycleOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// Both candidates resolve to the claude group here, so both should run:
-	// the codex floor must not touch them.
-	if len(fs.completed) != 2 {
-		t.Fatalf("candidates on the engine with headroom must run, got %+v", fs.completed)
+	// The candidate on the engine with headroom runs...
+	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
+		t.Fatalf("only alice's PR (claude, has headroom) should complete, got %+v", fs.completed)
+	}
+	// ...and the one on the floored engine is HELD, not skipped: no claim and
+	// no history row, so nothing retires it from the queue.
+	if len(fs.claims) != 1 {
+		t.Errorf("the floored candidate must never be claimed, got %d claims", len(fs.claims))
+	}
+	for _, r := range fs.completed {
+		if r.Number == 2 {
+			t.Errorf("a floored candidate must not be completed (that would retire it): %+v", r)
+		}
+	}
+}
+
+// TestReviewCycleRosterErrorHoldsTheWholeCycle pins the blast radius of the
+// deliberate fail-closed choice in resolvePending: it returns on the FIRST
+// roster error, so one unreadable row stops the healthy candidates in that
+// cycle too. That is the safe direction (never guess a policy), but it is a
+// real cost and must be visible rather than discovered in production.
+func TestReviewCycleRosterErrorHoldsTheWholeCycle(t *testing.T) {
+	fs := &fakeCycleStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, Author: "healthy", HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, Author: "unreadable", HeadSHA: "s2"},
+	}}
+	// "healthy" resolves fine; "unreadable" has no entry, so groupErr applies.
+	fs.byHandle = map[string]string{"healthy": config.GroupCommenter}
+	fs.groupErr = errors.New("store unavailable")
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+	s := newCycleScheduler(fs, fe)
+
+	if err := s.reviewCycleOnce(context.Background()); err == nil {
+		t.Fatal("a roster lookup error must propagate rather than defaulting the policy")
+	}
+	if fe.prompt != "" {
+		t.Error("no engine may run when a policy in this cycle could not be resolved")
+	}
+	if len(fs.claims) != 0 || len(fs.completed) != 0 {
+		t.Errorf("no candidate may be claimed or completed, got claims=%+v completed=%+v", fs.claims, fs.completed)
+	}
+	if len(fs.started) != 0 {
+		t.Errorf("resolution happens before the run-lock, so no run may be recorded, got %+v", fs.started)
 	}
 }
 

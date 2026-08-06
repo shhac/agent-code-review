@@ -20,6 +20,7 @@ type fakeStore struct {
 	outcome      store.Review
 	hasOutcome   bool
 	authorGroups map[string]string // handle → group; absent = unlisted
+	authorErr    error             // simulate the roster lookup failing
 	enqueued     []store.Candidate
 }
 
@@ -37,6 +38,9 @@ func (f *fakeStore) LastOutcome(context.Context, string, int) (store.Review, boo
 	return f.last, f.hasLast, nil
 }
 func (f *fakeStore) AuthorGroup(_ context.Context, _ string, handle string) (config.Membership, error) {
+	if f.authorErr != nil {
+		return config.Membership{}, f.authorErr
+	}
 	group, ok := f.authorGroups[handle]
 	if !ok {
 		return config.Membership{}, nil
@@ -460,4 +464,24 @@ func TestDiscoverSweep(t *testing.T) {
 			t.Errorf("draft PRs must classify out, got found=%v enqueued=%v err=%v", found, fs.enqueued, err)
 		}
 	})
+}
+
+// An unreadable roster row must abort the sweep rather than fall through to a
+// guessed policy: guessing here would enqueue (or silently drop) PRs on a
+// policy nobody wrote. Discovery fails closed, and the next sweep retries.
+func TestClassifyPropagatesRosterLookupError(t *testing.T) {
+	fs := &fakeStore{authorErr: errors.New("store unavailable")}
+	d := New(staticConfig(config.Config{Repos: []string{"o/repo"}}), fs, nil)
+	d.now = fixedNow
+
+	_, ok, err := d.classify(context.Background(), d.cfg(), "o/repo", samplePR("alice"))
+	if err == nil {
+		t.Fatal("a roster lookup error must propagate")
+	}
+	if ok {
+		t.Error("no candidate may be classified when the policy could not be resolved")
+	}
+	if len(fs.enqueued) != 0 {
+		t.Errorf("nothing may be enqueued, got %+v", fs.enqueued)
+	}
 }

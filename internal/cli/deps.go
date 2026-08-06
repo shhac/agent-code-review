@@ -115,6 +115,20 @@ func parseRepoNumber(args []string) (string, int, error) {
 	return ref.Repo, ref.Number, nil
 }
 
+// unknownGroup is the shared "no such cohort" error. The resolver deliberately
+// treats an unknown group as comment-only rather than failing a review, which
+// is right at review time and wrong at write time: here it is a typo someone is
+// still looking at, so every command that accepts a group name rejects it the
+// same way, listing the same valid set. hint adds the per-command nudge (which
+// flag, or where to define one) and may be empty.
+func unknownGroup(cfg config.Config, name, hint string) error {
+	msg := "Unknown group " + name + ". Valid: " + strings.Join(cfg.GroupNames(), ", ")
+	if hint != "" {
+		msg += ". " + hint
+	}
+	return output.New(msg, output.FixableByAgent)
+}
+
 // invalidEnum is the shared enum-flag error: one wording for every
 // "--flag must be one of ..." failure, built from the same slice the
 // completions offer.

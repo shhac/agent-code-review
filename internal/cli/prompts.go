@@ -206,8 +206,7 @@ func promptsPreviewCmd() *cobra.Command {
 func previewMembership(cmd *cobra.Command, cfg config.Config, repo, author, group string, notAllowed bool) (config.Membership, error) {
 	if group != "" {
 		if _, ok := cfg.Group(group); !ok {
-			return config.Membership{}, output.New("Unknown group "+group+". Valid: "+
-				strings.Join(cfg.GroupNames(), ", "), output.FixableByAgent)
+			return config.Membership{}, unknownGroup(cfg, group, "named in --group")
 		}
 		return config.Membership{Group: group, Repo: config.WildcardRepo}, nil
 	}

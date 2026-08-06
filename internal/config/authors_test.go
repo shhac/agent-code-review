@@ -160,9 +160,17 @@ func TestExplainPolicyNamesTheDecidingLayer(t *testing.T) {
 	if len(trace) == 0 {
 		t.Fatal("ExplainPolicy returned no trace")
 	}
-	// ResolvePolicy must agree with ExplainPolicy; one resolution, two views.
-	if p, _ := cfg.ExplainPolicy("acme/backend", "author-b", Membership{Group: "core", Repo: "acme/backend"}); p != cfg.ResolvePolicy("acme/backend", "author-b", Membership{Group: "core", Repo: "acme/backend"}) {
-		t.Error("ExplainPolicy and ResolvePolicy disagreed")
+	// Every field the policy ended up with must be attributable: a trace that
+	// silently omits a layer is worse than no trace, because it reads as
+	// authoritative.
+	policy, _ := cfg.ExplainPolicy("acme/backend", "author-b", Membership{Group: "core", Repo: "acme/backend"})
+	for field, value := range map[string]string{
+		"review": policy.Review, "engine": policy.Engine,
+		"model": policy.Model, "effort": policy.Effort, "prompt": policy.Prompt,
+	} {
+		if value != "" && got[field] == "" {
+			t.Errorf("%s resolved to %q but no trace step claims it", field, value)
+		}
 	}
 }
 

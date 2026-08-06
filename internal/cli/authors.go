@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"strings"
-
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
@@ -50,12 +48,10 @@ func authorsLsCmd() *cobra.Command {
 				// group config no longer defines is invisible otherwise, and
 				// this listing is where it should show.
 				return emitEach(authors, func(_ int, a store.Author) any {
-					policy := cfg.ResolvePolicy(a.Repo, a.GitHubHandle,
-						config.Membership{Group: a.Group, Repo: a.Repo})
 					return struct {
 						store.Author
 						Policy config.Policy `json:"policy"`
-					}{Author: a, Policy: policy}
+					}{Author: a, Policy: cfg.ResolvePolicy(a.Repo, a.GitHubHandle, a.Membership())}
 				})
 			})
 		},
@@ -85,8 +81,7 @@ func authorsSetCmd() *cobra.Command {
 			// right behaviour at review time; at write time it is a typo and
 			// should be caught while the person is still looking at it.
 			if _, ok := cfg.Group(group); !ok {
-				return output.New("Unknown group "+group+". Valid: "+strings.Join(cfg.GroupNames(), ", ")+
-					". Define new groups under authors.groups in config.json", output.FixableByAgent)
+				return unknownGroup(cfg, group, "Define new groups under authors.groups in config.json")
 			}
 			return withStore(func(s store.Store) error {
 				a := store.Author{
@@ -151,23 +146,20 @@ func authorsGroupsCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg := config.Read()
-			names := cfg.GroupNames()
-			return emitEach(names, func(_ int, name string) any {
-				g, _ := cfg.Group(name)
-				_, declared := cfg.Authors.Groups[name]
-				review := g.Review
+			return emitEach(cfg.Cohorts(), func(_ int, cohort config.Cohort) any {
+				review := cohort.Review
 				if review == "" {
 					review = config.ReviewComment
 				}
 				return map[string]any{
-					"group":    name,
+					"group":    cohort.Name,
 					"review":   review,
-					"engine":   g.Engine,
-					"model":    g.Model,
-					"effort":   g.Effort,
-					"prompt":   g.Prompt,
-					"builtin":  !declared,
-					"unlisted": unlistedRepos(cfg, name),
+					"engine":   cohort.Engine,
+					"model":    cohort.Model,
+					"effort":   cohort.Effort,
+					"prompt":   cohort.Prompt,
+					"builtin":  cohort.Builtin,
+					"unlisted": unlistedRepos(cfg, cohort.Name),
 				}
 			})
 		},

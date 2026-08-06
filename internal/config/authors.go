@@ -20,7 +20,6 @@ package config
 import (
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -111,7 +110,7 @@ type PolicyStep struct {
 // ResolvePolicy computes an author's treatment for one repo. m is the store's
 // membership lookup; its zero value means the author is unlisted.
 func (c Config) ResolvePolicy(repo, handle string, m Membership) Policy {
-	p, _ := c.resolve(repo, handle, m, false)
+	p, _ := c.resolve(repo, handle, m)
 	return p
 }
 
@@ -119,27 +118,24 @@ func (c Config) ResolvePolicy(repo, handle string, m Membership) Policy {
 // the order the layers applied. It powers the preview's --explain mode and
 // `authors ls`.
 func (c Config) ExplainPolicy(repo, handle string, m Membership) (Policy, []PolicyStep) {
-	return c.resolve(repo, handle, m, true)
+	return c.resolve(repo, handle, m)
 }
 
-func (c Config) resolve(repo, handle string, m Membership, explain bool) (Policy, []PolicyStep) {
-	var trace []PolicyStep
-	record := func(field, value, source string) {
-		if explain {
-			trace = append(trace, PolicyStep{Field: field, Value: value, Source: source})
-		}
-	}
-
+// resolve runs the cascade, always building the trace. The trace is at most
+// one step per field per layer, resolved once per candidate rather than in any
+// hot loop, so making it conditional would buy an allocation nobody would
+// notice at the cost of two code paths that have to be proven to agree.
+func (c Config) resolve(repo, handle string, m Membership) (Policy, []PolicyStep) {
 	name, source := c.groupFor(repo, m)
-	record("group", name, source)
+	trace := []PolicyStep{{Field: "group", Value: name, Source: source}}
 
 	p := Policy{Group: name}
 	if g, ok := c.Group(name); ok {
-		p.patch(g, "group["+name+"]", record)
+		trace = append(trace, p.patch(g, "group["+name+"]")...)
 	}
 	for _, o := range c.Authors.Overrides {
 		if o.matches(repo, handle) {
-			p.patch(o.Group, "override["+o.Handle+"]", record)
+			trace = append(trace, p.patch(o.Group, "override["+o.Handle+"]")...)
 		}
 	}
 	// No layer stated a level: either the group omitted one, or it names a
@@ -148,7 +144,8 @@ func (c Config) resolve(repo, handle string, m Membership, explain bool) (Policy
 	// is not silently dropped, but we cannot approve on a policy nobody wrote.
 	if p.Review == "" {
 		p.Review = ReviewComment
-		record("review", ReviewComment, "default (no group set one)")
+		trace = append(trace, PolicyStep{
+			Field: "review", Value: ReviewComment, Source: "default (no group set one)"})
 	}
 	return p, trace
 }
@@ -201,48 +198,74 @@ func (c Config) Group(name string) (Group, bool) {
 	return g, ok
 }
 
-// GroupNames lists every group that can be referenced, declared and built-in,
-// sorted: the source for shell completion and the CLI's error text.
-func (c Config) GroupNames() []string {
-	seen := map[string]bool{}
-	names := make([]string, 0, len(c.Authors.Groups)+len(builtinGroups))
-	for name := range c.Authors.Groups {
-		seen[name] = true
-		names = append(names, name)
+// Cohort is one referenceable group with its name attached, and whether it
+// came from config or is one of the built-ins.
+type Cohort struct {
+	Name string
+	Group
+	Builtin bool
+}
+
+// Cohorts lists every group that can be referenced, declared and built-in,
+// sorted by name. It is the one enumeration of "what cohorts exist": doctor's
+// reachable-engine sweep, ReachableEngines, GroupsUsing, and `authors groups`
+// all walk this rather than pairing GroupNames with Group themselves, so a new
+// consumer cannot quietly forget the built-ins or drop the not-found case.
+func (c Config) Cohorts() []Cohort {
+	cohorts := make([]Cohort, 0, len(c.Authors.Groups)+len(builtinGroups))
+	for name, g := range c.Authors.Groups {
+		cohorts = append(cohorts, Cohort{Name: name, Group: g})
 	}
 	for _, name := range BuiltinGroups() {
-		if !seen[name] {
-			names = append(names, name)
+		// A declared group of the same name replaces the built-in, so only add
+		// the built-in when config did not define it.
+		if _, declared := c.Authors.Groups[name]; !declared {
+			cohorts = append(cohorts, Cohort{Name: name, Group: builtinGroups[name], Builtin: true})
 		}
 	}
-	sort.Strings(names)
+	sort.Slice(cohorts, func(i, j int) bool { return cohorts[i].Name < cohorts[j].Name })
+	return cohorts
+}
+
+// GroupNames is Cohorts reduced to names, for shell completion and the CLI's
+// error text.
+func (c Config) GroupNames() []string {
+	names := make([]string, 0, len(c.Authors.Groups)+len(builtinGroups))
+	for _, cohort := range c.Cohorts() {
+		names = append(names, cohort.Name)
+	}
 	return names
 }
 
-// patch layers one set of fields onto the policy, recording every field it
-// decides. Scalars are last-writer-wins; prompts accumulate, so an override
+// patch layers one set of fields onto the policy, returning the steps it
+// decided. Scalars are last-writer-wins; prompts accumulate, so an override
 // adds a personal line to its group's instruction rather than silently
 // dropping it. That also matches how rule fragments already concatenate.
-func (p *Policy) patch(g Group, source string, record func(field, value, source string)) {
-	assign(&p.Review, g.Review, "review", source, record)
-	assign(&p.Engine, g.Engine, "engine", source, record)
-	assign(&p.Model, g.Model, "model", source, record)
-	assign(&p.Effort, g.Effort, "effort", source, record)
+func (p *Policy) patch(g Group, source string) []PolicyStep {
+	var steps []PolicyStep
+	steps = setField(steps, &p.Review, g.Review, "review", source)
+	steps = setField(steps, &p.Engine, g.Engine, "engine", source)
+	steps = setField(steps, &p.Model, g.Model, "model", source)
+	steps = setField(steps, &p.Effort, g.Effort, "effort", source)
 	if fragment := strings.TrimSpace(g.Prompt); fragment != "" {
 		if p.Prompt != "" {
 			p.Prompt += "\n\n"
 		}
 		p.Prompt += fragment
-		record("prompt", fragment, source)
+		steps = append(steps, PolicyStep{Field: "prompt", Value: fragment, Source: source})
 	}
+	return steps
 }
 
-func assign(dst *string, value, field, source string, record func(field, value, source string)) {
+// setField writes value to dst and records the step that decided it. An empty
+// value writes nothing, which is what makes an unset field inherit from the
+// layer beneath.
+func setField(steps []PolicyStep, dst *string, value, field, source string) []PolicyStep {
 	if value == "" {
-		return
+		return steps
 	}
 	*dst = value
-	record(field, value, source)
+	return append(steps, PolicyStep{Field: field, Value: value, Source: source})
 }
 
 // matches reports whether this override applies to handle on repo. Handles
@@ -257,17 +280,9 @@ func (o AuthorOverride) matches(repo, handle string) bool {
 // RepoScopeMatches reports whether repo is in a repo scope list, where an
 // empty list and an explicit WildcardRepo entry both mean "every repo". It is
 // RepoMatches for the places that accept "*", which RepoMatches deliberately
-// does not.
+// does not, and it composes that one rather than restating the scan.
 func RepoScopeMatches(scope []string, repo string) bool {
-	if len(scope) == 0 {
-		return true
-	}
-	for _, r := range scope {
-		if r == WildcardRepo || strings.EqualFold(r, repo) {
-			return true
-		}
-	}
-	return false
+	return len(scope) == 0 || RepoMatches(scope, WildcardRepo) || RepoMatches(scope, repo)
 }
 
 // lookupRepo finds repo's entry in a repo-keyed map using GitHub's
@@ -348,10 +363,8 @@ func (c Config) ReachableEngines() []string {
 			engines = append(engines, name)
 		}
 	}
-	for _, name := range c.GroupNames() {
-		if g, ok := c.Group(name); ok {
-			add(g.Engine)
-		}
+	for _, cohort := range c.Cohorts() {
+		add(cohort.Engine)
 	}
 	for _, o := range c.Authors.Overrides {
 		add(o.Engine)
@@ -367,9 +380,9 @@ func (c Config) GroupsUsing(engine string) []string {
 	if c.Engine() == engine {
 		users = append(users, "(default)")
 	}
-	for _, name := range c.GroupNames() {
-		if g, ok := c.Group(name); ok && g.Engine == engine {
-			users = append(users, "group "+name)
+	for _, cohort := range c.Cohorts() {
+		if cohort.Engine == engine {
+			users = append(users, "group "+cohort.Name)
 		}
 	}
 	for _, o := range c.Authors.Overrides {
@@ -379,70 +392,3 @@ func (c Config) GroupsUsing(engine string) []string {
 	}
 	return users
 }
-
-// ValidateAuthors reports author-group misconfigurations that would misroute
-// reviews without any single value being malformed on its own: a group with an
-// unknown review level or engine, an unlisted fallback pointing at a group
-// nobody defined, an override with no handle or a malformed repo scope. Empty
-// means nothing statically detectable is wrong. Membership rows naming a
-// deleted group cannot be seen from here (they live in the store); `authors
-// ls` surfaces those by resolving each row.
-func (c Config) ValidateAuthors() []string {
-	var problems []string
-	for _, name := range sortedKeys(c.Authors.Groups) {
-		g := c.Authors.Groups[name]
-		if g.Review != "" && !ValidReviewLevel(g.Review) {
-			problems = append(problems, "authors.groups."+name+".review is "+quoted(g.Review)+
-				"; valid: "+strings.Join(ReviewLevels, ", "))
-		}
-		problems = append(problems, engineProblem("authors.groups."+name, g.Engine)...)
-	}
-	for _, repo := range sortedKeys(c.Authors.Unlisted) {
-		if repo != WildcardRepo && !ValidRepoName(repo) {
-			problems = append(problems, "authors.unlisted key "+quoted(repo)+
-				` is not a repo; use "owner/name" or "*"`)
-		}
-		if group := c.Authors.Unlisted[repo]; group != "" {
-			if _, ok := c.Group(group); !ok {
-				problems = append(problems, "authors.unlisted["+repo+"] names group "+quoted(group)+
-					", which is not defined; valid: "+strings.Join(c.GroupNames(), ", "))
-			}
-		}
-	}
-	for i, o := range c.Authors.Overrides {
-		where := "authors.overrides[" + strconv.Itoa(i) + "]"
-		if strings.TrimSpace(o.Handle) == "" {
-			problems = append(problems, where+" has no handle, so it can never match an author")
-		}
-		if o.Review != "" && !ValidReviewLevel(o.Review) {
-			problems = append(problems, where+".review is "+quoted(o.Review)+
-				"; valid: "+strings.Join(ReviewLevels, ", "))
-		}
-		problems = append(problems, engineProblem(where, o.Engine)...)
-		for _, repo := range o.Repos {
-			if repo != WildcardRepo && !ValidRepoName(repo) {
-				problems = append(problems, where+".repos entry "+quoted(repo)+
-					` is not a repo; use "owner/name" or "*"`)
-			}
-		}
-	}
-	return problems
-}
-
-func engineProblem(where, engine string) []string {
-	if engine == "" || slices.Contains(EngineNames, engine) {
-		return nil
-	}
-	return []string{where + ".engine is " + quoted(engine) + "; valid: " + strings.Join(EngineNames, ", ")}
-}
-
-func sortedKeys[T any](m map[string]T) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func quoted(s string) string { return `"` + s + `"` }

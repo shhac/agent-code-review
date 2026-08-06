@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -36,4 +38,70 @@ func RepoMatches(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ValidateAuthors reports author-group misconfigurations that would misroute
+// reviews without any single value being malformed on its own: a group with an
+// unknown review level or engine, an unlisted fallback pointing at a group
+// nobody defined, an override with no handle or a malformed repo scope. Empty
+// means nothing statically detectable is wrong. Membership rows naming a
+// deleted group cannot be seen from here (they live in the store); `authors
+// ls` surfaces those by resolving each row.
+func (c Config) ValidateAuthors() []string {
+	var problems []string
+	for _, name := range sortedKeys(c.Authors.Groups) {
+		g := c.Authors.Groups[name]
+		if g.Review != "" && !ValidReviewLevel(g.Review) {
+			problems = append(problems, fmt.Sprintf("authors.groups.%s.review is %q; valid: %s",
+				name, g.Review, strings.Join(ReviewLevels, ", ")))
+		}
+		problems = append(problems, engineProblem("authors.groups."+name, g.Engine)...)
+	}
+	for _, repo := range sortedKeys(c.Authors.Unlisted) {
+		if repo != WildcardRepo && !ValidRepoName(repo) {
+			problems = append(problems, fmt.Sprintf(
+				`authors.unlisted key %q is not a repo; use "owner/name" or "*"`, repo))
+		}
+		if group := c.Authors.Unlisted[repo]; group != "" {
+			if _, ok := c.Group(group); !ok {
+				problems = append(problems, fmt.Sprintf(
+					"authors.unlisted[%s] names group %q, which is not defined; valid: %s",
+					repo, group, strings.Join(c.GroupNames(), ", ")))
+			}
+		}
+	}
+	for i, o := range c.Authors.Overrides {
+		where := fmt.Sprintf("authors.overrides[%d]", i)
+		if strings.TrimSpace(o.Handle) == "" {
+			problems = append(problems, where+" has no handle, so it can never match an author")
+		}
+		if o.Review != "" && !ValidReviewLevel(o.Review) {
+			problems = append(problems, fmt.Sprintf("%s.review is %q; valid: %s",
+				where, o.Review, strings.Join(ReviewLevels, ", ")))
+		}
+		problems = append(problems, engineProblem(where, o.Engine)...)
+		for _, repo := range o.Repos {
+			if repo != WildcardRepo && !ValidRepoName(repo) {
+				problems = append(problems, fmt.Sprintf(
+					`%s.repos entry %q is not a repo; use "owner/name" or "*"`, where, repo))
+			}
+		}
+	}
+	return problems
+}
+
+func engineProblem(where, engine string) []string {
+	if engine == "" || slices.Contains(EngineNames, engine) {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s.engine is %q; valid: %s", where, engine, strings.Join(EngineNames, ", "))}
+}
+
+func sortedKeys[T any](m map[string]T) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

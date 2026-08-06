@@ -182,8 +182,7 @@ func validateRule(r config.Rule) error {
 	cfg := config.Read()
 	for _, group := range r.When.Groups {
 		if _, ok := cfg.Group(group); !ok {
-			return output.New("Unknown group "+group+" in --group. Valid: "+
-				strings.Join(cfg.GroupNames(), ", "), output.FixableByAgent)
+			return unknownGroup(cfg, group, "named in --group")
 		}
 	}
 	return nil

@@ -20,6 +20,14 @@ type Author struct {
 	SlackID      string `json:"slack_id,omitempty"`
 }
 
+// Membership is the roster row expressed as what the policy cascade consumes.
+// Callers that already hold a row (listing the roster, rendering it) resolve
+// through this rather than rebuilding the struct, so "which repo key did this
+// row claim" is answered in one place.
+func (a Author) Membership() config.Membership {
+	return config.Membership{Group: a.Group, Repo: a.Repo}
+}
+
 // WildcardRepo as an Author.Repo applies the entry to every repo. Aliased from
 // config, which owns the wildcard vocabulary shared with override repo scopes
 // and the unlisted map, so the three cannot drift.

@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"strings"
-
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
@@ -67,8 +65,7 @@ func reposAddCmd() *cobra.Command {
 			cfgNow := config.Read()
 			if unlisted != "" {
 				if _, ok := cfgNow.Group(unlisted); !ok {
-					return output.New("Unknown group "+unlisted+". Valid: "+
-						strings.Join(cfgNow.GroupNames(), ", "), output.FixableByAgent)
+					return unknownGroup(cfgNow, unlisted, "--unlisted names the group unrostered authors fall into")
 				}
 			}
 			watched := false

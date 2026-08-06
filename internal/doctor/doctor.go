@@ -75,21 +75,21 @@ func ConfigProblems(cfg config.Config) []string {
 	return problems
 }
 
-// reachableSettings enumerates the distinct engine configurations a review can
-// actually run under: the base settings, then each group's and each override's
-// patch of them. Deduplicated on the fields Preflight judges, so a dozen
-// groups sharing one model report one problem rather than a dozen; `where`
-// attributes each to whoever introduced it.
-func reachableSettings(cfg config.Config) []struct {
+// reachableSetting is one engine configuration a review can actually run
+// under, with the group or override that introduced it.
+type reachableSetting struct {
 	where    string
 	settings config.ReviewSettings
-} {
-	type entry = struct {
-		where    string
-		settings config.ReviewSettings
-	}
+}
+
+// reachableSettings enumerates the distinct engine configurations a review can
+// actually run under: the base settings, then each cohort's and each
+// override's patch of them. Deduplicated on the fields Preflight judges, so a
+// dozen groups sharing one model report one problem rather than a dozen;
+// `where` attributes each to whoever introduced it.
+func reachableSettings(cfg config.Config) []reachableSetting {
 	seen := map[string]bool{}
-	var out []entry
+	var out []reachableSetting
 	add := func(where string, policy config.Policy) {
 		settings := cfg.Review.WithPolicy(policy)
 		key := fmt.Sprintf("%s|%s|%s|%s|%s|%s",
@@ -99,13 +99,12 @@ func reachableSettings(cfg config.Config) []struct {
 			return
 		}
 		seen[key] = true
-		out = append(out, entry{where: where, settings: settings})
+		out = append(out, reachableSetting{where: where, settings: settings})
 	}
 	add("", config.Policy{})
-	for _, name := range cfg.GroupNames() {
-		if g, ok := cfg.Group(name); ok {
-			add("group "+name+": ", config.Policy{Engine: g.Engine, Model: g.Model, Effort: g.Effort})
-		}
+	for _, cohort := range cfg.Cohorts() {
+		add("group "+cohort.Name+": ",
+			config.Policy{Engine: cohort.Engine, Model: cohort.Model, Effort: cohort.Effort})
 	}
 	for _, o := range cfg.Authors.Overrides {
 		add("override "+o.Handle+": ", config.Policy{Engine: o.Engine, Model: o.Model, Effort: o.Effort})

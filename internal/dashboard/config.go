@@ -127,8 +127,10 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
 		cfg := s.config()
 		rows := make([]authorRow, 0, len(authors))
 		for _, a := range authors {
-			policy := cfg.ResolvePolicy(a.Repo, a.GitHubHandle, config.Membership{Group: a.Group, Repo: a.Repo})
-			rows = append(rows, authorRow{Author: a, Policy: policy})
+			rows = append(rows, authorRow{
+				Author: a,
+				Policy: cfg.ResolvePolicy(a.Repo, a.GitHubHandle, a.Membership()),
+			})
 		}
 		return authorsResp{Authors: rows}, nil
 	})

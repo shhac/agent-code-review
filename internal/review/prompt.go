@@ -209,7 +209,9 @@ func matchReason(w config.Condition, c store.Candidate, f Facts) (bool, string) 
 	if len(w.Groups) > 0 && !slices.Contains(w.Groups, f.Policy.Group) {
 		return false, "group " + f.Policy.Group + " not in [" + strings.Join(w.Groups, ", ") + "]"
 	}
-	if len(w.Authors) > 0 && !containsFold(w.Authors, c.Author) {
+	// RepoMatches is a case-insensitive membership test; handles carry the same
+	// GitHub identity semantics repos do, so it is the right check for both.
+	if len(w.Authors) > 0 && !config.RepoMatches(w.Authors, c.Author) {
 		return false, "author not in [" + strings.Join(w.Authors, ", ") + "]"
 	}
 	if w.CandidateType != "" && !strings.EqualFold(w.CandidateType, c.Type) {
@@ -219,17 +221,6 @@ func matchReason(w config.Condition, c store.Candidate, f Facts) (bool, string) 
 		return false, "repo not in [" + strings.Join(w.Repos, ", ") + "]"
 	}
 	return true, ""
-}
-
-// containsFold reports membership using GitHub's case-insensitive identity
-// semantics, for the condition fields that hold handles.
-func containsFold(list []string, want string) bool {
-	for _, s := range list {
-		if strings.EqualFold(s, want) {
-			return true
-		}
-	}
-	return false
 }
 
 // RuleTrace explains one rule's fate for a candidate: whether it fired, where

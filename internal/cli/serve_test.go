@@ -159,15 +159,52 @@ func TestWaitForScheduler(t *testing.T) {
 		}
 	})
 
-	t.Run("force context skips drain wait", func(t *testing.T) {
+	// A forced shutdown still waits, briefly, for the reviewers to actually
+	// die. Engines run in their own process group, so the terminal cannot kill
+	// them and nothing else will reap them: returning before the kill lands
+	// leaves them orphaned and still spending. The wait is bounded so a wedged
+	// reviewer cannot block the exit it was asked to force.
+	t.Run("force waits for the kill to land", func(t *testing.T) {
 		forceCtx, force := context.WithCancel(context.Background())
 		force()
 		logs := &testLogs{}
+		done := make(chan error, 1)
+
+		finished := make(chan bool, 1)
+		go func() { finished <- waitForScheduler(done, forceCtx, logs.logf) }()
+		select {
+		case <-finished:
+			t.Fatal("force must not return before in-flight reviewers have exited")
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		close(done) // the reviewers died
+		select {
+		case forced := <-finished:
+			if !forced {
+				t.Fatal("canceled force context must force shutdown")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("force must return once the reviewers have exited")
+		}
+		if !logs.contains("killing in-flight reviewers") {
+			t.Fatalf("missing force log: %#v", logs.lines)
+		}
+	})
+
+	t.Run("force gives up on a wedged reviewer", func(t *testing.T) {
+		defer func(d time.Duration) { forceDrain = d }(forceDrain)
+		forceDrain = 20 * time.Millisecond
+
+		forceCtx, force := context.WithCancel(context.Background())
+		force()
+		logs := &testLogs{}
+		// Never closed: the reviewer will not exit.
 		if !waitForScheduler(make(chan error), forceCtx, logs.logf) {
 			t.Fatal("canceled force context must force shutdown")
 		}
-		if !logs.contains("force shutdown without waiting") {
-			t.Fatalf("missing force-wait log: %#v", logs.lines)
+		if !logs.contains("did not exit within") {
+			t.Fatalf("giving up must say so: %#v", logs.lines)
 		}
 	})
 }

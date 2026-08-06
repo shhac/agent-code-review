@@ -276,6 +276,11 @@ func newShutdownController(ctx context.Context, signals <-chan os.Signal, logf s
 // which a test feeding the signal channel directly cannot.
 var shutdownSignals = []os.Signal{syscall.SIGINT, syscall.SIGTERM}
 
+// forceDrain bounds how long a forced shutdown waits for in-flight reviewers
+// to actually die after their contexts are cancelled. A var so tests can
+// shrink it, like the scheduler's heartbeat.
+var forceDrain = 5 * time.Second
+
 func waitForScheduler(done <-chan error, forceCtx context.Context, logf scheduler.Logf) bool {
 	if done == nil {
 		return false
@@ -284,7 +289,20 @@ func waitForScheduler(done <-chan error, forceCtx context.Context, logf schedule
 	case <-done:
 		return false
 	case <-forceCtx.Done():
-		logf("shutdown: force shutdown without waiting for in-flight reviewers")
+		logf("shutdown: force shutdown, killing in-flight reviewers")
+		// Returning straight away would exit before the kill lands. Engines
+		// run in their own process group now (so the terminal cannot kill a
+		// review the first Ctrl-C promised to wait for), which means nothing
+		// else will reap them: they would outlive the daemon and keep
+		// spending against the subscription with nobody reading their output.
+		// Cancellation SIGKILLs the group, so in practice this waits
+		// milliseconds; the bound only stops a wedged reviewer from blocking
+		// the exit it was asked to force.
+		select {
+		case <-done:
+		case <-time.After(forceDrain):
+			logf("shutdown: in-flight reviewers did not exit within %s; exiting anyway", forceDrain)
+		}
 		return true
 	}
 }

@@ -216,7 +216,7 @@ var inlineVerdictSchema = jsonCompact(verdictSchema)
 func (e *claudeEngine) buildArgs(prompt string) []string {
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--json-schema", inlineVerdictSchema}
 	args = append(args, e.commonArgs()...)
-	return appendPrompt(args, prompt+reportingInstruction)
+	return appendPositionals(args, prompt+reportingInstruction)
 }
 
 // buildResumeArgs assembles the invocation that nudges a session which ended
@@ -225,26 +225,7 @@ func (e *claudeEngine) buildArgs(prompt string) []string {
 func (e *claudeEngine) buildResumeArgs(sessionID string) []string {
 	args := []string{"-p", "--resume", sessionID, "--output-format", "stream-json", "--verbose", "--json-schema", inlineVerdictSchema}
 	args = append(args, e.commonArgs()...)
-	return appendPrompt(args, e.resumePrompt)
-}
-
-// appendPrompt adds the positional prompt behind a "--" terminator.
-//
-// This is load-bearing, not decoration. `--allowedTools` is VARIADIC
-// (`<tools...>`), so it keeps consuming argv until the next flag: with the
-// prompt appended plainly it was swallowed as one more tool name and the run
-// died on "Input must be provided either through stdin or as a prompt
-// argument". The bug only bit the STATIC permission modes, because the
-// fallback tool list is only applied when the mode is not auto, and auto is
-// the shipped default; every static-mode review failed instantly.
-//
-// A terminator rather than a reordering, because ordering only fixes the
-// flags we ship today. commonArgs ends with the user's own claude.args, which
-// may contain any flag at all, including another variadic one. After "--"
-// nothing downstream can claim the prompt, and a prompt starting with "-"
-// stops being ambiguous too.
-func appendPrompt(args []string, prompt string) []string {
-	return append(args, "--", prompt)
+	return appendPositionals(args, e.resumePrompt)
 }
 
 // commonArgs are the flags both the initial and resumed invocations carry.

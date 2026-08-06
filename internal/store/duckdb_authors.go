@@ -7,25 +7,38 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 )
 
+// sameAuthor is the identity predicate for a roster row. GitHub treats both
+// repo names and handles case-insensitively, and every other comparison in
+// this codebase follows suit (config.RepoMatches, lookupRepo, WatchesRepo).
+// Comparing the repo exactly, as this did, made a row written "Org/Repo"
+// invisible to a lookup for "org/repo": the author fell through to
+// authors.unlisted and silently lost whatever group they had been given.
+func sameAuthor(repo, handle string) string {
+	return fmt.Sprintf("lower(repo) = lower(%s) AND lower(github_handle) = lower(%s)", q(repo), q(handle))
+}
+
 func (d *duckDB) SetAuthorGroup(ctx context.Context, a Author) error {
-	sql := fmt.Sprintf(`INSERT INTO allowed_authors (repo, github_handle, group_name, name, email, slack_id)
-	VALUES (%s, %s, %s, %s, %s, %s)
-	ON CONFLICT (repo, github_handle) DO UPDATE SET
-	  group_name = excluded.group_name, name = excluded.name,
-	  email = excluded.email, slack_id = excluded.slack_id`,
+	// The primary key is exact text, so an upsert keyed on the literal
+	// strings would leave "Org/Repo alice" and "org/repo Alice" as two rows
+	// that both satisfy every lookup and race for its LIMIT 1. Retiring any
+	// case-variant first keeps one row per identity, and re-inserting rather
+	// than updating preserves the casing the caller last used for display.
+	sql := fmt.Sprintf(`DELETE FROM allowed_authors WHERE %s;
+	INSERT INTO allowed_authors (repo, github_handle, group_name, name, email, slack_id)
+	VALUES (%s, %s, %s, %s, %s, %s)`,
+		sameAuthor(a.Repo, a.GitHubHandle),
 		q(a.Repo), q(a.GitHubHandle), q(a.Group), q(a.Name), q(a.Email), q(a.SlackID))
 	return d.exec(ctx, sql)
 }
 
 func (d *duckDB) RemoveAuthor(ctx context.Context, repo, handle string) error {
-	return d.exec(ctx, fmt.Sprintf(
-		"DELETE FROM allowed_authors WHERE repo = %s AND lower(github_handle) = lower(%s)", q(repo), q(handle)))
+	return d.exec(ctx, "DELETE FROM allowed_authors WHERE "+sameAuthor(repo, handle))
 }
 
 func (d *duckDB) ListAuthors(ctx context.Context, repo, group string) ([]Author, error) {
 	sql := "SELECT * FROM allowed_authors WHERE 1 = 1"
 	if repo != "" {
-		sql += " AND repo = " + q(repo)
+		sql += fmt.Sprintf(" AND lower(repo) = lower(%s)", q(repo))
 	}
 	if group != "" {
 		sql += " AND group_name = " + q(group)
@@ -46,12 +59,14 @@ func (d *duckDB) AuthorGroup(ctx context.Context, repo, handle string) (config.M
 	if handle == "" {
 		return config.Membership{}, nil
 	}
-	// ORDER BY <exact repo match> DESC puts the repo-specific row first
-	// (booleans sort false before true), so LIMIT 1 takes it over the wildcard.
+	// The wildcard is a literal, not a repo name, so it is matched exactly;
+	// only the real repo folds case. ORDER BY <exact repo match> DESC puts the
+	// repo-specific row first (booleans sort false before true), so LIMIT 1
+	// takes it over the wildcard.
 	rows, err := d.query(ctx, fmt.Sprintf(
 		`SELECT repo, group_name FROM allowed_authors
-		 WHERE (repo = %s OR repo = %s) AND lower(github_handle) = lower(%s)
-		 ORDER BY (repo = %s) DESC LIMIT 1`,
+		 WHERE (lower(repo) = lower(%s) OR repo = %s) AND lower(github_handle) = lower(%s)
+		 ORDER BY (lower(repo) = lower(%s)) DESC LIMIT 1`,
 		q(repo), q(WildcardRepo), q(handle), q(repo)))
 	if err != nil || len(rows) == 0 {
 		return config.Membership{}, err

@@ -61,6 +61,26 @@ const agentLogName = "agent.log"
 // holding the transcript pipe cannot hang the daemon's exit.
 const engineWaitDelay = 10 * time.Second
 
+// appendPositionals adds a command's positional arguments behind a "--"
+// terminator. Both drivers end their argv this way.
+//
+// This is load-bearing, not decoration. claude's `--allowedTools` is VARIADIC
+// (`<tools...>`), so it keeps consuming argv until the next flag: with the
+// prompt appended plainly it was swallowed as one more tool name and every
+// review in a static permission mode died on "Input must be provided either
+// through stdin or as a prompt argument".
+//
+// A terminator rather than a reordering, because ordering only fixes the flags
+// we ship today. Both drivers end their flag list with the user's own
+// codex.args / claude.args, which may hold any flag at all, including another
+// variadic one (codex has `-i/--image` today). After "--" nothing downstream
+// can claim a positional, and a prompt starting with "-" stops being
+// ambiguous too. Verified against both live CLIs: `codex exec`, `codex exec
+// resume` and `claude -p` all parse identically with and without it.
+func appendPositionals(args []string, positionals ...string) []string {
+	return append(append(args, "--"), positionals...)
+}
+
 // LogPath locates the review agent's live log inside its workspace. The
 // engine tees its output there as the run progresses; the CLI's `queue log`
 // and the dashboard's per-review page both tail it through this one contract.

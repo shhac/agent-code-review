@@ -146,7 +146,7 @@ func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string)
 	)
 	args = append(args, e.args...)
 	args = append(args, e.effortArgs()...)
-	return append(args, prompt+reportingInstruction)
+	return appendPositionals(args, prompt+reportingInstruction)
 }
 
 // buildResumeArgs assembles the codex exec resume invocation that nudges a
@@ -167,7 +167,7 @@ func (e *codexEngine) buildResumeArgs(sessionID, schemaPath, lastMsgPath string)
 	)
 	args = append(args, e.args...)
 	args = append(args, e.effortArgs()...)
-	return append(args, sessionID, e.resumePrompt)
+	return appendPositionals(args, sessionID, e.resumePrompt)
 }
 
 // modelArgs and effortArgs are the flags both invocations share. Kept as two

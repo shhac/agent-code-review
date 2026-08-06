@@ -1226,3 +1226,68 @@ func TestInitMigratesPreGroupsRoster(t *testing.T) {
 		}
 	}
 }
+
+// TestAuthorGroupMatchesRepoCaseInsensitively: GitHub treats repo names as
+// case-insensitive and every other comparison in this codebase follows suit
+// (config.RepoMatches, lookupRepo, WatchesRepo, AuthorScopedRepo). The roster
+// queries lowered the handle but compared the repo exactly, so a row written
+// as "Org/Repo" was invisible to a lookup for "org/repo" and the author fell
+// through to authors.unlisted instead: a silent policy change, in the
+// direction of quietly losing an approve-level group.
+func TestAuthorGroupMatchesRepoCaseInsensitively(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SetAuthorGroup(ctx, Author{Repo: "Org/Repo-A", GitHubHandle: "alice", Group: "core"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The repo as discovery would spell it, from config.
+	got, err := s.AuthorGroup(ctx, "org/repo-a", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Group != "core" {
+		t.Errorf("AuthorGroup with differently-cased repo = %+v, want the core row", got)
+	}
+
+	// The listing filter and the delete must agree with the lookup, or the
+	// roster can be seen but not managed.
+	authors, err := s.ListAuthors(ctx, "org/repo-a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authors) != 1 {
+		t.Errorf("ListAuthors with differently-cased repo = %+v, want the one row", authors)
+	}
+	if err := s.RemoveAuthor(ctx, "ORG/REPO-A", "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.AuthorGroup(ctx, "Org/Repo-A", "alice"); got.Group != "" {
+		t.Errorf("RemoveAuthor with differently-cased repo left the row: %+v", got)
+	}
+}
+
+// The wildcard row must not be reachable by a repo literally named "*" in a
+// different case, and an exact repo row must still beat the wildcard when
+// only their case differs from the query.
+func TestAuthorGroupRepoPrecedenceSurvivesCaseFolding(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	for _, a := range []Author{
+		{Repo: WildcardRepo, GitHubHandle: "bob", Group: "outsider"},
+		{Repo: "Org/Repo-A", GitHubHandle: "bob", Group: "core"},
+	} {
+		if err := s.SetAuthorGroup(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.AuthorGroup(ctx, "org/repo-a", "BOB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Group != "core" {
+		t.Errorf("exact repo row must win over the wildcard even when case differs, got %+v", got)
+	}
+}

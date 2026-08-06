@@ -24,13 +24,13 @@ type Logf func(format string, args ...any)
 // candidateStore is the narrow slice of the store discovery actually uses:
 // enqueueing classified candidates, reading history for Refreshed detection
 // (last real review) and same-SHA suppression (last outcome of any verdict),
-// and the allowed-authors check for author-scoped repos. Consumer-defined so
-// tests fake four methods, not twenty.
+// and the author's group membership, which decides whether we look at their
+// PRs at all. Consumer-defined so tests fake four methods, not twenty.
 type candidateStore interface {
 	Enqueue(ctx context.Context, c store.Candidate) error
 	LastReview(ctx context.Context, repo string, number int) (store.Review, bool, error)
 	LastOutcome(ctx context.Context, repo string, number int) (store.Review, bool, error)
-	IsAuthorAllowed(ctx context.Context, repo, handle string) (bool, error)
+	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
 }
 
 // Discoverer turns config + gh + store into fresh queue entries. Config is a
@@ -136,17 +136,16 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	if ok, _ := candidacyGate(pr); !ok {
 		return store.Candidate{}, false, nil
 	}
-	// Author-scoped repos only discover PRs from allowed authors; everywhere
-	// else any open PR is fair game (the allow-list then only governs whether
-	// an APPROVE is permitted).
-	if cfg.AuthorScopedRepo(repo) {
-		allowed, err := d.store.IsAuthorAllowed(ctx, repo, pr.Author.Login)
-		if err != nil {
-			return store.Candidate{}, false, err
-		}
-		if !allowed {
-			return store.Candidate{}, false, nil
-		}
+	// The author's group decides whether their PRs are ours to look at. An
+	// "ignore" policy is a DISCOVERY filter, not a veto: a manual `queue add`
+	// still reviews them, the same bypass manual adds already have over the
+	// candidacy recheck and both eligibility holds.
+	membership, err := d.store.AuthorGroup(ctx, repo, pr.Author.Login)
+	if err != nil {
+		return store.Candidate{}, false, err
+	}
+	if !cfg.ResolvePolicy(repo, pr.Author.Login, membership).Reviewable() {
+		return store.Candidate{}, false, nil
 	}
 	now := d.now()
 

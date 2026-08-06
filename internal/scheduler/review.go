@@ -113,11 +113,12 @@ func (s *Scheduler) reviewOne(ctx context.Context, c store.Candidate, cfg config
 	}
 	// Leave the tmp dir in place; a future run may reuse it (per the spec).
 
-	allowed, err := s.store.IsAuthorAllowed(ctx, c.Repo, c.Author)
+	membership, err := s.store.AuthorGroup(ctx, c.Repo, c.Author)
 	if err != nil {
 		return err
 	}
-	facts := review.DeriveFacts(c, s.ghUser, allowed)
+	policy := cfg.ResolvePolicy(c.Repo, c.Author, membership)
+	facts := review.DeriveFacts(c, s.ghUser, policy)
 	prompt := review.BuildPrompt(cfg, c, facts)
 
 	if resumeSession != "" {

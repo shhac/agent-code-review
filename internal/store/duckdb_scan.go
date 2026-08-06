@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shhac/agent-code-review/internal/config"
 )
 
 func scanReview(r map[string]any) Review {
@@ -37,14 +39,20 @@ func scanReview(r map[string]any) Review {
 	return review
 }
 
-func scanAuthor(r map[string]any) AllowedAuthor {
-	return AllowedAuthor{
+func scanAuthor(r map[string]any) Author {
+	a := Author{
 		Repo:         getString(r, "repo"),
 		GitHubHandle: getString(r, "github_handle"),
+		Group:        getString(r, "group_name"),
 		Name:         getString(r, "name"),
 		Email:        getString(r, "email"),
 		SlackID:      getString(r, "slack_id"),
 	}
+	// A row written before group_name existed still means what it meant then.
+	if a.Group == "" {
+		a.Group = config.GroupApprover
+	}
+	return a
 }
 
 func scanRun(r map[string]any) Run {

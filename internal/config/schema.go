@@ -13,13 +13,18 @@ package config
 // section (approve/comment/reject) instead of the prompt body. It is matched by
 // the outcome the agent lands on, never gated against candidate facts.
 type Condition struct {
-	AuthorIsGHUser   bool     `json:"author_is_gh_user,omitempty"`  // author IS our gh user (self-authored)
-	AuthorNotGHUser  bool     `json:"author_not_gh_user,omitempty"` // author is NOT our gh user (not self-authored)
-	AuthorAllowed    bool     `json:"author_allowed,omitempty"`     // author IS on the allowed-authors list for this repo
-	AuthorNotAllowed bool     `json:"author_not_allowed,omitempty"` // author not on the allowed-authors list for this repo
-	CandidateType    string   `json:"candidate_type,omitempty"`     // "new" | "refreshed" | ""
-	Repos            []string `json:"repos,omitempty"`              // "owner/name" match, any-of
-	Outcome          string   `json:"outcome,omitempty"`            // "approve" | "comment" | "reject" | "": route under this outcome's section
+	AuthorIsGHUser  bool `json:"author_is_gh_user,omitempty"`  // author IS our gh user (self-authored)
+	AuthorNotGHUser bool `json:"author_not_gh_user,omitempty"` // author is NOT our gh user (not self-authored)
+	// AuthorAllowed and AuthorNotAllowed predate groups, where an author was
+	// one bit. They survive as aliases for "the resolved policy does (not)
+	// permit approval", so rules written before groups keep their meaning.
+	AuthorAllowed    bool     `json:"author_allowed,omitempty"`
+	AuthorNotAllowed bool     `json:"author_not_allowed,omitempty"`
+	Groups           []string `json:"groups,omitempty"`         // author's resolved group, any-of
+	Authors          []string `json:"authors,omitempty"`        // author handle, any-of (case-insensitive)
+	CandidateType    string   `json:"candidate_type,omitempty"` // "new" | "refreshed" | ""
+	Repos            []string `json:"repos,omitempty"`          // "owner/name" match, any-of
+	Outcome          string   `json:"outcome,omitempty"`        // "approve" | "comment" | "reject" | "": route under this outcome's section
 }
 
 // Rule is a conditional prompt fragment: "when <condition>, add <prompt> to

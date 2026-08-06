@@ -153,6 +153,13 @@ func (c Config) resolve(repo, handle string, m Membership, explain bool) (Policy
 	return p, trace
 }
 
+// UnlistedPolicy is what an author with no membership row gets on this repo:
+// the question "does this repo review strangers, and how". Resolved with no
+// handle, so no per-author override can match.
+func (c Config) UnlistedPolicy(repo string) Policy {
+	return c.ResolvePolicy(repo, "", Membership{})
+}
+
 // groupFor picks the group name and names the layer it came from.
 func (c Config) groupFor(repo string, m Membership) (string, string) {
 	if m.Group != "" {

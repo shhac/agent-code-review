@@ -44,30 +44,44 @@ func (s *Server) handlePrompt(w http.ResponseWriter, _ *http.Request) {
 type promptPreviewCandidate struct {
 	Repo           string `json:"repo"`
 	CandidateType  string `json:"candidate_type"`
+	Author         string `json:"author"`
+	Group          string `json:"group"`
 	AuthorAllowed  bool   `json:"author_allowed"`
 	AuthorIsGHUser bool   `json:"author_is_gh_user"`
 }
 
 // promptPreviewResp is the fully assembled prompt for the shaped candidate plus
-// a per-rule trace (what fired, where it lands, why it was skipped) — the same
-// data as the CLI's `prompts preview --explain`.
+// two traces: the layer that decided each field of the author's policy, and
+// each rule's fate. The same data as the CLI's `prompts preview --explain`.
 type promptPreviewResp struct {
 	Candidate promptPreviewCandidate `json:"candidate"`
 	Preview   string                 `json:"preview"`
+	Policy    []config.PolicyStep    `json:"policy"`
 	Rules     []review.RuleTrace     `json:"rules"`
 }
 
 // handlePromptPreview assembles the prompt for a synthetic candidate shaped by
-// query params: author_allowed (default true), author_is_gh_user (default
-// false), candidate_type (default new), repo (default the example repo).
+// query params: repo (default the example repo), candidate_type (default new),
+// author (default the sample handle), group (the membership to simulate), and
+// author_is_gh_user (default false). author_allowed predates groups and still
+// works: it picks the built-in approver or commenter group.
+//
+// The group is SIMULATED rather than read from the roster, because this
+// endpoint answers "what would a member of group X get" without needing anyone
+// to actually be in it. Naming a real author still matters: per-author
+// overrides key on the handle, so only a named author sees theirs fire.
 // Assembly semantics live in review.Preview; this handler is transport only.
 func (s *Server) handlePromptPreview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	facts := review.Facts{
-		AuthorAllowed:  q.Get("author_allowed") != "false", // default allowed
-		AuthorIsGHUser: q.Get("author_is_gh_user") == "true",
+	membership := config.Membership{Group: q.Get("group"), Repo: config.WildcardRepo}
+	if membership.Group == "" {
+		membership.Group = config.GroupApprover
+		if q.Get("author_allowed") == "false" {
+			membership.Group = config.GroupCommenter
+		}
 	}
-	res, err := review.Preview(s.config(), q.Get("repo"), q.Get("candidate_type"), facts)
+	res, err := review.Preview(s.config(), q.Get("repo"), q.Get("candidate_type"),
+		q.Get("author"), membership, q.Get("author_is_gh_user") == "true")
 	switch {
 	case errors.Is(err, review.ErrBadCandidateType):
 		httpError(w, http.StatusBadRequest, "candidate_type must be new or refreshed")
@@ -83,10 +97,13 @@ func (s *Server) handlePromptPreview(w http.ResponseWriter, r *http.Request) {
 		Candidate: promptPreviewCandidate{
 			Repo:           res.Repo,
 			CandidateType:  res.CandidateType,
-			AuthorAllowed:  res.Facts.AuthorAllowed,
+			Author:         res.Author,
+			Group:          res.Facts.Policy.Group,
+			AuthorAllowed:  res.Facts.Policy.MayApprove(),
 			AuthorIsGHUser: res.Facts.AuthorIsGHUser,
 		},
 		Preview: res.Prompt,
+		Policy:  res.Policy,
 		Rules:   res.Rules,
 	})
 }

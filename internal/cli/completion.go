@@ -76,15 +76,16 @@ func completeConfiguredCodexEfforts(ctx context.Context) []string {
 
 // completePositional builds the common "arg 0 completes via first, later
 // args via rest (nil = nothing)" ValidArgsFunction shape.
-func completePositional(first, rest cobra.CompletionFunc) cobra.CompletionFunc {
+// completePositional dispatches to one completer per positional argument, by
+// index. A nil entry, or an index past the end, completes nothing: a command
+// with more positions than completers degrades quietly instead of offering the
+// wrong values.
+func completePositional(byPosition ...cobra.CompletionFunc) cobra.CompletionFunc {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) == 0 {
-			return first(cmd, args, toComplete)
-		}
-		if rest == nil {
+		if len(args) >= len(byPosition) || byPosition[len(args)] == nil {
 			return noFile(nil)
 		}
-		return rest(cmd, args, toComplete)
+		return byPosition[len(args)](cmd, args, toComplete)
 	}
 }
 
@@ -135,38 +136,49 @@ func completeQueuedNumber(cmd *cobra.Command, args []string, toComplete string) 
 	return noFile(completePrefix(values, toComplete))
 }
 
-func completeAllowedAuthorRepo(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	values := append([]string{"*"}, config.Read().SortedRepos()...)
-	values = append(values, completeFromStore(cmd.Context(), func(ctx context.Context, s store.Store) ([]string, error) {
-		authors, err := s.ListAllowedAuthors(ctx, "")
-		if err != nil {
-			return nil, err
-		}
-		repos := make([]string, 0, len(authors))
-		for _, author := range authors {
-			repos = append(repos, author.Repo)
-		}
-		return repos, nil
-	})...)
+func completeAuthorRepo(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	values := append([]string{config.WildcardRepo}, config.Read().SortedRepos()...)
+	values = append(values, rosterField(cmd, "", func(a store.Author) string { return a.Repo })...)
 	return noFile(completePrefix(values, toComplete))
 }
 
-func completeAllowedAuthorHandle(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+// completeAuthorHandle offers the handles already rostered for the repo named
+// in the first positional argument.
+func completeAuthorHandle(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 1 {
 		return noFile(nil)
 	}
-	values := completeFromStore(cmd.Context(), func(ctx context.Context, s store.Store) ([]string, error) {
-		authors, err := s.ListAllowedAuthors(ctx, args[0])
+	return noFile(completePrefix(rosterField(cmd, args[0], func(a store.Author) string { return a.GitHubHandle }), toComplete))
+}
+
+// completeAnyAuthorHandle offers every rostered handle, for commands that take
+// a handle before knowing the repo.
+func completeAnyAuthorHandle(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return noFile(completePrefix(rosterField(cmd, "", func(a store.Author) string { return a.GitHubHandle }), toComplete))
+}
+
+func completeGroup(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return noFile(completePrefix(config.Read().GroupNames(), toComplete))
+}
+
+func completeGroupArg(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	return completeGroup(cmd, nil, toComplete)
+}
+
+// rosterField pulls one field off every roster row, optionally narrowed to a
+// repo: the shared body behind the author completions.
+func rosterField(cmd *cobra.Command, repo string, field func(store.Author) string) []string {
+	return completeFromStore(cmd.Context(), func(ctx context.Context, s store.Store) ([]string, error) {
+		authors, err := s.ListAuthors(ctx, repo, "")
 		if err != nil {
 			return nil, err
 		}
-		handles := make([]string, 0, len(authors))
+		values := make([]string, 0, len(authors))
 		for _, author := range authors {
-			handles = append(handles, author.GitHubHandle)
+			values = append(values, field(author))
 		}
-		return handles, nil
+		return values, nil
 	})
-	return noFile(completePrefix(values, toComplete))
 }
 
 func completeRepos(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {

@@ -9,6 +9,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/shhac/agent-code-review/internal/config"
 )
 
 // Store is the persistence contract.
@@ -87,13 +89,17 @@ type Store interface {
 	// attempt that ended with work still pending (a daemon killed mid-review).
 	AppendHistory(ctx context.Context, r Review) error
 
-	// Allowed authors (per repo, "*" = all repos): whose PRs we may approve.
-	AllowAuthor(ctx context.Context, a AllowedAuthor) error
-	DenyAuthor(ctx context.Context, repo, handle string) error
-	ListAllowedAuthors(ctx context.Context, repo string) ([]AllowedAuthor, error)
-	// IsAuthorAllowed reports whether handle's PRs may be approved for repo,
-	// matching the repo exactly or the wildcard "*".
-	IsAuthorAllowed(ctx context.Context, repo, handle string) (bool, error)
+	// Author roster (per repo, "*" = all repos): which group an author is in.
+	// The group names a policy in config; see config.ResolvePolicy.
+	SetAuthorGroup(ctx context.Context, a Author) error
+	RemoveAuthor(ctx context.Context, repo, handle string) error
+	// ListAuthors returns roster rows, narrowed by repo and/or group; "" means
+	// don't narrow on that field.
+	ListAuthors(ctx context.Context, repo, group string) ([]Author, error)
+	// AuthorGroup returns the membership that applies to handle on repo: the
+	// repo's own row if there is one, else the wildcard row, else the zero
+	// value (unlisted, so config's unlisted fallback decides).
+	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
 
 	// ActiveRun returns an unfinished run more recent than staleAfter, if any.
 	ActiveRun(ctx context.Context, staleAfter time.Duration) (Run, bool, error)

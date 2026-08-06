@@ -9,6 +9,7 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
+	"github.com/shhac/agent-code-review/internal/store"
 )
 
 // promptSlots maps slot names to accessors on ReviewSettings. "main" is the
@@ -136,18 +137,27 @@ func promptsPreviewCmd() *cobra.Command {
 	var (
 		notAllowed, isGHUser, explain bool
 		candidateType, repo           string
+		author, group                 string
 	)
 	cmd := &cobra.Command{
-		Use:   "preview [--author-not-allowed] [--candidate-type new|refreshed] [--repo owner/name] [--author-is-gh-user] [--explain]",
+		Use:   "preview [--author handle] [--group name] [--candidate-type new|refreshed] [--repo owner/name] [--author-is-gh-user] [--explain]",
 		Short: "Print the fully assembled prompt for a synthetic candidate",
 		Long: "Assemble the exact prompt the engine would receive for a synthetic\n" +
-			"candidate you shape with flags, so any rule (by allow-list, repo, type,\n" +
-			"or self-authorship) can be made to fire. --explain adds a per-rule trace\n" +
-			"of what matched and why, without you having to read the assembled text.",
+			"candidate you shape with flags, so any rule (by group, author, repo,\n" +
+			"type, or self-authorship) can be made to fire.\n\n" +
+			"--author names a real handle: their roster membership is read from the\n" +
+			"store and their per-author overrides fire, so this answers \"what would\n" +
+			"this person's PR actually get\". --group simulates a membership instead,\n" +
+			"for \"what would anyone in this group get\". --explain adds two traces:\n" +
+			"the layer that decided each field of the policy, and each rule's fate.",
 		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			facts := review.Facts{AuthorAllowed: !notAllowed, AuthorIsGHUser: isGHUser}
-			res, err := review.Preview(config.Read(), repo, candidateType, facts)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg := config.Read()
+			membership, err := previewMembership(cmd, cfg, repo, author, group, notAllowed)
+			if err != nil {
+				return err
+			}
+			res, err := review.Preview(cfg, repo, candidateType, author, membership, isGHUser)
 			switch {
 			case errors.Is(err, review.ErrBadCandidateType):
 				return invalidEnum("--candidate-type", config.CandidateTypes, candidateType)
@@ -156,34 +166,66 @@ func promptsPreviewCmd() *cobra.Command {
 			case err != nil:
 				return err
 			}
-			variant := "allowed_author"
-			if notAllowed {
-				variant = "not_allowed_author"
-			}
 			rec := map[string]any{
-				"variant": variant,
 				"candidate": map[string]any{
 					"repo":              res.Repo,
 					"candidate_type":    res.CandidateType,
-					"author_allowed":    res.Facts.AuthorAllowed,
+					"author":            res.Author,
 					"author_is_gh_user": res.Facts.AuthorIsGHUser,
 				},
+				"policy":  res.Facts.Policy,
 				"preview": res.Prompt,
 				"note":    "synthetic candidate; the engine driver appends a reporting instruction on top",
 			}
 			if explain {
+				rec["policy_trace"] = res.Policy
 				rec["rules"] = res.Rules
 			}
 			return emit(rec)
 		},
 	}
 	f := cmd.Flags()
-	f.BoolVar(&notAllowed, "author-not-allowed", false, "Author is NOT on the allowed-authors list (default: allowed)")
+	f.StringVar(&author, "author", "", "Preview as this real handle: reads their roster row and fires their overrides")
+	f.StringVar(&group, "group", "", "Simulate membership of this group instead of reading the roster")
+	f.BoolVar(&notAllowed, "author-not-allowed", false, "Shorthand for --group commenter (default: --group approver)")
 	f.BoolVar(&isGHUser, "author-is-gh-user", false, "Author is our gh user (self-authored)")
 	f.StringVar(&candidateType, "candidate-type", "", "Candidate kind: new (default) | refreshed")
 	f.StringVar(&repo, "repo", "", "Repo the synthetic candidate belongs to (default: example-org/example-repo)")
-	f.BoolVar(&explain, "explain", false, "Also trace which rules fired and why")
+	f.BoolVar(&explain, "explain", false, "Also trace how the policy resolved and which rules fired")
 	_ = cmd.RegisterFlagCompletionFunc("candidate-type", completeStatic(config.CandidateTypes))
 	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
+	_ = cmd.RegisterFlagCompletionFunc("group", completeGroup)
+	_ = cmd.RegisterFlagCompletionFunc("author", completeAnyAuthorHandle)
 	return cmd
+}
+
+// previewMembership decides which membership the preview resolves against:
+// an explicit --group, else the real roster row when --author names someone,
+// else the built-in group the legacy --author-not-allowed flag selects. Only
+// the roster path touches the store, so a preview stays usable without one.
+func previewMembership(cmd *cobra.Command, cfg config.Config, repo, author, group string, notAllowed bool) (config.Membership, error) {
+	if group != "" {
+		if _, ok := cfg.Group(group); !ok {
+			return config.Membership{}, output.New("Unknown group "+group+". Valid: "+
+				strings.Join(cfg.GroupNames(), ", "), output.FixableByAgent)
+		}
+		return config.Membership{Group: group, Repo: config.WildcardRepo}, nil
+	}
+	if author != "" {
+		var membership config.Membership
+		err := withStore(func(s store.Store) error {
+			lookupRepo := repo
+			if lookupRepo == "" {
+				lookupRepo = review.SampleRepo
+			}
+			m, err := s.AuthorGroup(cmd.Context(), lookupRepo, author)
+			membership = m
+			return err
+		})
+		return membership, err
+	}
+	if notAllowed {
+		return config.Membership{Group: config.GroupCommenter, Repo: config.WildcardRepo}, nil
+	}
+	return config.Membership{Group: config.GroupApprover, Repo: config.WildcardRepo}, nil
 }

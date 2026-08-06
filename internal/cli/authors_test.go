@@ -11,14 +11,20 @@ import (
 )
 
 // TestAuthorsCommands drives the real cobra wiring against an isolated config
-// and store: allow preserves metadata, ls accepts a repo filter, and deny is
-// case-insensitive on handles.
+// and store: set preserves metadata and the group, ls accepts repo and group
+// filters, rm is case-insensitive on handles, and an undefined group is
+// refused at write time rather than silently resolving to comment-only.
 func TestAuthorsCommands(t *testing.T) {
 	cleanup := xdg.SetConfigBaseForTest(t.TempDir())
 	defer cleanup()
 
 	storePath := filepath.Join(t.TempDir(), "queue.duckdb")
-	if err := config.Write(config.Config{Store: config.StoreSettings{Path: storePath}}); err != nil {
+	if err := config.Write(config.Config{
+		Store: config.StoreSettings{Path: storePath},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{"core": {Review: config.ReviewApprove, Engine: "claude"}},
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	run := func(args ...string) error {
@@ -27,22 +33,31 @@ func TestAuthorsCommands(t *testing.T) {
 		return root.Execute()
 	}
 
-	if err := run("authors", "allow", "*", "Alice", "--name", "Alice A", "--email", "alice@example.com", "--slack-id", "U123"); err != nil {
+	if err := run("authors", "set", "*", "Alice", "core", "--name", "Alice A", "--email", "alice@example.com", "--slack-id", "U123"); err != nil {
 		t.Fatal(err)
 	}
-	if err := run("authors", "allow", "o/r", "Bob"); err != nil {
-		t.Fatal(err)
-	}
-	if err := run("authors", "ls", "--repo", "o/r"); err != nil {
+	if err := run("authors", "set", "o/r", "Bob", config.GroupCommenter); err != nil {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{
-		{"authors", "allow", "not-a-repo", "Mallory"},
-		{"authors", "deny", "not-a-repo", "Mallory"},
+		{"authors", "ls", "--repo", "o/r"},
+		{"authors", "ls", "--group", "core"},
+		{"authors", "groups"},
+		{"authors", "who", "Alice", "--repo", "o/r"},
+	} {
+		if err := run(args...); err != nil {
+			t.Fatalf("%v failed: %v", args, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"authors", "set", "not-a-repo", "Mallory", "core"},
+		{"authors", "rm", "not-a-repo", "Mallory"},
 		{"authors", "ls", "--repo", "not-a-repo"},
+		{"authors", "who", "Alice"}, // a policy is resolved per repo
+		{"authors", "set", "o/r", "Mallory", "no-such-group"},
 	} {
 		if err := run(args...); err == nil {
-			t.Fatalf("%v must reject invalid repo scope", args)
+			t.Fatalf("%v must be rejected", args)
 		}
 	}
 
@@ -51,25 +66,27 @@ func TestAuthorsCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	authors, err := s.ListAllowedAuthors(context.Background(), "")
+	ctx := context.Background()
+	authors, err := s.ListAuthors(ctx, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(authors) != 2 {
 		t.Fatalf("authors = %+v, want wildcard Alice and repo-scoped Bob", authors)
 	}
-	if authors[0].GitHubHandle != "Alice" || authors[0].Name != "Alice A" || authors[0].Email != "alice@example.com" || authors[0].SlackID != "U123" {
-		t.Errorf("metadata was not preserved: %+v", authors[0])
+	if authors[0].GitHubHandle != "Alice" || authors[0].Group != "core" ||
+		authors[0].Name != "Alice A" || authors[0].Email != "alice@example.com" || authors[0].SlackID != "U123" {
+		t.Errorf("group or metadata was not preserved: %+v", authors[0])
 	}
 
-	if err := run("authors", "deny", "*", "alice"); err != nil {
+	if err := run("authors", "rm", "*", "alice"); err != nil {
 		t.Fatal(err)
 	}
-	authors, err = s.ListAllowedAuthors(context.Background(), "")
+	authors, err = s.ListAuthors(ctx, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(authors) != 1 || authors[0].GitHubHandle != "Bob" {
-		t.Fatalf("deny should remove Alice case-insensitively, got %+v", authors)
+		t.Fatalf("rm should remove Alice case-insensitively, got %+v", authors)
 	}
 }

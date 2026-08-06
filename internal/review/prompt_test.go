@@ -11,26 +11,39 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
+// approvable and commentOnly shape the two resolved policies most of these
+// tests care about. The cascade that produces them is tested in config; here
+// only the level matters.
+func approvable() config.Policy {
+	return config.Policy{Group: "core", Review: config.ReviewApprove}
+}
+
+func commentOnly() config.Policy {
+	return config.Policy{Group: "outsider", Review: config.ReviewComment}
+}
+
 func TestDeriveFacts(t *testing.T) {
 	cases := []struct {
 		name           string
 		author, ghUser string
-		allowed        bool
+		policy         config.Policy
 		wantIsGH       bool
 	}{
-		{"self-review", "bob", "bob", false, true},
-		{"allowed author", "alice", "bob", true, false},
-		{"stranger", "carol", "bob", false, false},
-		{"no gh user", "bob", "", false, false},
+		{"self-review", "bob", "bob", commentOnly(), true},
+		{"approvable author", "alice", "bob", approvable(), false},
+		{"stranger", "carol", "bob", commentOnly(), false},
+		{"no gh user", "bob", "", commentOnly(), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := DeriveFacts(store.Candidate{Author: tc.author}, tc.ghUser, tc.allowed)
+			f := DeriveFacts(store.Candidate{Author: tc.author}, tc.ghUser, tc.policy)
 			if f.AuthorIsGHUser != tc.wantIsGH {
 				t.Errorf("AuthorIsGHUser = %v, want %v", f.AuthorIsGHUser, tc.wantIsGH)
 			}
-			if f.AuthorAllowed != tc.allowed {
-				t.Errorf("AuthorAllowed = %v, want %v", f.AuthorAllowed, tc.allowed)
+			// The policy travels through untouched: DeriveFacts resolves
+			// self-authorship and nothing else.
+			if f.Policy != tc.policy {
+				t.Errorf("Policy = %+v, want %+v", f.Policy, tc.policy)
 			}
 		})
 	}
@@ -50,7 +63,7 @@ func TestBuildPromptAppendsMatchingRules(t *testing.T) {
 	c := store.Candidate{Repo: "o/r", Number: 7, Type: "new", Author: "bob"}
 
 	// Self-review: only the self rule fires.
-	got := BuildPrompt(cfg, c, Facts{AuthorIsGHUser: true, AuthorAllowed: false})
+	got := BuildPrompt(cfg, c, Facts{AuthorIsGHUser: true, Policy: commentOnly()})
 	if !strings.Contains(got, "MAIN") || !strings.Contains(got, "SELF-ONLY") {
 		t.Errorf("expected MAIN and SELF-ONLY, got:\n%s", got)
 	}
@@ -59,7 +72,7 @@ func TestBuildPromptAppendsMatchingRules(t *testing.T) {
 	}
 
 	// Allowed author on a new PR: no stranger, no self, no refreshed rule.
-	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
+	got = BuildPrompt(cfg, c, Facts{Policy: approvable()})
 	if strings.Contains(got, "SELF-ONLY") || strings.Contains(got, "STRANGER-ONLY") {
 		t.Errorf("no author rule should fire for allowed author, got:\n%s", got)
 	}
@@ -83,14 +96,14 @@ func TestApprovalDirectiveDefaultsToCommentOnly(t *testing.T) {
 	c := store.Candidate{Repo: "o/r", Number: 5, Author: "carol"}
 
 	// Author not allowed → hard "do not approve", no reason leaked.
-	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: false})
+	got := BuildPrompt(cfg, c, Facts{Policy: commentOnly()})
 	if !strings.Contains(got, "DO NOT approve") {
 		t.Errorf("expected a hard do-not-approve directive, got:\n%s", got)
 	}
 
 	// Self-review, even for an allowed author → still comment-only, and must not reveal
 	// that it's self-authored (would leak the gh user).
-	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true, AuthorIsGHUser: true})
+	got = BuildPrompt(cfg, c, Facts{Policy: approvable(), AuthorIsGHUser: true})
 	if !strings.Contains(got, "DO NOT approve") {
 		t.Errorf("self-review must be comment-only even for an allowed author, got:\n%s", got)
 	}
@@ -99,7 +112,7 @@ func TestApprovalDirectiveDefaultsToCommentOnly(t *testing.T) {
 	}
 
 	// Allowed author and not self → approval permitted.
-	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
+	got = BuildPrompt(cfg, c, Facts{Policy: approvable()})
 	if strings.Contains(got, "DO NOT approve") || !strings.Contains(got, "MAY approve") {
 		t.Errorf("allowed author should be approvable, got:\n%s", got)
 	}
@@ -113,7 +126,7 @@ func TestOutcomeInstructions(t *testing.T) {
 	}}
 	c := store.Candidate{Repo: "o/r", Number: 9, Author: "alice"}
 
-	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
+	got := BuildPrompt(cfg, c, Facts{Policy: approvable()})
 	if !strings.Contains(got, "## If you APPROVED this PR\nnotify per team convention") {
 		t.Errorf("missing on_approve section, got:\n%s", got)
 	}
@@ -145,12 +158,12 @@ func TestApproveSectionOmittedWhenApprovalForbidden(t *testing.T) {
 	c := store.Candidate{Repo: "o/r", Number: 3, Author: "alice"}
 
 	// Allowed, not self → approval possible → section present.
-	if got := BuildPrompt(cfg, c, Facts{AuthorAllowed: true}); !strings.Contains(got, "## If you APPROVED this PR\nAPPROVE-FLOW") {
+	if got := BuildPrompt(cfg, c, Facts{Policy: approvable()}); !strings.Contains(got, "## If you APPROVED this PR\nAPPROVE-FLOW") {
 		t.Errorf("allowed author must get the approve section, got:\n%s", got)
 	}
 
 	// Not allowed → approval impossible → section omitted, but comment stays.
-	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: false})
+	got := BuildPrompt(cfg, c, Facts{Policy: commentOnly()})
 	if strings.Contains(got, "APPROVED this PR") || strings.Contains(got, "APPROVE-FLOW") {
 		t.Errorf("not-allowed author must not get the approve section, got:\n%s", got)
 	}
@@ -159,7 +172,7 @@ func TestApproveSectionOmittedWhenApprovalForbidden(t *testing.T) {
 	}
 
 	// Self-authored, even if allow-listed → can't approve own PR → omitted.
-	if got := BuildPrompt(cfg, c, Facts{AuthorAllowed: true, AuthorIsGHUser: true}); strings.Contains(got, "APPROVED this PR") {
+	if got := BuildPrompt(cfg, c, Facts{Policy: approvable(), AuthorIsGHUser: true}); strings.Contains(got, "APPROVED this PR") {
 		t.Errorf("self-authored PR must not get the approve section, got:\n%s", got)
 	}
 }
@@ -180,7 +193,7 @@ func TestOutcomeScopedRules(t *testing.T) {
 
 	// Not-allowed variant: base + not-allowed fragment, under the COMMENTED
 	// heading as separate blocks; the allowed fragment must not appear.
-	got := BuildPrompt(cfg, c, Facts{AuthorAllowed: false})
+	got := BuildPrompt(cfg, c, Facts{Policy: commentOnly()})
 	if !strings.Contains(got, "## If you COMMENTED without approving\nCOMMENT-BASE\n\nDENY-FRAG") {
 		t.Errorf("expected base + not-allowed fragment under the comment heading, got:\n%s", got)
 	}
@@ -189,7 +202,7 @@ func TestOutcomeScopedRules(t *testing.T) {
 	}
 
 	// Allowed variant: base + allowed fragment; not-allowed fragment absent.
-	got = BuildPrompt(cfg, c, Facts{AuthorAllowed: true})
+	got = BuildPrompt(cfg, c, Facts{Policy: approvable()})
 	if !strings.Contains(got, "## If you COMMENTED without approving\nCOMMENT-BASE\n\nALLOW-FRAG") {
 		t.Errorf("expected base + allowed fragment under the comment heading, got:\n%s", got)
 	}
@@ -233,7 +246,7 @@ func TestUntaggedRuleStillBodyAppends(t *testing.T) {
 			{Name: "body", When: config.Condition{AuthorNotAllowed: true}, Prompt: "BODY-FRAG"},
 		},
 	}}
-	got := BuildPrompt(cfg, store.Candidate{Repo: "o/r", Number: 1, Author: "carol"}, Facts{AuthorAllowed: false})
+	got := BuildPrompt(cfg, store.Candidate{Repo: "o/r", Number: 1, Author: "carol"}, Facts{Policy: commentOnly()})
 	if !strings.Contains(got, "BODY-FRAG") {
 		t.Errorf("untagged rule must still fire, got:\n%s", got)
 	}
@@ -252,7 +265,7 @@ func TestExplainRules(t *testing.T) {
 		{Name: "repo-only", When: config.Condition{Repos: []string{"other/repo"}}, Prompt: "X"},
 	}}}
 	c := store.Candidate{Repo: "o/r", Type: "new", Author: "alice"}
-	traces := ExplainRules(cfg, c, Facts{AuthorAllowed: true})
+	traces := ExplainRules(cfg, c, Facts{Policy: approvable()})
 
 	if len(traces) != 3 {
 		t.Fatalf("want 3 traces, got %d", len(traces))
@@ -355,5 +368,105 @@ func TestMainPrompt(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.md")
 	if got := MainPrompt(config.ReviewSettings{MainPrompt: "inline", MainPromptPath: missing}); got != "inline" {
 		t.Errorf("unreadable path must fall back to inline, got %q", got)
+	}
+}
+
+// The author's resolved prompt (their group's, plus anything a per-author
+// override added) reaches the engine in the prompt body, above the outcome
+// sections, because it shapes the whole review rather than one outcome.
+func TestBuildPromptCarriesThePolicyPrompt(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN", OnComment: "COMMENT-FLOW"}}
+	c := store.Candidate{Repo: "org/repo", Number: 7, Author: "alice"}
+
+	policy := commentOnly()
+	policy.Prompt = "State our conventions explicitly.\n\nCall them Lizard Elder."
+	got := BuildPrompt(cfg, c, Facts{Policy: policy})
+
+	if !strings.Contains(got, "Call them Lizard Elder.") {
+		t.Errorf("the resolved policy prompt must reach the engine, got:\n%s", got)
+	}
+	if strings.Index(got, "Lizard Elder") > strings.Index(got, "COMMENT-FLOW") {
+		t.Errorf("the policy prompt belongs above the outcome sections, got:\n%s", got)
+	}
+	// An empty policy prompt adds nothing, not a blank stanza.
+	if plain := BuildPrompt(cfg, c, Facts{Policy: commentOnly()}); strings.Contains(plain, "\n\n\n") {
+		t.Errorf("an empty policy prompt must not leave a gap, got:\n%q", plain)
+	}
+}
+
+// Rules can gate on the resolved group and on the handle itself, which is how
+// a cohort gets conditional instructions the group's own flat prompt cannot
+// express (outcome-scoped, type-scoped, repo-scoped).
+func TestRulesMatchGroupsAndAuthors(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		Rules: []config.Rule{
+			{Name: "contractors", When: config.Condition{Groups: []string{"contractor", "intern"}}, Prompt: "CONTRACTOR-FRAG"},
+			{Name: "named", When: config.Condition{Authors: []string{"Alice"}}, Prompt: "ALICE-FRAG"},
+		},
+	}}
+	c := store.Candidate{Repo: "org/repo", Number: 7, Author: "alice"}
+
+	inGroup := config.Policy{Group: "contractor", Review: config.ReviewComment}
+	got := BuildPrompt(cfg, c, Facts{Policy: inGroup})
+	if !strings.Contains(got, "CONTRACTOR-FRAG") {
+		t.Errorf("a groups condition must fire for a member, got:\n%s", got)
+	}
+	// Handles are GitHub's, so they match the way GitHub treats them.
+	if !strings.Contains(got, "ALICE-FRAG") {
+		t.Errorf("an authors condition must match case-insensitively, got:\n%s", got)
+	}
+
+	outOfGroup := BuildPrompt(cfg, store.Candidate{Repo: "org/repo", Number: 8, Author: "bob"}, Facts{Policy: approvable()})
+	if strings.Contains(outOfGroup, "CONTRACTOR-FRAG") || strings.Contains(outOfGroup, "ALICE-FRAG") {
+		t.Errorf("neither rule may fire for a different author in a different group, got:\n%s", outOfGroup)
+	}
+
+	// The skip reason names the condition that failed, so --explain is useful.
+	traces := ExplainRules(cfg, store.Candidate{Author: "bob"}, Facts{Policy: approvable()})
+	for _, tr := range traces {
+		if tr.Matched {
+			t.Errorf("no rule should match, got %+v", tr)
+		}
+		if tr.Reason == "" {
+			t.Errorf("a skipped rule must say why, got %+v", tr)
+		}
+	}
+}
+
+// author_allowed predates groups. It survives as an alias for "the resolved
+// policy permits approval", so rules written before groups keep their meaning.
+func TestAuthorAllowedConditionAliasesTheApproveLevel(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{
+		MainPrompt: "MAIN",
+		Rules: []config.Rule{
+			{Name: "allowed", When: config.Condition{AuthorAllowed: true}, Prompt: "ALLOWED-FRAG"},
+			{Name: "not-allowed", When: config.Condition{AuthorNotAllowed: true}, Prompt: "STRANGER-FRAG"},
+		},
+	}}
+	c := store.Candidate{Repo: "org/repo", Number: 7, Author: "alice"}
+
+	// A group whose level is approve satisfies author_allowed, whatever it is
+	// called; a comment-level group satisfies author_not_allowed.
+	if got := BuildPrompt(cfg, c, Facts{Policy: config.Policy{Group: "anything", Review: config.ReviewApprove}}); !strings.Contains(got, "ALLOWED-FRAG") || strings.Contains(got, "STRANGER-FRAG") {
+		t.Errorf("approve level must satisfy author_allowed only, got:\n%s", got)
+	}
+	if got := BuildPrompt(cfg, c, Facts{Policy: config.Policy{Group: "anything", Review: config.ReviewComment}}); !strings.Contains(got, "STRANGER-FRAG") || strings.Contains(got, "ALLOWED-FRAG") {
+		t.Errorf("comment level must satisfy author_not_allowed only, got:\n%s", got)
+	}
+}
+
+// No group and no override may grant approving your own PR: the self-review
+// veto sits above the whole cascade.
+func TestSelfReviewVetoOutranksEveryGroup(t *testing.T) {
+	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN", OnApprove: "APPROVE-FLOW"}}
+	c := store.Candidate{Repo: "org/repo", Number: 7, Author: "me"}
+
+	got := BuildPrompt(cfg, c, Facts{AuthorIsGHUser: true, Policy: approvable()})
+	if !strings.Contains(got, "DO NOT approve") {
+		t.Errorf("self-review must stay comment-only whatever the group grants, got:\n%s", got)
+	}
+	if strings.Contains(got, "APPROVE-FLOW") {
+		t.Errorf("an unreachable approve section must be omitted, got:\n%s", got)
 	}
 }

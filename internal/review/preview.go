@@ -20,27 +20,38 @@ var (
 // one place to keep them identical.
 const SampleRepo = "example-org/example-repo"
 
+// SampleAuthor is the placeholder handle for synthetic prompt previews, used
+// when the caller names no real author.
+const SampleAuthor = "example-author"
+
 // SampleCandidate builds the synthetic candidate used for prompt previews from
 // an already-defaulted, already-validated repo and candidate type. Both preview
-// paths assemble from this one fixture so they can't drift.
-func SampleCandidate(repo, candidateType string) store.Candidate {
+// paths assemble from this one fixture so they can't drift. A real author can
+// be named so a preview shows what a specific person's PRs get, which is the
+// only way to see a per-author override fire.
+func SampleCandidate(repo, candidateType, author string) store.Candidate {
+	if author == "" {
+		author = SampleAuthor
+	}
 	return store.Candidate{
 		Repo:    repo,
 		Number:  123,
 		Type:    candidateType,
-		Author:  "example-author",
+		Author:  author,
 		URL:     "https://github.com/" + repo + "/pull/123",
 		HeadSHA: "0000000000000000000000000000000000000000",
 	}
 }
 
 // PreviewResult is the assembled preview for one shaped synthetic candidate:
-// the candidate echo both surfaces render, the assembled prompt, and the
-// per-rule trace.
+// the candidate echo both surfaces render, the assembled prompt, the layer
+// that decided each field of the author's policy, and the per-rule trace.
 type PreviewResult struct {
 	Repo          string
 	CandidateType string
+	Author        string
 	Facts         Facts
+	Policy        []config.PolicyStep
 	Prompt        string
 	Rules         []RuleTrace
 }
@@ -52,7 +63,7 @@ type PreviewResult struct {
 // started this extraction; this finishes it). repo and candidateType may be
 // empty and are defaulted; validation failures return the sentinel errors
 // above for the caller to wrap in its own envelope.
-func Preview(cfg config.Config, repo, candidateType string, f Facts) (PreviewResult, error) {
+func Preview(cfg config.Config, repo, candidateType, author string, m config.Membership, selfAuthored bool) (PreviewResult, error) {
 	if candidateType == "" {
 		candidateType = store.TypeNew
 	}
@@ -65,11 +76,18 @@ func Preview(cfg config.Config, repo, candidateType string, f Facts) (PreviewRes
 	if !config.ValidRepoName(repo) {
 		return PreviewResult{}, ErrBadRepo
 	}
-	sample := SampleCandidate(repo, candidateType)
+	sample := SampleCandidate(repo, candidateType, author)
+	// Resolved through the real cascade, so a preview shows what the config
+	// actually does for this author, including an override that only fires for
+	// their handle on this repo.
+	policy, trace := cfg.ExplainPolicy(sample.Repo, sample.Author, m)
+	f := Facts{AuthorIsGHUser: selfAuthored, Policy: policy}
 	return PreviewResult{
 		Repo:          sample.Repo,
 		CandidateType: sample.Type,
+		Author:        sample.Author,
 		Facts:         f,
+		Policy:        trace,
 		Prompt:        BuildPrompt(cfg, sample, f),
 		Rules:         ExplainRules(cfg, sample, f),
 	}, nil

@@ -2,6 +2,7 @@ package review
 
 import (
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -13,16 +14,20 @@ import (
 // the engine runs. Rules match on these.
 type Facts struct {
 	AuthorIsGHUser bool
-	AuthorAllowed  bool // author is on the allowed-authors list for this repo
+	// Policy is the author's resolved treatment for this repo: their group,
+	// what we may do with the PR, and any cohort or per-author instruction.
+	// Nothing here knows that groups, overrides, and an unlisted fallback
+	// produced it; the cascade resolved before this point.
+	Policy config.Policy
 }
 
 // DeriveFacts computes the rule inputs for a candidate. ghUser is the resolved
-// current gh login; authorAllowed comes from the store's per-repo allowed-authors
-// list (see store.IsAuthorAllowed); the caller looks it up, keeping this pure.
-func DeriveFacts(c store.Candidate, ghUser string, authorAllowed bool) Facts {
+// current gh login; policy comes from config.ResolvePolicy over the store's
+// membership row, which the caller looks up, keeping this pure.
+func DeriveFacts(c store.Candidate, ghUser string, policy config.Policy) Facts {
 	return Facts{
 		AuthorIsGHUser: ghUser != "" && strings.EqualFold(c.Author, ghUser),
-		AuthorAllowed:  authorAllowed,
+		Policy:         policy,
 	}
 }
 
@@ -37,6 +42,13 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	b.WriteString(candidateContext(c))
 	b.WriteString("\n")
 	b.WriteString(approvalDirective(c, f))
+	// The author's own instruction: their group's, plus anything a per-author
+	// override added. It sits in the body, above the outcome sections, because
+	// it shapes the whole review rather than one outcome.
+	if p := strings.TrimSpace(f.Policy.Prompt); p != "" {
+		b.WriteString("\n\n")
+		b.WriteString(p)
+	}
 	if outcome := outcomeInstructions(cfg.Review, c, f); outcome != "" {
 		b.WriteString("\n\n")
 		b.WriteString(outcome)
@@ -143,17 +155,19 @@ func ResumePrompt(r config.ReviewSettings) string {
 func approvalDirective(c store.Candidate, f Facts) string {
 	if canApprove(f) {
 		return "Approval policy: you MAY approve this PR if the review warrants it, " +
-			"or leave comments. @" + c.Author + " is an allowed author for " + c.Repo + "."
+			"or leave comments. @" + c.Author + " is an approvable author for " + c.Repo + "."
 	}
 	return "Approval policy: DO NOT approve this PR under any circumstances; only leave comments."
 }
 
 // canApprove reports whether an APPROVE is possible for this candidate: only
-// when the author is on the allowed-authors list AND it isn't a self-authored
-// PR (you can't approve your own). It gates both the approval directive and
-// whether the "If you APPROVED" outcome section is emitted at all — there's no
+// when the author's resolved policy permits approval AND it isn't a
+// self-authored PR (you can't approve your own). The self-review veto sits
+// ABOVE the policy cascade deliberately: no group, and no per-author override,
+// may grant approving your own PR. It gates both the approval directive and
+// whether the "If you APPROVED" outcome section is emitted at all: there's no
 // point instructing the agent on an outcome it is forbidden from reaching.
-func canApprove(f Facts) bool { return f.AuthorAllowed && !f.AuthorIsGHUser }
+func canApprove(f Facts) bool { return f.Policy.MayApprove() && !f.AuthorIsGHUser }
 
 func candidateContext(c store.Candidate) string {
 	var b strings.Builder
@@ -184,11 +198,19 @@ func matchReason(w config.Condition, c store.Candidate, f Facts) (bool, string) 
 	if w.AuthorNotGHUser && f.AuthorIsGHUser {
 		return false, "needs author_not_gh_user (not self-authored)"
 	}
-	if w.AuthorAllowed && !f.AuthorAllowed {
+	if w.AuthorAllowed && !f.Policy.MayApprove() {
 		return false, "needs author_allowed"
 	}
-	if w.AuthorNotAllowed && f.AuthorAllowed {
+	if w.AuthorNotAllowed && f.Policy.MayApprove() {
 		return false, "needs author_not_allowed"
+	}
+	// Group names are ours, so they match exactly; handles are GitHub's, so
+	// they match the way GitHub treats them.
+	if len(w.Groups) > 0 && !slices.Contains(w.Groups, f.Policy.Group) {
+		return false, "group " + f.Policy.Group + " not in [" + strings.Join(w.Groups, ", ") + "]"
+	}
+	if len(w.Authors) > 0 && !containsFold(w.Authors, c.Author) {
+		return false, "author not in [" + strings.Join(w.Authors, ", ") + "]"
 	}
 	if w.CandidateType != "" && !strings.EqualFold(w.CandidateType, c.Type) {
 		return false, "needs candidate_type=" + w.CandidateType
@@ -197,6 +219,17 @@ func matchReason(w config.Condition, c store.Candidate, f Facts) (bool, string) 
 		return false, "repo not in [" + strings.Join(w.Repos, ", ") + "]"
 	}
 	return true, ""
+}
+
+// containsFold reports membership using GitHub's case-insensitive identity
+// semantics, for the condition fields that hold handles.
+func containsFold(list []string, want string) bool {
+	for _, s := range list {
+		if strings.EqualFold(s, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // RuleTrace explains one rule's fate for a candidate: whether it fired, where

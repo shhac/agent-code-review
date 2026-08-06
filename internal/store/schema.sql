@@ -137,18 +137,33 @@ UPDATE history SET fresh_tokens = tokens_used
   WHERE fresh_tokens = 0 AND cache_read_tokens = 0 AND engine IS DISTINCT FROM 'claude';
 ALTER TABLE history DROP COLUMN IF EXISTS cache_creation_tokens;
 
--- Per-repo allowed authors: whose PRs WE (the reviewer) may approve, not who
--- can approve. A PR may receive an APPROVE only when its author's handle is
--- listed for that PR's repo (or for the wildcard repo '*'). Anyone not listed
--- is comment-only. Managed via `agent-code-review authors allow|deny|ls`.
+-- Per-repo author roster: which GROUP an author belongs to for a repo. The
+-- group names a policy defined in config (what we may do with their PRs, which
+-- engine reviews them, what extra instruction the agent gets); only membership
+-- lives here, because membership is what churns and varies per repo. A row for
+-- the PR's repo wins over a row for the wildcard repo '*'; an author with no
+-- row resolves through config's unlisted fallback. Managed via
+-- `agent-code-review authors set|rm|ls`.
+--
+-- The table keeps its original name. Renaming it would gain nothing a comment
+-- cannot, and would cost every existing store a data move.
 CREATE TABLE IF NOT EXISTS allowed_authors (
   repo          TEXT NOT NULL,               -- 'owner/name' or '*' (all repos)
   github_handle TEXT NOT NULL,
+  group_name    TEXT,                        -- config group name; NULL reads as the built-in 'approver'
   name          TEXT,
   email         TEXT,
   slack_id      TEXT,
   PRIMARY KEY (repo, github_handle)
 );
+
+-- Groups arrived after the table did. Every pre-existing row WAS the allow
+-- list, and the allow list meant exactly one thing: this author may be
+-- approved. That is the built-in 'approver' group, so the backfill is a
+-- rename of an implicit policy rather than a new decision, and an upgraded
+-- store behaves identically with no user action.
+ALTER TABLE allowed_authors ADD COLUMN IF NOT EXISTS group_name TEXT;
+UPDATE allowed_authors SET group_name = 'approver' WHERE group_name IS NULL;
 
 -- Run-lock: a row per review cycle. An unfinished, recent row means a cycle is
 -- (or may still be) in flight, so a new cycle skips. Advisory: DuckDB's

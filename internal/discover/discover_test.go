@@ -19,8 +19,8 @@ type fakeStore struct {
 	hasLast        bool
 	outcome        store.Review
 	hasOutcome     bool
-	allowedAuthors map[string]bool // handle → allowed (for author-scoped repos)
-	enqueued       []store.Candidate
+	authorGroups map[string]string // handle → group; absent = unlisted
+	enqueued     []store.Candidate
 }
 
 func (f *fakeStore) Enqueue(_ context.Context, c store.Candidate) error {
@@ -36,8 +36,12 @@ func (f *fakeStore) LastOutcome(context.Context, string, int) (store.Review, boo
 	}
 	return f.last, f.hasLast, nil
 }
-func (f *fakeStore) IsAuthorAllowed(_ context.Context, _ string, handle string) (bool, error) {
-	return f.allowedAuthors[handle], nil
+func (f *fakeStore) AuthorGroup(_ context.Context, _ string, handle string) (config.Membership, error) {
+	group, ok := f.authorGroups[handle]
+	if !ok {
+		return config.Membership{}, nil
+	}
+	return config.Membership{Group: group, Repo: config.WildcardRepo}, nil
 }
 
 func fixedNow() time.Time { return time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC) }
@@ -146,33 +150,67 @@ func TestClassifyApprovedRejected(t *testing.T) {
 	}
 }
 
-func TestClassifyAuthorScopedRepo(t *testing.T) {
-	fs := &fakeStore{allowedAuthors: map[string]bool{"alice": true}}
+func samplePR(author string) ghPR {
+	return ghPR{
+		Number:         5,
+		Author:         ghActor{Login: author},
+		ReviewRequests: openReq(),
+		CreatedAt:      fixedNow().Add(-24 * time.Hour),
+	}
+}
+
+// A repo listed in allowed_authors_only_repos keeps its exact pre-groups
+// meaning: unlisted authors are not discovered there, and are on every other
+// repo. Nobody has to adopt authors.unlisted to keep what they had.
+func TestClassifyAuthorScopedRepoLegacyConfig(t *testing.T) {
+	fs := &fakeStore{authorGroups: map[string]string{"alice": config.GroupApprover}}
 	d := New(staticConfig(config.Config{
 		Repos:                   []string{"o/scoped"},
 		AllowedAuthorsOnlyRepos: []string{"o/scoped"},
 	}), fs, nil)
 	d.now = fixedNow
 
-	pr := func(author string) ghPR {
-		return ghPR{
-			Number:         5,
-			Author:         ghActor{Login: author},
-			ReviewRequests: openReq(),
-			CreatedAt:      fixedNow().Add(-24 * time.Hour),
-		}
+	if _, ok, err := d.classify(context.Background(), d.cfg(), "o/scoped", samplePR("alice")); err != nil || !ok {
+		t.Errorf("rostered author must be discovered on a scoped repo (ok=%v err=%v)", ok, err)
 	}
-	if _, ok, err := d.classify(context.Background(), d.cfg(), "o/scoped", pr("alice")); err != nil || !ok {
-		t.Errorf("allowed author must be discovered on a scoped repo (ok=%v err=%v)", ok, err)
-	}
-	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/scoped", pr("mallory")); ok {
-		t.Error("non-allowed author must be skipped on a scoped repo")
+	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/scoped", samplePR("mallory")); ok {
+		t.Error("unlisted author must be skipped on a scoped repo")
 	}
 	// Unscoped repo: anyone is discovered.
 	unscoped := New(staticConfig(config.Config{Repos: []string{"o/open"}}), fs, nil)
 	unscoped.now = fixedNow
-	if _, ok, _ := unscoped.classify(context.Background(), unscoped.cfg(), "o/open", pr("mallory")); !ok {
+	if _, ok, _ := unscoped.classify(context.Background(), unscoped.cfg(), "o/open", samplePR("mallory")); !ok {
 		t.Error("unscoped repo must discover any open PR")
+	}
+}
+
+// The group ladder replaces that repo list: an "ignore" policy is what stops
+// discovery now, and it can come from the author's own group rather than only
+// from the repo they filed against.
+func TestClassifyGatesOnTheIgnoreLevel(t *testing.T) {
+	cfg := config.Config{
+		Repos: []string{"o/repo"},
+		Authors: config.AuthorSettings{
+			Unlisted: map[string]string{"*": "outsider"},
+			Groups: map[string]config.Group{
+				"outsider": {Review: config.ReviewComment},
+				"bots":     {Review: config.ReviewIgnore},
+			},
+		},
+	}
+	fs := &fakeStore{authorGroups: map[string]string{"dependabot": "bots", "alice": "outsider"}}
+	d := New(staticConfig(cfg), fs, nil)
+	d.now = fixedNow
+
+	if _, ok, _ := d.classify(context.Background(), cfg, "o/repo", samplePR("dependabot")); ok {
+		t.Error("an ignore-level author must not be discovered")
+	}
+	if _, ok, _ := d.classify(context.Background(), cfg, "o/repo", samplePR("alice")); !ok {
+		t.Error("a comment-level author must still be discovered")
+	}
+	// An unlisted author lands on the unlisted group, which reviews.
+	if _, ok, _ := d.classify(context.Background(), cfg, "o/repo", samplePR("stranger")); !ok {
+		t.Error("unlisted authors must follow authors.unlisted, which reviews here")
 	}
 }
 

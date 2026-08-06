@@ -20,13 +20,13 @@ import (
 type fakeSchedStore struct {
 	store.Store // panic on anything not overridden
 
-	mu         sync.Mutex
-	allowed    bool
-	allowedErr error // simulate the allow-list lookup failing
-	claimLost  bool  // simulate losing the compare-and-swap to another worker
-	claims     []store.Lease
-	workDirs   []string
-	completed  []store.Review
+	mu        sync.Mutex
+	group     string
+	groupErr  error // simulate the roster lookup failing
+	claimLost bool  // simulate losing the compare-and-swap to another worker
+	claims    []store.Lease
+	workDirs  []string
+	completed []store.Review
 }
 
 func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, l store.Lease) (bool, error) {
@@ -40,8 +40,8 @@ func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, l store.Lease
 	return true, nil
 }
 
-func (f *fakeSchedStore) IsAuthorAllowed(context.Context, string, string) (bool, error) {
-	return f.allowed, f.allowedErr
+func (f *fakeSchedStore) AuthorGroup(context.Context, string, string) (config.Membership, error) {
+	return config.Membership{Group: f.group, Repo: config.WildcardRepo}, f.groupErr
 }
 
 func (f *fakeSchedStore) Complete(_ context.Context, r store.Review) error {
@@ -210,41 +210,57 @@ func TestReviewOneClaimCarriesIdentity(t *testing.T) {
 	}
 }
 
-// TestReviewOneAllowedFlagReachesPrompt: the store's per-repo answer must flip
-// the approval directive the engine sees.
-func TestReviewOneAllowedFlagReachesPrompt(t *testing.T) {
-	run := func(allowed bool) string {
-		fs := &fakeSchedStore{allowed: allowed}
+// TestReviewOneGroupReachesPrompt: the author's roster group must resolve
+// through config and flip the approval directive the engine sees. The group
+// also carries a prompt fragment, which has to reach the same prompt: that is
+// what makes a cohort's instruction a cohort's instruction.
+func TestReviewOneGroupReachesPrompt(t *testing.T) {
+	cfg := config.Config{
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{
+				"core":       {Review: config.ReviewApprove},
+				"contractor": {Review: config.ReviewComment, Prompt: "COHORT-FRAGMENT"},
+			},
+		},
+	}
+	run := func(group string) string {
+		fs := &fakeSchedStore{group: group}
 		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
 		s := newTestScheduler(fs, fe)
+		s.cfg = func() config.Config { return cfg }
 		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, Author: "alice"}); err != nil {
 			t.Fatal(err)
 		}
 		return fe.prompt
 	}
-	if p := run(true); !strings.Contains(p, "MAY approve") {
-		t.Errorf("allowed author must yield MAY-approve directive, got:\n%.200s", p)
+	if p := run("core"); !strings.Contains(p, "MAY approve") {
+		t.Errorf("an approve-level group must yield MAY-approve directive, got:\n%.200s", p)
 	}
-	if p := run(false); !strings.Contains(p, "DO NOT approve") {
-		t.Errorf("disallowed author must yield DO-NOT-approve directive, got:\n%.200s", p)
+	p := run("contractor")
+	if !strings.Contains(p, "DO NOT approve") {
+		t.Errorf("a comment-level group must yield DO-NOT-approve directive, got:\n%.200s", p)
+	}
+	if !strings.Contains(p, "COHORT-FRAGMENT") {
+		t.Errorf("the group's prompt fragment must reach the engine, got:\n%s", p)
 	}
 }
 
 // TestReviewOneAuthorLookupError pins the approve-gating junction: when the
-// allow-list lookup fails, the error propagates, the engine is never invoked
+// roster lookup fails, the error propagates, the engine is never invoked
 // (no prompt is built with a guessed approval policy), and no outcome is
 // recorded — the claim stays until the lease window retries it. A refactor
-// that "handles" the error by defaulting allowed must fail this test.
+// that "handles" the error by defaulting to a permissive policy must fail
+// this test.
 func TestReviewOneAuthorLookupError(t *testing.T) {
-	fs := &fakeSchedStore{allowedErr: errors.New("store unavailable")}
+	fs := &fakeSchedStore{groupErr: errors.New("store unavailable")}
 	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionApproved}}
 	s := newTestScheduler(fs, fe)
 
 	if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, Author: "alice", HeadSHA: "sha1"}); err == nil {
-		t.Fatal("allow-list lookup error must propagate")
+		t.Fatal("roster lookup error must propagate")
 	}
 	if fe.prompt != "" {
-		t.Error("engine must not run when the allow-list lookup failed")
+		t.Error("engine must not run when the roster lookup failed")
 	}
 	if len(fs.completed) != 0 {
 		t.Errorf("no outcome may be recorded on a lookup error, got %+v", fs.completed)

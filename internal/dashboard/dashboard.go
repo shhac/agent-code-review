@@ -49,7 +49,8 @@ type dashboardStore interface {
 	ListReviewsSince(context.Context, time.Time) ([]store.Review, error)
 	ListRuns(context.Context, int) ([]store.Run, error)
 	FreshTokens(context.Context, time.Time) (int64, error)
-	ListAllowedAuthors(context.Context, string) ([]store.AllowedAuthor, error)
+	ListAuthors(ctx context.Context, repo, group string) ([]store.Author, error)
+	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
 }
 
 // Server renders the queue, config, and prompt views. Config comes through a

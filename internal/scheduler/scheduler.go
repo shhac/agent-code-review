@@ -35,7 +35,7 @@ type SchedulerStore interface {
 	ClearClaim(context.Context, string, int) error
 	AppendHistory(context.Context, store.Review) error
 	Complete(context.Context, store.Review) error
-	IsAuthorAllowed(context.Context, string, string) (bool, error)
+	AuthorGroup(context.Context, string, string) (config.Membership, error)
 	ActiveRun(context.Context, time.Duration) (store.Run, bool, error)
 	RunningRuns(context.Context) ([]store.Run, error)
 	StartRun(context.Context, store.Run) error

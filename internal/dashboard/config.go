@@ -10,8 +10,13 @@ import (
 )
 
 type configRepoResp struct {
-	Name               string `json:"name"`
+	Name string `json:"name"`
+	// AllowedAuthorsOnly predates groups and is kept for the UI: it now means
+	// "an author with no roster row is not discovered here", which is what it
+	// always meant, just derived from the unlisted policy instead of a repo
+	// list. UnlistedGroup names the group that decided it.
 	AllowedAuthorsOnly bool   `json:"allowed_authors_only"`
+	UnlistedGroup      string `json:"unlisted_group"`
 }
 
 type configCandidateResp struct {
@@ -54,8 +59,17 @@ type configResp struct {
 	Version          string              `json:"version"`
 }
 
+// authorRow is one roster entry with the policy it actually resolves to. The
+// resolution is included rather than left to the reader because a row can name
+// a group that config no longer defines, and the resolved view is the only
+// place that shows.
+type authorRow struct {
+	store.Author
+	Policy config.Policy `json:"policy"`
+}
+
 type authorsResp struct {
-	Authors []store.AllowedAuthor `json:"authors"`
+	Authors []authorRow `json:"authors"`
 }
 
 // handleConfig returns the operational settings the UI shows: watched repos and
@@ -66,7 +80,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	repos := make([]configRepoResp, 0, len(cfg.Repos))
 	for _, r := range cfg.SortedRepos() {
-		repos = append(repos, configRepoResp{Name: r, AllowedAuthorsOnly: cfg.AuthorScopedRepo(r)})
+		unlisted := cfg.UnlistedPolicy(r)
+		repos = append(repos, configRepoResp{
+			Name:               r,
+			AllowedAuthorsOnly: !unlisted.Reviewable(),
+			UnlistedGroup:      unlisted.Group,
+		})
 	}
 	writeJSON(w, http.StatusOK, configResp{
 		ReviewingAs: s.reviewingAs(ctx),
@@ -100,8 +119,18 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
 	serveGet(s, w, r, func(ctx context.Context) (authorsResp, error) {
-		authors, err := s.store.ListAllowedAuthors(ctx, r.URL.Query().Get("repo"))
-		return authorsResp{Authors: authors}, err
+		q := r.URL.Query()
+		authors, err := s.store.ListAuthors(ctx, q.Get("repo"), q.Get("group"))
+		if err != nil {
+			return authorsResp{}, err
+		}
+		cfg := s.config()
+		rows := make([]authorRow, 0, len(authors))
+		for _, a := range authors {
+			policy := cfg.ResolvePolicy(a.Repo, a.GitHubHandle, config.Membership{Group: a.Group, Repo: a.Repo})
+			rows = append(rows, authorRow{Author: a, Policy: policy})
+		}
+		return authorsResp{Authors: rows}, nil
 	})
 }
 

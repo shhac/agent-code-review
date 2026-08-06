@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shhac/agent-code-review/internal/config"
 )
 
 // newTestStore opens a fresh DuckDB store in a temp dir. Skips when the
@@ -104,9 +106,10 @@ func TestReadOnlyStoreReadsButRefusesWrites(t *testing.T) {
 	}
 }
 
-// TestIsAuthorAllowed covers the store half of the approval gate: the single
-// query that decides whether a PR may be APPROVED at all.
-func TestIsAuthorAllowed(t *testing.T) {
+// TestAuthorGroup covers the store half of the policy cascade: which roster
+// row applies to an author on a repo. The precedence lives in the query, so
+// this is where "exact repo beats wildcard" is pinned.
+func TestAuthorGroup(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
@@ -116,47 +119,98 @@ func TestIsAuthorAllowed(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.AllowAuthor(ctx, AllowedAuthor{Repo: "org/repo-a", GitHubHandle: "Alice"}))
-	must(s.AllowAuthor(ctx, AllowedAuthor{Repo: WildcardRepo, GitHubHandle: "bob"}))
+	must(s.SetAuthorGroup(ctx, Author{Repo: "org/repo-a", GitHubHandle: "Alice", Group: "core"}))
+	must(s.SetAuthorGroup(ctx, Author{Repo: WildcardRepo, GitHubHandle: "bob", Group: "outsider"}))
+	// Bob is an outsider everywhere EXCEPT repo-a, where a specific row wins.
+	must(s.SetAuthorGroup(ctx, Author{Repo: "org/repo-a", GitHubHandle: "bob", Group: "core"}))
 
 	cases := []struct {
 		name, repo, handle string
-		want               bool
+		want               config.Membership
 	}{
-		{"exact repo match", "org/repo-a", "Alice", true},
-		{"case-insensitive handle", "org/repo-a", "alice", true},
-		{"listed repo does not leak to another repo", "org/repo-b", "alice", false},
-		{"wildcard applies everywhere", "org/repo-b", "bob", true},
-		{"wildcard case-insensitive", "org/repo-a", "BOB", true},
-		{"unknown author", "org/repo-a", "mallory", false},
-		{"empty handle never allowed", "org/repo-a", "", false},
+		{"exact repo match", "org/repo-a", "Alice", config.Membership{Group: "core", Repo: "org/repo-a"}},
+		{"case-insensitive handle", "org/repo-a", "alice", config.Membership{Group: "core", Repo: "org/repo-a"}},
+		{"a repo row does not leak to another repo", "org/repo-b", "alice", config.Membership{}},
+		{"wildcard applies everywhere else", "org/repo-b", "bob", config.Membership{Group: "outsider", Repo: WildcardRepo}},
+		{"exact repo beats the wildcard row", "org/repo-a", "BOB", config.Membership{Group: "core", Repo: "org/repo-a"}},
+		{"unknown author is unlisted", "org/repo-a", "mallory", config.Membership{}},
+		{"empty handle is unlisted", "org/repo-a", "", config.Membership{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := s.IsAuthorAllowed(ctx, tc.repo, tc.handle)
+			got, err := s.AuthorGroup(ctx, tc.repo, tc.handle)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != tc.want {
-				t.Errorf("IsAuthorAllowed(%q, %q) = %v, want %v", tc.repo, tc.handle, got, tc.want)
+				t.Errorf("AuthorGroup(%q, %q) = %+v, want %+v", tc.repo, tc.handle, got, tc.want)
 			}
 		})
 	}
 
-	// Deny closes the gate again.
-	must(s.DenyAuthor(ctx, WildcardRepo, "BOB")) // case-insensitive delete
-	if got, _ := s.IsAuthorAllowed(ctx, "org/repo-b", "bob"); got {
-		t.Error("bob should be denied after DenyAuthor")
+	// Removal drops the author back to unlisted.
+	must(s.RemoveAuthor(ctx, WildcardRepo, "BOB")) // case-insensitive delete
+	if got, _ := s.AuthorGroup(ctx, "org/repo-b", "bob"); got.Group != "" {
+		t.Errorf("bob should be unlisted on repo-b after removal, got %+v", got)
 	}
 
-	// AllowAuthor upserts metadata without duplicating rows.
-	must(s.AllowAuthor(ctx, AllowedAuthor{Repo: "org/repo-a", GitHubHandle: "Alice", Name: "Alice A"}))
-	authors, err := s.ListAllowedAuthors(ctx, "org/repo-a")
+	// SetAuthorGroup upserts metadata and the group without duplicating rows.
+	must(s.SetAuthorGroup(ctx, Author{Repo: "org/repo-a", GitHubHandle: "Alice", Group: "outsider", Name: "Alice A"}))
+	authors, err := s.ListAuthors(ctx, "org/repo-a", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(authors) != 1 || authors[0].Name != "Alice A" {
-		t.Errorf("expected single upserted row with updated name, got %+v", authors)
+	if len(authors) != 2 {
+		t.Fatalf("expected the two repo-a rows, got %+v", authors)
+	}
+	for _, a := range authors {
+		if a.GitHubHandle == "Alice" && (a.Name != "Alice A" || a.Group != "outsider") {
+			t.Errorf("upsert did not update the row: %+v", a)
+		}
+	}
+
+	// Listing narrows by group as well as repo.
+	core, err := s.ListAuthors(ctx, "", "core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(core) != 1 || core[0].GitHubHandle != "bob" {
+		t.Errorf("group filter should leave only bob@org/repo-a, got %+v", core)
+	}
+}
+
+// TestAuthorGroupBackfillsLegacyRows: rows written before group_name existed
+// WERE the allow list, which meant exactly "this author may be approved". They
+// must keep meaning that, so an upgraded store behaves identically.
+func TestAuthorGroupBackfillsLegacyRows(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	d, ok := s.(*duckDB)
+	if !ok {
+		t.Skip("legacy backfill is a duckdb concern")
+	}
+	// A pre-groups row: every column except group_name.
+	if err := d.exec(ctx, `INSERT INTO allowed_authors (repo, github_handle, name) VALUES ('org/repo-a', 'legacy', 'Legacy L')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.exec(ctx, `UPDATE allowed_authors SET group_name = NULL WHERE github_handle = 'legacy'`); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.AuthorGroup(ctx, "org/repo-a", "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Group != config.GroupApprover {
+		t.Errorf("a null group_name must read as %q, got %q", config.GroupApprover, got.Group)
+	}
+	authors, err := s.ListAuthors(ctx, "org/repo-a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(authors) != 1 || authors[0].Group != config.GroupApprover {
+		t.Errorf("listing must show the same backfilled group, got %+v", authors)
 	}
 }
 
@@ -661,24 +715,24 @@ func TestEnqueueSourceEscalation(t *testing.T) {
 	}
 }
 
-// TestListAllowedAuthorsAlphabetical: the list is about authors, so it comes
+// TestListAuthorsAlphabetical: the list is about authors, so it comes
 // back alphabetical by handle, case-insensitively (DuckDB's raw TEXT order
 // would put "Zed" before "alice"), with repo as the tiebreak.
-func TestListAllowedAuthorsAlphabetical(t *testing.T) {
+func TestListAuthorsAlphabetical(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	for _, a := range []AllowedAuthor{
-		{Repo: "org/b", GitHubHandle: "Zed"},
-		{Repo: "org/a", GitHubHandle: "alice"},
-		{Repo: WildcardRepo, GitHubHandle: "Bob"},
-		{Repo: "org/a", GitHubHandle: "Bob"},
+	for _, a := range []Author{
+		{Repo: "org/b", GitHubHandle: "Zed", Group: "core"},
+		{Repo: "org/a", GitHubHandle: "alice", Group: "core"},
+		{Repo: WildcardRepo, GitHubHandle: "Bob", Group: "core"},
+		{Repo: "org/a", GitHubHandle: "Bob", Group: "core"},
 	} {
-		if err := s.AllowAuthor(ctx, a); err != nil {
+		if err := s.SetAuthorGroup(ctx, a); err != nil {
 			t.Fatal(err)
 		}
 	}
-	authors, err := s.ListAllowedAuthors(ctx, "")
+	authors, err := s.ListAuthors(ctx, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

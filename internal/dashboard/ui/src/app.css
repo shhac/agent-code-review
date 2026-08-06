@@ -238,6 +238,39 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
   text-transform: uppercase; letter-spacing: .08em;
 }
 .authors a { color: var(--accent); font-weight: 700; }
+
+/* Roster rows expand to show contact details and the full resolved policy:
+   the summary row carries what you scan by, the panel what you look up. */
+.roster-controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 20px 12px; }
+.roster-select {
+  height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-warm); color: var(--ink); font: inherit; font-size: 12px;
+}
+.roster-select:focus { outline: none; border-color: var(--accent); }
+.roster-clear {
+  height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--dim); font: inherit; font-size: 12px;
+  font-weight: 750; cursor: pointer;
+}
+.roster-clear:hover { color: var(--ink); border-color: var(--accent); }
+
+.author-row { cursor: pointer; }
+.author-row:hover, .author-row:focus-visible { background: var(--surface-warm); }
+.author-row.open { background: var(--surface-warm); }
+.chev { display: inline-block; width: 12px; color: var(--faint); font-size: 11px; }
+.author-detail { padding: 2px 20px 18px 32px; background: var(--surface-warm); }
+.author-detail dl {
+  margin: 0 0 12px; display: grid; gap: 6px 18px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.author-detail dl > div { display: flex; gap: 8px; align-items: baseline; }
+.author-detail dt {
+  color: var(--faint); font-size: 11px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .08em; min-width: 84px;
+}
+.author-detail dd { margin: 0; font-size: 13px; }
+.detail-label { margin: 0 0 6px; font-size: 12px; font-weight: 700; }
+.detail-prompt { max-width: 900px; }
 .authors a:hover { text-decoration: underline; }
 .mini-table p:last-child, .review-list p:last-child { border-bottom: 0; }
 time { color: var(--dim); }

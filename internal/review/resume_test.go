@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 )
@@ -123,4 +124,69 @@ func TestReviewResumesTheGivenSessionInsteadOfStartingFresh(t *testing.T) {
 			t.Error("a resumed session already holds the context; re-sending the prompt pays for it twice")
 		}
 	})
+}
+
+// TestDriverCancellationRecordsErrorWithSpendSoFar covers the path a FORCED
+// shutdown actually takes. The second Ctrl-C cancels reviewCtx mid-run, which
+// kills the engine's process group; the driver then has to turn a killed
+// subprocess into an ordinary recorded outcome rather than a panic or a lost
+// figure. Nothing exercised it before, so the deliberate cost of a force
+// (this review burns as an ERROR) was assumed rather than verified.
+//
+// The tokens matter as much as the verdict: the run really did spend them, so
+// dropping them would under-report what a forced shutdown cost.
+func TestDriverCancellationRecordsErrorWithSpendSoFar(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(t *testing.T, ctx context.Context, workDir string) (Verdict, error)
+	}{
+		{
+			name: "codex",
+			run: func(t *testing.T, ctx context.Context, workDir string) (Verdict, error) {
+				e := newCodex(config.CodexSettings{}, "nudge")
+				e.runCmd = func(ctx context.Context, _ []string, sink io.Writer) error {
+					_, _ = sink.Write([]byte(`{"type":"turn.completed","usage":{"input_tokens":4242,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0}}` + "\n"))
+					<-ctx.Done()
+					return ctx.Err()
+				}
+				return e.Review(ctx, Request{Prompt: "p", WorkDir: workDir})
+			},
+		},
+		{
+			name: "claude",
+			run: func(t *testing.T, ctx context.Context, workDir string) (Verdict, error) {
+				e := newClaude(config.ClaudeSettings{}, "nudge")
+				e.runCmd = func(ctx context.Context, _ []string, _ string, stream, _ io.Writer) error {
+					_, _ = stream.Write([]byte(resultLine(t, "sess-1", DecisionWorking, 4242) + "\n"))
+					<-ctx.Done()
+					return ctx.Err()
+				}
+				return e.Review(ctx, Request{Prompt: "p", WorkDir: workDir})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				time.Sleep(20 * time.Millisecond)
+				cancel()
+			}()
+
+			v, err := tc.run(t, ctx, t.TempDir())
+			if err == nil {
+				t.Fatal("a cancelled run must report its error, not a clean outcome")
+			}
+			if v.Decision != DecisionError {
+				t.Errorf("decision = %q, want %q for a killed run", v.Decision, DecisionError)
+			}
+			if v.Tokens.Total() == 0 {
+				t.Error("tokens the run had already spent must survive the cancellation")
+			}
+			// A cancelled context must not be nudged into resuming: the point
+			// of the force is to stop, and a resume would spend again.
+			if strings.Count(v.Raw, "session id:") > 1 {
+				t.Errorf("a cancelled run must not be resumed:\n%s", v.Raw)
+			}
+		})
+	}
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/review"
+	"github.com/shhac/agent-code-review/internal/store"
 )
 
 func TestStartGracefulStartsConfiguredLoopsAndDrainsOnStop(t *testing.T) {
@@ -154,4 +156,110 @@ func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 	if err := <-done; err != context.Canceled {
 		t.Errorf("StartGraceful error = %v, want context.Canceled", err)
 	}
+}
+
+// TestStartGracefulWiresBothContextsThroughToTheEngine drives the REAL loop
+// through StartGraceful, which is the one line joining the daemon's two
+// shutdown contexts to the review cycle. Every existing test around it
+// substitutes its own context values or stubs out loopRunner entirely, so the
+// closure that does the wiring was never executed: swapping the two arguments
+// would have made the first Ctrl-C kill in-flight reviewers and the whole
+// suite would still have passed.
+//
+// The property under test is the contract serve prints on the first signal:
+// cancelling stopCtx alone stops NEW work while the in-flight review runs to
+// completion; only reviewCtx ends the running one.
+func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
+	fs := &fakeCycleStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
+	}}
+	engineCtx := make(chan context.Context, 4)
+	started := make(chan struct{}, 4)
+	release := make(chan struct{})
+	fe := &ctxCapturingEngine{seen: engineCtx, started: started, release: release}
+
+	s := New(func() config.Config {
+		return config.Config{
+			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+			Schedule: config.ScheduleSettings{MaxParallel: 1, Interval: "1ms"},
+		}
+	}, fs, nil, "u", nil, nil)
+	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
+	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
+	s.reconcile = func(context.Context) error { return nil }
+	s.heartbeat = time.Millisecond
+
+	stopCtx, stop := context.WithCancel(context.Background())
+	reviewCtx, force := context.WithCancel(context.Background())
+	defer force()
+
+	done := make(chan error, 1)
+	go func() { done <- s.StartGraceful(stopCtx, reviewCtx, false, true) }()
+
+	// Wait for the first reviewer to be in flight, then request the graceful
+	// stop while it is still running.
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reviewer started")
+	}
+	stop()
+
+	// The in-flight engine must NOT have been handed a context that the
+	// graceful stop cancels: that is the whole bargain.
+	var got context.Context
+	select {
+	case got = <-engineCtx:
+	case <-time.After(5 * time.Second):
+		t.Fatal("engine context never captured")
+	}
+	if got.Err() != nil {
+		t.Fatalf("the engine's context was cancelled by the graceful stop (%v); "+
+			"the in-flight review would die instead of finishing", got.Err())
+	}
+
+	// And no SECOND reviewer starts once the stop has landed.
+	select {
+	case <-started:
+		t.Error("a graceful stop must not launch another reviewer")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("StartGraceful did not return after draining")
+	}
+
+	// Now prove the other half: reviewCtx is what actually reaches the engine,
+	// so a forced shutdown does end a running review.
+	if got.Err() != nil {
+		t.Fatal("precondition")
+	}
+	force()
+	if got.Err() == nil {
+		t.Error("the engine's context must be cancelled by the forced stop")
+	}
+}
+
+// ctxCapturingEngine reports the context it was invoked with, so a test can
+// assert WHICH of the two shutdown contexts reached the subprocess seam.
+type ctxCapturingEngine struct {
+	seen    chan context.Context
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (e *ctxCapturingEngine) Provenance(context.Context) review.Provenance {
+	return review.Provenance{Engine: "ctx-capture"}
+}
+
+func (e *ctxCapturingEngine) Review(ctx context.Context, _ review.Request) (review.Verdict, error) {
+	e.seen <- ctx
+	e.started <- struct{}{}
+	e.once.Do(func() { <-e.release })
+	return review.Verdict{Decision: review.DecisionCommented}, nil
 }

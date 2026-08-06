@@ -361,3 +361,61 @@ func TestClaudeFailureSurfacesReason(t *testing.T) {
 		t.Errorf("transcript must carry the reason:\n%s", v.Raw)
 	}
 }
+
+// TestClaudeArgsTerminatePromptWithSeparator pins the fix for a bug that every
+// existing arg test missed, because each one asked only "is the prompt last?"
+// and the prompt WAS last: `--allowedTools` is variadic (`<tools...>`), so the
+// CLI kept consuming argv past it and swallowed the prompt as one more tool
+// name. Every review in a static permission mode died on "Input must be
+// provided either through stdin or as a prompt argument". Auto mode, the
+// shipped default, ships no tool list and so never hit it.
+//
+// The invariant is therefore not "the prompt is last" but "nothing before the
+// prompt can claim it", which is what the "--" terminator guarantees. Asserted
+// on both invocations, and with a variadic flag deliberately present.
+func TestClaudeArgsTerminatePromptWithSeparator(t *testing.T) {
+	// A static mode, so the fallback tool list ships and the variadic flag is
+	// actually in the argv, plus a user-supplied extra arg after it.
+	e := newClaude(config.ClaudeSettings{
+		PermissionMode: "dontAsk",
+		Args:           []string{"--strict-mcp-config"},
+	}, "finish up")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"initial", e.buildArgs("REVIEW THIS"), "REVIEW THIS"},
+		{"resume", e.buildResumeArgs("sess-1"), "finish up"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !hasArg(tc.args, "--allowedTools") {
+				t.Fatalf("fixture is wrong: a variadic flag must be present to make this meaningful: %v", tc.args)
+			}
+			if len(tc.args) < 2 {
+				t.Fatalf("argv too short: %v", tc.args)
+			}
+			// The prompt is the final entry and "--" immediately precedes it,
+			// so no preceding flag (variadic or otherwise) can absorb it.
+			if last := tc.args[len(tc.args)-1]; !strings.HasPrefix(last, tc.want) {
+				t.Errorf("final arg = %q, want the prompt %q", last, tc.want)
+			}
+			if sep := tc.args[len(tc.args)-2]; sep != "--" {
+				t.Errorf("arg before the prompt = %q, want the %q terminator; without it a "+
+					"variadic flag swallows the prompt and the run fails with no prompt at all", sep, "--")
+			}
+			// "--" must appear exactly once, or an earlier one would end
+			// option parsing before the flags we rely on.
+			seps := 0
+			for _, a := range tc.args {
+				if a == "--" {
+					seps++
+				}
+			}
+			if seps != 1 {
+				t.Errorf("want exactly one %q terminator, got %d: %v", "--", seps, tc.args)
+			}
+		})
+	}
+}

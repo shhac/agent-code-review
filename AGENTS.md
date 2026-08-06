@@ -80,6 +80,19 @@ internal/
   and read by `ui/src/lib/agentlog.test.ts`; regenerate with
   `go test ./internal/review -update-golden`.
 
+- **The positional prompt goes behind a `--` terminator.** `claude`'s
+  `--allowedTools` is VARIADIC (`<tools...>`), so it keeps consuming argv until
+  the next flag. With the prompt merely appended last it was swallowed as one
+  more tool name and every run died on "Input must be provided either through
+  stdin or as a prompt argument". It only bit the static permission modes,
+  because the fallback tool list is skipped in auto mode and auto is the
+  shipped default, so the failure was invisible in normal use. Ordering is not
+  the fix: the argv ends with the user's own `claude.args`/`codex.args`, which
+  may hold any flag at all. A test asserting "the prompt is last" passes while
+  this is broken; the invariant worth pinning is that nothing before the prompt
+  can claim it. codex's own flags are all single-value today, but it does have
+  a variadic `-i/--image`, so the same hazard applies to anything added there.
+
 - **An interrupted review is recovered, not repeated.** Killing the daemon
   mid-review never loses the PR: the queue row survives (only `Complete`
   retires it), `Reconcile` releases claims held by a dead pid on this host,

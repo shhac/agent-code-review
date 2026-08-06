@@ -49,10 +49,28 @@ func TestClaudeSmoke(t *testing.T) {
 	if v.Tokens.Total() == 0 {
 		t.Error("token usage must be read back from the result event")
 	}
-	// A live claude run always re-reads context across turns, so a zero here
-	// means the split was parsed into the wrong half, not that nothing cached.
-	if v.Tokens.Fresh() == 0 || v.Tokens.CacheRead == 0 {
-		t.Errorf("usage split = %+v, want both halves populated by a real run", v.Tokens)
+	if v.Tokens.Fresh() == 0 {
+		t.Errorf("usage split = %+v, want the fresh half populated by a real run", v.Tokens)
+	}
+	// A live run always moves a large cached context, but WHICH cache column
+	// it lands in depends only on how recently this suite last ran: cold, this
+	// run populates the cache (CacheWrite); warm, a recent run already did and
+	// it re-reads (CacheRead). Asserting CacheRead specifically made the test
+	// pass or fail on cache timing rather than on the code, so it failed on
+	// the first run of the day and passed on the second.
+	//
+	// What must hold either way is the thing the split exists for: the cached
+	// context is parsed into a CACHE bucket rather than counted as fresh
+	// input. Fresh input on a run like this is tens of tokens against tens of
+	// thousands cached, so a comparison catches the miscategorisation the old
+	// assertion was reaching for, without depending on the cache's state.
+	cached := v.Tokens.CacheWrite + v.Tokens.CacheRead
+	if cached == 0 {
+		t.Errorf("usage split = %+v, want the cached context in a cache bucket", v.Tokens)
+	}
+	if v.Tokens.Input >= cached {
+		t.Errorf("usage split = %+v: fresh input should be tiny beside the cached context, "+
+			"so an Input this large means cache tokens were parsed into the wrong half", v.Tokens)
 	}
 	if v.UsageRaw == "" {
 		t.Error("the verbatim usage payload must be kept, not just the projection")

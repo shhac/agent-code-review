@@ -111,7 +111,7 @@ func rulesAddCmd() *cobra.Command {
 					Outcome:          outcome,
 				},
 			}
-			if err := validateRule(rule); err != nil {
+			if err := validateRule(rule, config.Read()); err != nil {
 				return err
 			}
 			if err := config.Update(func(cfg *config.Config) error {
@@ -153,7 +153,12 @@ func rulesAddCmd() *cobra.Command {
 // fields present, no mutually-exclusive condition pair set (which could never
 // match), and valid enum/repo values. Pure and table-testable, kept apart from
 // the persist/emit transport in rulesAddCmd.
-func validateRule(r config.Rule) error {
+//
+// The config it validates against is a PARAMETER, not something it fetches.
+// Reading it here made the "pure" claim above false and took a second snapshot
+// for one logical validation, so the group set a rule was checked against
+// could differ from the one it was written into.
+func validateRule(r config.Rule, cfg config.Config) error {
 	if r.Name == "" {
 		return output.New("--name is required", output.FixableByAgent)
 	}
@@ -179,7 +184,6 @@ func validateRule(r config.Rule) error {
 	}
 	// A rule gated on a group nobody defined can never match, so it is a typo
 	// caught here rather than a fragment that silently never fires.
-	cfg := config.Read()
 	for _, group := range r.When.Groups {
 		if _, ok := cfg.Group(group); !ok {
 			return unknownGroup(cfg, group, "named in --group")

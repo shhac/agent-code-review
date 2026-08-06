@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -31,9 +32,12 @@ type pending struct {
 // The engine is built per candidate rather than per cycle: an author's group
 // can name its own engine, model, and effort, so two PRs in one cycle can be
 // reviewed by different CLIs.
-func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates []pending, cfg config.Config) {
+// It returns how many reviewers failed, so the cycle can record a status that
+// reflects what happened rather than always claiming success.
+func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates []pending, cfg config.Config) int {
 	sem := make(chan struct{}, cfg.MaxParallel())
 	var wg sync.WaitGroup
+	var failed atomic.Int64
 	for _, p := range candidates {
 		// Cancellation is checked BEFORE the select, because select chooses
 		// uniformly at random among ready cases. A free semaphore slot is
@@ -44,21 +48,21 @@ func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates 
 		if stopCtx.Err() != nil {
 			s.logf("cycle: shutdown requested, waiting for in-flight reviewer(s)")
 			wg.Wait()
-			return
+			return int(failed.Load())
 		}
 		if reviewCtx.Err() != nil {
 			wg.Wait()
-			return
+			return int(failed.Load())
 		}
 		select {
 		case sem <- struct{}{}:
 		case <-stopCtx.Done():
 			s.logf("cycle: shutdown requested, waiting for in-flight reviewer(s)")
 			wg.Wait()
-			return
+			return int(failed.Load())
 		case <-reviewCtx.Done():
 			wg.Wait()
-			return
+			return int(failed.Load())
 		}
 		wg.Add(1)
 		go func(p pending) {
@@ -70,16 +74,19 @@ func (s *Scheduler) processQueue(stopCtx, reviewCtx context.Context, candidates 
 			// reaching here means config changed under a running daemon.
 			engine, err := s.newEngine(cfg, p.policy)
 			if err != nil {
+				failed.Add(1)
 				s.logf("review %s#%d: build %s engine: %v",
 					p.candidate.Repo, p.candidate.Number, cfg.EngineFor(p.policy), err)
 				return
 			}
 			if err := s.reviewOne(reviewCtx, p, cfg, engine); err != nil {
+				failed.Add(1)
 				s.logf("review %s#%d: %v", p.candidate.Repo, p.candidate.Number, err)
 			}
 		}(p)
 	}
 	wg.Wait()
+	return int(failed.Load())
 }
 
 // skipIfStale re-validates a discovered candidate just before the engine
@@ -133,6 +140,11 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 		At: claimedAt, WorkDir: workDir, Host: hostname(), PID: os.Getpid(), StaleAfter: cfg.LeaseWindow(),
 	})
 	if err != nil {
+		// The directory only earns its keep once a claim records it: nothing
+		// points at this one, so nothing would ever read or remove it. The
+		// lost-the-claim path below cleans up for the same reason; this one
+		// used to return straight past it and leak a directory per failure.
+		_ = os.Remove(workDir)
 		return err
 	}
 	// Lost the compare-and-swap: another worker (possibly another daemon

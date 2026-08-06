@@ -77,7 +77,14 @@ func (s *Scheduler) reviewCycle(stopCtx, reviewCtx context.Context) error {
 	}()
 
 	s.logf("cycle: %d candidate(s) to review", len(runnable))
-	s.processQueue(stopCtx, reviewCtx, runnable, cfg)
+	// A cycle where every review failed is not "done". The status is the only
+	// signal the runs table and the dashboard carry about whether a cycle was
+	// healthy, so reporting success regardless made a wholly failed cycle
+	// indistinguishable from a clean one.
+	if failed := s.processQueue(stopCtx, reviewCtx, runnable, cfg); failed > 0 {
+		status = "failed"
+		s.logf("cycle: %d of %d reviewer(s) failed", failed, len(runnable))
+	}
 	return nil
 }
 

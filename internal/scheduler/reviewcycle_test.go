@@ -288,3 +288,32 @@ func TestProcessQueueStartsNothingAfterStopRequested(t *testing.T) {
 		}
 	}
 }
+
+// TestReviewCycleRecordsFailedWhenReviewersFail: the run status is the only
+// signal the runs table and the dashboard carry about whether a cycle was
+// healthy. It was hardcoded "done" before the reviewers even started, so a
+// cycle where every review errored looked exactly like a clean one.
+func TestReviewCycleRecordsFailedWhenReviewersFail(t *testing.T) {
+	fs := &fakeCycleStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+	}}
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionError}, err: errors.New("boom")}
+	s := newCycleScheduler(fs, fe)
+
+	if err := s.reviewCycleOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.finished) != 1 || fs.finished[0] != "failed" {
+		t.Errorf("a cycle whose reviewer failed must record failed, got %v", fs.finished)
+	}
+
+	// And a healthy cycle still records done, so the signal means something.
+	ok := &fakeCycleStore{queue: []store.Candidate{{Repo: "o/r", Number: 2, HeadSHA: "s2"}}}
+	s = newCycleScheduler(ok, &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}})
+	if err := s.reviewCycleOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(ok.finished) != 1 || ok.finished[0] != "done" {
+		t.Errorf("a healthy cycle must still record done, got %v", ok.finished)
+	}
+}

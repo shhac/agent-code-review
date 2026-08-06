@@ -307,6 +307,21 @@ func waitForScheduler(done <-chan error, forceCtx context.Context, logf schedule
 	}
 }
 
+// costRates maps a model's prices onto the flat per-class figures the store's
+// backfill SQL multiplies by. The EFFECTIVE cache-write rate, not the raw one:
+// the SQL has no fallback of its own, so handing it the raw field valued a
+// cache write at zero wherever the price table lists no cache-write class,
+// while a live review priced the same tokens at the input rate. One named
+// mapping so the two paths cannot drift again.
+func costRates(r pricing.Rates) store.CostRates {
+	return store.CostRates{
+		Input:      r.Input,
+		Output:     r.Output,
+		CacheWrite: r.EffectiveCacheWrite(),
+		CacheRead:  r.CacheRead,
+	}
+}
+
 // backfillEstimates values rows that could be priced but were not: completed
 // while the price table was unreachable, or written by a build that recorded
 // the token split before there was anywhere to record a valuation. Runs after
@@ -329,7 +344,7 @@ func backfillEstimates(ctx context.Context, prices *pricing.Cache, s store.Store
 		if !ok {
 			continue // an unlisted model stays unpriced, rather than priced at zero
 		}
-		rates[model] = store.CostRates{Input: r.Input, Output: r.Output, CacheWrite: r.CacheWrite, CacheRead: r.CacheRead}
+		rates[model] = costRates(r)
 	}
 	if len(rates) == 0 {
 		return

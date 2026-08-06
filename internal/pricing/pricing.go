@@ -60,14 +60,26 @@ type Rates struct {
 // present in the database but with no input or output price prices nothing.
 func (r Rates) Priced() bool { return r.Input > 0 || r.Output > 0 }
 
-// Cost values one run's token classes. Cache writes fall back to the input
-// rate when the database prices no cache-write class, which is the closest
-// honest answer: the model processed that content either way.
-func (r Rates) Cost(input, output, cacheWrite, cacheRead int) float64 {
-	write := r.CacheWrite
-	if write == 0 {
-		write = r.Input
+// EffectiveCacheWrite is the rate a cache write is actually valued at: the
+// database's cache-write price, falling back to the input rate when it prices
+// no cache-write class, which is the closest honest answer since the model
+// processed that content either way.
+//
+// Exported because the rule has to hold on BOTH paths that value a review. It
+// used to live inside Cost, so the live path applied it and the store's
+// backfill SQL (which is handed the raw rate fields) did not: the same review
+// was worth two different amounts depending on which one priced it, and every
+// backfilled cache-write-heavy row was silently under-valued.
+func (r Rates) EffectiveCacheWrite() float64 {
+	if r.CacheWrite == 0 {
+		return r.Input
 	}
+	return r.CacheWrite
+}
+
+// Cost values one run's token classes.
+func (r Rates) Cost(input, output, cacheWrite, cacheRead int) float64 {
+	write := r.EffectiveCacheWrite()
 	return float64(input)*r.Input +
 		float64(output)*r.Output +
 		float64(cacheWrite)*write +

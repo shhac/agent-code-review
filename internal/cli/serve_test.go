@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/pricing"
 	"github.com/shhac/agent-code-review/internal/review"
 )
 
@@ -290,5 +292,40 @@ func TestShutdownSignalsCoverUnattendedRestarts(t *testing.T) {
 		if !slices.Contains(shutdownSignals, sig) {
 			t.Errorf("%v is not handled; %s sends it, and an unhandled signal kills in-flight reviews", sig, who)
 		}
+	}
+}
+
+// TestCostRatesAgreesWithLivePricing pins the one rule both valuation paths
+// have to follow. A live review is priced by pricing.Rates.Cost; a backfilled
+// row is priced by SQL that multiplies the flat CostRates fields. Cost applies
+// a cache-write fallback (the input rate, when the price table lists no
+// cache-write class) and the SQL cannot, so handing it the raw field valued
+// those tokens at zero and silently under-priced every backfilled row.
+func TestCostRatesAgreesWithLivePricing(t *testing.T) {
+	const input, output, cacheWrite, cacheRead = 1000, 200, 50000, 900000
+
+	for _, tc := range []struct {
+		name  string
+		rates pricing.Rates
+	}{
+		{"table prices no cache-write class", pricing.Rates{Input: 3e-6, Output: 15e-6, CacheRead: 3e-7}},
+		{"table prices one", pricing.Rates{Input: 3e-6, Output: 15e-6, CacheWrite: 375e-8, CacheRead: 3e-7}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			live := tc.rates.Cost(input, output, cacheWrite, cacheRead)
+
+			// What the backfill SQL computes, from the rates it is handed.
+			cr := costRates(tc.rates)
+			backfilled := float64(input)*cr.Input + float64(output)*cr.Output +
+				float64(cacheWrite)*cr.CacheWrite + float64(cacheRead)*cr.CacheRead
+
+			if math.Abs(live-backfilled) > 1e-12 {
+				t.Errorf("live = %v, backfill = %v: the same review must be worth the same "+
+					"figure whichever path prices it", live, backfilled)
+			}
+			if cr.CacheWrite == 0 && cacheWrite > 0 {
+				t.Error("cache writes must never be valued at zero when the run performed them")
+			}
+		})
 	}
 }

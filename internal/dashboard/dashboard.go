@@ -200,6 +200,14 @@ func reqCtx(r *http.Request, d time.Duration) (context.Context, context.CancelFu
 // parameter parsing and response shaping inside fetch; multi-fetch or
 // branching handlers (usage, config, review-log) stay explicit.
 func serveGet[T any](s *Server, w http.ResponseWriter, r *http.Request, fetch func(context.Context) (T, error)) {
+	// This frame IS the read surface, so the method check belongs here rather
+	// than in each handler: without it every endpoint routed through it
+	// answered POST and DELETE as cheerfully as GET, while the handlers that
+	// check for themselves (the queue writes) did not.
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		httpError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 	resp, err := fetch(ctx)

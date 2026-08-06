@@ -98,9 +98,13 @@ func findCommand(parent *cobra.Command, name string) *cobra.Command {
 	return nil
 }
 
+// completionStore opens the store the same way every other reader does.
+// It used to call store.Open directly, which skipped the schema Init that
+// openStore/openStoreReadOnly both run: a third opening path, and the only one
+// that could hand back a store with no tables on a machine that had never run
+// the daemon. Read-only because completion must never write.
 func completionStore() (store.Store, error) {
-	cfg := config.Read()
-	return store.Open(cfg.Store.Engine, cfg.StorePath())
+	return openStoreReadOnly(config.Read())
 }
 
 // completeFromStore opens the store, collects suggestion values, and folds

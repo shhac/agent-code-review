@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +29,7 @@ type fakeSchedStore struct {
 	// per-engine floor exists for: one candidate held while another runs.
 	byHandle  map[string]string
 	groupErr  error // simulate the roster lookup failing
+	claimErr  error // simulate the claim itself failing
 	claimLost bool  // simulate losing the compare-and-swap to another worker
 	claims    []store.Lease
 	workDirs  []string
@@ -36,6 +39,9 @@ type fakeSchedStore struct {
 func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, l store.Lease) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.claimErr != nil {
+		return false, f.claimErr
+	}
 	if f.claimLost {
 		return false, nil
 	}
@@ -494,4 +500,39 @@ func TestReviewOnePrecheck(t *testing.T) {
 			t.Errorf("no outcome may be recorded on recheck error, got %+v", fs.completed)
 		}
 	})
+}
+
+// TestReviewOneCleansUpWhenClaimErrors: the workdir is created BEFORE the
+// claim so the claim can record it, which means a claim that errors leaves a
+// directory nothing points at. Nothing would ever read or remove it, so each
+// failure leaked one. The lost-the-claim path already cleaned up; the error
+// path returned straight past it.
+func TestReviewOneCleansUpWhenClaimErrors(t *testing.T) {
+	// Compared against a before-snapshot, because a successful review
+	// deliberately leaves its workdir behind for postmortem log access, so
+	// every other test in this package leaves some too.
+	pattern := filepath.Join(os.TempDir(), "agent-code-review-5-*")
+	before, _ := filepath.Glob(pattern)
+	existing := make(map[string]bool, len(before))
+	for _, dir := range before {
+		existing[dir] = true
+	}
+
+	fs := &fakeSchedStore{claimErr: errors.New("store unavailable")}
+	fe := &fakeEngine{}
+	s := newTestScheduler(fs, fe)
+
+	err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"})
+	if err == nil {
+		t.Fatal("a claim error must propagate")
+	}
+	if len(fs.workDirs) != 0 {
+		t.Fatalf("no claim was recorded, so no workdir should be either: %v", fs.workDirs)
+	}
+	after, _ := filepath.Glob(pattern)
+	for _, dir := range after {
+		if !existing[dir] {
+			t.Errorf("a failed claim leaked its workdir: %s", dir)
+		}
+	}
 }

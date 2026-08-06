@@ -32,13 +32,20 @@ type historyReview struct {
 	DurationSecs  int       `json:"duration_secs"`
 	WorkDir       string    `json:"work_dir,omitempty"`
 	TokensUsed    int       `json:"tokens_used"`
-	// CostUSD is the engine's own figure, verbatim, which is what this
-	// endpoint has always sent. Note it reads as 0 for every codex review,
-	// since codex reports no cost: store.Review.EffectiveCostUSD is the
-	// figure that falls back to our own valuation, and switching to it would
-	// change what the UI displays, so it is left for a deliberate change
-	// rather than smuggled into a refactor.
+	// CostUSD is the run's spend however it is best known: the engine's own
+	// figure when it reported one, otherwise ours. The raw column this used
+	// to send reads as 0 for every codex review, because codex reports no
+	// cost at all, so a history page of codex reviews showed a column of
+	// zeroes that looked like "free" rather than "not reported".
+	//
+	// This is also the figure metrics.go and reviewlog.go already use, so
+	// sending the raw one here was the endpoint disagreeing with the rest of
+	// the dashboard about what a review cost.
 	CostUSD float64 `json:"cost_usd"`
+	// CostEstimated marks CostUSD as ours rather than the engine's, so the
+	// page can say which it is showing instead of presenting an inference as
+	// a measurement. Same pair reviewlog.go sends.
+	CostEstimated bool `json:"cost_estimated,omitempty"`
 }
 
 func historyReviewsOf(reviews []store.Review) []historyReview {
@@ -50,7 +57,8 @@ func historyReviewsOf(reviews []store.Review) []historyReview {
 			Engine: r.Engine, Model: r.Model, Effort: r.Effort,
 			EngineVersion: r.EngineVersion, ReviewedAt: r.ReviewedAt,
 			DurationSecs: r.DurationSecs, WorkDir: r.WorkDir,
-			TokensUsed: r.TokensUsed, CostUSD: r.CostUSD,
+			TokensUsed: r.TokensUsed,
+			CostUSD:    r.EffectiveCostUSD(), CostEstimated: r.CostEstimated(),
 		})
 	}
 	return out

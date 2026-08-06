@@ -49,6 +49,9 @@ export type Review = {
   reviewed_at: string;
   duration_secs: number;
   cost_usd?: number;
+  // True when cost_usd is our valuation rather than the engine's, so the UI
+  // can label it instead of presenting an inference as a measurement.
+  cost_estimated?: boolean;
   work_dir?: string;
   tokens_used?: number;
 };

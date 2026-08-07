@@ -3,7 +3,7 @@ module github.com/shhac/agent-code-review
 go 1.26.4
 
 require (
-	github.com/shhac/lib-agent-cli v0.19.0
+	github.com/shhac/lib-agent-cli v0.22.1
 	github.com/shhac/lib-agent-mcp v0.23.1
 	github.com/shhac/lib-agent-output v0.12.0
 	github.com/spf13/cobra v1.10.2

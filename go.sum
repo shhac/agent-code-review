@@ -12,14 +12,12 @@ github.com/mattn/go-isatty v0.0.22/go.mod h1:ZXfXG4SQHsB/w3ZeOYbR0PrPwLy+n6xiMrJ
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
-github.com/shhac/lib-agent-cli v0.19.0 h1:fKQ8gkemoE+o4EJbRGWB0coYBgEK5ROcZEHcGlw6Svw=
-github.com/shhac/lib-agent-cli v0.19.0/go.mod h1:pXkdLWRWBJFdHWyWD9xDRFjIM2g8pU4H8kbIfnY0E60=
+github.com/shhac/lib-agent-cli v0.22.1 h1:Y83yeQLawRmgrJinccFVhGgRVJhfSaiqgqJse63qPik=
+github.com/shhac/lib-agent-cli v0.22.1/go.mod h1:+f4RsI2kX5rkh/BQW2Sr5KFXeZud/vL9RmwsUjeH7Fc=
 github.com/shhac/lib-agent-keyring v0.1.1 h1:cAwFr0UzlQ0xsgO0zY607lmwhvSamPN6Tp1DCNJO7hg=
 github.com/shhac/lib-agent-keyring v0.1.1/go.mod h1:nTk+YfRDc2dc8Nghd1o9w4c40xU8Pqx/UgToN0yGvZ8=
 github.com/shhac/lib-agent-mcp v0.23.1 h1:7VSbZcLPtOUUeef95Wanv7hL0rZAPxerqfwoF8vcSQ0=
 github.com/shhac/lib-agent-mcp v0.23.1/go.mod h1:kJfGbLYVhEvntawEHFDf0+u7bbL4tr4jx+uupVUqpGg=
-github.com/shhac/lib-agent-output v0.10.0 h1:m/o7/uxf3FLS7M+qcb4x+socjc7hEsvQM+tJilh2+7Y=
-github.com/shhac/lib-agent-output v0.10.0/go.mod h1:YyO2KSKAZxRrCJGanfB6qAyV0DvG+GSsZNShQoLslT0=
 github.com/shhac/lib-agent-output v0.12.0 h1:Xlfvjew68PGwc3oMPp58AHfiSsHaaY/gULe11Cc0Ft8=
 github.com/shhac/lib-agent-output v0.12.0/go.mod h1:YyO2KSKAZxRrCJGanfB6qAyV0DvG+GSsZNShQoLslT0=
 github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=

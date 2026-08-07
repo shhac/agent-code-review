@@ -1,11 +1,18 @@
 // Minimal, dependency-free markdown -> HTML for the prompt previews. It renders
 // only the constructs the assembled prompt uses (headings, bold, inline code,
 // fenced code, ordered/unordered lists with one level of nesting, thematic
-// breaks, paragraphs).
+// breaks, links, paragraphs).
 //
 // Security: the whole source is HTML-escaped FIRST, then tags are wrapped around
 // the already-escaped text, so no markup in the content can reach the DOM. The
 // output is safe to use with {@html} even though the content is the user's own.
+//
+// Links deliberately render WITHOUT an href. The escape-first rule holds because
+// no attribute ever carries content; an href would break that, since a URL is
+// attribute-context and `javascript:` needs judging rather than escaping. So a
+// link becomes an inert span carrying its target in data-url, and PromptBox
+// decides what to do on click. A stray click cannot navigate, which is also the
+// behaviour you want when reading a prompt rather than browsing.
 
 function escapeHtml(s: string): string {
   return s
@@ -15,18 +22,60 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-// inline handles bold and inline code on already-escaped text. Code spans are
-// pulled out first (behind a NUL sentinel that can't occur in escaped text) so
-// ** and digits inside them stay literal.
+// LINK_SCHEMES is the allowlist. Anything else (javascript:, data:, a bare
+// relative path) renders as literal text rather than a link: this dashboard
+// only ever references external docs, so there is no legitimate case for
+// another scheme, and "render it plainly" fails safe.
+const LINK_SCHEMES = /^(?:https?:\/\/|mailto:)/i;
+
+// Link targets carry no spaces or parens, which keeps the match simple and
+// rules out catastrophic backtracking on pathological input.
+const LINK_RE = /\[([^\]\n]*)\]\(([^()\s]+)\)/g;
+
+// emphasis applies bold before italic, so ***x*** resolves as both: the bold
+// pass consumes the inner pair and leaves a single * on each side for italic.
+//
+// The underscore form requires a non-word character on each side. Without that
+// guard every identifier in a prompt (max_budget_usd, head_sha, work_dir) would
+// sprout emphasis mid-word, which in this codebase is most of them.
+function emphasis(s: string): string {
+  return s
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(?<![\w\\])__([^_\n]+)__(?![\w])/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/(?<![\w\\])_([^_\n]+)_(?![\w])/g, '<em>$1</em>');
+}
+
+// inline handles links, bold, italic and inline code on already-escaped text.
+//
+// Code spans come out first (behind a NUL sentinel that can't occur in escaped
+// text) so ** and digits inside them stay literal. Links come out second, for
+// the same reason in reverse: a target like /a_b_/ or /x*y* would otherwise be
+// rewritten by the emphasis pass and quietly point somewhere else.
 function inline(s: string): string {
   const codes: string[] = [];
   let out = s.replace(/`([^`]+)`/g, (_m, c) => {
     codes.push(c);
     return `\x00${codes.length - 1}\x00`;
   });
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/\x00(\d+)\x00/g, (_m, n) => `<code>${codes[Number(n)]}</code>`);
-  return out;
+
+  const links: { text: string; url: string }[] = [];
+  out = out.replace(LINK_RE, (m, text: string, url: string) => {
+    if (!LINK_SCHEMES.test(url)) return m; // not a link we will offer; leave the source as written
+    links.push({ text, url });
+    return `\x01${links.length - 1}\x01`;
+  });
+
+  out = emphasis(out);
+
+  out = out.replace(/\x01(\d+)\x01/g, (_m, n) => {
+    const { text, url } = links[Number(n)];
+    // url is already HTML-escaped (the whole source was), so it is safe in an
+    // attribute; the span is inert by design, see the header note.
+    return `<span class="mdlink" role="link" tabindex="0" data-url="${url}" title="${url}">${emphasis(text)}</span>`;
+  });
+
+  return out.replace(/\x00(\d+)\x00/g, (_m, n) => `<code>${codes[Number(n)]}</code>`);
 }
 
 type ListItem = { indent: number; ordered: boolean; html: string };

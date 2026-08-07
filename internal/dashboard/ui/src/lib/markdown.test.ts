@@ -58,3 +58,31 @@ describe('mdToHtml', () => {
     expect(mdToHtml('para one\n\npara two')).toBe('<p>para one</p>\n<p>para two</p>');
   });
 });
+
+describe('thematic breaks', () => {
+  it('renders --- as a rule, not literal text', () => {
+    expect(mdToHtml('a\n\n---\n\nb')).toBe('<p>a</p>\n<hr>\n<p>b</p>');
+  });
+
+  it('accepts the other markers and spaced forms', () => {
+    for (const rule of ['---', '***', '___', '- - -', '****', '   ---  ']) {
+      expect(mdToHtml(rule)).toBe('<hr>');
+    }
+  });
+
+  // `- - -` also satisfies the list pattern, so order of dispatch decides
+  // whether it is a rule or three empty bullets.
+  it('prefers a rule over a list for the spaced dash form', () => {
+    expect(mdToHtml('- - -')).not.toContain('<li>');
+  });
+
+  it('leaves genuine list items and text alone', () => {
+    expect(mdToHtml('- a')).toBe('<ul><li>a</li></ul>');
+    expect(mdToHtml('--')).toBe('<p>--</p>');
+    expect(mdToHtml('a -- b')).toBe('<p>a -- b</p>');
+  });
+
+  it('ends the paragraph above it', () => {
+    expect(mdToHtml('text\n---\nmore')).toBe('<p>text</p>\n<hr>\n<p>more</p>');
+  });
+});

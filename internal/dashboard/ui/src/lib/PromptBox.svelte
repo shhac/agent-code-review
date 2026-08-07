@@ -46,6 +46,9 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
     background: var(--surface-warm); padding: 1px 5px; border-radius: 4px;
   }
+  .md :global(hr) {
+    border: 0; border-top: 1px solid rgba(255, 255, 255, 0.16); margin: 14px 0;
+  }
   .md :global(pre) { background: var(--paper); padding: 12px 14px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
   .md :global(pre code) { background: none; padding: 0; }
 </style>

@@ -1,6 +1,7 @@
 // Minimal, dependency-free markdown -> HTML for the prompt previews. It renders
 // only the constructs the assembled prompt uses (headings, bold, inline code,
-// fenced code, ordered/unordered lists with one level of nesting, paragraphs).
+// fenced code, ordered/unordered lists with one level of nesting, thematic
+// breaks, paragraphs).
 //
 // Security: the whole source is HTML-escaped FIRST, then tags are wrapped around
 // the already-escaped text, so no markup in the content can reach the DOM. The
@@ -59,6 +60,14 @@ function buildList(items: ListItem[]): string {
 
 const LIST_RE = /^(\s*)([-*]|\d+\.)\s+(.*)$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+// Thematic break: three or more of -, * or _ alone on a line, optionally
+// spaced. Checked BEFORE lists, because a spaced form like `- - -` also
+// satisfies LIST_RE and would otherwise render as three empty bullets.
+//
+// CommonMark also reads `---` directly under text as a setext heading. This
+// renderer has no setext support and the prompts use the sequence purely as a
+// separator, so it is always a rule here.
+const HR_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 
 // takeWhile collects the run of lines from start for which pred holds, and
 // returns it with the index of the first line that failed (or lines.length).
@@ -83,7 +92,8 @@ export function mdToHtml(src: string): string {
   const fence = (s: string) => s.trim().startsWith('```');
   // A line that begins a new block ends the current paragraph. One definition so
   // the paragraph terminator can't drift from the dispatch below.
-  const isBlockStart = (s: string) => blank(s) || fence(s) || HEADING_RE.test(s) || LIST_RE.test(s);
+  const isBlockStart = (s: string) =>
+    blank(s) || fence(s) || HEADING_RE.test(s) || HR_RE.test(s) || LIST_RE.test(s);
 
   while (i < lines.length) {
     const line = lines[i];
@@ -100,6 +110,11 @@ export function mdToHtml(src: string): string {
     const h = line.match(HEADING_RE);
     if (h) {
       out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);
+      i++;
+      continue;
+    }
+    if (HR_RE.test(line)) {
+      out.push('<hr>');
       i++;
       continue;
     }

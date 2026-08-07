@@ -227,17 +227,22 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .review-list .ticket-copy strong { font-size: 14px; }
 .authors { display: grid; }
 .tag-mute { opacity: 0.75; }
-.authors p {
+/* DIRECT children only. As a descendant selector this also caught the label
+   inside an expanded row and, worse, every <p> the markdown renderer emits
+   inside a prompt box: each became a five-column author grid, so prompt text
+   wrapped inside a 170px column. A row is a child of .authors; nothing nested
+   deeper is one. */
+.authors > p {
   margin: 0; display: grid; gap: 14px; align-items: baseline; padding: 11px 20px;
   grid-template-columns: minmax(170px, 1.2fr) minmax(140px, 1fr) minmax(90px, .7fr) minmax(150px, 1fr) minmax(120px, .8fr);
   border-top: 1px solid var(--line);
 }
-.authors p.authors-head { border-top: 0; padding-bottom: 4px; }
+.authors > p.authors-head { border-top: 0; padding-bottom: 4px; }
 .authors-head b {
   color: var(--faint); font-size: 11px; font-weight: 800;
   text-transform: uppercase; letter-spacing: .08em;
 }
-.authors a { color: var(--accent); font-weight: 700; }
+.authors > p a, .author-detail dd a { color: var(--accent); font-weight: 700; }
 
 /* Roster rows expand to show contact details and the full resolved policy:
    the summary row carries what you scan by, the panel what you look up. */
@@ -261,17 +266,17 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .author-detail { padding: 2px 20px 18px 32px; background: var(--surface-warm); }
 .author-detail dl {
   margin: 0 0 12px; display: grid; gap: 6px 18px;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
 }
 .author-detail dl > div { display: flex; gap: 8px; align-items: baseline; }
 .author-detail dt {
   color: var(--faint); font-size: 11px; font-weight: 800;
   text-transform: uppercase; letter-spacing: .08em; min-width: 84px;
 }
-.author-detail dd { margin: 0; font-size: 13px; }
+.author-detail dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .detail-label { margin: 0 0 6px; font-size: 12px; font-weight: 700; }
 .detail-prompt { max-width: 900px; }
-.authors a:hover { text-decoration: underline; }
+.authors > p a:hover, .author-detail dd a:hover { text-decoration: underline; }
 .mini-table p:last-child, .review-list p:last-child { border-bottom: 0; }
 time { color: var(--dim); }
 .review-list { padding: 0 20px; }

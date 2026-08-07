@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -89,9 +90,14 @@ func TestHandlePromptPreviewDefaults(t *testing.T) {
 }
 
 // TestHandlePromptPreviewApprovalPolicy pins the security-relevant, asymmetric
-// boolean parsing: author_allowed defaults true and flips only on exact
-// "false"; author_is_gh_user defaults false and needs exact "true". The
-// previewed approval policy (MAY vs DO NOT approve) must follow.
+// boolean parsing: author_allowed flips only on exact "false";
+// author_is_gh_user defaults false and needs exact "true". The previewed
+// approval policy (MAY vs DO NOT approve) must follow.
+//
+// With NO parameters the answer is now an author who has no roster row, which
+// resolves through authors.unlisted rather than assuming approval. The old
+// default assumed the approver group, so the emptiest possible query claimed a
+// random contributor could be approved: the wrong direction to be wrong in.
 func TestHandlePromptPreviewApprovalPolicy(t *testing.T) {
 	s := promptServer(config.ReviewSettings{MainPrompt: "MAIN"})
 	policyFor := func(query string) string {
@@ -107,7 +113,8 @@ func TestHandlePromptPreviewApprovalPolicy(t *testing.T) {
 	cases := []struct {
 		query, want string
 	}{
-		{"", "allow"},                                           // author_allowed defaults true
+		{"", "deny"},                                            // nobody named: unrostered, so no approval
+		{"author_allowed=true", "allow"},                        // the legacy flag still works when passed
 		{"author_allowed=false", "deny"},                        // exact "false" flips it
 		{"author_allowed=False", "allow"},                       // only exact lowercase "false" flips
 		{"author_allowed=0", "allow"},                           // "0" is not "false"
@@ -194,5 +201,61 @@ func TestPromptPreviewGroupOverridesTheRosterLookup(t *testing.T) {
 	// The trace the panel renders must attribute each field to a layer.
 	if len(resp.Policy) == 0 {
 		t.Error("the preview must carry the policy trace the panel renders")
+	}
+}
+
+// rosterServer is promptServer plus a roster, for the lookup below.
+type rosterOnlyStore struct {
+	dashboardStore // unused methods panic loudly
+	groups         map[string]string
+}
+
+func (f *rosterOnlyStore) AuthorGroup(_ context.Context, _, handle string) (config.Membership, error) {
+	g, ok := f.groups[handle]
+	if !ok {
+		return config.Membership{}, nil
+	}
+	return config.Membership{Group: g, Repo: config.WildcardRepo}, nil
+}
+
+// Naming a real author must resolve THEIR row, not a guess. The handler used
+// to substitute the built-in approver group whenever no group was picked, so
+// previewing a rostered author showed a policy they were not on and attributed
+// it to a group they were not in. It agreed by luck whenever their real group
+// also permitted approval, which is why it survived a casual look.
+func TestPromptPreviewReadsTheAuthorsRealGroup(t *testing.T) {
+	cfg := config.Config{
+		Review: config.ReviewSettings{MainPrompt: "MAIN"},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{
+				"contractors": {Review: config.ReviewComment, Prompt: "CONTRACTOR-FRAGMENT"},
+			},
+		},
+	}
+	s := &Server{
+		config: func() config.Config { return cfg },
+		store:  &rosterOnlyStore{groups: map[string]string{"alice": "contractors"}},
+	}
+
+	code, resp := serveJSON[promptPreviewResp](t, s.handlePromptPreview, http.MethodGet,
+		"/api/prompt/preview?author=alice&repo=org/repo", "")
+	if code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", code)
+	}
+	if resp.Candidate.Group != "contractors" {
+		t.Errorf("group = %q, want the roster's answer (contractors)", resp.Candidate.Group)
+	}
+	if resp.Candidate.AuthorAllowed {
+		t.Error("contractors is comment-only; the preview must not claim approval is permitted")
+	}
+	if !strings.Contains(resp.Preview, "CONTRACTOR-FRAGMENT") {
+		t.Errorf("the real group's prompt must reach the preview:\n%s", resp.Preview)
+	}
+
+	// An author with no row falls through to authors.unlisted, not to approve.
+	_, unrostered := serveJSON[promptPreviewResp](t, s.handlePromptPreview, http.MethodGet,
+		"/api/prompt/preview?author=nobody&repo=org/repo", "")
+	if unrostered.Candidate.AuthorAllowed {
+		t.Error("an unrostered author must not be previewed as approvable")
 	}
 }

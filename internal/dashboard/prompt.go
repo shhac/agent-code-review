@@ -1,8 +1,11 @@
 package dashboard
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
@@ -88,25 +91,59 @@ type promptPreviewResp struct {
 	Rules     []review.RuleTrace     `json:"rules"`
 }
 
+// previewMembership decides which membership the preview resolves against.
+//
+// An explicit group SIMULATES one, which is how a cohort nobody is rostered
+// into yet can still be previewed. Otherwise a named author is looked up in the
+// roster, so "what does this person actually get" is answered with their real
+// row. That lookup used to be missing: with no group picked the handler
+// substituted the built-in approver group, so previewing a real author showed
+// someone else's policy and attributed it to a group they were not in. It
+// happened to agree whenever the author's real group also permitted approval,
+// which is exactly the shape of bug that survives a casual look.
+//
+// With neither named, the answer is an author who has no roster row at all,
+// which resolves through authors.unlisted.
+func (s *Server) previewMembership(ctx context.Context, q url.Values) (config.Membership, error) {
+	if group := q.Get("group"); group != "" {
+		return config.Membership{Group: group, Repo: config.WildcardRepo}, nil
+	}
+	if author := q.Get("author"); author != "" {
+		repo := q.Get("repo")
+		if repo == "" {
+			repo = review.SampleRepo
+		}
+		return s.store.AuthorGroup(ctx, repo, author)
+	}
+	// author_allowed predates groups. Honoured only when explicitly passed, so
+	// an older query keeps its meaning without dictating the default.
+	if allowed := q.Get("author_allowed"); allowed != "" {
+		group := config.GroupApprover
+		if allowed == "false" {
+			group = config.GroupCommenter
+		}
+		return config.Membership{Group: group, Repo: config.WildcardRepo}, nil
+	}
+	return config.Membership{}, nil
+}
+
 // handlePromptPreview assembles the prompt for a synthetic candidate shaped by
 // query params: repo (default the example repo), candidate_type (default new),
 // author (default the sample handle), group (the membership to simulate), and
 // author_is_gh_user (default false). author_allowed predates groups and still
 // works: it picks the built-in approver or commenter group.
 //
-// The group is SIMULATED rather than read from the roster, because this
-// endpoint answers "what would a member of group X get" without needing anyone
-// to actually be in it. Naming a real author still matters: per-author
-// overrides key on the handle, so only a named author sees theirs fire.
-// Assembly semantics live in review.Preview; this handler is transport only.
+// Assembly semantics live in review.Preview; this handler is transport plus the
+// one lookup below.
 func (s *Server) handlePromptPreview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	membership := config.Membership{Group: q.Get("group"), Repo: config.WildcardRepo}
-	if membership.Group == "" {
-		membership.Group = config.GroupApprover
-		if q.Get("author_allowed") == "false" {
-			membership.Group = config.GroupCommenter
-		}
+	ctx, cancel := reqCtx(r, 10*time.Second)
+	defer cancel()
+
+	membership, err := s.previewMembership(ctx, q)
+	if err != nil {
+		s.fail(w, err)
+		return
 	}
 	res, err := review.Preview(s.config(), q.Get("repo"), q.Get("candidate_type"),
 		q.Get("author"), membership, q.Get("author_is_gh_user") == "true")

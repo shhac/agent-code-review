@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -294,5 +296,78 @@ func TestEngineDialsFollowConfiguredEngine(t *testing.T) {
 	cfg.Review.Engine = "claude"
 	if got := [3]string{cfg.EngineBin(), cfg.EngineModel(), cfg.EngineEffort()}; got != [3]string{"claude-dev", "claude-opus-5", "medium"} {
 		t.Errorf("claude engine dials = %v, want claude's", got)
+	}
+}
+
+// Concurrent Updates must not lose each other's edits.
+//
+// Update used to be Read -> mutate -> Write with nothing serializing it, so two
+// invocations each built their write from a snapshot taken before the other
+// landed and the loser's edit vanished. Twenty writers left one surviving repo.
+// The store's lock now spans the whole read-mutate-write; the atomic rename
+// alone was never enough, because it only stops a TORN file, not a stale one.
+func TestConcurrentUpdatesDoNotLoseEdits(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	const writers = 20
+	var wg sync.WaitGroup
+	for i := range writers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			repo := fmt.Sprintf("example-org/service-%02d", i)
+			if err := Update(func(cfg *Config) error {
+				cfg.Repos = append(cfg.Repos, repo)
+				return nil
+			}); err != nil {
+				t.Errorf("Update: %v", err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	got := Read().Repos
+	if len(got) != writers {
+		t.Fatalf("%d of %d concurrent Updates survived — edits were lost", len(got), writers)
+	}
+	seen := make(map[string]bool, len(got))
+	for _, repo := range got {
+		seen[repo] = true
+	}
+	for i := range writers {
+		if repo := fmt.Sprintf("example-org/service-%02d", i); !seen[repo] {
+			t.Errorf("%s was lost from config.json", repo)
+		}
+	}
+}
+
+// Init's "refuse to overwrite" is a stat followed by a write, which is a TOCTOU
+// unless the two are one critical section: without the lock several racing
+// inits all stat an empty directory and all decide they may write. Exactly one
+// may claim the file.
+func TestConcurrentInitClaimsTheFileOnce(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	const writers = 20
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		succeeded int
+	)
+	for range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := Init(); err == nil {
+				mu.Lock()
+				succeeded++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if succeeded != 1 {
+		t.Fatalf("%d of %d concurrent Inits claimed the file, want exactly 1", succeeded, writers)
 	}
 }

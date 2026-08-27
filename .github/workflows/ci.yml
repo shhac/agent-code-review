@@ -28,7 +28,11 @@ jobs:
         run: |
           curl -fsSL -o /tmp/duckdb.zip \
             "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb_cli-linux-amd64.zip"
+          # unzip -d creates only the final directory, and the runner has no
+          # ~/.local at all, so the parents have to exist first.
+          mkdir -p "$HOME/.local/bin"
           unzip -o -d "$HOME/.local/bin" /tmp/duckdb.zip
+          chmod +x "$HOME/.local/bin/duckdb"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: duckdb --version
       - run: go build ./...

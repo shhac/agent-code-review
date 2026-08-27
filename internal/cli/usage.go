@@ -267,7 +267,7 @@ COMMANDS:
   prompts set <slot> <text>    Set a slot (multi-word text can be one quoted arg)
   prompts unset <slot>         Clear a slot
   prompts rules ...            Conditional prompt fragments (prompts rules usage)
-  prompts preview [--author H] [--group G] [--candidate-type new|refreshed]
+  prompts preview [--author H] [--group G] [--candidate-type new|refreshed|discussion]
                   [--repo owner/name] [--author-is-gh-user] [--explain]
     Print the fully assembled prompt for a synthetic candidate you shape with
     flags, so any rule can be made to fire. --author names a REAL handle: their
@@ -313,7 +313,7 @@ CONDITIONS (unset = wildcard; all set must hold):
   --author-not-allowed     the resolved policy FORBIDS it (mutually exclusive)
   --author-is-gh-user      self-authored (author == our gh user)
   --author-not-gh-user     NOT self-authored (mutually exclusive with above)
-  --candidate-type new|refreshed
+  --candidate-type new|refreshed|discussion
   --repo owner/name        repeatable, any-of
 Note: --author-allowed means "the policy permits approval," not "was
 approvable": a self-authored PR by an approve-level author is still

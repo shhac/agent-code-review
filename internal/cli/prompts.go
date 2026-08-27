@@ -189,7 +189,7 @@ func promptsPreviewCmd() *cobra.Command {
 	f.StringVar(&group, "group", "", "Simulate membership of this group instead of reading the roster")
 	f.BoolVar(&notAllowed, "author-not-allowed", false, "Shorthand for --group commenter (default: --group approver)")
 	f.BoolVar(&isGHUser, "author-is-gh-user", false, "Author is our gh user (self-authored)")
-	f.StringVar(&candidateType, "candidate-type", "", "Candidate kind: new (default) | refreshed")
+	f.StringVar(&candidateType, "candidate-type", "", "Candidate kind: new (default) | refreshed | discussion")
 	f.StringVar(&repo, "repo", "", "Repo the synthetic candidate belongs to (default: example-org/example-repo)")
 	f.BoolVar(&explain, "explain", false, "Also trace how the policy resolved and which rules fired")
 	_ = cmd.RegisterFlagCompletionFunc("candidate-type", completeStatic(config.CandidateTypes))

@@ -137,7 +137,7 @@ func rulesAddCmd() *cobra.Command {
 	f.BoolVar(&authorNotAllowed, "author-not-allowed", false, "Only when the author's resolved policy forbids approval")
 	f.BoolVar(&authorIsGHUser, "author-is-gh-user", false, "Only when the PR is self-authored (author == our gh user)")
 	f.BoolVar(&authorNotGHUser, "author-not-gh-user", false, "Only when the PR is NOT self-authored (author != our gh user)")
-	f.StringVar(&candidateType, "candidate-type", "", "Only for this candidate kind: new|refreshed")
+	f.StringVar(&candidateType, "candidate-type", "", "Only for this candidate kind: new|refreshed|discussion")
 	f.StringArrayVar(&repos, "repo", nil, "Only for these repos (owner/name; repeatable, any-of)")
 	f.StringArrayVar(&groups, "group", nil, "Only when the author's resolved group is one of these (repeatable, any-of)")
 	f.StringArrayVar(&authors, "author", nil, "Only for these handles (repeatable, any-of, case-insensitive)")

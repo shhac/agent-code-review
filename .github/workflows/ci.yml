@@ -17,10 +17,19 @@ jobs:
       # integration tests below deliberately fail loud if the CLI is absent.
       # Install DuckDB before any Go test step so unit and integration tests
       # see the same runtime dependency.
+      # Pinned tarball, not install.duckdb.org: that script is bash and CI's
+      # `sh` is dash, so its `[[` test failed, arch detection fell through, and
+      # the download 404'd -- CI went red on an upstream script change with no
+      # commit here to blame. A pinned asset also keeps CI on the same DuckDB
+      # the store is developed against instead of silently tracking latest.
       - name: Install DuckDB CLI
+        env:
+          DUCKDB_VERSION: v1.5.5
         run: |
-          curl -fsSL https://install.duckdb.org | sh
-          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
+          curl -fsSL -o /tmp/duckdb.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb_cli-linux-amd64.zip"
+          unzip -o -d "$HOME/.local/bin" /tmp/duckdb.zip
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: duckdb --version
       - run: go build ./...
       - run: go vet ./...

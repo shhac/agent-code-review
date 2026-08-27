@@ -67,6 +67,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"schedule.max_parallel":               "8",
 		"candidates.new_max_age_days":         "7",
 		"candidates.refreshed_max_age_days":   "30",
+		"candidates.discussion_max_age_days":  "7",
 		"candidates.rereview_cooldown":        "2h",
 		"candidates.quiet_period":             "0s",
 		"review.engine":                       "codex",

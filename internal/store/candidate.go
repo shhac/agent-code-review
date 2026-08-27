@@ -58,8 +58,9 @@ const (
 
 // Candidate types.
 const (
-	TypeNew       = "new"
-	TypeRefreshed = "refreshed"
+	TypeNew        = "new"
+	TypeRefreshed  = "refreshed"
+	TypeDiscussion = "discussion"
 )
 
 // ClaimActive reports whether c's claim is a live lease: an engine claimed it

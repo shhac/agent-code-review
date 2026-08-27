@@ -141,6 +141,7 @@ export type ConfigResponse = {
   candidates: {
     new_max_age_days: number;
     refreshed_max_age_days: number;
+    discussion_max_age_days: number;
     rereview_cooldown: string;
     quiet_period: string;
   };

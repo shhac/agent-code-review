@@ -109,6 +109,8 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *int { return &c.Candidates.NewMaxAgeDays }, 1, 365)),
 		plain(intKey("candidates.refreshed_max_age_days", "Age window for Refreshed candidates (default 21)",
 			func(c *config.Config) *int { return &c.Candidates.RefreshedMaxAgeDays }, 1, 365)),
+		plain(intKey("candidates.discussion_max_age_days", "Age window for Discussion candidates (default 14)",
+			func(c *config.Config) *int { return &c.Candidates.DiscussionMaxAgeDays }, 1, 365)),
 		plain(stringKey("candidates.rereview_cooldown", "Hold after one of our own reviews before re-discovery, as a Go duration (default 90m, 0s disables)",
 			func(c *config.Config) *string { return &c.Candidates.RereviewCooldown }, validateHoldDuration)),
 		plain(stringKey("candidates.quiet_period", "How long a PR must go untouched before discovery accepts it, as a Go duration (default 15m, 0s disables)",

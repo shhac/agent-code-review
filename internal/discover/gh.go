@@ -203,3 +203,109 @@ func (p ghPR) hasAnyReview() bool {
 // Deliberately NOT derived from the raw reviews list: a past approval made
 // stale by new commits must not block a Refreshed re-review.
 func (p ghPR) isApproved() bool { return p.ReviewDecision == "APPROVED" }
+
+// humanActivityQuery asks for the timestamps of everything a person can say on
+// a PR: issue comments, review submissions, and inline review-thread comments.
+// Bodies are deliberately not fetched. Discovery only needs to know THAT the
+// conversation moved; deciding whether the move is material is the reviewing
+// skill's job, and it has its own content fingerprints for that.
+const humanActivityQuery = `
+query($owner:String!,$repo:String!,$number:Int!){
+  repository(owner:$owner,name:$repo){
+    pullRequest(number:$number){
+      comments(last:100){nodes{createdAt author{login __typename}}}
+      reviews(last:100){nodes{createdAt author{login __typename}}}
+      reviewThreads(last:100){nodes{comments(last:100){nodes{createdAt author{login __typename}}}}}
+    }
+  }
+}`
+
+// ghGraphQLActor is the author shape returned by humanActivityQuery. It is
+// separate from ghActor because only the GraphQL surface carries __typename,
+// which is the one reliable bot/human split GitHub offers: the REST and
+// `gh pr view` shapes report is_bot as null for bots and humans alike.
+type ghGraphQLActor struct {
+	Login    string `json:"login"`
+	Typename string `json:"__typename"`
+}
+
+type ghActivityNode struct {
+	CreatedAt time.Time      `json:"createdAt"`
+	Author    ghGraphQLActor `json:"author"`
+}
+
+// ghActivityThread is one inline review thread. Named rather than inlined so
+// tests can build one: the reply-in-a-thread case is exactly what the old
+// fingerprint could not see, so it needs to be easy to write a test for.
+type ghActivityThread struct {
+	Comments struct {
+		Nodes []ghActivityNode `json:"nodes"`
+	} `json:"comments"`
+}
+
+type ghActivityResp struct {
+	Data struct {
+		Repository struct {
+			PullRequest struct {
+				Comments struct {
+					Nodes []ghActivityNode `json:"nodes"`
+				} `json:"comments"`
+				Reviews struct {
+					Nodes []ghActivityNode `json:"nodes"`
+				} `json:"reviews"`
+				ReviewThreads struct {
+					Nodes []ghActivityThread `json:"nodes"`
+				} `json:"reviewThreads"`
+			} `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
+// LastHumanActivity returns the most recent time a person other than selfLogin
+// said something on the PR. Zero time means nobody has. Bots are excluded by
+// typename, and selfLogin is excluded by login so our own posted review never
+// reads as somebody responding to it.
+func LastHumanActivity(ctx context.Context, repo string, number int, selfLogin string) (time.Time, error) {
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok {
+		return time.Time{}, fmt.Errorf("bad repo %q, want owner/name", repo)
+	}
+	out, err := runGH(ctx, "api", "graphql",
+		"-f", "owner="+owner,
+		"-f", "repo="+name,
+		"-F", fmt.Sprintf("number=%d", number),
+		"-f", "query="+humanActivityQuery)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var resp ghActivityResp
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return time.Time{}, fmt.Errorf("decode human activity for %s#%d: %w", repo, number, err)
+	}
+	return latestHumanActivity(resp, selfLogin), nil
+}
+
+// latestHumanActivity is the pure reduction over a fetched activity response,
+// extracted so the two exclusions that matter can be table-tested without gh:
+// bots (they comment constantly and none of it is a reason to review again) and
+// ourselves (our own review is not somebody responding to our review).
+func latestHumanActivity(resp ghActivityResp, selfLogin string) time.Time {
+	pr := resp.Data.Repository.PullRequest
+	var latest time.Time
+	consider := func(nodes []ghActivityNode) {
+		for _, n := range nodes {
+			if n.Author.Typename != "User" || n.Author.Login == selfLogin {
+				continue
+			}
+			if n.CreatedAt.After(latest) {
+				latest = n.CreatedAt
+			}
+		}
+	}
+	consider(pr.Comments.Nodes)
+	consider(pr.Reviews.Nodes)
+	for _, t := range pr.ReviewThreads.Nodes {
+		consider(t.Comments.Nodes)
+	}
+	return latest
+}

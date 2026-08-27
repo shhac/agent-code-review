@@ -43,6 +43,12 @@ type Discoverer struct {
 	// listPRs fetches one repo's open PRs (gh in production; injected in
 	// tests so the sweep's per-repo resilience is testable without gh).
 	listPRs func(ctx context.Context, repo string) ([]ghPR, error)
+	// lastHumanActivity returns the newest time somebody other than us said
+	// something on a PR (gh in production; injected in tests, same reason).
+	lastHumanActivity func(ctx context.Context, repo string, number int) (time.Time, error)
+	// selfLogin is our own gh handle, excluded from human activity so our own
+	// posted review never reads as somebody responding to it.
+	selfLogin string
 }
 
 func New(cfg func() config.Config, s candidateStore, logf Logf) *Discoverer {
@@ -51,6 +57,17 @@ func New(cfg func() config.Config, s candidateStore, logf Logf) *Discoverer {
 	}
 	d := &Discoverer{cfg: cfg, store: s, now: time.Now, logf: logf}
 	d.listPRs = d.ghListPRs
+	d.lastHumanActivity = func(ctx context.Context, repo string, number int) (time.Time, error) {
+		return LastHumanActivity(ctx, repo, number, d.selfLogin)
+	}
+	return d
+}
+
+// WithSelfLogin records our own gh handle so Discussion detection can tell our
+// own review apart from somebody replying to it. Without it every review we
+// post would look like new conversation about itself.
+func (d *Discoverer) WithSelfLogin(login string) *Discoverer {
+	d.selfLogin = login
 	return d
 }
 
@@ -149,25 +166,39 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	}
 	now := d.now()
 
-	// Suppression: any recorded outcome (real review, skip, or error) at
-	// the PR's CURRENT head SHA means there is nothing new to do; without
-	// this every sweep would re-enqueue skipped PRs (and re-enqueue reviewed
-	// ones whenever the engine's posted review hasn't landed on gh yet).
-	// New commits change the SHA and re-enqueue naturally.
-	if outcome, ok, err := d.store.LastOutcome(ctx, repo, pr.Number); err != nil {
+	outcome, hasOutcome, err := d.store.LastOutcome(ctx, repo, pr.Number)
+	if err != nil {
 		return store.Candidate{}, false, err
-	} else if ok && outcome.HeadSHA == pr.HeadRefOID {
-		return store.Candidate{}, false, nil
 	}
 
-	// The last real verdict in our own history feeds both Refreshed detection
-	// and the cooldown hold, so it's fetched once ahead of the type decision.
+	// The last real verdict in our own history feeds Refreshed and Discussion
+	// detection and the cooldown hold, so it's fetched once ahead of the type
+	// decision.
 	last, reviewed, err := d.store.LastReview(ctx, repo, pr.Number)
 	if err != nil {
 		return store.Candidate{}, false, err
 	}
 
-	typ, ok := classifyType(pr, cfg, now, last, reviewed)
+	// Suppression: any recorded outcome (real review, skip, or error) at the
+	// PR's CURRENT head SHA means the code is what we already looked at;
+	// without this every sweep would re-enqueue skipped PRs (and re-enqueue
+	// reviewed ones whenever the engine's posted review hasn't landed on gh
+	// yet). New commits change the SHA and re-enqueue naturally.
+	//
+	// But an unchanged SHA is not the same as nothing to do. A reply arguing
+	// a finding is wrong, or a resolved thread, is new information about code
+	// we already judged, and suppressing on the SHA alone made every one of
+	// those invisible. So the same-SHA case falls through to a conversation
+	// check instead of returning flat.
+	discussion := false
+	if hasOutcome && outcome.HeadSHA == pr.HeadRefOID {
+		if !d.conversationMoved(ctx, cfg, repo, pr, last, reviewed, now) {
+			return store.Candidate{}, false, nil
+		}
+		discussion = true
+	}
+
+	typ, ok := classifyType(pr, cfg, now, last, reviewed, discussion)
 	if !ok {
 		return store.Candidate{}, false, nil
 	}
@@ -181,11 +212,56 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	return c, true, nil
 }
 
-// classifyType is the pure New-vs-Refreshed decision, extracted (like hold)
-// so the boundary rules table-test without fakes. last/reviewed are our own
-// most recent real verdict, per the store.
-func classifyType(pr ghPR, cfg config.Config, now time.Time, last store.Review, reviewed bool) (string, bool) {
+// conversationMoved reports whether a person has said something on this PR
+// since our last real review of it. It is the same-SHA escape hatch: true means
+// the code is unchanged but the discussion around it is not.
+//
+// Two stages, cheap first. gh's updatedAt is already in the list payload and is
+// a necessary condition for any new conversation, so a PR nobody has touched
+// since our review costs no extra API call. Only PRs that clear that gate (and
+// the age window) pay for the GraphQL probe.
+//
+// Timestamps, not content: whether the conversation is MATERIAL is the
+// reviewing skill's question, and it has content fingerprints to answer it.
+// Discovery only decides whether to look.
+//
+// Fails closed. A probe error suppresses, preserving the pre-existing same-SHA
+// behaviour, because discovery sweeps run on a short cadence and a probe that
+// errored every time would otherwise re-enqueue the same PR forever. The
+// skill's own fingerprints are the real guard against a wasted review; this is
+// only the trigger.
+func (d *Discoverer) conversationMoved(ctx context.Context, cfg config.Config, repo string, pr ghPR, last store.Review, reviewed bool, now time.Time) bool {
+	// A targeted re-review re-judges the findings of a previous one, so
+	// without a real review in our history there is nothing to revisit.
+	if !reviewed {
+		return false
+	}
+	if !pr.UpdatedAt.After(last.ReviewedAt) {
+		return false
+	}
+	if now.Sub(pr.CreatedAt) > cfg.DiscussionMaxAge() {
+		return false
+	}
+	latest, err := d.lastHumanActivity(ctx, repo, pr.Number)
+	if err != nil {
+		d.logf("discover: %s#%d conversation probe failed, suppressing: %v", repo, pr.Number, err)
+		return false
+	}
+	return latest.After(last.ReviewedAt)
+}
+
+// classifyType is the pure New-vs-Refreshed-vs-Discussion decision, extracted
+// (like hold) so the boundary rules table-test without fakes. last/reviewed are
+// our own most recent real verdict, per the store; discussion is classify's
+// verdict on whether a same-SHA PR has new conversation (conversationMoved).
+func classifyType(pr ghPR, cfg config.Config, now time.Time, last store.Review, reviewed bool, discussion bool) (string, bool) {
 	switch {
+	// DISCUSSION: same head SHA we already reviewed, but a human has said
+	// something since. classify has already confirmed the prior review, the
+	// age window, and the conversation itself, so there is nothing left to
+	// re-test here.
+	case discussion:
+		return store.TypeDiscussion, true
 	// NEW: never reviewed by anyone, within the New window.
 	case !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= cfg.NewMaxAge():
 		return store.TypeNew, true

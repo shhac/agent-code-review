@@ -55,7 +55,7 @@ CONFIG: ~/.config/agent-code-review/config.json (respects XDG_CONFIG_HOME).
   repos, prompts, codex settings. Restart only for the loop on/off switches,
   dashboard address, and Tailscale mode.
   Everything tunable lives here: watched repos, the author groups, age
-  thresholds (14d New / 21d Refreshed), schedule cadence + parallelism, the
+  thresholds (14d New / 21d Refreshed / 14d Discussion), schedule cadence + parallelism, the
   review engine + main prompt + rules, the DuckDB path, and dashboard/Tailscale.
   See config.example.json. No repos or GitHub handles are hardcoded.
 
@@ -64,6 +64,11 @@ CANDIDATES (discovery is deterministic: gh + rules, never the LLM):
               approved, ≤ new_max_age_days
   REFRESHED: open, not draft, re-review requested, not currently approved, head
               SHA differs from our last recorded review, ≤ refreshed_max_age_days
+  DISCUSSION: same head SHA we already reviewed, but a person (not a bot, not
+              us) has commented, replied inline, or resolved a thread since that
+              review, ≤ discussion_max_age_days. The code is unchanged, so the
+              review engine re-judges its standing findings against what was
+              said rather than deriving the PR again.
   An author whose resolved group has review level "ignore" is never discovered
   at all; a manual add still reviews them. Manual adds (queue add / dashboard)
   fetch live metadata via gh and reject closed/merged PRs.
@@ -363,6 +368,7 @@ KEYS:
   schedule.usage_floor.weekly_percent  same for the weekly window (default 10, 0 off)
   candidates.new_max_age_days          New candidate window (default 14)
   candidates.refreshed_max_age_days    Refreshed candidate window (default 21)
+  candidates.discussion_max_age_days   Discussion candidate window (default 14)
   candidates.rereview_cooldown         hold after our own review before re-discovery
                                        (default 90m, 0s disables)
   candidates.quiet_period              PR must go untouched this long before discovery

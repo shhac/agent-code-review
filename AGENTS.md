@@ -21,7 +21,7 @@ internal/
 │   └── usage.go                # top-level LLM reference card
 ├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults
 ├── store/                      # Store interface + DuckDB subprocess driver + schema.sql
-├── discover/                   # gh pr list → New/Refreshed classification
+├── discover/                   # gh pr list → New/Refreshed/Discussion classification
 ├── review/                     # Engine interface + codex/claude drivers + prompt/rule assembly
 ├── scheduler/                  # run-lock, heartbeat loops, parallelism cap, cycle orchestration
 ├── usage/                      # per-engine subscription-headroom polling + usage-floor predicate

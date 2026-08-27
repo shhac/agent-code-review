@@ -174,8 +174,6 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 			return nil, err
 		}
 	}
-	disc := discover.New(cfgFn, s, logf)
-
 	ghUser := cfg.GHUser
 	if ghUser == "" {
 		if u, err := discover.CurrentUser(ctx); err == nil {
@@ -185,6 +183,8 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 				"set gh_user in config, or authenticate the gh CLI")
 		}
 	}
+
+	disc := discover.New(cfgFn, s, logf).WithSelfLogin(ghUser)
 
 	// Pricing is read from the cache dir, never fetched here: `run --once`
 	// and the daemon both value reviews from whatever the last refresh left on

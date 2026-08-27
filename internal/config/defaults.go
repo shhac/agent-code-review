@@ -20,6 +20,13 @@ func (c Config) RefreshedMaxAge() time.Duration {
 	return daysOr(c.Candidates.RefreshedMaxAgeDays, 21)
 }
 
+// DiscussionMaxAge is the Discussion-candidate age window (default 14 days).
+// Shorter than the Refreshed window on purpose: conversation on a three-week-old
+// PR is usually about landing it, not about the review.
+func (c Config) DiscussionMaxAge() time.Duration {
+	return daysOr(c.Candidates.DiscussionMaxAgeDays, 14)
+}
+
 // RereviewCooldown is how long after one of our own real reviews a discovered
 // candidate stays on hold (default 90m; an explicit "0s" disables the hold).
 // Manual adds and promotion bypass it.

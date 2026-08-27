@@ -80,10 +80,11 @@ type AuthorSettings struct {
 // (rereview_cooldown) and how long a PR must sit untouched before we accept it
 // (quiet_period). Holds defer discovered candidates; manual adds bypass both.
 type CandidateSettings struct {
-	NewMaxAgeDays       int    `json:"new_max_age_days,omitempty"`       // default 14
-	RefreshedMaxAgeDays int    `json:"refreshed_max_age_days,omitempty"` // default 21
-	RereviewCooldown    string `json:"rereview_cooldown,omitempty"`      // Go duration, default "90m"; "0s" disables
-	QuietPeriod         string `json:"quiet_period,omitempty"`           // Go duration, default "15m"; "0s" disables
+	NewMaxAgeDays        int    `json:"new_max_age_days,omitempty"`        // default 14
+	RefreshedMaxAgeDays  int    `json:"refreshed_max_age_days,omitempty"`  // default 21
+	DiscussionMaxAgeDays int    `json:"discussion_max_age_days,omitempty"` // default 14
+	RereviewCooldown     string `json:"rereview_cooldown,omitempty"`       // Go duration, default "90m"; "0s" disables
+	QuietPeriod          string `json:"quiet_period,omitempty"`            // Go duration, default "15m"; "0s" disables
 }
 
 // ScheduleSettings drives the review loop: LLM invocations, so it carries the

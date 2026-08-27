@@ -24,7 +24,7 @@ var Outcomes = []string{"approve", "comment", "reject"}
 func ValidOutcome(s string) bool { return slices.Contains(Outcomes, s) }
 
 // CandidateTypes are the discovery kinds a rule can gate on.
-var CandidateTypes = []string{"new", "refreshed"}
+var CandidateTypes = []string{"new", "refreshed", "discussion"}
 
 // ValidCandidateType reports whether s names a candidate discovery kind.
 func ValidCandidateType(s string) bool { return slices.Contains(CandidateTypes, s) }

@@ -90,6 +90,7 @@
     ['Candidate eligibility', [
       ['New PR window', `${configData.candidates.new_max_age_days} days`],
       ['Refreshed window', `${configData.candidates.refreshed_max_age_days} days`],
+      ['Discussion window', `${configData.candidates.discussion_max_age_days} days`],
       ['Re-review cooldown', configData.candidates.rereview_cooldown === '0s' ? 'disabled' : `hold ${configData.candidates.rereview_cooldown} after our review`],
       ['Quiet period', configData.candidates.quiet_period === '0s' ? 'disabled' : `hold until untouched for ${configData.candidates.quiet_period}`],
     ]],

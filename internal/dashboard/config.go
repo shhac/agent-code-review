@@ -20,10 +20,11 @@ type configRepoResp struct {
 }
 
 type configCandidateResp struct {
-	NewMaxAgeDays       int    `json:"new_max_age_days"`
-	RefreshedMaxAgeDays int    `json:"refreshed_max_age_days"`
-	RereviewCooldown    string `json:"rereview_cooldown"`
-	QuietPeriod         string `json:"quiet_period"`
+	NewMaxAgeDays        int    `json:"new_max_age_days"`
+	RefreshedMaxAgeDays  int    `json:"refreshed_max_age_days"`
+	DiscussionMaxAgeDays int    `json:"discussion_max_age_days"`
+	RereviewCooldown     string `json:"rereview_cooldown"`
+	QuietPeriod          string `json:"quiet_period"`
 }
 
 type configScheduleResp struct {
@@ -91,10 +92,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		ReviewingAs: s.reviewingAs(ctx),
 		Repos:       repos,
 		Candidates: configCandidateResp{
-			NewMaxAgeDays:       int(cfg.NewMaxAge().Hours() / 24),
-			RefreshedMaxAgeDays: int(cfg.RefreshedMaxAge().Hours() / 24),
-			RereviewCooldown:    cfg.RereviewCooldown().String(),
-			QuietPeriod:         cfg.QuietPeriod().String(),
+			NewMaxAgeDays:        int(cfg.NewMaxAge().Hours() / 24),
+			RefreshedMaxAgeDays:  int(cfg.RefreshedMaxAge().Hours() / 24),
+			DiscussionMaxAgeDays: int(cfg.DiscussionMaxAge().Hours() / 24),
+			RereviewCooldown:     cfg.RereviewCooldown().String(),
+			QuietPeriod:          cfg.QuietPeriod().String(),
 		},
 		Schedule: configScheduleResp{
 			Enabled:                 cfg.ScheduleEnabled(),

@@ -57,6 +57,11 @@ func staticConfig(c config.Config) func() config.Config {
 func newDiscoverer(fs *fakeStore) *Discoverer {
 	d := New(staticConfig(config.Config{}), fs, nil)
 	d.now = fixedNow
+	// Default to "nobody has said anything", so only the tests that care about
+	// Discussion detection pay attention to it and none of them touch gh.
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		return time.Time{}, nil
+	}
 	return d
 }
 
@@ -291,31 +296,34 @@ func TestClassifyRefreshedAfterNewCommits(t *testing.T) {
 	}
 }
 
-// TestClassifyType table-tests the pure New/Refreshed decision at its
-// boundaries; no fakes needed, which is why it was extracted.
+// TestClassifyType table-tests the pure New/Refreshed/Discussion decision at
+// its boundaries; no fakes needed, which is why it was extracted.
 func TestClassifyType(t *testing.T) {
 	now := fixedNow()
 	cfg := config.Config{} // defaults: New ≤ 14d, Refreshed ≤ 21d
 	day := 24 * time.Hour
 	cases := []struct {
-		name     string
-		pr       ghPR
-		last     store.Review
-		reviewed bool
-		wantType string
-		wantOK   bool
+		name       string
+		pr         ghPR
+		last       store.Review
+		reviewed   bool
+		discussion bool
+		wantType   string
+		wantOK     bool
 	}{
-		{"fresh unreviewed is New", ghPR{CreatedAt: now.Add(-day)}, store.Review{}, false, store.TypeNew, true},
-		{"exactly at the New window edge is New", ghPR{CreatedAt: now.Add(-14 * day)}, store.Review{}, false, store.TypeNew, true},
-		{"past the New window, never reviewed by us: neither", ghPR{CreatedAt: now.Add(-15 * day)}, store.Review{}, false, "", false},
-		{"gh review exists but not ours: not New, not Refreshed", ghPR{CreatedAt: now.Add(-day), Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{}, false, "", false},
-		{"ours at a different SHA is Refreshed", ghPR{CreatedAt: now.Add(-15 * day), HeadRefOID: "b", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, store.TypeRefreshed, true},
-		{"ours at the same SHA: neither", ghPR{CreatedAt: now.Add(-day), HeadRefOID: "a", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, "", false},
-		{"past the Refreshed window: neither", ghPR{CreatedAt: now.Add(-22 * day), HeadRefOID: "b", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, "", false},
-		{"New wins when both could match", ghPR{CreatedAt: now.Add(-day), HeadRefOID: "b"}, store.Review{HeadSHA: "a"}, true, store.TypeNew, true},
+		{"fresh unreviewed is New", ghPR{CreatedAt: now.Add(-day)}, store.Review{}, false, false, store.TypeNew, true},
+		{"exactly at the New window edge is New", ghPR{CreatedAt: now.Add(-14 * day)}, store.Review{}, false, false, store.TypeNew, true},
+		{"past the New window, never reviewed by us: neither", ghPR{CreatedAt: now.Add(-15 * day)}, store.Review{}, false, false, "", false},
+		{"gh review exists but not ours: not New, not Refreshed", ghPR{CreatedAt: now.Add(-day), Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{}, false, false, "", false},
+		{"ours at a different SHA is Refreshed", ghPR{CreatedAt: now.Add(-15 * day), HeadRefOID: "b", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, false, store.TypeRefreshed, true},
+		{"ours at the same SHA, quiet: neither", ghPR{CreatedAt: now.Add(-day), HeadRefOID: "a", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, false, "", false},
+		{"ours at the same SHA with new conversation is Discussion", ghPR{CreatedAt: now.Add(-day), HeadRefOID: "a", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, true, store.TypeDiscussion, true},
+		{"Discussion wins over New: a replied-to PR is not a first look", ghPR{CreatedAt: now.Add(-day)}, store.Review{}, true, true, store.TypeDiscussion, true},
+		{"past the Refreshed window: neither", ghPR{CreatedAt: now.Add(-22 * day), HeadRefOID: "b", Reviews: []ghReview{{State: "COMMENTED"}}}, store.Review{HeadSHA: "a"}, true, false, "", false},
+		{"New wins when both could match", ghPR{CreatedAt: now.Add(-day), HeadRefOID: "b"}, store.Review{HeadSHA: "a"}, true, false, store.TypeNew, true},
 	}
 	for _, tc := range cases {
-		typ, ok := classifyType(tc.pr, cfg, now, tc.last, tc.reviewed)
+		typ, ok := classifyType(tc.pr, cfg, now, tc.last, tc.reviewed, tc.discussion)
 		if typ != tc.wantType || ok != tc.wantOK {
 			t.Errorf("%s: classifyType = (%q, %v), want (%q, %v)", tc.name, typ, ok, tc.wantType, tc.wantOK)
 		}
@@ -483,5 +491,162 @@ func TestClassifyPropagatesRosterLookupError(t *testing.T) {
 	}
 	if len(fs.enqueued) != 0 {
 		t.Errorf("nothing may be enqueued, got %+v", fs.enqueued)
+	}
+}
+
+// reviewedAt is our own recorded review time in the Discussion tests: the PR
+// exists, we reviewed it, and everything below varies what happened after.
+func reviewedAt() time.Time { return fixedNow().Add(-2 * time.Hour) }
+
+// sameSHAReviewed is the setup every Discussion test starts from: a real review
+// of ours recorded at the PR's CURRENT head SHA. Before Discussion detection
+// this shape was suppressed unconditionally.
+func sameSHAReviewed() *fakeStore {
+	return &fakeStore{
+		hasLast: true,
+		last:    store.Review{HeadSHA: "sha1", ReviewedAt: reviewedAt()},
+	}
+}
+
+func sameSHAPR() ghPR {
+	return ghPR{
+		Number:         7,
+		HeadRefOID:     "sha1",
+		ReviewRequests: openReq(),
+		Reviews:        []ghReview{{State: "COMMENTED"}},
+		CreatedAt:      fixedNow().Add(-3 * 24 * time.Hour),
+		UpdatedAt:      fixedNow().Add(-1 * time.Hour), // touched since our review
+	}
+}
+
+// TestClassifyDiscussionOnReplyAtSameSHA is the regression this whole feature
+// exists for: the author replies to a finding without pushing, and we must not
+// treat the unchanged head SHA as "nothing to do".
+func TestClassifyDiscussionOnReplyAtSameSHA(t *testing.T) {
+	d := newDiscoverer(sameSHAReviewed())
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		return fixedNow().Add(-1 * time.Hour), nil // after our review
+	}
+	c, ok, err := d.classify(context.Background(), d.cfg(), "o/r", sameSHAPR())
+	if err != nil || !ok {
+		t.Fatalf("expected a Discussion candidate, ok=%v err=%v", ok, err)
+	}
+	if c.Type != store.TypeDiscussion {
+		t.Errorf("type = %q, want discussion", c.Type)
+	}
+}
+
+// TestClassifyQuietSameSHAStillSuppressed pins the other half: without new
+// conversation, an unchanged SHA must stay suppressed exactly as before, or
+// every sweep would re-enqueue every PR we have ever reviewed.
+func TestClassifyQuietSameSHAStillSuppressed(t *testing.T) {
+	d := newDiscoverer(sameSHAReviewed())
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		return fixedNow().Add(-5 * time.Hour), nil // predates our review
+	}
+	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", sameSHAPR()); ok {
+		t.Error("same SHA with no conversation since our review must stay suppressed")
+	}
+}
+
+// TestClassifyDiscussionSkipsProbeWhenUntouched pins the cheap gate: gh's
+// updatedAt is a necessary condition for new conversation, so a PR nobody has
+// touched since our review must not cost an API call.
+func TestClassifyDiscussionSkipsProbeWhenUntouched(t *testing.T) {
+	d := newDiscoverer(sameSHAReviewed())
+	probed := false
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		probed = true
+		return fixedNow(), nil
+	}
+	pr := sameSHAPR()
+	pr.UpdatedAt = reviewedAt().Add(-time.Minute) // untouched since our review
+	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", pr); ok {
+		t.Error("untouched PR should not be a candidate")
+	}
+	if probed {
+		t.Error("probe ran for a PR gh says nobody has touched since our review")
+	}
+}
+
+// TestClassifyDiscussionNeedsPriorRealReview: a targeted re-review re-judges a
+// previous review's findings, so without one there is nothing to revisit. Only
+// a skip or error is on record here, not a verdict.
+func TestClassifyDiscussionNeedsPriorRealReview(t *testing.T) {
+	fs := &fakeStore{hasOutcome: true, outcome: store.Review{HeadSHA: "sha1", ReviewedAt: reviewedAt()}}
+	d := newDiscoverer(fs)
+	probed := false
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		probed = true
+		return fixedNow(), nil
+	}
+	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", sameSHAPR()); ok {
+		t.Error("no real review in history: nothing to revisit, so not a candidate")
+	}
+	if probed {
+		t.Error("probe ran without a prior real review to re-judge")
+	}
+}
+
+// TestClassifyDiscussionRespectsMaxAge: conversation on an old PR is usually
+// about landing it, not about the review.
+func TestClassifyDiscussionRespectsMaxAge(t *testing.T) {
+	d := newDiscoverer(sameSHAReviewed())
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		return fixedNow().Add(-1 * time.Hour), nil
+	}
+	pr := sameSHAPR()
+	pr.CreatedAt = fixedNow().Add(-15 * 24 * time.Hour) // 15d > 14d Discussion window
+	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", pr); ok {
+		t.Error("PR older than the Discussion window should not be a Discussion candidate")
+	}
+}
+
+// TestClassifyDiscussionFailsClosed: discovery sweeps run on a short cadence,
+// so a probe that errors every time must not re-enqueue the PR every time.
+func TestClassifyDiscussionFailsClosed(t *testing.T) {
+	d := newDiscoverer(sameSHAReviewed())
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		return time.Time{}, errors.New("gh exploded")
+	}
+	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", sameSHAPR()); ok {
+		t.Error("probe failure must suppress, not enqueue")
+	}
+}
+
+// TestLatestHumanActivity pins the two exclusions the Discussion trigger rests
+// on. Bots comment constantly and none of it is a reason to look again; our own
+// review is not somebody responding to our review.
+func TestLatestHumanActivity(t *testing.T) {
+	base := fixedNow()
+	at := func(d time.Duration, login, typename string) ghActivityNode {
+		return ghActivityNode{CreatedAt: base.Add(d), Author: ghGraphQLActor{Login: login, Typename: typename}}
+	}
+	var resp ghActivityResp
+	pr := &resp.Data.Repository.PullRequest
+	pr.Comments.Nodes = []ghActivityNode{at(-4*time.Hour, "human", "User")}
+	pr.Reviews.Nodes = []ghActivityNode{
+		at(-1*time.Minute, "us", "User"),       // our own review: excluded
+		at(-2*time.Minute, "deploybot", "Bot"), // bot: excluded
+	}
+	got := latestHumanActivity(resp, "us")
+	if want := base.Add(-4 * time.Hour); !got.Equal(want) {
+		t.Errorf("latestHumanActivity = %v, want %v (the human comment, not our review or the bot)", got, want)
+	}
+
+	// A reply in a thread is the case the old fingerprint could not see at all.
+	var thread ghActivityThread
+	thread.Comments.Nodes = []ghActivityNode{at(-30*time.Minute, "human", "User")}
+	pr.ReviewThreads.Nodes = append(pr.ReviewThreads.Nodes, thread)
+	if got, want := latestHumanActivity(resp, "us"), base.Add(-30*time.Minute); !got.Equal(want) {
+		t.Errorf("latestHumanActivity = %v, want the thread reply at %v", got, want)
+	}
+}
+
+// TestLatestHumanActivityEmpty: nobody has said anything, which must read as
+// the zero time rather than "now".
+func TestLatestHumanActivityEmpty(t *testing.T) {
+	if got := latestHumanActivity(ghActivityResp{}, "us"); !got.IsZero() {
+		t.Errorf("latestHumanActivity on an empty response = %v, want zero", got)
 	}
 }

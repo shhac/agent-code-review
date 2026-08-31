@@ -1,12 +1,12 @@
 ---
 name: agent-code-review
 description: |
-  PR review queue + scheduler CLI. Use when:
-  - Inspecting or managing the queue of PRs awaiting automated review
-  - Adding/removing/promoting/skipping candidate PRs by hand
-  - Running a single review cycle or the serve daemon + dashboard
-  - Checking the review configuration (repos, author groups, schedule)
-  Triggers: "code review queue", "pr review queue", "agent-code-review", "review candidates", "review dashboard", "unblock PRs"
+  PR review queue and scheduler CLI. Use when inspecting or managing the
+  queue of pull requests awaiting automated review, adding, removing,
+  promoting, or skipping candidates by hand, running a single review cycle
+  or the serve daemon and its dashboard, or checking which repos, author
+  groups, and schedule the reviewer is configured with. Triggers: unblock
+  PRs.
 allowed-tools: Bash(agent-code-review *) Read Grep Glob
 ---
 

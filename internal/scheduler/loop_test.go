@@ -174,17 +174,14 @@ func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 	}
 }
 
-// TestStartGracefulWiresBothContextsThroughToTheEngine drives the REAL loop
-// through StartGraceful, which is the one line joining the daemon's two
-// shutdown contexts to the review dispatcher. Every existing test around it
-// substitutes its own context values or stubs out loopRunner entirely, so the
-// closure that does the wiring was never executed: swapping the two arguments
-// would have made the first Ctrl-C kill in-flight reviewers and the whole
-// suite would still have passed.
+// TestStartGracefulWiresBothContextsThroughToTheEngine drives StartGraceful
+// end to end and pins the contract serve prints on the first signal:
+// cancelling Stop.Graceful alone stops NEW work while the in-flight review
+// runs to completion, and only Stop.Force ends the running one.
 //
-// The property under test is the contract serve prints on the first signal:
-// cancelling gracefulCtx alone stops NEW work while the in-flight review runs to
-// completion; only reviewCtx ends the running one.
+// Stop now makes swapping the two impossible to compile, but the wiring is
+// still worth an end-to-end test: nothing else proves the context the engine
+// receives is the one that survives a graceful stop.
 func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	fs := &fakeDispatchStore{queue: []store.Candidate{
 		{Repo: "o/r", Number: 1, HeadSHA: "s1"},

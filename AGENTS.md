@@ -341,9 +341,9 @@ internal/
 
 - **Crash/concurrency safety.** Claims are compare-and-swap leases carrying
   host+pid (`Store.Claim` returns whether you won; losing is a clean skip),
-  and boot runs `Scheduler.Reconcile` to release run rows and claims left by
-  a dead pid on this host, so a mid-review crash never blocks the next boot
-  for the lease window. `serve` binds the dashboard port before starting any
+  and boot runs `Scheduler.Reconcile` to release claims left by a dead pid on
+  this host, so a mid-review crash never blocks that PR for the lease window.
+  Run rows are gone with the batch cycle; the claim is the only lock. `serve` binds the dashboard port before starting any
   loop, so a second instance on the same address exits before it can claim
   or review anything.
 

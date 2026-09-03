@@ -206,6 +206,20 @@ func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, drain bool)
 			continue
 		}
 
+		// The second half of the check above. A pull is not instant: it lists
+		// the queue and resolves an author policy, each a DuckDB subprocess
+		// behind a global mutex. A stop that lands while it runs must discard
+		// the result rather than hand it to a worker, or the first Ctrl-C
+		// still starts one more review than it promised. The candidate is
+		// simply left queued; nothing about it was touched.
+		if gracefulCtx.Err() != nil {
+			s.logf("dispatch: shutdown requested, waiting for in-flight reviewer(s)")
+			return nil
+		}
+		if reviewCtx.Err() != nil {
+			return nil
+		}
+
 		key := candidateKey(next.candidate)
 		state.start(key)
 		active++

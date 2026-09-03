@@ -25,12 +25,18 @@ type fakeDispatchStore struct {
 	queue    []store.Candidate
 	queueErr error
 	pulls    int
+	// onList runs inside ListQueue, so a test can change the world (request a
+	// shutdown, say) while a pull is in flight.
+	onList func()
 }
 
 func (f *fakeDispatchStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
 	f.qmu.Lock()
 	defer f.qmu.Unlock()
 	f.pulls++
+	if f.onList != nil {
+		f.onList()
+	}
 	if f.queueErr != nil {
 		return nil, f.queueErr
 	}
@@ -180,6 +186,38 @@ func TestDispatchStartsNothingAfterStopRequested(t *testing.T) {
 	}
 	if len(fs.claims) != 0 || len(fs.completed) != 0 {
 		t.Errorf("a cancelled dispatcher must claim and complete nothing, got claims=%d completed=%d",
+			len(fs.claims), len(fs.completed))
+	}
+}
+
+// TestDispatchStopDuringAPullDispatchesNothing closes the window between the
+// pre-pull cancellation check and the hand-off. A pull is not instant: it
+// lists the queue and resolves an author policy, each a DuckDB subprocess
+// behind a global mutex. A stop landing in that window used to be missed
+// entirely, and the candidate that was dispatchable when the loop looked got
+// handed to a worker anyway, costing exactly the engine invocation the first
+// Ctrl-C promises not to start.
+func TestDispatchStopDuringAPullDispatchesNothing(t *testing.T) {
+	fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, HeadSHA: "s1"}}}
+	gracefulCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	fs.onList = func() { stop() } // the stop lands mid-pull
+
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+	s := newDispatchScheduler(fs, fe)
+
+	done := make(chan error, 1)
+	go func() { done <- s.dispatch(gracefulCtx, context.Background(), false) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatch did not return after the stop")
+	}
+	if len(fs.claims) != 0 || len(fs.completed) != 0 {
+		t.Errorf("a candidate pulled before the stop must be discarded, not dispatched; got claims=%d completed=%d",
 			len(fs.claims), len(fs.completed))
 	}
 }

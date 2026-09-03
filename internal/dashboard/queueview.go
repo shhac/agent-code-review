@@ -25,7 +25,7 @@ type queueView struct {
 // claimStatus maps the shared predicates (store.Candidate.ClaimActive and
 // .Held) to the dashboard's status vocabulary: a live claim is "reviewing",
 // an eligibility hold is "held", anything else (including a stale claim the
-// next cycle will reclaim) is "queued". The queue badges and the review-log
+// the dispatcher will reclaim once the lease ages out) is "queued". The queue badges and the review-log
 // header both derive from this one helper so they cannot disagree on the
 // lease boundary.
 func claimStatus(c store.Candidate, now time.Time, staleAfter time.Duration) string {

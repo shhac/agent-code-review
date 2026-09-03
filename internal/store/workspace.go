@@ -4,7 +4,7 @@ import "context"
 
 // ReviewWorkspaceStore is the narrow history/queue view needed to resolve a
 // review log. Both the CLI and dashboard use it without depending on unrelated
-// queue mutation or run-lock operations.
+// queue mutation or claim operations.
 type ReviewWorkspaceStore interface {
 	ListQueue(context.Context, string) ([]Candidate, error)
 	LastOutcome(context.Context, string, int) (Review, bool, error)

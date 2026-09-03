@@ -1,8 +1,12 @@
-// Package scheduler owns the deterministic review cycle: take the run-lock,
-// discover candidates, process the queue oldest-first up to the parallelism
-// cap, record verdicts, release the lock. The serve daemon runs the
-// discovery and review heartbeat loops via StartGraceful; `run --once`
-// calls RunCycle a single time.
+// Package scheduler owns the deterministic half of a review: discover
+// candidates, consume the queue oldest-first up to the parallelism cap,
+// record verdicts. Reviews are dispatched one at a time as slots free, so a
+// PR that becomes ready while others are in flight is picked up by the next
+// free slot rather than waiting for a batch to drain. Cross-process exclusion
+// is the per-candidate claim CAS in store.Claim, not a global lock.
+//
+// The serve daemon runs the discovery loop and the review dispatcher via
+// StartGraceful; `run` calls RunOnce, which drains the queue and exits.
 package scheduler
 
 import (
@@ -21,7 +25,7 @@ import (
 type Logf func(format string, args ...any)
 
 // UsageFn supplies the latest usage snapshot for ONE engine. It takes the
-// engine name because a single cycle can run several: an author's group picks
+// engine name because concurrent reviews can run several: an author's group picks
 // the engine that reviews their PRs, so headroom has to be asked about per
 // engine rather than once for the configured one. Callers with no usage data
 // (one-shot runs) pass nil; New normalizes that to an empty-snapshot getter,
@@ -39,10 +43,6 @@ type SchedulerStore interface {
 	AppendHistory(context.Context, store.Review) error
 	Complete(context.Context, store.Review) error
 	AuthorGroup(context.Context, string, string) (config.Membership, error)
-	ActiveRun(context.Context, time.Duration) (store.Run, bool, error)
-	RunningRuns(context.Context) ([]store.Run, error)
-	StartRun(context.Context, store.Run) error
-	FinishRun(context.Context, string, string) error
 }
 
 // Scheduler wires the deterministic machinery around a review engine. Config
@@ -75,11 +75,13 @@ type Scheduler struct {
 	// signal-0 probe in production; swapped in tests). Reconcile uses it to
 	// tell a crashed daemon's leftovers from a sibling instance's live work.
 	pidAlive func(pid int) bool
-	// loopRunner and reconcile are narrow lifecycle seams: production uses the
-	// real methods, while tests can assert StartGraceful's orchestration without
-	// starting timers or requiring a fully populated Store.
-	loopRunner func(context.Context, func() time.Duration, string, func(context.Context) error)
-	reconcile  func(context.Context) error
+	// loopRunner, dispatchRunner and reconcile are narrow lifecycle seams:
+	// production uses the real methods, while tests can assert StartGraceful's
+	// orchestration without starting timers or requiring a fully populated
+	// Store.
+	loopRunner     func(context.Context, func() time.Duration, string, func(context.Context) error)
+	dispatchRunner func(gracefulCtx, reviewCtx context.Context, drain bool) error
+	reconcile      func(context.Context) error
 	// heartbeat is loop's interval-re-read cadence (loopHeartbeat in
 	// production; shrunk by tests so the loop is drivable without real waits).
 	heartbeat time.Duration
@@ -118,6 +120,7 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 	// Method-valued seams can't appear in the literal above; same convention
 	// as the other seams: production impls at construction, tests overwrite.
 	sched.loopRunner = sched.loop
+	sched.dispatchRunner = sched.dispatch
 	sched.reconcile = sched.Reconcile
 	return sched
 }

@@ -10,29 +10,17 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// Reconcile cleans up after crashed processes on THIS host: run rows still
-// marked running and queue claims whose recorded pid is dead are released
-// immediately instead of waiting out the lease window (2h+ of "a previous
-// run is still active, skipping" after every mid-cycle crash, which bites
-// hardest during development). Another host's state (and any live pid's)
-// is left strictly alone: a sibling instance's in-flight work looks exactly
-// like this, minus the dead pid.
+// Reconcile cleans up after crashed processes on THIS host: queue claims
+// whose recorded pid is dead are released immediately instead of waiting out
+// the lease window (2h+ of a PR sitting untouchable after every mid-review
+// crash, which bites hardest during development). Another host's state (and
+// any live pid's) is left strictly alone: a sibling instance's in-flight work
+// looks exactly like this, minus the dead pid.
+//
+// With no global run-lock, this is the only fast reclaim path: the lease
+// window is the fallback that always works, but only eventually.
 func (s *Scheduler) Reconcile(ctx context.Context) error {
 	host := hostname()
-
-	runs, err := s.store.RunningRuns(ctx)
-	if err != nil {
-		return err
-	}
-	for _, r := range runs {
-		if r.Host != host || s.pidAlive(r.PID) {
-			continue
-		}
-		s.logf("reconcile: run %s (pid %d) died mid-cycle, marking failed", r.ID, r.PID)
-		if err := s.store.FinishRun(ctx, r.ID, "failed"); err != nil {
-			return err
-		}
-	}
 
 	queue, err := s.store.ListQueue(ctx, "")
 	if err != nil {

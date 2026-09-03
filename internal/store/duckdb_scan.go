@@ -164,18 +164,6 @@ func scanAuthor(m map[string]any) (Author, error) {
 	return a, r.err
 }
 
-func scanRun(m map[string]any) (Run, error) {
-	r := &row{values: m}
-	return Run{
-		ID:         r.str("id"),
-		StartedAt:  r.time("started_at"),
-		FinishedAt: r.timePtr("finished_at"),
-		Status:     r.str("status"),
-		Host:       r.str("host"),
-		PID:        r.int("pid"),
-	}, r.err
-}
-
 func scanCandidate(m map[string]any) (Candidate, error) {
 	r := &row{values: m}
 	return Candidate{

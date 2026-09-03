@@ -56,7 +56,6 @@ type historyStore interface {
 	ReviewByLogKey(context.Context, string, int, string) (store.Review, bool, error)
 	ListReviews(context.Context, int) ([]store.Review, error)
 	ListReviewsSince(context.Context, time.Time) ([]store.Review, error)
-	ListRuns(context.Context, int) ([]store.Run, error)
 	FreshTokens(context.Context, time.Time) (int64, error)
 }
 
@@ -66,7 +65,7 @@ type rosterStore interface {
 }
 
 // dashboardStore is the whole surface the web server uses. It deliberately
-// does not know about scheduler claims, run locks, or author mutations it
+// does not know about scheduler claims or author mutations it
 // never performs.
 type dashboardStore interface {
 	queueStore
@@ -131,7 +130,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/queue/reorder", s.handleQueueReorder)
 	mux.HandleFunc("/api/queue/promote", s.handleQueuePromote)
 	mux.HandleFunc("/api/reviews", s.handleReviews)
-	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/usage", s.handleUsage)
 	mux.HandleFunc("/api/stats", s.handleStats)

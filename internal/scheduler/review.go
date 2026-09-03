@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -14,79 +12,44 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// pending is a queued candidate paired with its author's resolved policy.
-// They travel together from the moment the cycle resolves them, because every
-// decision left (which engine, whether its headroom allows a start, what the
-// prompt says) reads that one answer.
+// pending is a queued candidate paired with its author's resolved policy and
+// the config snapshot it was resolved under. All three travel together from
+// the moment the dispatcher pulls the candidate, because every decision left
+// (which engine, whether its headroom allows a start, what the prompt says)
+// must read the same answer. The config rides along rather than being
+// re-read by the worker: a candidate that cleared the usage floor under one
+// config must not then be built and prompted under another.
 type pending struct {
 	candidate store.Candidate
 	policy    config.Policy
+	cfg       config.Config
 }
 
-// processQueue reviews candidates concurrently, capped at cfg.MaxParallel.
-// The input is already sorted New-before-Refreshed, oldest-first by the
-// store. The cycle's config snapshot travels as a parameter so every
-// goroutine works from one coherent config; nothing cycle-scoped lives on the
-// long-lived Scheduler struct.
+// runOne is the worker body: build this candidate's engine, then review it.
+// The engine is built per candidate rather than per batch because an author's
+// group can name its own engine, model and effort, so two concurrent reviews
+// can run different CLIs.
 //
-// The engine is built per candidate rather than per cycle: an author's group
-// can name its own engine, model, and effort, so two PRs in one cycle can be
-// reviewed by different CLIs.
-// It returns how many reviewers failed, so the cycle can record a status that
-// reflects what happened rather than always claiming success.
-func (s *Scheduler) processQueue(gracefulCtx, reviewCtx context.Context, candidates []pending, cfg config.Config) int {
-	sem := make(chan struct{}, cfg.MaxParallel())
-	var wg sync.WaitGroup
-	var failed atomic.Int64
-	for _, p := range candidates {
-		// Cancellation is checked BEFORE the select, because select chooses
-		// uniformly at random among ready cases. A free semaphore slot is
-		// almost always ready, so leaving this to the select below started a
-		// new review roughly half the time after a shutdown was requested,
-		// which is the opposite of what the first Ctrl-C promises and costs a
-		// whole engine invocation each time it happens.
-		if gracefulCtx.Err() != nil {
-			s.logf("cycle: shutdown requested, waiting for in-flight reviewer(s)")
-			wg.Wait()
-			return int(failed.Load())
-		}
-		if reviewCtx.Err() != nil {
-			wg.Wait()
-			return int(failed.Load())
-		}
-		select {
-		case sem <- struct{}{}:
-		case <-gracefulCtx.Done():
-			s.logf("cycle: shutdown requested, waiting for in-flight reviewer(s)")
-			wg.Wait()
-			return int(failed.Load())
-		case <-reviewCtx.Done():
-			wg.Wait()
-			return int(failed.Load())
-		}
-		wg.Add(1)
-		go func(p pending) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			// Built before the claim, so a group pointing at an unbuildable
-			// engine leaves its candidate pending and retryable rather than
-			// claimed and stuck. Boot validation covers the reachable set, so
-			// reaching here means config changed under a running daemon.
-			engine, err := s.newEngine(cfg, p.policy)
-			if err != nil {
-				failed.Add(1)
-				s.logf("review %s#%d: build %s engine: %v",
-					p.candidate.Repo, p.candidate.Number, cfg.EngineFor(p.policy), err)
-				return
-			}
-			if err := s.reviewOne(reviewCtx, p, cfg, engine); err != nil {
-				failed.Add(1)
-				s.logf("review %s#%d: %v", p.candidate.Repo, p.candidate.Number, err)
-			}
-		}(p)
+// A non-nil error means the attempt produced no recorded outcome, which is
+// what the dispatcher's backoff keys on: both failure paths below leave the
+// queue row exactly as they found it, and the dispatcher always offers the
+// head first.
+func (s *Scheduler) runOne(ctx context.Context, p pending) error {
+	// Built before the claim, so a group pointing at an unbuildable engine
+	// leaves its candidate pending and retryable rather than claimed and
+	// stuck. Boot validation covers the reachable set, so reaching here means
+	// config changed under a running daemon.
+	engine, err := s.newEngine(p.cfg, p.policy)
+	if err != nil {
+		err = fmt.Errorf("build %s engine: %w", p.cfg.EngineFor(p.policy), err)
+		s.logf("review %s#%d: %v", p.candidate.Repo, p.candidate.Number, err)
+		return err
 	}
-	wg.Wait()
-	return int(failed.Load())
+	if err := s.reviewOne(ctx, p, p.cfg, engine); err != nil {
+		s.logf("review %s#%d: %v", p.candidate.Repo, p.candidate.Number, err)
+		return err
+	}
+	return nil
 }
 
 // skipIfStale re-validates a discovered candidate just before the engine

@@ -165,14 +165,9 @@ CREATE TABLE IF NOT EXISTS allowed_authors (
 ALTER TABLE allowed_authors ADD COLUMN IF NOT EXISTS group_name TEXT;
 UPDATE allowed_authors SET group_name = 'approver' WHERE group_name IS NULL;
 
--- Run-lock: a row per review cycle. An unfinished, recent row means a cycle is
--- (or may still be) in flight, so a new cycle skips. Advisory: DuckDB's
--- single-writer file lock is the hard backstop.
-CREATE TABLE IF NOT EXISTS runs (
-  id          TEXT      PRIMARY KEY,
-  started_at  TIMESTAMP NOT NULL,
-  finished_at TIMESTAMP,
-  status      TEXT      NOT NULL,               -- running|done|failed
-  host        TEXT,
-  pid         INTEGER
-);
+-- The `runs` table (one row per review CYCLE, the advisory run-lock) is
+-- deliberately absent: reviews are dispatched individually as slots free, and
+-- cross-process exclusion is the per-candidate CAS in Claim above. Stores
+-- created before that change still carry the table and its rows; nothing
+-- reads or writes it, and it is left alone rather than dropped so that
+-- history survives.

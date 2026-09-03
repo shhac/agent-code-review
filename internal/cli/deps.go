@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
 	output "github.com/shhac/lib-agent-output"
@@ -19,6 +20,7 @@ import (
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/scheduler"
 	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 // globals is the live flag snapshot, set once by newRootCmd so emit can honor
@@ -155,15 +157,40 @@ func reportConfigProblems(cfg config.Config, warnf func(notice, hint string)) {
 	}
 }
 
+// oneShotUsage probes each engine's headroom at most once per process. serve
+// polls in the background because it runs for days; `run` exits, so it fetches
+// lazily on first ask and caches for the life of the command. A failed probe
+// caches the empty snapshot, and usage.BelowFloor never pauses on one, so a
+// broken or logged-out engine degrades to reviewing rather than to a run that
+// silently does nothing.
+func oneShotUsage(ctx context.Context, cfg config.Config) scheduler.UsageFn {
+	var mu sync.Mutex
+	seen := map[string]usage.Snapshot{}
+	return func(engine string) usage.Snapshot {
+		mu.Lock()
+		defer mu.Unlock()
+		if snap, ok := seen[engine]; ok {
+			return snap
+		}
+		snap, err := usage.Fetch(ctx, usage.Source{Engine: engine, Bin: cfg.BinFor(engine)})
+		if err != nil {
+			snap = usage.Snapshot{}
+		}
+		seen[engine] = snap
+		return snap
+	}
+}
+
 // buildScheduler wires the discoverer and resolved gh user around an
 // already-open store. Config flows through the getter so cadence, dials, and
-// codex settings reload live (the engine itself is rebuilt each cycle); the
+// codex settings reload live (the engine itself is rebuilt per review); the
 // engine name is validated up front so a typo still fails at boot. logf is
-// the cycle log sink: plain stderr for one-shot runs; serve tees it into the
+// the scheduler log sink: plain stderr for one-shot runs; serve tees it into the
 // dashboard's log ring. warnf carries agent-actionable warnings: one-shot
 // runs route it to output.WriteNotice so stderr stays structured; serve folds
 // it into the daemon log (and thus the dashboard's log ring). usageFn feeds
-// the usage-floor pause; nil (one-shot runs) bypasses the floor.
+// the usage-floor hold; nil bypasses the floor entirely, which only
+// `run --ignore-usage-floor` asks for.
 func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Store, logf func(string, ...any), warnf func(notice, hint string), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
 	cfg := cfgFn()
 	// Every engine a group or override can route to, not just the configured

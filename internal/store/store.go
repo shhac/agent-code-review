@@ -101,16 +101,6 @@ type Store interface {
 	// value (unlisted, so config's unlisted fallback decides).
 	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
 
-	// ActiveRun returns an unfinished run more recent than staleAfter, if any.
-	ActiveRun(ctx context.Context, staleAfter time.Duration) (Run, bool, error)
-	// RunningRuns returns every run still marked running, regardless of age:
-	// the input to boot reconciliation (finish the ones whose pid is dead).
-	RunningRuns(ctx context.Context) ([]Run, error)
-	StartRun(ctx context.Context, r Run) error
-	FinishRun(ctx context.Context, id string, status string) error
-	// ListRuns returns cycle history, most recent first, capped at limit.
-	ListRuns(ctx context.Context, limit int) ([]Run, error)
-
 	Close() error
 }
 

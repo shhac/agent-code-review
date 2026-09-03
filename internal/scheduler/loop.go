@@ -6,10 +6,15 @@ import (
 	"time"
 )
 
-// StartGraceful runs the requested loops until gracefulCtx is cancelled: discovery
-// receives gracefulCtx and is cancelled immediately, while in-flight reviewers
-// receive reviewCtx and drain unless that second context is cancelled too.
-// Loops fire immediately on start.
+// StartGraceful runs the requested loops until gracefulCtx is cancelled:
+// discovery receives gracefulCtx and is cancelled immediately, while
+// in-flight reviewers receive reviewCtx and drain unless that second context
+// is cancelled too. Both start immediately.
+//
+// Discovery is a periodic sweep and runs on the interval loop. Reviews are
+// not: the dispatcher is one long-lived consumer of the queue, so it starts
+// once and owns its own waiting (an idle poll when nothing is ready, a
+// cooldown between hand-offs).
 //
 // The discovery/review switches are per-boot decisions owned by the caller
 // (serve resolves config defaults + --no-* flags into them); nothing re-reads
@@ -41,13 +46,12 @@ func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discov
 		}()
 	}
 	if review {
-		s.logf("scheduler: reviews every %s, max parallel %d (config reloads live)", boot.Interval(), boot.MaxParallel())
+		s.logf("scheduler: dispatching reviews, max parallel %d, %s between hand-offs, %s idle poll (config reloads live)",
+			boot.MaxParallel(), boot.DispatchCooldown(), boot.Interval())
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.loopRunner(gracefulCtx, func() time.Duration { return s.cfg().Interval() }, "review", func(context.Context) error {
-				return s.reviewCycle(gracefulCtx, reviewCtx)
-			})
+			_ = s.dispatchRunner(gracefulCtx, reviewCtx, false)
 		}()
 	}
 

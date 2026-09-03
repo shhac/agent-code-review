@@ -22,6 +22,11 @@ func TestStartGracefulStartsConfiguredLoopsAndDrainsOnStop(t *testing.T) {
 		started <- name
 		<-ctx.Done()
 	}
+	s.dispatchRunner = func(gracefulCtx, _ context.Context, _ bool) error {
+		started <- "review"
+		<-gracefulCtx.Done()
+		return nil
+	}
 
 	done := make(chan error, 1)
 	go func() { done <- s.StartGraceful(ctx, context.Background(), true, true) }()
@@ -47,6 +52,11 @@ func TestStartGracefulForceContextReturnsWithoutWaitingForLoops(t *testing.T) {
 	s.loopRunner = func(ctx context.Context, _ func() time.Duration, _ string, _ func(context.Context) error) {
 		started <- struct{}{}
 		<-ctx.Done()
+	}
+	s.dispatchRunner = func(gracefulCtx, _ context.Context, _ bool) error {
+		started <- struct{}{}
+		<-gracefulCtx.Done()
+		return nil
 	}
 
 	done := make(chan error, 1)
@@ -141,6 +151,11 @@ func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 		started <- name
 		<-ctx.Done()
 	}
+	s.dispatchRunner = func(gracefulCtx, _ context.Context, _ bool) error {
+		started <- "review"
+		<-gracefulCtx.Done()
+		return nil
+	}
 
 	done := make(chan error, 1)
 	go func() { done <- s.StartGraceful(ctx, context.Background(), false, true) }()
@@ -160,7 +175,7 @@ func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 
 // TestStartGracefulWiresBothContextsThroughToTheEngine drives the REAL loop
 // through StartGraceful, which is the one line joining the daemon's two
-// shutdown contexts to the review cycle. Every existing test around it
+// shutdown contexts to the review dispatcher. Every existing test around it
 // substitutes its own context values or stubs out loopRunner entirely, so the
 // closure that does the wiring was never executed: swapping the two arguments
 // would have made the first Ctrl-C kill in-flight reviewers and the whole
@@ -170,7 +185,7 @@ func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 // cancelling gracefulCtx alone stops NEW work while the in-flight review runs to
 // completion; only reviewCtx ends the running one.
 func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
-	fs := &fakeCycleStore{queue: []store.Candidate{
+	fs := &fakeDispatchStore{queue: []store.Candidate{
 		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
 		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 	}}
@@ -182,7 +197,7 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	s := New(func() config.Config {
 		return config.Config{
 			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
-			Schedule: config.ScheduleSettings{MaxParallel: 1, Interval: "1ms"},
+			Schedule: config.ScheduleSettings{MaxParallel: 1, Interval: "1ms", DispatchCooldown: "0s"},
 		}
 	}, fs, nil, "u", nil, nil)
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }

@@ -58,15 +58,13 @@ func TestRealVerdictMapping(t *testing.T) {
 	}
 }
 
-// reconcileStore fakes the reconciliation surface: running runs and claimed
-// queue rows in, FinishRun/ClearClaim calls out.
+// reconcileStore fakes the reconciliation surface: claimed queue rows in,
+// ClearClaim calls out.
 type reconcileStore struct {
 	store.Store
 
-	runs      []store.Run
 	queue     []store.Candidate
-	failed    []string // run IDs finished as failed
-	cleared   []int    // queue row numbers whose claims were cleared
+	cleared   []int // queue row numbers whose claims were cleared
 	abandoned []store.Review
 }
 
@@ -75,16 +73,8 @@ func (f *reconcileStore) AppendHistory(_ context.Context, r store.Review) error 
 	return nil
 }
 
-func (f *reconcileStore) RunningRuns(context.Context) ([]store.Run, error) { return f.runs, nil }
 func (f *reconcileStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
 	return f.queue, nil
-}
-func (f *reconcileStore) FinishRun(_ context.Context, id, status string) error {
-	if status != "failed" {
-		return nil
-	}
-	f.failed = append(f.failed, id)
-	return nil
 }
 func (f *reconcileStore) ClearClaim(_ context.Context, _ string, number int) error {
 	f.cleared = append(f.cleared, number)
@@ -101,11 +91,6 @@ func TestReconcile(t *testing.T) {
 	}
 	now := time.Now()
 	fs := &reconcileStore{
-		runs: []store.Run{
-			{ID: "dead-local", Host: host, PID: 111},
-			{ID: "live-local", Host: host, PID: 222},
-			{ID: "dead-remote", Host: "elsewhere", PID: 111},
-		},
 		queue: []store.Candidate{
 			{Repo: "o/r", Number: 1, ClaimedAt: &now, ClaimHost: host, ClaimPID: 111},        // dead → release
 			{Repo: "o/r", Number: 2, ClaimedAt: &now, ClaimHost: host, ClaimPID: 222},        // alive → keep
@@ -119,9 +104,6 @@ func TestReconcile(t *testing.T) {
 
 	if err := s.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
-	}
-	if len(fs.failed) != 1 || fs.failed[0] != "dead-local" {
-		t.Errorf("failed runs = %v, want [dead-local] only", fs.failed)
 	}
 	// Every released claim leaves a record. Without one the interruption is
 	// invisible: no history row, and a work_dir the next claim overwrites, so

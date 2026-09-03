@@ -68,20 +68,9 @@ type reviewsResp struct {
 	Reviews []historyReview `json:"reviews"`
 }
 
-type runsResp struct {
-	Runs []store.Run `json:"runs"`
-}
-
 func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 	serveGet(s, w, r, func(ctx context.Context) (reviewsResp, error) {
 		reviews, err := s.store.ListReviews(ctx, queryInt(r, "limit", 50, 500))
 		return reviewsResp{Reviews: historyReviewsOf(reviews)}, err
-	})
-}
-
-func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	serveGet(s, w, r, func(ctx context.Context) (runsResp, error) {
-		runs, err := s.store.ListRuns(ctx, queryInt(r, "limit", 20, 200))
-		return runsResp{Runs: runs}, err
 	})
 }

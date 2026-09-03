@@ -26,7 +26,6 @@ type handlerStore struct {
 
 	queue      []store.Candidate
 	reviews    []store.Review
-	runs       []store.Run
 	logReview  store.Review
 	enqueued   []store.Candidate
 	dequeued   []prref.Ref
@@ -63,10 +62,6 @@ func (f *handlerStore) ReviewByLogKey(_ context.Context, _ string, _ int, key st
 func (f *handlerStore) ListReviewsSince(_ context.Context, since time.Time) ([]store.Review, error) {
 	f.since = since
 	return f.reviews, f.sinceErr
-}
-
-func (f *handlerStore) ListRuns(context.Context, int) ([]store.Run, error) {
-	return f.runs, nil
 }
 
 func (f *handlerStore) Enqueue(_ context.Context, c store.Candidate) error {
@@ -168,7 +163,6 @@ func TestDashboardAPISmoke(t *testing.T) {
 			DiscoveredAt: now,
 		}},
 		reviews:   []store.Review{finished},
-		runs:      []store.Run{{ID: "run-1", StartedAt: now, Status: "done"}},
 		logReview: finished,
 	}
 	s := newTestServer(fs, config.Config{Repos: []string{"o/r"}, Schedule: config.ScheduleSettings{Enabled: config.Bool(true)}})
@@ -190,12 +184,6 @@ func TestDashboardAPISmoke(t *testing.T) {
 	}](t, h, http.MethodGet, "/api/reviews?limit=5", "")
 	if code != http.StatusOK || len(reviews.Reviews) != 1 || reviews.Reviews[0].LogKey == "" {
 		t.Fatalf("reviews smoke = %d %+v", code, reviews)
-	}
-	code, runs := serveHandlerJSON[struct {
-		Runs []store.Run `json:"runs"`
-	}](t, h, http.MethodGet, "/api/runs", "")
-	if code != http.StatusOK || len(runs.Runs) != 1 {
-		t.Fatalf("runs smoke = %d %+v", code, runs)
 	}
 	code, cfg := serveHandlerJSON[map[string]any](t, h, http.MethodGet, "/api/config", "")
 	if code != http.StatusOK || cfg["version"] != "smoke" {

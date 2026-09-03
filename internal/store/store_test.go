@@ -250,9 +250,6 @@ func TestScannersReportDriftButTolerateAbsentColumns(t *testing.T) {
 		if _, err := scanCandidate(map[string]any{"number": "nope"}); err == nil {
 			t.Error("scanCandidate swallowed an unreadable number")
 		}
-		if _, err := scanRun(map[string]any{"pid": "nope"}); err == nil {
-			t.Error("scanRun swallowed an unreadable pid")
-		}
 		if _, err := scanAuthor(map[string]any{"repo": "o/r"}); err != nil {
 			t.Errorf("scanAuthor has no numeric columns, so it cannot drift here: %v", err)
 		}

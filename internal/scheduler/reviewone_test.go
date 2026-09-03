@@ -343,8 +343,8 @@ func roomy() usage.Snapshot {
 //
 // The mixed shape is the whole point. Both candidates on one engine could not
 // catch a regression that claims or completes a floored candidate, because
-// there would be no floored candidate in the cycle to get it wrong about.
-func TestReviewCycleUsageFloorIsPerEngine(t *testing.T) {
+// there would be no floored candidate in play to get it wrong about.
+func TestDispatchUsageFloorIsPerEngine(t *testing.T) {
 	// alice's group reviews on claude, which has room; bob falls through to the
 	// default codex engine, which does not.
 	cfg := config.Config{
@@ -356,7 +356,7 @@ func TestReviewCycleUsageFloorIsPerEngine(t *testing.T) {
 			},
 		},
 	}
-	fs := &fakeCycleStore{queue: []store.Candidate{
+	fs := &fakeDispatchStore{queue: []store.Candidate{
 		{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"},
 		{Repo: "o/r", Number: 2, Author: "bob", HeadSHA: "s2"},
 	}}
@@ -369,11 +369,12 @@ func TestReviewCycleUsageFloorIsPerEngine(t *testing.T) {
 		}
 		return floored()
 	}
+	cfg.Schedule = config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}
 	s := New(func() config.Config { return cfg }, fs, nil, "u", nil, byEngine)
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
 
-	if err := s.reviewCycleOnce(context.Background()); err != nil {
+	if err := drain(t, s); err != nil {
 		t.Fatal(err)
 	}
 	// The candidate on the engine with headroom runs...
@@ -392,62 +393,69 @@ func TestReviewCycleUsageFloorIsPerEngine(t *testing.T) {
 	}
 }
 
-// TestReviewCycleRosterErrorHoldsTheWholeCycle pins the blast radius of the
-// deliberate fail-closed choice in resolvePending: it returns on the FIRST
-// roster error, so one unreadable row stops the healthy candidates in that
-// cycle too. That is the safe direction (never guess a policy), but it is a
-// real cost and must be visible rather than discovered in production.
-func TestReviewCycleRosterErrorHoldsTheWholeCycle(t *testing.T) {
-	fs := &fakeCycleStore{queue: []store.Candidate{
-		{Repo: "o/r", Number: 1, Author: "healthy", HeadSHA: "s1"},
+// TestDispatchRosterErrorHoldsOnlyItsOwnCandidate pins the fail-closed
+// choice in pullNext: a candidate whose roster row cannot be read is SKIPPED,
+// never defaulted, because guessing a policy is how a PR gets approved that
+// shouldn't be. The blast radius used to be the whole cycle (resolvePending
+// returned on the first error, holding healthy candidates too); the
+// dispatcher resolves lazily, one candidate at a time, so the healthy ones
+// now run. The unreadable one is left pending and backed off rather than
+// re-offered at the head forever.
+func TestDispatchRosterErrorHoldsOnlyItsOwnCandidate(t *testing.T) {
+	fs := &fakeDispatchStore{queue: []store.Candidate{
 		{Repo: "o/r", Number: 2, Author: "unreadable", HeadSHA: "s2"},
+		{Repo: "o/r", Number: 1, Author: "healthy", HeadSHA: "s1"},
 	}}
 	// "healthy" resolves fine; "unreadable" has no entry, so groupErr applies.
 	fs.byHandle = map[string]string{"healthy": config.GroupCommenter}
 	fs.groupErr = errors.New("store unavailable")
 	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
-	s := newCycleScheduler(fs, fe)
+	s := newDispatchScheduler(fs, fe)
 
-	if err := s.reviewCycleOnce(context.Background()); err == nil {
-		t.Fatal("a roster lookup error must propagate rather than defaulting the policy")
+	if err := drain(t, s); err != nil {
+		t.Fatal(err)
 	}
-	if fe.prompt != "" {
-		t.Error("no engine may run when a policy in this cycle could not be resolved")
+	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
+		t.Fatalf("the readable candidate must still be reviewed, got %+v", fs.completed)
 	}
-	if len(fs.claims) != 0 || len(fs.completed) != 0 {
-		t.Errorf("no candidate may be claimed or completed, got claims=%+v completed=%+v", fs.claims, fs.completed)
+	for _, c := range fs.claims {
+		if c.WorkDir == "" {
+			t.Error("every claim must record a work dir")
+		}
 	}
-	if len(fs.started) != 0 {
-		t.Errorf("resolution happens before the run-lock, so no run may be recorded, got %+v", fs.started)
+	if len(fs.claims) != 1 {
+		t.Errorf("the unreadable candidate must never be claimed, got %d claims", len(fs.claims))
 	}
 }
 
-// TestReviewCycleAllEnginesFloored: when every candidate is waiting on a
-// floored engine the cycle exits before the run-lock, so a fully paused cycle
-// still records no run. That property predates per-engine floors and must
-// survive them, or a 1m cadence floods the runs table with empty ticks.
-func TestReviewCycleAllEnginesFloored(t *testing.T) {
-	fs := &fakeCycleStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"}}}
+// TestDispatchAllEnginesFloored: when every candidate is waiting on a floored
+// engine, nothing is claimed and nothing is recorded. A floored candidate is
+// HELD, not skipped, so it must survive in the queue to run when its window
+// refills. The drain must still terminate rather than spinning on a queue it
+// will never consume.
+func TestDispatchAllEnginesFloored(t *testing.T) {
+	fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"}}}
 	fe := &fakeEngine{}
-	s := New(func() config.Config { return config.Config{} }, fs, nil, "u", nil,
+	cfg := config.Config{Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}}
+	s := New(func() config.Config { return cfg }, fs, nil, "u", nil,
 		func(string) usage.Snapshot { return floored() })
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 
-	if err := s.reviewCycleOnce(context.Background()); err != nil {
-		t.Fatalf("paused cycle must return nil, got %v", err)
-	}
-	if len(fs.started) != 0 || len(fs.finished) != 0 {
-		t.Errorf("a fully floored cycle must record no run, got started=%d finished=%v", len(fs.started), fs.finished)
+	if err := drain(t, s); err != nil {
+		t.Fatalf("a fully floored queue must drain cleanly, got %v", err)
 	}
 	if len(fs.claims) != 0 || len(fs.completed) != 0 {
 		t.Errorf("a floored candidate is held, not skipped: no claim, no outcome; got claims=%+v completed=%+v", fs.claims, fs.completed)
+	}
+	if len(fs.queue) != 1 {
+		t.Errorf("the held candidate must stay queued, got %+v", fs.queue)
 	}
 }
 
 // TestReviewOnePrecheck pins the pre-review revalidation: stale discovered
 // candidates are skipped without touching the engine; manual adds bypass the
 // check entirely; a recheck error propagates without recording an outcome
-// (the stale lease retries it next cycle).
+// (the stale lease retries it once it ages out).
 func TestReviewOnePrecheck(t *testing.T) {
 	t.Run("stale discovered candidate records a precheck skip", func(t *testing.T) {
 		fs := &fakeSchedStore{}

@@ -43,6 +43,14 @@ func (f *fakeDispatchStore) ListQueue(context.Context, string) ([]store.Candidat
 	return append([]store.Candidate(nil), f.queue...), nil
 }
 
+// pullCount reports how many times the dispatcher has listed the queue, which
+// is how the lifecycle tests observe that the real dispatcher started.
+func (f *fakeDispatchStore) pullCount() int {
+	f.qmu.Lock()
+	defer f.qmu.Unlock()
+	return f.pulls
+}
+
 func (f *fakeDispatchStore) enqueue(c store.Candidate) {
 	f.qmu.Lock()
 	defer f.qmu.Unlock()

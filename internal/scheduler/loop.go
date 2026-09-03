@@ -32,7 +32,7 @@ func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discov
 	// it out too). Reconcile before the first tick so a restart resumes
 	// immediately. Failure is logged, not fatal; the lease window is the
 	// fallback that always works.
-	if err := s.reconcile(reviewCtx); err != nil {
+	if err := s.Reconcile(reviewCtx); err != nil {
 		s.logf("reconcile: %v", err)
 	}
 	boot := s.cfg()
@@ -42,7 +42,7 @@ func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discov
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.loopRunner(gracefulCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
+			s.loop(gracefulCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
 		}()
 	}
 	if review {
@@ -51,7 +51,9 @@ func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discov
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = s.dispatchRunner(gracefulCtx, reviewCtx, false)
+			// The daemon dispatcher only returns nil: a pull error is
+			// surfaced through stopWhenIdle, which only `run` sets.
+			_ = s.dispatch(gracefulCtx, reviewCtx, false)
 		}()
 	}
 

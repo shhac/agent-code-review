@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -15,26 +14,29 @@ import (
 func TestStartGracefulStartsConfiguredLoopsAndDrainsOnStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := New(func() config.Config { return config.Config{} }, nil, nil, "", nil, nil)
-	s.reconcile = func(context.Context) error { return nil }
-	started := make(chan string, 2)
-	s.loopRunner = func(ctx context.Context, _ func() time.Duration, name string, _ func(context.Context) error) {
-		started <- name
-		<-ctx.Done()
-	}
-	s.dispatchRunner = func(gracefulCtx, _ context.Context, _ bool) error {
-		started <- "review"
-		<-gracefulCtx.Done()
-		return nil
-	}
+
+	fs := &fakeDispatchStore{}
+	swept := make(chan struct{}, 8)
+	s := newLoopScheduler(fs, &fakeEngine{}, func(context.Context) ([]store.Candidate, error) {
+		select {
+		case swept <- struct{}{}:
+		default:
+		}
+		return nil, nil
+	})
 
 	done := make(chan error, 1)
 	go func() { done <- s.StartGraceful(ctx, context.Background(), true, true) }()
-	got := []string{<-started, <-started}
-	sort.Strings(got)
-	if want := []string{"discover", "review"}; got[0] != want[0] || got[1] != want[1] {
-		t.Errorf("started loops = %v, want %v", got, want)
+
+	// Discovery really ran, so the discovery loop really started.
+	select {
+	case <-swept:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the discovery loop never swept")
 	}
+	// The dispatcher really ran: it polled the queue it was given.
+	waitFor(t, func() bool { return fs.pullCount() > 0 }, "the dispatcher to pull the queue")
+
 	cancel()
 	if err := <-done; err != context.Canceled {
 		t.Errorf("StartGraceful error = %v, want context.Canceled", err)
@@ -46,26 +48,32 @@ func TestStartGracefulForceContextReturnsWithoutWaitingForLoops(t *testing.T) {
 	defer stop()
 	reviewCtx, force := context.WithCancel(context.Background())
 	defer force()
-	s := New(func() config.Config { return config.Config{} }, nil, nil, "", nil, nil)
-	s.reconcile = func(context.Context) error { return nil }
-	started := make(chan struct{}, 2)
-	s.loopRunner = func(ctx context.Context, _ func() time.Duration, _ string, _ func(context.Context) error) {
-		started <- struct{}{}
-		<-ctx.Done()
-	}
-	s.dispatchRunner = func(gracefulCtx, _ context.Context, _ bool) error {
-		started <- struct{}{}
-		<-gracefulCtx.Done()
-		return nil
-	}
+
+	fs := &fakeDispatchStore{}
+	// A sweep that never returns stands in for a discovery loop still in
+	// flight when the forced stop lands.
+	held := make(chan struct{})
+	defer close(held)
+	s := newLoopScheduler(fs, &fakeEngine{}, func(ctx context.Context) ([]store.Candidate, error) {
+		select {
+		case <-held:
+		case <-ctx.Done():
+		}
+		return nil, nil
+	})
 
 	done := make(chan error, 1)
 	go func() { done <- s.StartGraceful(gracefulCtx, reviewCtx, true, true) }()
-	<-started
-	<-started
+	waitFor(t, func() bool { return fs.pullCount() > 0 }, "the loops to start")
+
 	force()
-	if err := <-done; err != context.Canceled {
-		t.Errorf("StartGraceful error = %v, want context.Canceled", err)
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Errorf("StartGraceful error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the forced context must return without waiting for the loops")
 	}
 }
 
@@ -97,19 +105,8 @@ func TestLoopCadence(t *testing.T) {
 		})
 	}()
 
-	waitFor := func(cond func() bool, what string) {
-		t.Helper()
-		deadline := time.Now().Add(2 * time.Second)
-		for !cond() {
-			if time.Now().After(deadline) {
-				t.Fatalf("timed out waiting for %s", what)
-			}
-			time.Sleep(time.Millisecond)
-		}
-	}
-
 	// Immediate first run, then nothing while the interval is an hour.
-	waitFor(func() bool { return countRuns() == 1 }, "the immediate first run")
+	waitFor(t, func() bool { return countRuns() == 1 }, "the immediate first run")
 	time.Sleep(20 * time.Millisecond)
 	if got := countRuns(); got != 1 {
 		t.Fatalf("runs = %d before the interval elapsed, want 1", got)
@@ -120,7 +117,7 @@ func TestLoopCadence(t *testing.T) {
 	mu.Lock()
 	interval = time.Millisecond
 	mu.Unlock()
-	waitFor(func() bool { return countRuns() >= 2 }, "the shrunk interval to trigger a run")
+	waitFor(t, func() bool { return countRuns() >= 2 }, "the shrunk interval to trigger a run")
 
 	// Cancellation stops further runs.
 	cancel()
@@ -139,34 +136,32 @@ func TestLoopCadence(t *testing.T) {
 func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := New(func() config.Config {
+
+	fs := &fakeDispatchStore{}
+	swept := make(chan struct{}, 8)
+	s := newLoopScheduler(fs, &fakeEngine{}, func(context.Context) ([]store.Candidate, error) {
+		swept <- struct{}{}
+		return nil, nil
+	})
+	// Config enables BOTH loops; the boot flags must still win.
+	s.cfg = func() config.Config {
 		return config.Config{
 			Discovery: config.DiscoverySettings{Enabled: config.Bool(true)},
-			Schedule:  config.ScheduleSettings{Enabled: config.Bool(true)},
+			Schedule:  config.ScheduleSettings{Enabled: config.Bool(true), Interval: "1ms", DispatchCooldown: "0s"},
+			Review:    config.ReviewSettings{MainPrompt: "MAIN"},
 		}
-	}, nil, nil, "", nil, nil)
-	s.reconcile = func(context.Context) error { return nil }
-	started := make(chan string, 2)
-	s.loopRunner = func(ctx context.Context, _ func() time.Duration, name string, _ func(context.Context) error) {
-		started <- name
-		<-ctx.Done()
-	}
-	s.dispatchRunner = func(gracefulCtx, _ context.Context, _ bool) error {
-		started <- "review"
-		<-gracefulCtx.Done()
-		return nil
 	}
 
 	done := make(chan error, 1)
 	go func() { done <- s.StartGraceful(ctx, context.Background(), false, true) }()
-	if name := <-started; name != "review" {
-		t.Errorf("started loop = %q, want review only", name)
-	}
+
+	waitFor(t, func() bool { return fs.pullCount() > 0 }, "the review dispatcher to start")
 	select {
-	case name := <-started:
-		t.Errorf("unrequested loop %q must not start despite config enabling it", name)
-	case <-time.After(10 * time.Millisecond):
+	case <-swept:
+		t.Error("discovery must not run when its boot flag is off, despite config enabling it")
+	case <-time.After(50 * time.Millisecond):
 	}
+
 	cancel()
 	if err := <-done; err != context.Canceled {
 		t.Errorf("StartGraceful error = %v, want context.Canceled", err)
@@ -202,7 +197,6 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	}, fs, nil, "u", nil, nil)
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
-	s.reconcile = func(context.Context) error { return nil }
 	s.heartbeat = time.Millisecond
 
 	gracefulCtx, stop := context.WithCancel(context.Background())
@@ -277,4 +271,33 @@ func (e *ctxCapturingEngine) Review(ctx context.Context, _ review.Request) (revi
 	e.started <- struct{}{}
 	e.once.Do(func() { <-e.release })
 	return review.Verdict{Decision: review.DecisionCommented}, nil
+}
+
+// waitFor polls until cond holds, failing the test on timeout. Polling rather
+// than sleeping keeps the lifecycle tests honest without making them
+// timing-sensitive.
+func waitFor(t *testing.T, cond func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// sweepFn adapts a function to the Sweeper interface.
+type sweepFn func(context.Context) ([]store.Candidate, error)
+
+func (f sweepFn) Discover(ctx context.Context) ([]store.Candidate, error) { return f(ctx) }
+
+// newLoopScheduler builds a scheduler whose real loops run without real
+// waits, so StartGraceful's orchestration is exercised rather than replaced by
+// stubs.
+func newLoopScheduler(fs *fakeDispatchStore, fe review.Engine, sweep sweepFn) *Scheduler {
+	s := newDispatchScheduler(fs, fe)
+	s.sweeper = sweep
+	s.heartbeat = time.Millisecond
+	return s
 }

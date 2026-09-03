@@ -33,6 +33,16 @@ type Logf func(format string, args ...any)
 // never pauses on an empty snapshot.
 type UsageFn func(engine string) usage.Snapshot
 
+// Sweeper scrapes the watched repos for candidate PRs. Named on the consumer
+// side, as SchedulerStore is (and as discover.candidateStore and
+// dashboard.dashboardStore are), so the scheduler depends on the one method it
+// calls rather than on *discover.Discoverer. That concrete pointer was the
+// package's only unfaked dependency, and it is what forced the loop lifecycle
+// to be testable only by patching the Scheduler's own methods.
+type Sweeper interface {
+	Discover(ctx context.Context) ([]store.Candidate, error)
+}
+
 // SchedulerStore is the subset of persistence the scheduler owns. Keeping it
 // here makes scheduler tests declare only the effects they exercise instead
 // of depending on the application's whole storage surface.
@@ -52,7 +62,7 @@ type SchedulerStore interface {
 type Scheduler struct {
 	cfg         func() config.Config
 	store       SchedulerStore
-	disc        *discover.Discoverer
+	sweeper     Sweeper
 	ghUser      string
 	logf        Logf
 	usageFn     UsageFn
@@ -75,13 +85,6 @@ type Scheduler struct {
 	// signal-0 probe in production; swapped in tests). Reconcile uses it to
 	// tell a crashed daemon's leftovers from a sibling instance's live work.
 	pidAlive func(pid int) bool
-	// loopRunner, dispatchRunner and reconcile are narrow lifecycle seams:
-	// production uses the real methods, while tests can assert StartGraceful's
-	// orchestration without starting timers or requiring a fully populated
-	// Store.
-	loopRunner     func(context.Context, func() time.Duration, string, func(context.Context) error)
-	dispatchRunner func(gracefulCtx, reviewCtx context.Context, drain bool) error
-	reconcile      func(context.Context) error
 	// heartbeat is loop's interval-re-read cadence (loopHeartbeat in
 	// production; shrunk by tests so the loop is drivable without real waits).
 	heartbeat time.Duration
@@ -104,7 +107,7 @@ func (s *Scheduler) WithPricing(fn PriceFn) *Scheduler {
 	return s
 }
 
-func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
+func New(cfg func() config.Config, s SchedulerStore, d Sweeper, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -112,7 +115,7 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 		usageFn = func(string) usage.Snapshot { return usage.Snapshot{} }
 	}
 	sched := &Scheduler{
-		cfg: cfg, store: s, disc: d, ghUser: ghUser,
+		cfg: cfg, store: s, sweeper: d, ghUser: ghUser,
 		logf: logf, usageFn: usageFn,
 		newEngine: func(c config.Config, p config.Policy) (review.Engine, error) {
 			return review.NewEngine(c.Review.WithPolicy(p))
@@ -122,11 +125,6 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 		heartbeat:      loopHeartbeat,
 		now:            time.Now,
 	}
-	// Method-valued seams can't appear in the literal above; same convention
-	// as the other seams: production impls at construction, tests overwrite.
-	sched.loopRunner = sched.loop
-	sched.dispatchRunner = sched.dispatch
-	sched.reconcile = sched.Reconcile
 	return sched
 }
 
@@ -139,7 +137,7 @@ func (s *Scheduler) Discover(ctx context.Context) error {
 		return nil
 	}
 	defer s.discovering.Store(false)
-	found, err := s.disc.Discover(ctx)
+	found, err := s.sweeper.Discover(ctx)
 	if err != nil {
 		return err
 	}

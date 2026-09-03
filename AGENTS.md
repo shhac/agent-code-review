@@ -373,11 +373,15 @@ internal/
 - Tests colocated as `_test.go`. `make test` runs everything; discovery,
   prompt/rules, and config defaults are unit-tested without external deps.
   `make test-integration` adds the DuckDB round-trips and (env-gated) live
-  codex/gh paths.
+  codex/gh paths. `make test-race` runs the scheduler and CLI under the race
+  detector, which is what polices `dispatchState` being lock-free; CI runs it
+  too, so a data race there fails the build rather than a comment.
 - **Test via injection, not subprocesses.** Extract pure cores and table-test
   them; for effectful code, fake the narrow dependency (embed `store.Store`
   in a struct that overrides only the methods under test, so an unexpected
-  call panics loudly). Scheduler tests inject the engine via `newEngine` and
-  the recheck via `stillCandidate`; discovery fakes its four-method
+  call panics loudly). Scheduler tests build through `scheduler.Deps` — the
+  same door production uses — rather than writing fields after construction;
+  the engine arrives as `NewEngine`, the recheck as `StillCandidate`, the
+  sweep as `Sweeper`, the clock as `Now`. Discovery fakes its four-method
   `candidateStore`.
 - Errors: `output.New(msg, output.FixableByAgent|Human|Retry)`.

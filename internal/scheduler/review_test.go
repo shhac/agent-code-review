@@ -222,7 +222,7 @@ func TestReviewOneClaimRace(t *testing.T) {
 // reconciliation can tell this process's claims from a sibling's.
 func TestReviewOneClaimCarriesIdentity(t *testing.T) {
 	fs := &fakeSchedStore{}
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+	fe := commented()
 	s := newTestScheduler(fs, fe)
 	if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 6, HeadSHA: "sha1"}); err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestReviewOneGroupReachesPrompt(t *testing.T) {
 	}
 	run := func(group string) string {
 		fs := &fakeSchedStore{group: group}
-		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+		fe := commented()
 		s := newReviewScheduler(fs, fe, Deps{Config: func() config.Config { return cfg }})
 		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, Author: "alice"}); err != nil {
 			t.Fatal(err)
@@ -313,7 +313,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 
 	t.Run("manual candidates bypass the recheck", func(t *testing.T) {
 		fs := &fakeSchedStore{}
-		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+		fe := commented()
 		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string) (bool, string, error) {
 			t.Error("manual candidate must not be rechecked")
 			return false, "", nil

@@ -180,8 +180,9 @@ func runningLoops(opts serveOpts, cfg config.Config) dashboard.Running {
 // configured one: the dashboard shows them side by side so an operator can
 // see the engine they are NOT using has headroom before deciding to switch,
 // and an engine that is missing or logged out reports that as its state
-// rather than vanishing. The usage FLOOR still consults only the configured
-// engine, since that is the account reviews actually spend from.
+// rather than vanishing. The floor consults them the same way, per candidate:
+// a group can name its own engine, so which account a review spends from is a
+// per-candidate answer, not a global one.
 func usageSources(cfg config.Config) []usage.Source {
 	sources := make([]usage.Source, 0, len(review.Engines))
 	for _, engine := range review.Engines {

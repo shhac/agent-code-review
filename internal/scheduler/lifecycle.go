@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// StartGraceful runs the requested loops until gracefulCtx is cancelled:
-// discovery receives gracefulCtx and is cancelled immediately, while
-// in-flight reviewers receive reviewCtx and drain unless that second context
-// is cancelled too. Both start immediately.
+// StartGraceful runs the requested loops until stop.Graceful is cancelled:
+// discovery receives stop.Graceful and ends immediately, while in-flight
+// reviewers receive stop.Force and drain unless that second context is
+// cancelled too. Both start immediately.
 //
 // Discovery is a periodic sweep and runs on the interval loop. Reviews are
 // not: the dispatcher is one long-lived consumer of the queue, so it starts
@@ -27,16 +27,14 @@ import (
 // this boot turned off. Callers with both switches off should not start the
 // scheduler at all — called that way, this returns once reconciliation is
 // done.
-// gracefulCtx stops NEW work; reviewCtx ends work already running. Same two
-// names serve.go uses, because the pair was called gracefulCtx/reviewCtx above
-// this boundary and stopCtx/reviewCtx below it, in the one code path where
-// confusing them kills a review mid-flight.
+//
+// The two contexts travel together as Stop; see its own doc for why they are
+// one value rather than two parameters.
 func (s *Scheduler) StartGraceful(stop Stop, discovery, review bool) error {
-	// A crashed daemon leaves a running run row (which would block cycles
-	// for the whole lease window) and claimed queue rows (which would wait
-	// it out too). Reconcile before the first tick so a restart resumes
-	// immediately. Failure is logged, not fatal; the lease window is the
-	// fallback that always works.
+	// A crashed daemon leaves claimed queue rows that would otherwise wait out
+	// the whole lease window. Reconcile before the first tick so a restart
+	// resumes immediately. Failure is logged, not fatal; the lease window is
+	// the fallback that always works.
 	if err := s.Reconcile(stop.Force); err != nil {
 		s.logf("reconcile: %v", err)
 	}

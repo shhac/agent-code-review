@@ -33,12 +33,13 @@ you can expose over Tailscale.
   via `--tailscale serve|funnel`. Most config edits (cadence, parallelism,
   usage floors, repos, prompts, engine settings) reload live within ~30s; only
   the loop on/off switches and the listen/Tailscale settings need a restart.
-- **Usage floors**: the review loop pauses itself when the configured
-  engine's rate-limit window has less than `schedule.usage_floor.*` percent
-  remaining (default 10), and resumes when the window refills. The floor
-  follows the configured engine, since that is the account reviews spend from;
-  the dashboard meters **every** engine side by side so you can see whether
-  the one you're not using has more headroom before switching.
+- **Usage floors**: a candidate is held when the engine that would review it
+  has less than `schedule.usage_floor.*` percent remaining in its rate-limit
+  window (default 10), and runs when that window refills. Applied **per
+  engine**, since a group can name its own: one engine being out of headroom
+  holds only its own candidates while the other's keep running. Nothing pauses
+  globally. The dashboard meters every engine side by side so you can see
+  whether the one you're not using has more headroom before switching.
 - **Per-review spend**: every review records its token count, and its
   API-rate cost where the engine reports one, so a per-review budget can be
   set from your own data rather than guessed.

@@ -41,7 +41,7 @@ func registerRun(root *cobra.Command) {
 			// deliberately parked at its floor.
 			warnf := func(notice, hint string) { output.WriteNotice(os.Stderr, notice, hint) }
 			reportConfigProblems(cfg, warnf)
-			usageFn := oneShotUsage(ctx, cfg)
+			usageFn := oneShotUsage(fetchUsage(ctx, cfg))
 			if ignoreFloor {
 				usageFn = nil
 			}

@@ -163,7 +163,11 @@ func reportConfigProblems(cfg config.Config, warnf func(notice, hint string)) {
 // caches the empty snapshot, and usage.BelowFloor never pauses on one, so a
 // broken or logged-out engine degrades to reviewing rather than to a run that
 // silently does nothing.
-func oneShotUsage(ctx context.Context, cfg config.Config) scheduler.UsageFn {
+// The fetch is a parameter rather than a direct usage.Fetch call because this
+// is the money path: it is what stops a cron `run` spending from an account
+// the daemon has deliberately parked at its floor, and without a seam nothing
+// could assert that it probes once, caches, or fails open.
+func oneShotUsage(fetch func(engine string) (usage.Snapshot, error)) scheduler.UsageFn {
 	var mu sync.Mutex
 	seen := map[string]usage.Snapshot{}
 	return func(engine string) usage.Snapshot {
@@ -172,12 +176,19 @@ func oneShotUsage(ctx context.Context, cfg config.Config) scheduler.UsageFn {
 		if snap, ok := seen[engine]; ok {
 			return snap
 		}
-		snap, err := usage.Fetch(ctx, usage.Source{Engine: engine, Bin: cfg.BinFor(engine)})
+		snap, err := fetch(engine)
 		if err != nil {
 			snap = usage.Snapshot{}
 		}
 		seen[engine] = snap
 		return snap
+	}
+}
+
+// fetchUsage is oneShotUsage's production probe: the real per-engine CLI call.
+func fetchUsage(ctx context.Context, cfg config.Config) func(string) (usage.Snapshot, error) {
+	return func(engine string) (usage.Snapshot, error) {
+		return usage.Fetch(ctx, usage.Source{Engine: engine, Bin: cfg.BinFor(engine)})
 	}
 }
 

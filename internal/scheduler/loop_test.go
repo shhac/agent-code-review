@@ -85,7 +85,7 @@ func TestStartGracefulForceContextReturnsWithoutWaitingForLoops(t *testing.T) {
 func TestLoopCadence(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := New(func() config.Config { return config.Config{} }, nil, nil, "", nil, nil)
+	s := New(Deps{Config: func() config.Config { return config.Config{} }})
 	s.heartbeat = time.Millisecond
 
 	var mu sync.Mutex
@@ -189,12 +189,16 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	release := make(chan struct{})
 	fe := &ctxCapturingEngine{seen: engineCtx, started: started, release: release}
 
-	s := New(func() config.Config {
-		return config.Config{
-			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
-			Schedule: config.ScheduleSettings{MaxParallel: 1, Interval: "1ms", DispatchCooldown: "0s"},
-		}
-	}, fs, nil, "u", nil, nil)
+	s := New(Deps{
+		Store:  fs,
+		GHUser: "u",
+		Config: func() config.Config {
+			return config.Config{
+				Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+				Schedule: config.ScheduleSettings{MaxParallel: 1, Interval: "1ms", DispatchCooldown: "0s"},
+			}
+		},
+	})
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
 	s.heartbeat = time.Millisecond

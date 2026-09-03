@@ -218,7 +218,15 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 	// disk, and neither waits on the network to record an outcome. An empty
 	// cache simply records no estimate.
 	prices := pricing.Open(config.PricingCacheDir())
-	return scheduler.New(cfgFn, s, disc, ghUser, logf, usageFn).WithPricing(estimator(prices)), nil
+	return scheduler.New(scheduler.Deps{
+		Store:   s,
+		Config:  cfgFn,
+		Sweeper: disc,
+		GHUser:  ghUser,
+		Logf:    logf,
+		Usage:   usageFn,
+		Price:   estimator(prices),
+	}), nil
 }
 
 // estimator adapts the price table to the scheduler's PriceFn. A model the

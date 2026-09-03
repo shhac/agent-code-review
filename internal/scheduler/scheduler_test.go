@@ -99,7 +99,7 @@ func TestReconcile(t *testing.T) {
 			{Repo: "o/r", Number: 5, ClaimedAt: &now, ClaimHost: host, ClaimPID: 0}, // pre-tracking pid 0... host matches, pid dead → release
 		},
 	}
-	s := New(func() config.Config { return config.Config{} }, fs, nil, "u", nil, nil)
+	s := New(Deps{Store: fs, Config: func() config.Config { return config.Config{} }, GHUser: "u"})
 	s.pidAlive = func(pid int) bool { return pid == 222 }
 
 	if err := s.Reconcile(context.Background()); err != nil {

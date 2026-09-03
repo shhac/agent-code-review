@@ -84,7 +84,7 @@ func newDispatchScheduler(fs *fakeDispatchStore, fe review.Engine) *Scheduler {
 		Review:   config.ReviewSettings{MainPrompt: "MAIN"},
 		Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"},
 	}
-	s := New(func() config.Config { return cfg }, fs, nil, "the-gh-user", nil, nil)
+	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "the-gh-user"})
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
 	return s

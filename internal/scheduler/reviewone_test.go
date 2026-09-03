@@ -104,7 +104,7 @@ func (e *fakeEngine) Provenance(context.Context) review.Provenance {
 
 func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
-	s := New(func() config.Config { return cfg }, fs, nil, "the-gh-user", nil, nil)
+	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "the-gh-user"})
 	// Tests drive a fixed fake engine instead of the per-cycle rebuild.
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	// Default the candidacy recheck to "still a candidate" so tests exercise
@@ -370,7 +370,7 @@ func TestDispatchUsageFloorIsPerEngine(t *testing.T) {
 		return floored()
 	}
 	cfg.Schedule = config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}
-	s := New(func() config.Config { return cfg }, fs, nil, "u", nil, byEngine)
+	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "u", Usage: byEngine})
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
 
@@ -437,8 +437,12 @@ func TestDispatchAllEnginesFloored(t *testing.T) {
 	fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"}}}
 	fe := &fakeEngine{}
 	cfg := config.Config{Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}}
-	s := New(func() config.Config { return cfg }, fs, nil, "u", nil,
-		func(string) usage.Snapshot { return floored() })
+	s := New(Deps{
+		Store:  fs,
+		Config: func() config.Config { return cfg },
+		GHUser: "u",
+		Usage:  func(string) usage.Snapshot { return floored() },
+	})
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 
 	if err := drain(t, s); err != nil {

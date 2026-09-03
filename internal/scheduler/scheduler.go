@@ -59,6 +59,8 @@ type SchedulerStore interface {
 // comes through a getter so edits to config.json (cadence, parallelism,
 // usage floors, codex settings) apply without a restart; only the loop
 // on/off switches are fixed at boot, because the --no-* flags own them.
+//
+// Every field is set by New from Deps and never written afterwards.
 type Scheduler struct {
 	cfg         func() config.Config
 	store       SchedulerStore
@@ -74,24 +76,12 @@ type Scheduler struct {
 	// rather than as a free review.
 	priceFn PriceFn
 
-	// newEngine builds the review engine for ONE candidate, from live config
-	// patched with that author's policy: codex.* edits apply without a
-	// restart, and a group naming its own engine/model/effort gets it.
-	newEngine func(config.Config, config.Policy) (review.Engine, error)
-	// stillCandidate re-checks a PR's candidacy just before the engine runs
-	// (discover.StillCandidate in production; swapped in tests).
-	stillCandidate func(ctx context.Context, repo string, number int, login, head string) (bool, string, error)
-	// pidAlive reports whether a pid is a live process on THIS host (real
-	// signal-0 probe in production; swapped in tests). Reconcile uses it to
-	// tell a crashed daemon's leftovers from a sibling instance's live work.
-	pidAlive func(pid int) bool
-	// heartbeat is loop's interval-re-read cadence (loopHeartbeat in
-	// production; shrunk by tests so the loop is drivable without real waits).
-	heartbeat time.Duration
-	// now is the dispatcher's clock. The per-candidate backoff it hands out
-	// runs from a minute to an hour, so without a seam no test can reach an
-	// expiry and "a held candidate is eventually offered again" goes unpinned.
-	now func() time.Time
+	// Injected collaborators; see Deps for what each stands in for.
+	newEngine      EngineFactory
+	stillCandidate CandidacyFn
+	pidAlive       LivenessFn
+	heartbeat      time.Duration
+	now            func() time.Time
 }
 
 // PriceFn values one review's token classes in USD. The second result is
@@ -99,33 +89,80 @@ type Scheduler struct {
 // class split, both of which mean "cannot estimate", never "free".
 type PriceFn func(model string, input, output, cacheWrite, cacheRead int) (float64, bool)
 
-// WithPricing attaches the estimator. Optional by design: a daemon that has
-// never reached the price source reviews exactly as before, recording no
-// estimate rather than failing.
-func (s *Scheduler) WithPricing(fn PriceFn) *Scheduler {
-	s.priceFn = fn
-	return s
+// EngineFactory builds the review engine for ONE candidate, from live config
+// patched with that author's policy: codex.* edits apply without a restart,
+// and a group naming its own engine/model/effort gets it.
+type EngineFactory func(config.Config, config.Policy) (review.Engine, error)
+
+// CandidacyFn re-checks a PR's candidacy just before the engine spend, so a PR
+// approved, merged or closed while it waited in the queue is not reviewed.
+type CandidacyFn func(ctx context.Context, repo string, number int, login, head string) (bool, string, error)
+
+// LivenessFn reports whether a pid is a live process on THIS host. Reconcile
+// uses it to tell a crashed daemon's leftovers from a sibling instance's
+// in-flight work, which look identical apart from the pid.
+type LivenessFn func(pid int) bool
+
+// Deps is everything a Scheduler is built from. A struct rather than a
+// positional argument list because most fields have a production default and
+// only tests set the rest: a caller supplies what it cares about and New fills
+// the remainder, so a new seam does not churn every call site.
+//
+// Store, Config and Sweeper are required. The rest default to the production
+// implementations.
+type Deps struct {
+	Store   SchedulerStore
+	Config  func() config.Config
+	Sweeper Sweeper
+	GHUser  string
+	Logf    Logf
+	Usage   UsageFn
+	Price   PriceFn
+
+	// Seams. Each stands in for a real external collaborator, so each is a
+	// named func type rather than a one-method interface: that is Go's
+	// idiomatic shape for a single-method dependency and needs no adapter.
+	NewEngine      EngineFactory
+	StillCandidate CandidacyFn
+	PIDAlive       LivenessFn
+	Heartbeat      time.Duration
+	Now            func() time.Time
 }
 
-func New(cfg func() config.Config, s SchedulerStore, d Sweeper, ghUser string, logf Logf, usageFn UsageFn) *Scheduler {
-	if logf == nil {
-		logf = func(string, ...any) {}
+// New builds a Scheduler from d, filling every unset optional field with its
+// production implementation.
+func New(d Deps) *Scheduler {
+	if d.Logf == nil {
+		d.Logf = func(string, ...any) {}
 	}
-	if usageFn == nil {
-		usageFn = func(string) usage.Snapshot { return usage.Snapshot{} }
+	// The fail-open rule for missing usage data lives in exactly one place:
+	// usage.BelowFloor, which never pauses on an empty snapshot.
+	if d.Usage == nil {
+		d.Usage = func(string) usage.Snapshot { return usage.Snapshot{} }
 	}
-	sched := &Scheduler{
-		cfg: cfg, store: s, sweeper: d, ghUser: ghUser,
-		logf: logf, usageFn: usageFn,
-		newEngine: func(c config.Config, p config.Policy) (review.Engine, error) {
+	if d.NewEngine == nil {
+		d.NewEngine = func(c config.Config, p config.Policy) (review.Engine, error) {
 			return review.NewEngine(c.Review.WithPolicy(p))
-		},
-		stillCandidate: discover.StillCandidateAt,
-		pidAlive:       pidAlive,
-		heartbeat:      loopHeartbeat,
-		now:            time.Now,
+		}
 	}
-	return sched
+	if d.StillCandidate == nil {
+		d.StillCandidate = discover.StillCandidateAt
+	}
+	if d.PIDAlive == nil {
+		d.PIDAlive = pidAlive
+	}
+	if d.Heartbeat == 0 {
+		d.Heartbeat = loopHeartbeat
+	}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	return &Scheduler{
+		cfg: d.Config, store: d.Store, sweeper: d.Sweeper, ghUser: d.GHUser,
+		logf: d.Logf, usageFn: d.Usage, priceFn: d.Price,
+		newEngine: d.NewEngine, stillCandidate: d.StillCandidate, pidAlive: d.PIDAlive,
+		heartbeat: d.Heartbeat, now: d.Now,
+	}
 }
 
 // Discover scrapes the watched repos for candidates. Purely deterministic:

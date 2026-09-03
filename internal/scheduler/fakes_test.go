@@ -40,13 +40,11 @@ type fakeEngine struct {
 	mu     sync.Mutex
 	once   sync.Once
 	prompt string
-	calls  int
 }
 
 func (e *fakeEngine) Review(ctx context.Context, req review.Request) (review.Verdict, error) {
 	e.mu.Lock()
 	e.prompt = req.Prompt
-	e.calls++
 	e.mu.Unlock()
 
 	if e.seen != nil {
@@ -76,13 +74,6 @@ func (e *fakeEngine) lastPrompt() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.prompt
-}
-
-// callCount is how many reviews the engine has been asked for.
-func (e *fakeEngine) callCount() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.calls
 }
 
 // commented is the ordinary "a review happened" engine.

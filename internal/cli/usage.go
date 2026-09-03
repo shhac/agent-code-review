@@ -358,11 +358,12 @@ COMMANDS:
 
 KEYS:
   gh_user                              self-review detection (empty = derive via gh)
-  schedule.enabled                     true|false: daemon runs review cycles
-  schedule.interval                    review cadence, e.g. 1m (idle cycles are no-ops)
+  schedule.enabled                     true|false: daemon dispatches reviews
+  schedule.interval                    idle poll, e.g. 1m (only when nothing is ready)
+  schedule.dispatch_cooldown           pause between dispatches, e.g. 5s (0s disables)
   discovery.enabled                    true|false: daemon scrapes for candidates
   discovery.interval                   scrape cadence, e.g. 10m (gh only, no LLM)
-  schedule.max_parallel                1..32 concurrent reviews per cycle
+  schedule.max_parallel                1..32 concurrent reviews
   schedule.usage_floor.5h_percent      pause reviews when the engine's 5h usage window
                                        has less than this % remaining (default 10, 0 off)
   schedule.usage_floor.weekly_percent  same for the weekly window (default 10, 0 off)

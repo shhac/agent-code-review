@@ -41,7 +41,8 @@ func (c Config) QuietPeriod() time.Duration {
 	return durationOrZero(c.Candidates.QuietPeriod, 15*time.Minute)
 }
 
-// MaxParallel is the per-cycle concurrency cap (default 4).
+// MaxParallel is the concurrency cap: how many reviews run at once (default
+// 4). Read per dispatch, so a raise takes effect without a restart.
 func (c Config) MaxParallel() int {
 	if c.Schedule.MaxParallel > 0 {
 		return c.Schedule.MaxParallel
@@ -49,14 +50,28 @@ func (c Config) MaxParallel() int {
 	return 4
 }
 
-// Interval is the review cadence (default 1m, and 1m on parse failure). A
-// tight default is safe: eligibility holds keep the queue empty of non-
-// actionable work, and an idle cycle exits before recording anything.
+// Interval is the dispatcher's IDLE poll: how long it waits after a pull
+// found nothing dispatchable (default 1m, and 1m on parse failure). A tight
+// default is safe: eligibility holds keep the queue empty of non-actionable
+// work, and an idle pull records nothing.
+//
+// It is no longer a batch cadence. A freed slot dispatches the next ready
+// candidate after DispatchCooldown, without waiting for this interval. The
+// key kept its name through that change; LeaseWindow still derives from it.
 func (c Config) Interval() time.Duration {
 	return durationOr(c.Schedule.Interval, time.Minute)
 }
 
-// ScheduleEnabled reports whether the review loop runs (default true).
+// DispatchCooldown is the pause between dispatches: after a slot frees, the
+// dispatcher waits this long before claiming the next ready candidate
+// (default 5s; an explicit "0s" disables the wait). It is a global gap
+// between any two dispatches rather than a per-slot timer, because a single
+// dispatcher owns every hand-off.
+func (c Config) DispatchCooldown() time.Duration {
+	return durationOrZero(c.Schedule.DispatchCooldown, 5*time.Second)
+}
+
+// ScheduleEnabled reports whether the review dispatcher runs (default true).
 func (c Config) ScheduleEnabled() bool { return boolOr(c.Schedule.Enabled, true) }
 
 // DiscoveryEnabled reports whether the discovery loop runs (default true).
@@ -91,13 +106,12 @@ func boolOr(v *bool, def bool) bool {
 // code reads them via the *Enabled getters, so its callers are tests.
 func Bool(v bool) *bool { return &v }
 
-// LeaseWindow is how long a claim (or an unfinished run) stays authoritative
-// before it is treated as abandoned by a crashed daemon. One definition
-// serves the scheduler's reclaim logic, the run-lock staleness check, and
-// the dashboard's "reviewing" badge; they must agree or the UI and the
-// scheduler drift. The 2h floor keeps a short review interval (say 15m) from
-// shrinking the lease below a realistic cycle length: without it, a long
-// burst of reviews would look abandoned and get double-reviewed.
+// LeaseWindow is how long a claim stays authoritative before it is treated as
+// abandoned by a crashed daemon. One definition serves the dispatcher's
+// reclaim logic and the dashboard's "reviewing" badge; they must agree or the
+// UI and the scheduler drift. The 2h floor keeps a short idle poll (say 15m)
+// from shrinking the lease below a realistic review length: without it, a
+// long review would look abandoned and get double-reviewed.
 func (c Config) LeaseWindow() time.Duration {
 	if w := c.Interval() * 4; w > 2*time.Hour {
 		return w

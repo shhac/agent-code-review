@@ -87,19 +87,25 @@ type CandidateSettings struct {
 	QuietPeriod          string `json:"quiet_period,omitempty"`            // Go duration, default "15m"; "0s" disables
 }
 
-// ScheduleSettings drives the review loop: LLM invocations, so it carries the
-// parallelism cap. Discovery has its own independent settings (DiscoverySettings).
+// ScheduleSettings drives the review dispatcher: LLM invocations, so it
+// carries the parallelism cap. Discovery has its own independent settings
+// (DiscoverySettings).
 type ScheduleSettings struct {
-	Enabled     *bool            `json:"enabled,omitempty"`
-	Interval    string           `json:"interval,omitempty"`     // review cadence, e.g. "30m"
-	MaxParallel int              `json:"max_parallel,omitempty"` // default 4
-	UsageFloor  UsageFloorLimits `json:"usage_floor,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
+	// Interval is the dispatcher's IDLE poll: how long it waits before
+	// looking again after a pull found nothing dispatchable. It is no longer
+	// a batch cadence: a freed slot dispatches the next candidate without
+	// waiting for it.
+	Interval         string           `json:"interval,omitempty"`          // idle poll, e.g. "30m"
+	MaxParallel      int              `json:"max_parallel,omitempty"`      // default 4
+	DispatchCooldown string           `json:"dispatch_cooldown,omitempty"` // Go duration, default "5s"; "0s" disables
+	UsageFloor       UsageFloorLimits `json:"usage_floor,omitempty"`
 }
 
-// UsageFloorLimits pauses the review loop while Codex usage headroom is low:
-// when a window's remaining percentage drops below its floor, no new review
-// cycle starts until the window refills. nil means the default (10); an
-// explicit 0 disables that window's floor.
+// UsageFloorLimits holds a candidate back while its engine's usage headroom
+// is low: when a window's remaining percentage drops below its floor, that
+// engine's candidates are not dispatched until the window refills. nil means
+// the default (10); an explicit 0 disables that window's floor.
 type UsageFloorLimits struct {
 	FiveHourPercent *int `json:"5h_percent,omitempty"`
 	WeeklyPercent   *int `json:"weekly_percent,omitempty"`

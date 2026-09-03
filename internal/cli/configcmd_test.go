@@ -62,6 +62,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"gh_user":                             "example-handle",
 		"schedule.enabled":                    "true",
 		"schedule.interval":                   "45m",
+		"schedule.dispatch_cooldown":          "10s",
 		"discovery.enabled":                   "true",
 		"discovery.interval":                  "5m",
 		"schedule.max_parallel":               "8",

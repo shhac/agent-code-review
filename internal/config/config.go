@@ -54,7 +54,7 @@ func Write(cfg Config) error { return store().Save(cfg) }
 // concurrent callers serialize instead of overwriting each other.
 //
 // Without the lock this raced: two invocations (say `repos add` alongside
-// `rules add`, or the serve daemon's operator running either while a cycle is
+// `rules add`, or the serve daemon's operator running either while a review is
 // live) each read the same snapshot, and whichever wrote second erased the
 // other's edit — an entire repo or rule silently gone from config.json.
 //

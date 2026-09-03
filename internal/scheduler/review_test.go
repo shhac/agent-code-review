@@ -388,3 +388,34 @@ func TestTail(t *testing.T) {
 		t.Errorf("tail truncation = %d runes, want 501 with a leading ellipsis", len([]rune(got)))
 	}
 }
+
+// TestRunOneWorkdirFailureLeavesTheRowUntouched pins the second of the two
+// named pre-claim failure paths (the first being an unbuildable engine). Both
+// leave the queue row exactly as they found it, which is precisely why the
+// dispatcher has to back the candidate off: without that it would be re-offered
+// at the head forever. The claim-error path has its own test; this one did not.
+func TestRunOneWorkdirFailureLeavesTheRowUntouched(t *testing.T) {
+	// A TMPDIR that does not exist makes os.MkdirTemp fail.
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "does-not-exist"))
+
+	fs := &fakeSchedStore{}
+	fe := commented()
+	s := newTestScheduler(fs, fe)
+
+	err := s.runOne(context.Background(), pending{
+		candidate: store.Candidate{Repo: "o/r", Number: 7, HeadSHA: "s7"},
+		cfg:       s.cfg(),
+	})
+	if err == nil {
+		t.Fatal("a workdir that cannot be created must fail the attempt")
+	}
+	if len(fs.claims) != 0 {
+		t.Errorf("the candidate must never be claimed, got %+v", fs.claims)
+	}
+	if len(fs.completed) != 0 {
+		t.Errorf("no outcome may be recorded, got %+v", fs.completed)
+	}
+	if fe.lastPrompt() != "" {
+		t.Error("the engine must never run")
+	}
+}

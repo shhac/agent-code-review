@@ -705,3 +705,82 @@ func TestDispatchAllEnginesFloored(t *testing.T) {
 		t.Errorf("the held candidate must stay queued, got %+v", fs.queue)
 	}
 }
+
+// TestDispatchSpacesHandOffsByTheCooldown exercises the production hand-off
+// path. Every other dispatch test sets the cooldown to 0s, so only sleepCtx's
+// zero shortcut ran and the real timer — which ships defaulted to 5s — was
+// never taken.
+func TestDispatchSpacesHandOffsByTheCooldown(t *testing.T) {
+	const cooldown = 30 * time.Millisecond
+	fs := &fakeDispatchStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
+		{Repo: "o/r", Number: 3, HeadSHA: "s3"},
+	}}
+	var mu sync.Mutex
+	var starts []time.Time
+	fe := &fakeEngine{fn: func(context.Context, review.Request) (review.Verdict, error) {
+		mu.Lock()
+		starts = append(starts, time.Now())
+		mu.Unlock()
+		return review.Verdict{Decision: review.DecisionCommented}, nil
+	}}
+	s := newDispatchScheduler(fs, fe)
+	s.cfg = func() config.Config {
+		return config.Config{
+			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+			Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: cooldown.String()},
+		}
+	}
+
+	if err := drain(t, s); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(starts) != 3 {
+		t.Fatalf("started %d reviews, want 3", len(starts))
+	}
+	// Allow generous slack: the assertion is that a cooldown happened at all,
+	// not that the timer is precise.
+	if gap := starts[2].Sub(starts[0]); gap < cooldown {
+		t.Errorf("three hand-offs spanned %s, want at least one cooldown (%s) between them", gap, cooldown)
+	}
+}
+
+// TestDispatchStopDuringCooldownReturnsPromptly: a stop landing mid-cooldown
+// must not be slept out. With the shipped 5s default that would be a visibly
+// unresponsive Ctrl-C.
+func TestDispatchStopDuringCooldownReturnsPromptly(t *testing.T) {
+	fs := &fakeDispatchStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
+	}}
+	dispatched := make(chan struct{}, 4)
+	fe := &fakeEngine{fn: func(context.Context, review.Request) (review.Verdict, error) {
+		dispatched <- struct{}{}
+		return review.Verdict{Decision: review.DecisionCommented}, nil
+	}}
+	s := newDispatchScheduler(fs, fe)
+	s.cfg = func() config.Config {
+		return config.Config{
+			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+			Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "30s"},
+		}
+	}
+
+	gracefulCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	done := make(chan error, 1)
+	go func() {
+		done <- s.dispatch(Stop{Graceful: gracefulCtx, Force: context.Background()}, false)
+	}()
+
+	<-dispatched // the first hand-off happened; the dispatcher is now cooling down
+	stop()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a stop during the cooldown must return promptly, not sleep it out")
+	}
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 func registerRun(root *cobra.Command) {
@@ -41,7 +42,7 @@ func registerRun(root *cobra.Command) {
 			// deliberately parked at its floor.
 			warnf := func(notice, hint string) { output.WriteNotice(os.Stderr, notice, hint) }
 			reportConfigProblems(cfg, warnf)
-			usageFn := oneShotUsage(fetchUsage(ctx, cfg))
+			usageFn := usage.NewCache().Lazy(fetchUsage(ctx, cfg))
 			if ignoreFloor {
 				usageFn = nil
 			}

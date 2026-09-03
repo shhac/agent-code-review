@@ -94,8 +94,9 @@ func (s Snapshot) OK() bool {
 // Cache holds the latest snapshot per engine and refreshes each on an
 // interval. Keyed by engine because the dashboard shows every engine's
 // headroom side by side, so an operator can see that the engine they are NOT
-// using has room before deciding to switch; the usage floor still consults
-// only the configured one, since that is the account reviews spend from.
+// using has room before deciding to switch. The floor reads it the same way,
+// per candidate: a group can name its own engine, so which account a review
+// spends from is a per-candidate answer.
 type Cache struct {
 	mu    sync.RWMutex
 	snaps map[string]Snapshot
@@ -120,6 +121,32 @@ func (c *Cache) All() map[string]Snapshot {
 		out[engine] = snap
 	}
 	return out
+}
+
+// Lazy returns a getter that fetches an engine on first ask and caches the
+// result for the life of the Cache, a FAILED probe included. That is the whole
+// difference from Poll: a daemon retries forever because a logged-out engine
+// may come back, while a command that exits wants one probe and an answer.
+// Caching the failure as the empty snapshot is what makes the usage floor fail
+// open (BelowFloor never pauses on one), so a broken engine degrades to
+// reviewing rather than to a run that silently does nothing.
+//
+// fetch is a parameter because this sits on the money path: it is what stops a
+// scheduled run spending from an account the daemon has deliberately parked.
+func (c *Cache) Lazy(fetch func(engine string) (Snapshot, error)) func(string) Snapshot {
+	return func(engine string) Snapshot {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if snap, ok := c.snaps[engine]; ok {
+			return snap
+		}
+		snap, err := fetch(engine)
+		if err != nil {
+			snap = Snapshot{}
+		}
+		c.snaps[engine] = snap
+		return snap
+	}
 }
 
 // Poll fetches immediately, then every interval until ctx is done. Failures

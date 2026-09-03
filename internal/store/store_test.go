@@ -262,3 +262,26 @@ func TestScannersReportDriftButTolerateAbsentColumns(t *testing.T) {
 		}
 	})
 }
+
+// TestRealVerdictMapping guards the Refreshed-detection invariant: exactly the engine's real-review
+// decisions count as "reviewed at this SHA" (store.LastReview filters on
+// this), while SKIPPED/ERROR outcomes stay re-surfaceable.
+func TestRealVerdictMapping(t *testing.T) {
+	cases := []struct {
+		decision   string
+		realReview bool
+	}{
+		{"APPROVED", true},
+		{"COMMENTED", true},
+		{"REQUESTED_CHANGES", true},
+		{"SKIPPED", false},
+		{"ERROR", false},
+		{"", false},
+		{"GARBAGE", false},
+	}
+	for _, tc := range cases {
+		if got := IsRealVerdict(tc.decision); got != tc.realReview {
+			t.Errorf("IsRealVerdict(%q) = %v, want %v", tc.decision, got, tc.realReview)
+		}
+	}
+}

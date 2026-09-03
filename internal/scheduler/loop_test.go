@@ -185,9 +185,9 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 	}}
 	engineCtx := make(chan context.Context, 4)
-	started := make(chan struct{}, 4)
+	started := make(chan int, 4)
 	release := make(chan struct{})
-	fe := &ctxCapturingEngine{seen: engineCtx, started: started, release: release}
+	fe := &fakeEngine{seen: engineCtx, started: started, release: release, verdict: review.Verdict{Decision: review.DecisionCommented}}
 
 	s := New(Deps{
 		Store:  fs,
@@ -257,26 +257,6 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	}
 }
 
-// ctxCapturingEngine reports the context it was invoked with, so a test can
-// assert WHICH of the two shutdown contexts reached the subprocess seam.
-type ctxCapturingEngine struct {
-	seen    chan context.Context
-	started chan struct{}
-	release chan struct{}
-	once    sync.Once
-}
-
-func (e *ctxCapturingEngine) Provenance(context.Context) review.Provenance {
-	return review.Provenance{Engine: "ctx-capture"}
-}
-
-func (e *ctxCapturingEngine) Review(ctx context.Context, _ review.Request) (review.Verdict, error) {
-	e.seen <- ctx
-	e.started <- struct{}{}
-	e.once.Do(func() { <-e.release })
-	return review.Verdict{Decision: review.DecisionCommented}, nil
-}
-
 // waitFor polls until cond holds, failing the test on timeout. Polling rather
 // than sleeping keeps the lifecycle tests honest without making them
 // timing-sensitive.
@@ -304,4 +284,28 @@ func newLoopScheduler(fs *fakeDispatchStore, fe review.Engine, sweep sweepFn) *S
 	s.sweeper = sweep
 	s.heartbeat = time.Millisecond
 	return s
+}
+
+// TestDue pins the heartbeat's firing rule, including the live-reload
+// property: a cadence shrunk below the already-elapsed time makes the run
+// due on the next beat, without waiting out the old interval.
+func TestDue(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name     string
+		elapsed  time.Duration
+		interval time.Duration
+		want     bool
+	}{
+		{"just under the interval", 14 * time.Minute, 15 * time.Minute, false},
+		{"exactly at the interval", 15 * time.Minute, 15 * time.Minute, true},
+		{"past the interval", 16 * time.Minute, 15 * time.Minute, true},
+		{"interval shrunk below elapsed", 20 * time.Minute, 15 * time.Minute, true},
+		{"interval grown above elapsed", 20 * time.Minute, 90 * time.Minute, false},
+	}
+	for _, tc := range cases {
+		if got := due(now.Add(-tc.elapsed), now, tc.interval); got != tc.want {
+			t.Errorf("%s: due = %v, want %v", tc.name, got, tc.want)
+		}
+	}
 }

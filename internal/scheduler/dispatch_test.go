@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,71 +10,8 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/agent-code-review/internal/usage"
 )
-
-// fakeDispatchStore extends the reviewOne fake with the queue surface the
-// dispatcher pulls from; unused Store methods still panic loudly via the
-// embedded nil interface. The queue is mutable under a lock because the
-// dispatcher re-reads it on every pull, which is the whole point of the
-// design: a test can add work while reviews are already in flight.
-type fakeDispatchStore struct {
-	fakeSchedStore
-
-	qmu      sync.Mutex
-	queue    []store.Candidate
-	queueErr error
-	pulls    int
-	// onList runs inside ListQueue, so a test can change the world (request a
-	// shutdown, say) while a pull is in flight.
-	onList func()
-}
-
-func (f *fakeDispatchStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
-	f.qmu.Lock()
-	defer f.qmu.Unlock()
-	f.pulls++
-	if f.onList != nil {
-		f.onList()
-	}
-	if f.queueErr != nil {
-		return nil, f.queueErr
-	}
-	return append([]store.Candidate(nil), f.queue...), nil
-}
-
-// pullCount reports how many times the dispatcher has listed the queue, which
-// is how the lifecycle tests observe that the real dispatcher started.
-func (f *fakeDispatchStore) pullCount() int {
-	f.qmu.Lock()
-	defer f.qmu.Unlock()
-	return f.pulls
-}
-
-func (f *fakeDispatchStore) enqueue(c store.Candidate) {
-	f.qmu.Lock()
-	defer f.qmu.Unlock()
-	f.queue = append(f.queue, c)
-}
-
-// dequeue models what store.Complete does to the real queue: the row is gone
-// once its outcome is recorded. Without it the dispatcher would re-offer a
-// reviewed candidate forever, which is a property of the fake, not the code.
-func (f *fakeDispatchStore) dequeue(repo string, number int) {
-	f.qmu.Lock()
-	defer f.qmu.Unlock()
-	out := f.queue[:0]
-	for _, c := range f.queue {
-		if c.Repo != repo || c.Number != number {
-			out = append(out, c)
-		}
-	}
-	f.queue = out
-}
-
-func (f *fakeDispatchStore) Complete(ctx context.Context, r store.Review) error {
-	f.dequeue(r.Repo, r.Number)
-	return f.fakeSchedStore.Complete(ctx, r)
-}
 
 // newDispatchScheduler wires a scheduler whose dispatcher runs without real
 // waits: no cooldown between hand-offs, and a millisecond idle poll.
@@ -108,29 +44,6 @@ func drain(t *testing.T, s *Scheduler) error {
 	}
 }
 
-type blockingEngine struct {
-	started chan int
-	release chan struct{}
-	once    sync.Once
-}
-
-func (e *blockingEngine) Provenance(context.Context) review.Provenance {
-	return review.Provenance{Engine: "blocking"}
-}
-
-func (e *blockingEngine) Review(ctx context.Context, req review.Request) (review.Verdict, error) {
-	e.started <- req.Candidate.Number
-	e.once.Do(func() {
-		<-e.release
-	})
-	select {
-	case <-ctx.Done():
-		return review.Verdict{Decision: review.DecisionError}, ctx.Err()
-	default:
-		return review.Verdict{Decision: review.DecisionCommented}, nil
-	}
-}
-
 // TestDispatchGracefulStop pins serve's first-Ctrl-C behavior: stop
 // dispatching new reviewers, but let already-started reviewers finish.
 func TestDispatchGracefulStop(t *testing.T) {
@@ -138,7 +51,7 @@ func TestDispatchGracefulStop(t *testing.T) {
 		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
 		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 	}}
-	fe := &blockingEngine{started: make(chan int, 2), release: make(chan struct{})}
+	fe := &fakeEngine{started: make(chan int, 2), release: make(chan struct{}), verdict: review.Verdict{Decision: review.DecisionCommented}}
 	s := newDispatchScheduler(fs, fe)
 	s.cfg = func() config.Config {
 		return config.Config{
@@ -184,7 +97,7 @@ func TestDispatchStartsNothingAfterStopRequested(t *testing.T) {
 		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
 		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 	}}
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+	fe := commented()
 	s := newDispatchScheduler(fs, fe)
 	gracefulCtx, stop := context.WithCancel(context.Background())
 	stop() // already cancelled before the dispatcher ever looks
@@ -211,7 +124,7 @@ func TestDispatchStopDuringAPullDispatchesNothing(t *testing.T) {
 	defer stop()
 	fs.onList = func() { stop() } // the stop lands mid-pull
 
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+	fe := commented()
 	s := newDispatchScheduler(fs, fe)
 
 	done := make(chan error, 1)
@@ -240,7 +153,7 @@ func TestDispatch(t *testing.T) {
 			{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 			{Repo: "o/r", Number: 3, HeadSHA: "s3", ClaimedAt: &fresh}, // in flight elsewhere
 		}}
-		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+		fe := commented()
 		s := newDispatchScheduler(fs, fe)
 
 		if err := drain(t, s); err != nil {
@@ -263,7 +176,7 @@ func TestDispatch(t *testing.T) {
 		fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, HeadSHA: "s1"}}}
 		queued := make(chan struct{})
 		var once sync.Once
-		fe := &funcEngine{fn: func(req review.Request) (review.Verdict, error) {
+		fe := &fakeEngine{fn: func(_ context.Context, req review.Request) (review.Verdict, error) {
 			// Add the second PR while the first review is still running, the
 			// way discovery or a manual add would.
 			once.Do(func() {
@@ -306,7 +219,7 @@ func TestDispatch(t *testing.T) {
 			{Repo: "o/r", Number: 1, HeadSHA: "s1", Author: "broken"},
 			{Repo: "o/r", Number: 2, HeadSHA: "s2", Author: "fine"},
 		}}
-		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+		fe := commented()
 		s := newDispatchScheduler(fs, fe)
 		s.newEngine = func(_ config.Config, p config.Policy) (review.Engine, error) {
 			if p.Engine == "broken-engine" {
@@ -355,7 +268,7 @@ func TestDispatch(t *testing.T) {
 			{Repo: "o/r", Number: 1, HeadSHA: "s1", EligibleAt: &soon, HoldReason: store.HoldCooldown},
 			{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 		}}
-		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
+		fe := commented()
 		s := newDispatchScheduler(fs, fe)
 		if err := drain(t, s); err != nil {
 			t.Fatal(err)
@@ -397,7 +310,7 @@ func TestDispatch(t *testing.T) {
 		fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, HeadSHA: "s1"}}}
 		var starts int32
 		hold := make(chan struct{})
-		fe := &funcEngine{fn: func(review.Request) (review.Verdict, error) {
+		fe := &fakeEngine{fn: func(context.Context, review.Request) (review.Verdict, error) {
 			starts++
 			<-hold
 			return review.Verdict{Decision: review.DecisionCommented}, nil
@@ -420,19 +333,6 @@ func TestDispatch(t *testing.T) {
 	})
 }
 
-// funcEngine is a fakeEngine whose verdict is computed per call, for tests
-// that need to act (enqueue more work, block) while a review is running.
-type funcEngine struct {
-	fn func(review.Request) (review.Verdict, error)
-}
-
-func (e *funcEngine) Review(_ context.Context, req review.Request) (review.Verdict, error) {
-	return e.fn(req)
-}
-func (e *funcEngine) Provenance(context.Context) review.Provenance {
-	return review.Provenance{Engine: "fake"}
-}
-
 // TestBackoffFor pins the escalation: each consecutive failure doubles the
 // hold, capped, so a permanently broken candidate stops being retried every
 // few seconds without ever being retried never.
@@ -450,19 +350,6 @@ func TestBackoffFor(t *testing.T) {
 		if got := backoffFor(c.fails); got != c.want {
 			t.Errorf("backoffFor(%d) = %s, want %s", c.fails, got, c.want)
 		}
-	}
-}
-
-// TestTail pins the log-tail formatter: whitespace-trimmed, newline-flattened,
-// last-n-bytes with an ellipsis when truncated.
-func TestTail(t *testing.T) {
-	if got := tail("  short\nlines  ", 100); got != "short | lines" {
-		t.Errorf("tail = %q", got)
-	}
-	long := strings.Repeat("x", 600)
-	got := tail(long, 500)
-	if len([]rune(got)) != 501 || !strings.HasPrefix(got, "…") {
-		t.Errorf("tail truncation = %d runes, want 501 with a leading ellipsis", len([]rune(got)))
 	}
 }
 
@@ -667,5 +554,154 @@ func TestDispatchStatePrune(t *testing.T) {
 	}
 	if st.active() != 1 {
 		t.Errorf("active = %d, want 1", st.active())
+	}
+}
+
+// TestAvailableCandidates pins the lease semantics: unclaimed rows and stale
+// claims are workable; a fresh claim is another worker's in-flight review.
+func TestAvailableCandidates(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	staleAfter := 2 * time.Hour
+	fresh := now.Add(-time.Hour)
+	boundary := now.Add(-staleAfter) // exactly one window old, still leased
+	stale := now.Add(-3 * time.Hour)
+	queue := []store.Candidate{
+		{Number: 1},                       // unclaimed
+		{Number: 2, ClaimedAt: &fresh},    // in flight: leave alone
+		{Number: 3, ClaimedAt: &stale},    // abandoned: reclaim
+		{Number: 4, ClaimedAt: &boundary}, // boundary: still in flight
+	}
+	got := availableCandidates(queue, now, staleAfter)
+	if len(got) != 2 || got[0].Number != 1 || got[1].Number != 3 {
+		t.Fatalf("availableCandidates = %+v, want candidates 1 and 3", got)
+	}
+}
+
+// floored is a snapshot with almost no headroom left; roomy has plenty.
+func floored() usage.Snapshot {
+	return usage.Snapshot{FetchedAt: time.Now(), Primary: &usage.Window{UsedPercent: 95, WindowMins: 300}}
+}
+
+func roomy() usage.Snapshot {
+	return usage.Snapshot{FetchedAt: time.Now(), Primary: &usage.Window{UsedPercent: 5, WindowMins: 300}}
+}
+
+// TestDispatchUsageFloorIsPerEngine pins the headline of a mixed-engine
+// cycle: one engine being out of headroom holds ITS candidates and nothing
+// else. A held candidate is never claimed and never completed, so it is a
+// hold like a cooldown, not a skip; it runs when the window refills.
+//
+// The mixed shape is the whole point. Both candidates on one engine could not
+// catch a regression that claims or completes a floored candidate, because
+// there would be no floored candidate in play to get it wrong about.
+func TestDispatchUsageFloorIsPerEngine(t *testing.T) {
+	// alice's group reviews on claude, which has room; bob falls through to the
+	// default codex engine, which does not.
+	cfg := config.Config{
+		Review: config.ReviewSettings{Engine: "codex", MainPrompt: "MAIN"},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{
+				"claude-cohort": {Review: config.ReviewComment, Engine: "claude"},
+				"codex-cohort":  {Review: config.ReviewComment, Engine: "codex"},
+			},
+		},
+	}
+	fs := &fakeDispatchStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, Author: "bob", HeadSHA: "s2"},
+	}}
+	fs.byHandle = map[string]string{"alice": "claude-cohort", "bob": "codex-cohort"}
+	fe := commented()
+
+	byEngine := func(engine string) usage.Snapshot {
+		if engine == "claude" {
+			return roomy()
+		}
+		return floored()
+	}
+	cfg.Schedule = config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}
+	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "u", Usage: byEngine})
+	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
+	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
+
+	if err := drain(t, s); err != nil {
+		t.Fatal(err)
+	}
+	// The candidate on the engine with headroom runs...
+	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
+		t.Fatalf("only alice's PR (claude, has headroom) should complete, got %+v", fs.completed)
+	}
+	// ...and the one on the floored engine is HELD, not skipped: no claim and
+	// no history row, so nothing retires it from the queue.
+	if len(fs.claims) != 1 {
+		t.Errorf("the floored candidate must never be claimed, got %d claims", len(fs.claims))
+	}
+	for _, r := range fs.completed {
+		if r.Number == 2 {
+			t.Errorf("a floored candidate must not be completed (that would retire it): %+v", r)
+		}
+	}
+}
+
+// TestDispatchRosterErrorHoldsOnlyItsOwnCandidate pins the fail-closed
+// choice in pullNext: a candidate whose roster row cannot be read is SKIPPED,
+// never defaulted, because guessing a policy is how a PR gets approved that
+// shouldn't be. The blast radius used to be the whole cycle (resolvePending
+// returned on the first error, holding healthy candidates too); the
+// dispatcher resolves lazily, one candidate at a time, so the healthy ones
+// now run. The unreadable one is left pending and backed off rather than
+// re-offered at the head forever.
+func TestDispatchRosterErrorHoldsOnlyItsOwnCandidate(t *testing.T) {
+	fs := &fakeDispatchStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 2, Author: "unreadable", HeadSHA: "s2"},
+		{Repo: "o/r", Number: 1, Author: "healthy", HeadSHA: "s1"},
+	}}
+	// "healthy" resolves fine; "unreadable" has no entry, so groupErr applies.
+	fs.byHandle = map[string]string{"healthy": config.GroupCommenter}
+	fs.groupErr = errors.New("store unavailable")
+	fe := commented()
+	s := newDispatchScheduler(fs, fe)
+
+	if err := drain(t, s); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
+		t.Fatalf("the readable candidate must still be reviewed, got %+v", fs.completed)
+	}
+	for _, c := range fs.claims {
+		if c.WorkDir == "" {
+			t.Error("every claim must record a work dir")
+		}
+	}
+	if len(fs.claims) != 1 {
+		t.Errorf("the unreadable candidate must never be claimed, got %d claims", len(fs.claims))
+	}
+}
+
+// TestDispatchAllEnginesFloored: when every candidate is waiting on a floored
+// engine, nothing is claimed and nothing is recorded. A floored candidate is
+// HELD, not skipped, so it must survive in the queue to run when its window
+// refills. The drain must still terminate rather than spinning on a queue it
+// will never consume.
+func TestDispatchAllEnginesFloored(t *testing.T) {
+	fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"}}}
+	fe := &fakeEngine{}
+	cfg := config.Config{Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}}
+	s := New(Deps{
+		Store:  fs,
+		Config: func() config.Config { return cfg },
+		GHUser: "u",
+		Usage:  func(string) usage.Snapshot { return floored() },
+	})
+	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
+
+	if err := drain(t, s); err != nil {
+		t.Fatalf("a fully floored queue must drain cleanly, got %v", err)
+	}
+	if len(fs.claims) != 0 || len(fs.completed) != 0 {
+		t.Errorf("a floored candidate is held, not skipped: no claim, no outcome; got claims=%+v completed=%+v", fs.claims, fs.completed)
+	}
+	if len(fs.queue) != 1 {
+		t.Errorf("the held candidate must stay queued, got %+v", fs.queue)
 	}
 }

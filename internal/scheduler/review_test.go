@@ -8,25 +8,24 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
-	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 // fakeSchedStore records the calls reviewOne makes; unused Store methods panic
-// so an unexpected dependency shows up loudly. The mutex matters: processQueue
-// fans reviewOne out across goroutines, so the recorders must be race-free.
+// so an unexpected dependency shows up loudly. The mutex matters: the
+// dispatcher runs reviewOne on several goroutines at once, so the recorders
+// must be race-free.
 type fakeSchedStore struct {
 	store.Store // panic on anything not overridden
 
 	mu    sync.Mutex
 	group string // the group every handle resolves to, unless byHandle says otherwise
-	// byHandle answers per author. A cycle can run several engines at once, so
-	// a fake that gives every handle the same group cannot express the case the
-	// per-engine floor exists for: one candidate held while another runs.
+	// byHandle answers per author. Concurrent reviews can run several engines,
+	// so a fake that gives every handle the same group cannot express the case
+	// the per-engine floor exists for: one candidate held while another runs.
 	byHandle  map[string]string
 	groupErr  error // simulate the roster lookup failing
 	claimErr  error // simulate the claim itself failing
@@ -82,30 +81,10 @@ func (f *fakeSchedStore) Complete(_ context.Context, r store.Review) error {
 	return nil
 }
 
-// fakeEngine returns a fixed verdict and captures the prompt it was given
-// (mutex-guarded: cycle tests run reviews concurrently).
-type fakeEngine struct {
-	verdict review.Verdict
-	err     error
-
-	mu     sync.Mutex
-	prompt string
-}
-
-func (e *fakeEngine) Review(_ context.Context, req review.Request) (review.Verdict, error) {
-	e.mu.Lock()
-	e.prompt = req.Prompt
-	e.mu.Unlock()
-	return e.verdict, e.err
-}
-func (e *fakeEngine) Provenance(context.Context) review.Provenance {
-	return review.Provenance{Engine: "fake"}
-}
-
 func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
 	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
 	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "the-gh-user"})
-	// Tests drive a fixed fake engine instead of the per-cycle rebuild.
+	// Tests drive a fixed fake engine instead of the per-review rebuild.
 	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 	// Default the candidacy recheck to "still a candidate" so tests exercise
 	// the review path; precheck-specific tests override this.
@@ -113,9 +92,9 @@ func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
 	return s
 }
 
-// reviewOne invokes Scheduler.reviewOne with the cycle inputs the review
-// cycle would thread: the candidate paired with its author's resolved policy,
-// the current config snapshot, and the injected engine.
+// reviewOne invokes Scheduler.reviewOne with what the dispatcher would hand
+// it: the candidate paired with its author's resolved policy, the config
+// snapshot it was resolved under, and the injected engine.
 func reviewOne(s *Scheduler, fe *fakeEngine, c store.Candidate) error {
 	cfg := s.cfg()
 	m, err := s.store.AuthorGroup(context.Background(), c.Repo, c.Author)
@@ -194,9 +173,12 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 	// Spend rides along with the provenance: both ends of the money path are
 	// covered elsewhere (the engine reports CostUSD, the store round-trips it),
 	// but this is the glue between them.
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented, Tokens: review.TokenUsage{Input: 40000, Output: 2575, CacheRead: 150000}, CostUSD: 0.6231}}
+	fe := &fakeEngine{
+		verdict:    review.Verdict{Decision: review.DecisionCommented, Tokens: review.TokenUsage{Input: 40000, Output: 2575, CacheRead: 150000}, CostUSD: 0.6231},
+		provenance: &review.Provenance{Engine: "codex", Model: "gpt-5.6-terra", Effort: "high", EngineVersion: "Codex CLI 0.144.0"},
+	}
 	s := newTestScheduler(fs, fe)
-	if err := s.reviewOne(context.Background(), pending{candidate: store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}}, config.Config{}, &codexNamedEngine{fakeEngine: fe}); err != nil {
+	if err := s.reviewOne(context.Background(), pending{candidate: store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}}, config.Config{}, fe); err != nil {
 		t.Fatal(err)
 	}
 	if len(fs.completed) != 1 {
@@ -211,12 +193,6 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 	}
 }
 
-type codexNamedEngine struct{ *fakeEngine }
-
-func (e *codexNamedEngine) Provenance(context.Context) review.Provenance {
-	return review.Provenance{Engine: "codex", Model: "gpt-5.6-terra", Effort: "high", EngineVersion: "Codex CLI 0.144.0"}
-}
-
 // TestReviewOneClaimRace: losing the compare-and-swap claim to another
 // worker (e.g. a second daemon instance sharing the store) must be a clean
 // no-op: no engine spend, no outcome recorded, no error.
@@ -228,7 +204,7 @@ func TestReviewOneClaimRace(t *testing.T) {
 	if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 6, HeadSHA: "sha1"}); err != nil {
 		t.Fatalf("lost claim must not error, got %v", err)
 	}
-	if fe.prompt != "" {
+	if fe.lastPrompt() != "" {
 		t.Error("engine must not run when the claim was lost")
 	}
 	if len(fs.completed) != 0 {
@@ -271,7 +247,7 @@ func TestReviewOneGroupReachesPrompt(t *testing.T) {
 		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, Author: "alice"}); err != nil {
 			t.Fatal(err)
 		}
-		return fe.prompt
+		return fe.lastPrompt()
 	}
 	if p := run("core"); !strings.Contains(p, "MAY approve") {
 		t.Errorf("an approve-level group must yield MAY-approve directive, got:\n%.200s", p)
@@ -299,160 +275,11 @@ func TestReviewOneAuthorLookupError(t *testing.T) {
 	if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, Author: "alice", HeadSHA: "sha1"}); err == nil {
 		t.Fatal("roster lookup error must propagate")
 	}
-	if fe.prompt != "" {
+	if fe.lastPrompt() != "" {
 		t.Error("engine must not run when the roster lookup failed")
 	}
 	if len(fs.completed) != 0 {
 		t.Errorf("no outcome may be recorded on a lookup error, got %+v", fs.completed)
-	}
-}
-
-// TestAvailableCandidates pins the lease semantics: unclaimed rows and stale
-// claims are workable; a fresh claim is another worker's in-flight review.
-func TestAvailableCandidates(t *testing.T) {
-	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
-	staleAfter := 2 * time.Hour
-	fresh := now.Add(-time.Hour)
-	boundary := now.Add(-staleAfter) // exactly one window old, still leased
-	stale := now.Add(-3 * time.Hour)
-	queue := []store.Candidate{
-		{Number: 1},                       // unclaimed
-		{Number: 2, ClaimedAt: &fresh},    // in flight: leave alone
-		{Number: 3, ClaimedAt: &stale},    // abandoned: reclaim
-		{Number: 4, ClaimedAt: &boundary}, // boundary: still in flight
-	}
-	got := availableCandidates(queue, now, staleAfter)
-	if len(got) != 2 || got[0].Number != 1 || got[1].Number != 3 {
-		t.Fatalf("availableCandidates = %+v, want candidates 1 and 3", got)
-	}
-}
-
-// floored is a snapshot with almost no headroom left; roomy has plenty.
-func floored() usage.Snapshot {
-	return usage.Snapshot{FetchedAt: time.Now(), Primary: &usage.Window{UsedPercent: 95, WindowMins: 300}}
-}
-
-func roomy() usage.Snapshot {
-	return usage.Snapshot{FetchedAt: time.Now(), Primary: &usage.Window{UsedPercent: 5, WindowMins: 300}}
-}
-
-// TestReviewCycleUsageFloorIsPerEngine pins the headline of a mixed-engine
-// cycle: one engine being out of headroom holds ITS candidates and nothing
-// else. A held candidate is never claimed and never completed, so it is a
-// hold like a cooldown, not a skip; it runs when the window refills.
-//
-// The mixed shape is the whole point. Both candidates on one engine could not
-// catch a regression that claims or completes a floored candidate, because
-// there would be no floored candidate in play to get it wrong about.
-func TestDispatchUsageFloorIsPerEngine(t *testing.T) {
-	// alice's group reviews on claude, which has room; bob falls through to the
-	// default codex engine, which does not.
-	cfg := config.Config{
-		Review: config.ReviewSettings{Engine: "codex", MainPrompt: "MAIN"},
-		Authors: config.AuthorSettings{
-			Groups: map[string]config.Group{
-				"claude-cohort": {Review: config.ReviewComment, Engine: "claude"},
-				"codex-cohort":  {Review: config.ReviewComment, Engine: "codex"},
-			},
-		},
-	}
-	fs := &fakeDispatchStore{queue: []store.Candidate{
-		{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"},
-		{Repo: "o/r", Number: 2, Author: "bob", HeadSHA: "s2"},
-	}}
-	fs.byHandle = map[string]string{"alice": "claude-cohort", "bob": "codex-cohort"}
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
-
-	byEngine := func(engine string) usage.Snapshot {
-		if engine == "claude" {
-			return roomy()
-		}
-		return floored()
-	}
-	cfg.Schedule = config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}
-	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "u", Usage: byEngine})
-	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
-	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
-
-	if err := drain(t, s); err != nil {
-		t.Fatal(err)
-	}
-	// The candidate on the engine with headroom runs...
-	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
-		t.Fatalf("only alice's PR (claude, has headroom) should complete, got %+v", fs.completed)
-	}
-	// ...and the one on the floored engine is HELD, not skipped: no claim and
-	// no history row, so nothing retires it from the queue.
-	if len(fs.claims) != 1 {
-		t.Errorf("the floored candidate must never be claimed, got %d claims", len(fs.claims))
-	}
-	for _, r := range fs.completed {
-		if r.Number == 2 {
-			t.Errorf("a floored candidate must not be completed (that would retire it): %+v", r)
-		}
-	}
-}
-
-// TestDispatchRosterErrorHoldsOnlyItsOwnCandidate pins the fail-closed
-// choice in pullNext: a candidate whose roster row cannot be read is SKIPPED,
-// never defaulted, because guessing a policy is how a PR gets approved that
-// shouldn't be. The blast radius used to be the whole cycle (resolvePending
-// returned on the first error, holding healthy candidates too); the
-// dispatcher resolves lazily, one candidate at a time, so the healthy ones
-// now run. The unreadable one is left pending and backed off rather than
-// re-offered at the head forever.
-func TestDispatchRosterErrorHoldsOnlyItsOwnCandidate(t *testing.T) {
-	fs := &fakeDispatchStore{queue: []store.Candidate{
-		{Repo: "o/r", Number: 2, Author: "unreadable", HeadSHA: "s2"},
-		{Repo: "o/r", Number: 1, Author: "healthy", HeadSHA: "s1"},
-	}}
-	// "healthy" resolves fine; "unreadable" has no entry, so groupErr applies.
-	fs.byHandle = map[string]string{"healthy": config.GroupCommenter}
-	fs.groupErr = errors.New("store unavailable")
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
-	s := newDispatchScheduler(fs, fe)
-
-	if err := drain(t, s); err != nil {
-		t.Fatal(err)
-	}
-	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
-		t.Fatalf("the readable candidate must still be reviewed, got %+v", fs.completed)
-	}
-	for _, c := range fs.claims {
-		if c.WorkDir == "" {
-			t.Error("every claim must record a work dir")
-		}
-	}
-	if len(fs.claims) != 1 {
-		t.Errorf("the unreadable candidate must never be claimed, got %d claims", len(fs.claims))
-	}
-}
-
-// TestDispatchAllEnginesFloored: when every candidate is waiting on a floored
-// engine, nothing is claimed and nothing is recorded. A floored candidate is
-// HELD, not skipped, so it must survive in the queue to run when its window
-// refills. The drain must still terminate rather than spinning on a queue it
-// will never consume.
-func TestDispatchAllEnginesFloored(t *testing.T) {
-	fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"}}}
-	fe := &fakeEngine{}
-	cfg := config.Config{Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}}
-	s := New(Deps{
-		Store:  fs,
-		Config: func() config.Config { return cfg },
-		GHUser: "u",
-		Usage:  func(string) usage.Snapshot { return floored() },
-	})
-	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
-
-	if err := drain(t, s); err != nil {
-		t.Fatalf("a fully floored queue must drain cleanly, got %v", err)
-	}
-	if len(fs.claims) != 0 || len(fs.completed) != 0 {
-		t.Errorf("a floored candidate is held, not skipped: no claim, no outcome; got claims=%+v completed=%+v", fs.claims, fs.completed)
-	}
-	if len(fs.queue) != 1 {
-		t.Errorf("the held candidate must stay queued, got %+v", fs.queue)
 	}
 }
 
@@ -472,7 +299,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 		if err := reviewOne(s, fe, c); err != nil {
 			t.Fatal(err)
 		}
-		if fe.prompt != "" {
+		if fe.lastPrompt() != "" {
 			t.Error("engine must not run for a stale candidate")
 		}
 		if len(fs.completed) != 1 || fs.completed[0].Verdict != review.DecisionSkipped || fs.completed[0].Engine != store.EnginePrecheck {
@@ -546,5 +373,18 @@ func TestReviewOneCleansUpWhenClaimErrors(t *testing.T) {
 		if !existing[dir] {
 			t.Errorf("a failed claim leaked its workdir: %s", dir)
 		}
+	}
+}
+
+// TestTail pins the log-tail formatter: whitespace-trimmed, newline-flattened,
+// last-n-bytes with an ellipsis when truncated.
+func TestTail(t *testing.T) {
+	if got := tail("  short\nlines  ", 100); got != "short | lines" {
+		t.Errorf("tail = %q", got)
+	}
+	long := strings.Repeat("x", 600)
+	got := tail(long, 500)
+	if len([]rune(got)) != 501 || !strings.HasPrefix(got, "…") {
+		t.Errorf("tail truncation = %d runes, want 501 with a leading ellipsis", len([]rune(got)))
 	}
 }

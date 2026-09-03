@@ -10,8 +10,10 @@ cmd/agent-code-review/main.go   # entry point; version injected via -ldflags
 internal/
 ├── cli/
 │   ├── root.go                 # lib-agent-cli NewRoot; registers subcommands
-│   ├── deps.go                 # buildScheduler (engine + discoverer + gh user); emit()
+│   ├── deps.go                 # buildScheduler (engine + sweeper + gh user); emit()
 │   ├── serve.go                # `serve` daemon: scheduler + dashboard + tailscale.Wire
+│   ├── shutdown.go             # the two-stage stop: graceful, then forced
+│   ├── pricing.go              # estimator + costRates: one valuation, two paths
 │   ├── run.go                  # `run`: discover, drain the queue, exit
 │   ├── queue.go                # `queue ls/add/rm/promote/skip/log`
 │   ├── authors.go              # `authors set/rm/ls/groups/who`: the author roster
@@ -24,6 +26,14 @@ internal/
 ├── discover/                   # gh pr list → New/Refreshed/Discussion classification
 ├── review/                     # Engine interface + codex/claude drivers + prompt/rule assembly
 ├── scheduler/                  # discovery loop, review dispatcher, parallelism cap, claim leases
+│   ├── scheduler.go            # Deps + New: the seam declarations and composition root
+│   ├── lifecycle.go            # StartGraceful (daemon) and RunOnce (`run`)
+│   ├── dispatch.go             # the consumer loop: pull, hand off, cool down
+│   ├── dispatchstate.go        # per-candidate in-flight/backoff bookkeeping
+│   ├── loop.go                 # the interval loop (discovery's only)
+│   ├── discover.go             # the sweep + its in-flight guard
+│   ├── review.go               # reviewOne: claim, recheck, engine, record
+│   └── reconcile.go            # release a crashed daemon's claims on this host
 ├── usage/                      # per-engine subscription-headroom polling + usage-floor predicate
 ├── doctor/                     # preflight: gh/duckdb/engine binary, auth, and config sanity
 ├── logbuf/                     # in-memory ring for the daemon's own log tail
@@ -254,7 +264,22 @@ internal/
   process, not the store. A candidate that fails BEFORE its claim leaves its
   row untouched, so the dispatcher backs it off — without that it would sit
   at the head being re-offered forever, which the batch loop never had to
-  care about.
+  care about. The dispatcher waits in exactly one place, watching the
+  completion channel and the idle timer together, which is what lets a
+  `max_parallel` raise take effect within one idle poll rather than only
+  after some review happens to finish.
+
+- **The scheduler's dependencies are declared, not patched.** `New` takes a
+  `Deps` struct: `Store`, `Config` and `Sweeper` are required and everything
+  else defaults to its production implementation, so a caller states what it
+  cares about and a new seam does not churn every call site. Nothing writes
+  a Scheduler field after construction. Single-method dependencies
+  (`EngineFactory`, `CandidacyFn`, `LivenessFn`, `UsageFn`, `PriceFn`, the
+  clock) are named func types, which is Go's idiomatic shape for one method;
+  the interfaces are the ones with a real collaborator behind them,
+  `SchedulerStore` and `Sweeper`. There is deliberately no seam that swaps a
+  Scheduler method for itself: an object patching its own methods lets a test
+  assert the orchestration it supplied rather than the one that ships.
 
 - **The engine is a per-candidate choice, so the usage floor is per engine.**
   A group can name its own engine, model, and effort, so concurrent reviews

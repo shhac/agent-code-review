@@ -38,6 +38,11 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./... -count=1
+      # The dispatcher is one goroutine plus N workers sharing a
+      # deliberately lock-free dispatchState, whose safety rests on
+      # "only the dispatch goroutine touches it". The race detector is
+      # what polices that; without this step the invariant is a comment.
+      - run: go test ./internal/scheduler/ ./internal/cli/ -count=1 -race
       # The store's DuckDB round-trips (hold-upsert CASE, Promote, queue
       # ordering) only run under the integration tag and self-skip without
       # the duckdb CLI; the version check above keeps that dependency loud

@@ -2,7 +2,7 @@ BINARY := agent-code-review
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build dashboard dashboard-dev test test-integration lint dev tidy release release-check
+.PHONY: build dashboard dashboard-dev test test-race test-integration lint dev tidy release release-check
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/agent-code-review
@@ -15,6 +15,11 @@ dashboard-dev:
 
 test:
 	go test ./... -count=1
+
+# The dispatcher shares a lock-free dispatchState between its own goroutine and
+# N workers; the race detector is what holds that invariant honest.
+test-race:
+	go test ./internal/scheduler/ ./internal/cli/ -count=1 -race
 
 # Drives the real codex CLI (needs codex on PATH + auth; spends quota) and, if
 # AGENT_CODE_REVIEW_TEST_REPO is set, live gh discovery against that repo.

@@ -457,3 +457,89 @@ func TestTail(t *testing.T) {
 		t.Errorf("tail truncation = %d runes, want 501 with a leading ellipsis", len([]rune(got)))
 	}
 }
+
+// concurrencyEngine records how many reviews are in flight at once, so a test
+// can assert the parallelism cap actually caps. It blocks each review until
+// released, which is the only way to observe overlap.
+type concurrencyEngine struct {
+	mu      sync.Mutex
+	inFlgt  int
+	peak    int
+	started chan struct{}
+	release chan struct{}
+}
+
+func (e *concurrencyEngine) Provenance(context.Context) review.Provenance {
+	return review.Provenance{Engine: "concurrency"}
+}
+
+func (e *concurrencyEngine) Review(context.Context, review.Request) (review.Verdict, error) {
+	e.mu.Lock()
+	e.inFlgt++
+	if e.inFlgt > e.peak {
+		e.peak = e.inFlgt
+	}
+	e.mu.Unlock()
+	e.started <- struct{}{}
+	<-e.release
+	e.mu.Lock()
+	e.inFlgt--
+	e.mu.Unlock()
+	return review.Verdict{Decision: review.DecisionCommented}, nil
+}
+
+func (e *concurrencyEngine) peakSeen() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.peak
+}
+
+// TestDispatchRespectsMaxParallel pins the throttle on concurrent engine
+// spend. Every other dispatch test runs with one candidate or one slot, so the
+// at-capacity path is only ever left by cancellation: an off-by-one here
+// (`active > cap` rather than `>=`) would let every queued PR spawn an engine
+// at once and the rest of the suite would still pass.
+func TestDispatchRespectsMaxParallel(t *testing.T) {
+	fs := &fakeDispatchStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
+		{Repo: "o/r", Number: 3, HeadSHA: "s3"},
+		{Repo: "o/r", Number: 4, HeadSHA: "s4"},
+	}}
+	fe := &concurrencyEngine{started: make(chan struct{}, 4), release: make(chan struct{})}
+	s := newDispatchScheduler(fs, fe)
+	s.cfg = func() config.Config {
+		return config.Config{
+			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+			Schedule: config.ScheduleSettings{MaxParallel: 2, Interval: "1ms", DispatchCooldown: "0s"},
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- s.dispatch(context.Background(), context.Background(), true) }()
+
+	// Exactly two reviews may be in flight; a third must wait for a slot.
+	<-fe.started
+	<-fe.started
+	select {
+	case <-fe.started:
+		t.Fatal("a third review started while the cap was 2")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(fe.release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain never finished")
+	}
+	if got := fe.peakSeen(); got != 2 {
+		t.Errorf("peak concurrent reviews = %d, want 2", got)
+	}
+	if len(fs.completed) != 4 {
+		t.Errorf("every candidate must still be reviewed, got %d", len(fs.completed))
+	}
+}

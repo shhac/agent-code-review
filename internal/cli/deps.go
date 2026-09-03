@@ -239,19 +239,3 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 		Price:   estimator(prices),
 	}), nil
 }
-
-// estimator adapts the price table to the scheduler's PriceFn. A model the
-// table does not list, or a review with no class split, yields false: the row
-// records no estimate rather than a zero that would read as a free review.
-func estimator(prices *pricing.Cache) scheduler.PriceFn {
-	return func(model string, input, output, cacheWrite, cacheRead int) (float64, bool) {
-		if input+output == 0 {
-			return 0, false
-		}
-		rates, ok := prices.Lookup(model)
-		if !ok {
-			return 0, false
-		}
-		return rates.Cost(input, output, cacheWrite, cacheRead), true
-	}
-}

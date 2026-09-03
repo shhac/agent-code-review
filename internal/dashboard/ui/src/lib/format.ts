@@ -61,13 +61,6 @@ export function durSecs(s: number) {
   return `${(s / 3600).toFixed(1)}h`;
 }
 
-// Elapsed time between two known timestamps; here a zero gap is a real
-// measurement, so it renders as "0s" rather than durSecs's unknown "".
-export function dur(a: string, b: string) {
-  if (!a || !b) return '';
-  return durSecs(Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 1000)) || '0s';
-}
-
 // Compact token count ("850", "3.4k", "193k", "14.3m", "1.2b"). Zero
 // means unknown, not free.
 export function tokens(n: number | undefined) {
@@ -120,8 +113,8 @@ export function statusLabel(s: string) {
   return String(s ?? '').replace(/_/g, ' ');
 }
 
-// One vocabulary for candidate statuses, review verdicts, and run statuses.
-// `live` states pulse their dot.
+// One vocabulary for candidate statuses, review verdicts, and the daemon's
+// loop states. `live` states pulse their dot.
 const kinds: Record<string, string> = {
   queued: 'dim',
   held: 'warn',
@@ -135,8 +128,6 @@ const kinds: Record<string, string> = {
   SKIPPED: 'warn',
   ERROR: 'bad',
   running: 'info live',
-  done: 'ok',
-  failed: 'bad',
   off: 'dim',
 };
 

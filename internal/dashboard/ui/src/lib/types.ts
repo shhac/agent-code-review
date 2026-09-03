@@ -56,19 +56,8 @@ export type Review = {
   tokens_used?: number;
 };
 
-export type Run = {
-  started_at: string;
-  finished_at: string;
-  status: string;
-  host: string;
-};
-
 export type ReviewsResponse = {
   reviews: Review[];
-};
-
-export type RunsResponse = {
-  runs: Run[];
 };
 
 export type Bucket = {

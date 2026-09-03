@@ -1,18 +1,15 @@
 <script lang="ts">
   import ActivityChart from '../lib/ActivityChart.svelte';
-  import { getQueue, getReviews, getRuns, getStats, getUsage, queuePR } from '../lib/api';
+  import { getQueue, getReviews, getStats, getUsage, queuePR } from '../lib/api';
   import { withFeed } from '../lib/feed';
-  import { dur, rel, tokens, when, windowName } from '../lib/format';
+  import { rel, tokens, when, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
   import QueueBoard from '../lib/QueueBoard.svelte';
-  import RecentRuns from '../lib/RecentRuns.svelte';
-  import StatusBadge from '../lib/StatusBadge.svelte';
-  import type { Bucket, Candidate, QueueCounts, Review, Run, UsageResponse, UsageSnapshot } from '../lib/types';
+  import type { Bucket, Candidate, QueueCounts, Review, UsageResponse, UsageSnapshot } from '../lib/types';
 
   let queue: Candidate[] = [];
   let counts: QueueCounts = { total: 0, queued: 0, reviewing: 0, held: 0 };
   let reviews: Review[] = [];
-  let runs: Run[] = [];
   let buckets: Bucket[] = [];
   // One object per API response: the template reads fields directly, so a
   // new usage field is a template edit, not another mirrored scalar.
@@ -23,7 +20,7 @@
 
   $: totalReviews = sumBuckets(buckets, 'approved') + sumBuckets(buckets, 'commented') + sumBuckets(buckets, 'requested_changes');
   $: approvedReviews = sumBuckets(buckets, 'approved');
-  $: lastRun = runs[0];
+  $: lastReview = reviews[0];
   $: usagePaused = !!usageResp?.review_paused;
   // Every metered engine, active one first, so the engine in use reads first
   // but the alternative is visible without interaction: the panel exists to
@@ -45,17 +42,15 @@
 
   async function refresh() {
     if (dragging) return; // never yank the list out from under a drag
-    const [q, rv, rn, us, st] = await Promise.all([
+    const [q, rv, us, st] = await Promise.all([
       getQueue(),
       getReviews(100),
-      getRuns(100),
       getUsage(),
       getStats(),
     ]);
     queue = q.candidates || [];
     counts = q.counts || { total: queue.length, queued: 0, reviewing: 0, held: 0 };
     reviews = rv.reviews || [];
-    runs = rn.runs || [];
     usageResp = us;
     buckets = st.buckets || [];
   }
@@ -94,15 +89,13 @@
     <section>
       <h2>Now</h2>
       <div class="now-grid">
+        <div><strong>{counts.reviewing}</strong><span>reviewing now</span></div>
         <div><strong>{counts.queued}</strong><span>waiting in queue</span></div>
         <div><strong>{totalReviews}</strong><span>24h reviews</span></div>
         <div><strong>{approvedReviews}</strong><span>approved</span></div>
-        <div><strong>{lastRun ? rel(lastRun.started_at) || 'just' : '–'}</strong><span>last run</span></div>
       </div>
-      {#if lastRun}
-        <p class="run-line"><StatusBadge status={lastRun.status} /> {dur(lastRun.started_at, lastRun.finished_at)} on {lastRun.host}</p>
-      {:else}
-        <p class="muted">No runs yet.</p>
+      {#if lastReview}
+        <p class="run-line">last review {rel(lastReview.reviewed_at) || 'just now'}</p>
       {/if}
     </section>
 
@@ -141,6 +134,5 @@
 
     <ActivityChart {buckets} />
 
-    <RecentRuns {runs} />
   </aside>
 </div>

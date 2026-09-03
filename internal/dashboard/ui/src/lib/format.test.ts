@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dur, durSecs, exact, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
+import { durSecs, exact, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
 
 describe('maxOf', () => {
   it('takes the largest selected value', () => {
@@ -33,14 +33,6 @@ describe('durSecs', () => {
   it('renders zero as unknown: backfilled history rows carry 0', () => {
     expect(durSecs(0)).toBe('');
     expect(durSecs(-5)).toBe('');
-  });
-});
-
-describe('dur', () => {
-  it('renders a real zero gap as 0s, unlike durSecs', () => {
-    expect(dur('2026-07-07T12:00:00Z', '2026-07-07T12:00:00Z')).toBe('0s');
-    expect(dur('2026-07-07T12:00:00Z', '2026-07-07T12:08:00Z')).toBe('8m');
-    expect(dur('', '2026-07-07T12:00:00Z')).toBe('');
   });
 });
 

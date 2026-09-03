@@ -6,7 +6,6 @@ import type {
   QueueResponse,
   ReviewLogResponse,
   ReviewsResponse,
-  RunsResponse,
   LogsResponse,
   MetricsResponse,
   PromptResponse,
@@ -53,7 +52,6 @@ type PRRef = { repo: string; number: number };
 
 export const getQueue = () => fetchJSON<QueueResponse>('/api/queue');
 export const getReviews = (limit = 100) => fetchJSON<ReviewsResponse>(`/api/reviews?limit=${limit}`);
-export const getRuns = (limit = 100) => fetchJSON<RunsResponse>(`/api/runs?limit=${limit}`);
 export const getUsage = () => fetchJSON<UsageResponse>('/api/usage');
 export const getStats = () => fetchJSON<StatsResponse>('/api/stats');
 export const getMetrics = (range: string, model: string, effort: string) => {

@@ -26,7 +26,7 @@ func TestStartGracefulStartsConfiguredLoopsAndDrainsOnStop(t *testing.T) {
 	})
 
 	done := make(chan error, 1)
-	go func() { done <- s.StartGraceful(ctx, context.Background(), true, true) }()
+	go func() { done <- s.StartGraceful(Stop{Graceful: ctx, Force: context.Background()}, true, true) }()
 
 	// Discovery really ran, so the discovery loop really started.
 	select {
@@ -63,7 +63,7 @@ func TestStartGracefulForceContextReturnsWithoutWaitingForLoops(t *testing.T) {
 	})
 
 	done := make(chan error, 1)
-	go func() { done <- s.StartGraceful(gracefulCtx, reviewCtx, true, true) }()
+	go func() { done <- s.StartGraceful(Stop{Graceful: gracefulCtx, Force: reviewCtx}, true, true) }()
 	waitFor(t, func() bool { return fs.pullCount() > 0 }, "the loops to start")
 
 	force()
@@ -153,7 +153,7 @@ func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- s.StartGraceful(ctx, context.Background(), false, true) }()
+	go func() { done <- s.StartGraceful(Stop{Graceful: ctx, Force: context.Background()}, false, true) }()
 
 	waitFor(t, func() bool { return fs.pullCount() > 0 }, "the review dispatcher to start")
 	select {
@@ -208,7 +208,7 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	defer force()
 
 	done := make(chan error, 1)
-	go func() { done <- s.StartGraceful(gracefulCtx, reviewCtx, false, true) }()
+	go func() { done <- s.StartGraceful(Stop{Graceful: gracefulCtx, Force: reviewCtx}, false, true) }()
 
 	// Wait for the first reviewer to be in flight, then request the graceful
 	// stop while it is still running.

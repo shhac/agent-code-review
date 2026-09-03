@@ -17,8 +17,8 @@ func TestShutdownController(t *testing.T) {
 		defer shutdown.stop()
 
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.gracefulCtx, "graceful context")
-		assertNotDone(t, shutdown.reviewCtx, "review context")
+		waitDone(t, shutdown.gracefulCtx(), "graceful context")
+		assertNotDone(t, shutdown.reviewCtx(), "review context")
 		if !logs.contains("stopping discovery and review scheduling") {
 			t.Fatalf("missing graceful shutdown log: %#v", logs.lines)
 		}
@@ -31,9 +31,9 @@ func TestShutdownController(t *testing.T) {
 		defer shutdown.stop()
 
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.gracefulCtx, "graceful context")
+		waitDone(t, shutdown.gracefulCtx(), "graceful context")
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.reviewCtx, "review context")
+		waitDone(t, shutdown.reviewCtx(), "review context")
 		if !logs.contains("again") || !logs.contains("force shutdown") {
 			t.Fatalf("missing force shutdown log: %#v", logs.lines)
 		}
@@ -51,8 +51,8 @@ func TestShutdownController(t *testing.T) {
 		defer shutdown.stop()
 
 		signals <- syscall.SIGTERM
-		waitDone(t, shutdown.gracefulCtx, "graceful context")
-		assertNotDone(t, shutdown.reviewCtx, "review context")
+		waitDone(t, shutdown.gracefulCtx(), "graceful context")
+		assertNotDone(t, shutdown.reviewCtx(), "review context")
 		// The log has to name the signal: "why did the daemon stop" is the
 		// first question after an unexplained restart.
 		if !logs.contains("terminated") {
@@ -70,9 +70,9 @@ func TestShutdownController(t *testing.T) {
 		defer shutdown.stop()
 
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.gracefulCtx, "graceful context")
+		waitDone(t, shutdown.gracefulCtx(), "graceful context")
 		signals <- syscall.SIGTERM
-		waitDone(t, shutdown.reviewCtx, "review context")
+		waitDone(t, shutdown.reviewCtx(), "review context")
 		if !logs.contains("force shutdown") {
 			t.Fatalf("missing force shutdown log: %#v", logs.lines)
 		}
@@ -88,10 +88,10 @@ func TestShutdownController(t *testing.T) {
 		shutdown := newShutdownController(context.Background(), signals, logs.logf)
 
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.gracefulCtx, "graceful context")
+		waitDone(t, shutdown.gracefulCtx(), "graceful context")
 
 		shutdown.stop() // what serve's deferred cleanup does once draining is done
-		waitDone(t, shutdown.reviewCtx, "review context")
+		waitDone(t, shutdown.reviewCtx(), "review context")
 		if logs.contains("force shutdown") {
 			t.Fatalf("a clean drain must not log a forced shutdown: %#v", logs.lines)
 		}
@@ -103,8 +103,8 @@ func TestShutdownController(t *testing.T) {
 		defer shutdown.stop()
 
 		cancel()
-		waitDone(t, shutdown.gracefulCtx, "graceful context")
-		waitDone(t, shutdown.reviewCtx, "review context")
+		waitDone(t, shutdown.gracefulCtx(), "graceful context")
+		waitDone(t, shutdown.reviewCtx(), "review context")
 	})
 }
 

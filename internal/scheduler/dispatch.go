@@ -25,12 +25,12 @@ const stopMsg = "dispatch: shutdown requested, waiting for in-flight reviewer(s)
 // leaving cancellation to the selects alone started a new review roughly half
 // the time after a shutdown was requested, at the cost of a whole engine
 // invocation each time.
-func (s *Scheduler) stopping(gracefulCtx, reviewCtx context.Context) bool {
-	if gracefulCtx.Err() != nil {
+func (s *Scheduler) stopping(stop Stop) bool {
+	if stop.Graceful.Err() != nil {
 		s.logf("%s", stopMsg)
 		return true
 	}
-	return reviewCtx.Err() != nil
+	return stop.Force.Err() != nil
 }
 
 // dispatch is the review consumer: one goroutine pulling the next ready
@@ -54,7 +54,7 @@ func (s *Scheduler) stopping(gracefulCtx, reviewCtx context.Context) bool {
 // nothing is dispatchable and no worker is in flight, instead of idling, and
 // carries out the last pull error so a cron run whose store is unreadable
 // exits non-zero.
-func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, stopWhenIdle bool) error {
+func (s *Scheduler) dispatch(stop Stop, stopWhenIdle bool) error {
 	state := newDispatchState(s.now)
 	finished := make(chan finishedReview, 1)
 	var pullErr error
@@ -83,14 +83,14 @@ func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, stopWhenIdl
 			}
 		}
 
-		if s.stopping(gracefulCtx, reviewCtx) {
+		if s.stopping(stop) {
 			return nil
 		}
 
 		var next *pending
 		if state.active() < cfg.MaxParallel() {
 			var err error
-			next, err = s.pullNext(reviewCtx, cfg, state)
+			next, err = s.pullNext(stop.Force, cfg, state)
 			if err != nil {
 				pullErr = err
 				s.logf("dispatch: %v", err)
@@ -105,9 +105,9 @@ func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, stopWhenIdl
 			case d := <-finished:
 				state.finish(d.key, d.failed)
 			case <-time.After(cfg.Interval()):
-			case <-gracefulCtx.Done():
+			case <-stop.Graceful.Done():
 				return nil
-			case <-reviewCtx.Done():
+			case <-stop.Force.Done():
 				return nil
 			}
 			continue
@@ -119,17 +119,17 @@ func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, stopWhenIdl
 		// the result rather than hand it to a worker, or the first Ctrl-C
 		// still starts one more review than it promised. The candidate is
 		// simply left queued; nothing about it was touched.
-		if s.stopping(gracefulCtx, reviewCtx) {
+		if s.stopping(stop) {
 			return nil
 		}
 
 		key := candidateKey(next.candidate)
 		state.start(key)
 		go func(p pending, key string) {
-			finished <- finishedReview{key: key, failed: s.runOne(reviewCtx, p) != nil}
+			finished <- finishedReview{key: key, failed: s.runOne(stop.Force, p) != nil}
 		}(*next, key)
 
-		if !sleepCtx(gracefulCtx, reviewCtx, cfg.DispatchCooldown()) {
+		if !sleepCtx(stop, cfg.DispatchCooldown()) {
 			return nil
 		}
 	}
@@ -138,18 +138,18 @@ func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, stopWhenIdl
 // sleepCtx waits out d, returning false if either context ended first. Every
 // wait in the dispatcher goes through here: a bare time.Sleep would leave
 // StartGraceful up to a full idle poll behind a Ctrl-C.
-func sleepCtx(gracefulCtx, reviewCtx context.Context, d time.Duration) bool {
+func sleepCtx(stop Stop, d time.Duration) bool {
 	if d <= 0 {
-		return gracefulCtx.Err() == nil && reviewCtx.Err() == nil
+		return !stop.Stopping()
 	}
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-t.C:
 		return true
-	case <-gracefulCtx.Done():
+	case <-stop.Graceful.Done():
 		return false
-	case <-reviewCtx.Done():
+	case <-stop.Force.Done():
 		return false
 	}
 }

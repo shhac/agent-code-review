@@ -33,6 +33,21 @@ type Logf func(format string, args ...any)
 // never pauses on an empty snapshot.
 type UsageFn func(engine string) usage.Snapshot
 
+// Stop carries the daemon's two shutdown contexts as one value. They are both
+// context.Context and mean opposite things — Graceful stops NEW work while
+// in-flight reviews finish, Force ends the reviews themselves — so passing
+// them as two positional parameters made swapping them a silent compile. The
+// old code's defence was a comment noting this was "the one code path where
+// confusing them kills a review mid-flight"; a type removes the hazard
+// instead of documenting it.
+type Stop struct {
+	Graceful context.Context
+	Force    context.Context
+}
+
+// Stopping reports whether either context has ended.
+func (st Stop) Stopping() bool { return st.Graceful.Err() != nil || st.Force.Err() != nil }
+
 // Sweeper scrapes the watched repos for candidate PRs. Named on the consumer
 // side, as SchedulerStore is (and as discover.candidateStore and
 // dashboard.dashboardStore are), so the scheduler depends on the one method it

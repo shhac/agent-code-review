@@ -33,7 +33,7 @@ func drain(t *testing.T, s *Scheduler) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errc := make(chan error, 1)
-	go func() { errc <- s.dispatch(ctx, ctx, true) }()
+	go func() { errc <- s.dispatch(Stop{Graceful: ctx, Force: ctx}, true) }()
 	select {
 	case err := <-errc:
 		return err
@@ -65,7 +65,7 @@ func TestDispatchGracefulStop(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = s.dispatch(gracefulCtx, context.Background(), false)
+		_ = s.dispatch(Stop{Graceful: gracefulCtx, Force: context.Background()}, false)
 	}()
 
 	if got := <-fe.started; got != 1 {
@@ -102,7 +102,7 @@ func TestDispatchStartsNothingAfterStopRequested(t *testing.T) {
 	gracefulCtx, stop := context.WithCancel(context.Background())
 	stop() // already cancelled before the dispatcher ever looks
 
-	if err := s.dispatch(gracefulCtx, context.Background(), false); err != nil {
+	if err := s.dispatch(Stop{Graceful: gracefulCtx, Force: context.Background()}, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(fs.claims) != 0 || len(fs.completed) != 0 {
@@ -128,7 +128,7 @@ func TestDispatchStopDuringAPullDispatchesNothing(t *testing.T) {
 	s := newDispatchScheduler(fs, fe)
 
 	done := make(chan error, 1)
-	go func() { done <- s.dispatch(gracefulCtx, context.Background(), false) }()
+	go func() { done <- s.dispatch(Stop{Graceful: gracefulCtx, Force: context.Background()}, false) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -317,7 +317,7 @@ func TestDispatch(t *testing.T) {
 		}}
 		s := newDispatchScheduler(fs, fe)
 		done := make(chan error, 1)
-		go func() { done <- s.dispatch(context.Background(), context.Background(), true) }()
+		go func() { done <- s.dispatch(Stop{Graceful: context.Background(), Force: context.Background()}, true) }()
 
 		// Give the dispatcher time for several pulls while the review holds.
 		time.Sleep(50 * time.Millisecond)
@@ -411,7 +411,7 @@ func TestDispatchRespectsMaxParallel(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- s.dispatch(context.Background(), context.Background(), true) }()
+	go func() { done <- s.dispatch(Stop{Graceful: context.Background(), Force: context.Background()}, true) }()
 
 	// Exactly two reviews may be in flight; a third must wait for a slot.
 	<-fe.started
@@ -462,7 +462,7 @@ func TestDispatchPicksUpAMaxParallelRaise(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- s.dispatch(context.Background(), context.Background(), true) }()
+	go func() { done <- s.dispatch(Stop{Graceful: context.Background(), Force: context.Background()}, true) }()
 
 	<-fe.started // one in flight, cap reached
 	select {

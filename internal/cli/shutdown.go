@@ -14,11 +14,16 @@ import (
 )
 
 type shutdownController struct {
-	gracefulCtx context.Context
-	reviewCtx   context.Context
-	graceful    func()
-	stop        func()
+	// stopCtxs is the pair the scheduler takes whole, so the two contexts
+	// cannot be handed over the wrong way round.
+	stopCtxs scheduler.Stop
+	graceful func()
+	stop     func()
 }
+
+// gracefulCtx stops NEW work; reviewCtx ends work already running.
+func (c shutdownController) gracefulCtx() context.Context { return c.stopCtxs.Graceful }
+func (c shutdownController) reviewCtx() context.Context   { return c.stopCtxs.Force }
 
 func newShutdownController(ctx context.Context, signals <-chan os.Signal, logf scheduler.Logf) shutdownController {
 	gracefulCtx, gracefulStop := context.WithCancel(ctx)
@@ -42,9 +47,8 @@ func newShutdownController(ctx context.Context, signals <-chan os.Signal, logf s
 		}
 	}()
 	return shutdownController{
-		gracefulCtx: gracefulCtx,
-		reviewCtx:   reviewCtx,
-		graceful:    gracefulStop,
+		stopCtxs: scheduler.Stop{Graceful: gracefulCtx, Force: reviewCtx},
+		graceful: gracefulStop,
 		stop: func() {
 			gracefulStop()
 			forceStop()

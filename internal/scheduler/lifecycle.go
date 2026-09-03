@@ -31,13 +31,13 @@ import (
 // names serve.go uses, because the pair was called gracefulCtx/reviewCtx above
 // this boundary and stopCtx/reviewCtx below it, in the one code path where
 // confusing them kills a review mid-flight.
-func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discovery, review bool) error {
+func (s *Scheduler) StartGraceful(stop Stop, discovery, review bool) error {
 	// A crashed daemon leaves a running run row (which would block cycles
 	// for the whole lease window) and claimed queue rows (which would wait
 	// it out too). Reconcile before the first tick so a restart resumes
 	// immediately. Failure is logged, not fatal; the lease window is the
 	// fallback that always works.
-	if err := s.Reconcile(reviewCtx); err != nil {
+	if err := s.Reconcile(stop.Force); err != nil {
 		s.logf("reconcile: %v", err)
 	}
 	boot := s.cfg()
@@ -47,7 +47,7 @@ func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discov
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.loop(gracefulCtx, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
+			s.loop(stop.Graceful, func() time.Duration { return s.cfg().DiscoverInterval() }, "discover", s.Discover)
 		}()
 	}
 	if review {
@@ -58,7 +58,7 @@ func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discov
 			defer wg.Done()
 			// The daemon dispatcher only returns nil: a pull error is
 			// surfaced through stopWhenIdle, which only `run` sets.
-			_ = s.dispatch(gracefulCtx, reviewCtx, false)
+			_ = s.dispatch(stop, false)
 		}()
 	}
 
@@ -69,9 +69,9 @@ func (s *Scheduler) StartGraceful(gracefulCtx, reviewCtx context.Context, discov
 	}()
 	select {
 	case <-done:
-		return gracefulCtx.Err()
-	case <-reviewCtx.Done():
-		return reviewCtx.Err()
+		return stop.Graceful.Err()
+	case <-stop.Force.Done():
+		return stop.Force.Err()
 	}
 }
 
@@ -84,5 +84,5 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 	if err := s.Discover(ctx); err != nil {
 		return err
 	}
-	return s.dispatch(ctx, ctx, true)
+	return s.dispatch(Stop{Graceful: ctx, Force: ctx}, true)
 }

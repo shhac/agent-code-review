@@ -97,7 +97,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	defer shutdown.stop()
 
 	// Bring up the Tailscale tunnel (if requested) and derive the public URL.
-	publicURL, tsDown, err := tailscale.Wire(shutdown.reviewCtx, opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
+	publicURL, tsDown, err := tailscale.Wire(shutdown.reviewCtx(), opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// worth serving, a missing CLI may come back, and refusing to boot would
 	// be a worse failure than reviewing nothing. But the reason belongs in
 	// the log now rather than inferred later from a queue full of ERRORs.
-	for _, c := range doctor.Blocking(doctor.Run(shutdown.reviewCtx, cfg)) {
+	for _, c := range doctor.Blocking(doctor.Run(shutdown.reviewCtx(), cfg)) {
 		logf("preflight: %s FAILED: %s (%s)", c.Name, c.Detail, c.Hint)
 	}
 
@@ -123,7 +123,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// boot, like the loop switches.
 	usageCache := usage.NewCache()
 	for _, src := range usageSources(cfg) {
-		go usageCache.Poll(shutdown.gracefulCtx, cfg.UsagePollInterval(), src)
+		go usageCache.Poll(shutdown.gracefulCtx(), cfg.UsagePollInterval(), src)
 	}
 
 	// The model price table is the other background poll: refreshed on its own
@@ -131,8 +131,8 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// enrichment (only claude values its own runs; codex reports no cost at
 	// all, so its spend has to be derived from the rates).
 	prices := pricing.Open(config.PricingCacheDir())
-	go prices.Poll(shutdown.gracefulCtx, logf, func() {
-		backfillEstimates(shutdown.gracefulCtx, prices, s, logf)
+	go prices.Poll(shutdown.gracefulCtx(), logf, func() {
+		backfillEstimates(shutdown.gracefulCtx(), prices, s, logf)
 	})
 
 	running := runningLoops(opts, cfg)
@@ -152,8 +152,8 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		return err
 	}
 
-	<-shutdown.gracefulCtx.Done()
-	forced := waitForScheduler(schedDone, shutdown.reviewCtx, logf)
+	<-shutdown.gracefulCtx().Done()
+	forced := waitForScheduler(schedDone, shutdown.reviewCtx(), logf)
 	if forced {
 		_ = srv.Close()
 		return nil
@@ -220,7 +220,7 @@ func startScheduler(ctx context.Context, running dashboard.Running, cfg func() c
 	}
 	done := make(chan error, 1)
 	go func() {
-		err := sched.StartGraceful(shutdown.gracefulCtx, shutdown.reviewCtx, running.Discovery, running.Review)
+		err := sched.StartGraceful(shutdown.stopCtxs, running.Discovery, running.Review)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			logf("scheduler stopped: %v", err)
 		}

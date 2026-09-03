@@ -23,8 +23,8 @@ func TestDefaults(t *testing.T) {
 	if got := c.MaxParallel(); got != 4 {
 		t.Errorf("MaxParallel default = %d, want 4", got)
 	}
-	if got := c.Interval(); got != 10*time.Second {
-		t.Errorf("Interval default = %v, want 10s", got)
+	if got := c.Interval(); got != 30*time.Second {
+		t.Errorf("Interval default = %v, want 30s", got)
 	}
 	if got := c.RereviewCooldown(); got != 90*time.Minute {
 		t.Errorf("RereviewCooldown default = %v, want 90m", got)
@@ -90,8 +90,8 @@ func TestOverrides(t *testing.T) {
 
 func TestIntervalFallsBackOnGarbage(t *testing.T) {
 	c := Config{Schedule: ScheduleSettings{Interval: "not-a-duration"}}
-	if got := c.Interval(); got != 10*time.Second {
-		t.Errorf("Interval on garbage = %v, want the 10s fallback", got)
+	if got := c.Interval(); got != 30*time.Second {
+		t.Errorf("Interval on garbage = %v, want the 30s fallback", got)
 	}
 }
 
@@ -267,8 +267,8 @@ func TestInitAndReadWrite(t *testing.T) {
 	}
 
 	cfg := Read()
-	if cfg.Schedule.Interval != "10s" {
-		t.Errorf("starter schedule.interval = %q, want 10s", cfg.Schedule.Interval)
+	if cfg.Schedule.Interval != "30s" {
+		t.Errorf("starter schedule.interval = %q, want 30s", cfg.Schedule.Interval)
 	}
 
 	cfg.GHUser = "example-handle"

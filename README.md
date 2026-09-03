@@ -198,7 +198,7 @@ Reviews are dispatched one at a time as slots free rather than in batches: the
 moment a review finishes, the next ready candidate is picked up after
 `schedule.dispatch_cooldown` (default 5s). Nothing waits for a batch to
 drain, so a PR discovered while other reviews are in flight starts as soon as
-there is room for it. `schedule.interval` (default 10s) is only the idle poll,
+there is room for it. `schedule.interval` (default 30s) is only the idle poll,
 for when a look at the queue found nothing ready: it bounds how long work the
 dispatcher cannot be told about waits, which in practice means a `queue add`
 from another process or a hold expiring.

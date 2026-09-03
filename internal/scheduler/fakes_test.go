@@ -99,11 +99,9 @@ type fakeDispatchStore struct {
 	// shutdown, say) while a pull is in flight.
 	onList func()
 
-	// Reconciliation recorders. They live here rather than in a third fake so
-	// one type covers the whole SchedulerStore surface: a test spanning
-	// reconcile and dispatch needs no fourth fake, and cannot accidentally get
-	// the unlocked ListQueue the separate reconcile fake used to have.
-	cleared   []int // queue row numbers whose claims were cleared
+	// Reconciliation recorder. ClearClaim and the cleared list live on the
+	// embedded fakeSchedStore, so one type covers the whole SchedulerStore
+	// surface: a test spanning reconcile and dispatch needs no second fake.
 	abandoned []store.Review
 }
 
@@ -158,13 +156,6 @@ func (f *fakeDispatchStore) AppendHistory(_ context.Context, r store.Review) err
 	f.qmu.Lock()
 	defer f.qmu.Unlock()
 	f.abandoned = append(f.abandoned, r)
-	return nil
-}
-
-func (f *fakeDispatchStore) ClearClaim(_ context.Context, _ string, number int) error {
-	f.qmu.Lock()
-	defer f.qmu.Unlock()
-	f.cleared = append(f.cleared, number)
 	return nil
 }
 

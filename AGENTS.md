@@ -339,6 +339,17 @@ internal/
   (managed via `authors`). Never hardcode a GitHub handle or repo, not in code,
   docs, or the example config.
 
+- **Transient failures are absorbed at their own boundary, not paid for by a
+  long timeout.** Each DuckDB statement is a subprocess taking the file lock
+  for its ~25ms life, so a concurrent CLI command can land inside a daemon
+  poll; `query` retries a lock conflict (and only a lock conflict) a few times
+  over ~300ms rather than surfacing DuckDB's raw error. The pre-review
+  candidacy recheck is one `gh` call: it releases its claim on failure so a
+  network blip costs the dispatcher's backoff instead of the 2h lease window.
+  Engine invocations have their own bounded resume policy (`resumableRun`).
+  Discovery, usage and pricing need none of this: each runs on a loop and a
+  failed pass is simply retried by the next one.
+
 - **Crash/concurrency safety.** Claims are compare-and-swap leases carrying
   host+pid (`Store.Claim` returns whether you won; losing is a clean skip),
   and boot runs `Scheduler.Reconcile` to release claims left by a dead pid on

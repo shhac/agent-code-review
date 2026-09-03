@@ -51,21 +51,23 @@ func (c Config) MaxParallel() int {
 }
 
 // Interval is the dispatcher's IDLE poll: how long it waits after a pull found
-// nothing dispatchable (default 10s, and 10s on parse failure).
+// nothing dispatchable (default 30s, and 30s on parse failure).
 //
 // It is no longer a batch cadence. A freed slot dispatches the next ready
 // candidate after DispatchCooldown, without waiting for this interval, so the
 // only thing this bounds is how long work the dispatcher cannot be told about
 // sits unnoticed: a `queue add` from another process, or a hold expiring. That
-// is why the default is seconds rather than the minute the batch cadence used
-// — a manual add means "review this now", and nothing wakes the dispatcher for
-// it. The cost of a tight default is one ListQueue per interval while idle,
-// and eligibility holds keep that queue empty of non-actionable work.
+// is why the default is seconds rather than the minute the batch cadence used:
+// a manual add means "review this now", and nothing wakes the dispatcher for
+// it. The cost is one ListQueue per interval while idle, each a duckdb
+// subprocess holding the file lock for its ~25ms life, so a tighter default
+// trades a little more lock contention for a shorter wait. Dial it down if the
+// wait matters more to you than the churn.
 //
 // The key kept its name through the meaning change; LeaseWindow still derives
 // from it, and its 2h floor absorbs any sane value here.
 func (c Config) Interval() time.Duration {
-	return durationOr(c.Schedule.Interval, 10*time.Second)
+	return durationOr(c.Schedule.Interval, 30*time.Second)
 }
 
 // DispatchCooldown is the pause between dispatches: after a slot frees, the

@@ -33,6 +33,17 @@ type fakeSchedStore struct {
 	claims    []store.Lease
 	workDirs  []string
 	completed []store.Review
+	cleared   []int // queue rows whose claim was released
+}
+
+// ClearClaim records a released claim. It lives on the base fake because both
+// paths that release one (a failed candidacy recheck, reconciling a crashed
+// daemon's leftovers) have to be observable from the same place.
+func (f *fakeSchedStore) ClearClaim(_ context.Context, _ string, number int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cleared = append(f.cleared, number)
+	return nil
 }
 
 func (f *fakeSchedStore) Claim(_ context.Context, _ string, _ int, l store.Lease) (bool, error) {
@@ -339,6 +350,14 @@ func TestReviewOnePrecheck(t *testing.T) {
 		}
 		if len(fs.completed) != 0 {
 			t.Errorf("no outcome may be recorded on recheck error, got %+v", fs.completed)
+		}
+		// The claim is RELEASED, not left to age out. The recheck is one gh
+		// call, so a network blip lands here, and holding the claim would park
+		// the PR for the whole 2h lease window over a failure usually gone in
+		// seconds. Nothing has been spent yet, so a fresh attempt is cheap;
+		// the dispatcher's backoff keeps the retry from being a hot loop.
+		if len(fs.cleared) != 1 || fs.cleared[0] != 9 {
+			t.Errorf("the claim must be released after a failed recheck, got cleared=%v", fs.cleared)
 		}
 	})
 }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed schema.sql
@@ -59,10 +60,52 @@ func (d *duckDB) Close() error { return nil }
 
 // --- exec plumbing (mirrors agent-sql/internal/driver/duckdb) ---
 
+// lockRetries and lockBackoff bound the wait for the DB file lock. The mutex
+// above serializes THIS process; the lock is what serializes against every
+// other one, and each statement holds it for the ~25ms its subprocess lives.
+// A daemon polling the queue therefore owns the file in short bursts, and a
+// concurrent `queue add` or dashboard read that lands inside one used to get
+// DuckDB's raw "Conflicting lock is held" straight back. Contention is brief
+// and self-clearing, so a few spaced retries turn a user-visible error into
+// nothing at all.
+//
+// Deliberately short: the point is to ride out a neighbouring statement, not
+// to wait out a long-running one. Anything still locked after this is a
+// genuinely held file (another daemon mid-write, an interactive `duckdb`
+// session someone left open) and the caller should hear about it.
+const (
+	lockRetries = 3
+	lockBackoff = 50 * time.Millisecond
+)
+
 func (d *duckDB) query(ctx context.Context, sql string) ([]map[string]any, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	var lastErr error
+	for attempt := 0; attempt <= lockRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-time.After(lockBackoff * time.Duration(attempt)):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		rows, err := d.attempt(ctx, sql)
+		if err == nil {
+			return rows, nil
+		}
+		if !isLockConflict(err) {
+			return nil, err
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// attempt runs one duckdb subprocess. Callers go through query, which adds the
+// lock retry.
+func (d *duckDB) attempt(ctx context.Context, sql string) ([]map[string]any, error) {
 	args := []string{"-cmd", ".mode jsonlines"}
 	if d.readOnly {
 		args = append(args, "-readonly")
@@ -80,6 +123,16 @@ func (d *duckDB) query(ctx context.Context, sql string) ([]map[string]any, error
 		return nil, stderrors.New(msg)
 	}
 	return parseNDJSON(string(out))
+}
+
+// isLockConflict matches DuckDB's file-lock error and nothing else. Matched on
+// the message because the CLI is a subprocess: there is no error value to
+// compare, only what it printed to stderr. Both halves must appear, so an
+// unrelated IO error that happens to mention a lock is not retried.
+func isLockConflict(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "Could not set lock on file") &&
+		strings.Contains(msg, "Conflicting lock is held")
 }
 
 // exec runs a statement whose result rows are deliberately ignored. Keeping

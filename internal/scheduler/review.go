@@ -120,6 +120,20 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 	}
 	skipped, err := s.skipIfStale(ctx, c, claimedAt)
 	if err != nil {
+		// Release the claim rather than let it age out. The recheck is one gh
+		// call, so a network blip or a GitHub 5xx lands here, and holding the
+		// claim would park the PR for the whole lease window (2h) over a
+		// failure that is usually gone in seconds. Nothing has been spent yet:
+		// this is before the engine runs, so a fresh attempt costs nothing but
+		// another recheck. The dispatcher's per-candidate backoff is what
+		// stops the retry becoming a hot loop, which is why releasing is safe
+		// now and was not before the backoff existed.
+		//
+		// work_dir survives ClearClaim on purpose: the next attempt reads it
+		// to find a resumable session.
+		if clearErr := s.store.ClearClaim(ctx, c.Repo, c.Number); clearErr != nil {
+			s.logf("review %s#%d: releasing claim after a failed recheck: %v", c.Repo, c.Number, clearErr)
+		}
 		return err
 	}
 	if skipped {

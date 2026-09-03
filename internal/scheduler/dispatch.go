@@ -228,15 +228,3 @@ func availableCandidates(queue []store.Candidate, now time.Time, staleAfter time
 	}
 	return out
 }
-
-// RunOnce is the one-shot flow (`run`): reconcile leftovers, one discovery
-// sweep, then drain whatever is dispatchable and exit.
-func (s *Scheduler) RunOnce(ctx context.Context) error {
-	if err := s.Reconcile(ctx); err != nil {
-		s.logf("reconcile: %v", err)
-	}
-	if err := s.Discover(ctx); err != nil {
-		return err
-	}
-	return s.dispatch(ctx, ctx, true)
-}

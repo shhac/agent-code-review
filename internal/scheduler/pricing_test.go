@@ -21,7 +21,7 @@ func TestReviewRecordEstimate(t *testing.T) {
 	claimed := time.Now()
 
 	t.Run("a priced model records our valuation", func(t *testing.T) {
-		price := func(string, int, int, int, int) (float64, bool) { return 0.42, true }
+		price := func(string, review.TokenUsage) (float64, bool) { return 0.42, true }
 		got := reviewRecord(c, v, prov, claimed, price)
 		if got.EstCostUSD != 0.42 {
 			t.Errorf("EstCostUSD = %v, want 0.42", got.EstCostUSD)
@@ -34,7 +34,7 @@ func TestReviewRecordEstimate(t *testing.T) {
 	})
 
 	t.Run("an unpriceable model records no estimate", func(t *testing.T) {
-		price := func(string, int, int, int, int) (float64, bool) { return 0, false }
+		price := func(string, review.TokenUsage) (float64, bool) { return 0, false }
 		got := reviewRecord(c, v, prov, claimed, price)
 		if got.EstCostUSD != 0 {
 			t.Errorf("EstCostUSD = %v, want zero-value (absent)", got.EstCostUSD)

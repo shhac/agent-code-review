@@ -177,7 +177,7 @@ func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, clai
 	// when the engine reported its own: the two side by side are the only
 	// check that our class mapping and rates are right.
 	if price != nil {
-		if est, ok := price(rec.Model, rec.InputTokens, rec.OutputTokens, rec.CacheWriteTokens, rec.CacheReadTokens); ok {
+		if est, ok := price(rec.Model, v.Tokens); ok {
 			rec.EstCostUSD = est
 		}
 	}

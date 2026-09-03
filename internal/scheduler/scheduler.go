@@ -102,7 +102,12 @@ type Scheduler struct {
 // PriceFn values one review's token classes in USD. The second result is
 // false when the model is unknown to the price table or the row carries no
 // class split, both of which mean "cannot estimate", never "free".
-type PriceFn func(model string, input, output, cacheWrite, cacheRead int) (float64, bool)
+//
+// It takes the whole TokenUsage rather than four positional ints: the classes
+// are priced at very different rates, so transposing cache-write and
+// cache-read mis-values a review silently and by a large factor. The caller
+// has the struct in hand already.
+type PriceFn func(model string, t review.TokenUsage) (float64, bool)
 
 // EngineFactory builds the review engine for ONE candidate, from live config
 // patched with that author's policy: codex.* edits apply without a restart,

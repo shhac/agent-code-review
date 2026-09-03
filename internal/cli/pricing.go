@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/shhac/agent-code-review/internal/pricing"
+	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/scheduler"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -69,14 +70,14 @@ func backfillEstimates(ctx context.Context, prices *pricing.Cache, s store.Store
 // table does not list, or a review with no class split, yields false: the row
 // records no estimate rather than a zero that would read as a free review.
 func estimator(prices *pricing.Cache) scheduler.PriceFn {
-	return func(model string, input, output, cacheWrite, cacheRead int) (float64, bool) {
-		if input+output == 0 {
+	return func(model string, t review.TokenUsage) (float64, bool) {
+		if t.Input+t.Output == 0 {
 			return 0, false
 		}
 		rates, ok := prices.Lookup(model)
 		if !ok {
 			return 0, false
 		}
-		return rates.Cost(input, output, cacheWrite, cacheRead), true
+		return rates.Cost(t.Input, t.Output, t.CacheWrite, t.CacheRead), true
 	}
 }

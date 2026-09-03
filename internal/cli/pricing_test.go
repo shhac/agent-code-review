@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/shhac/agent-code-review/internal/pricing"
+	"github.com/shhac/agent-code-review/internal/review"
 )
 
 // TestEstimatorRefusesToGuess pins the two ways estimator must decline. Both
@@ -14,10 +15,10 @@ func TestEstimatorRefusesToGuess(t *testing.T) {
 	// An empty cache lists no model, which is the unlisted-model case.
 	est := estimator(pricing.Open(t.TempDir()))
 
-	if _, ok := est("gpt-5.6", 1000, 200, 0, 0); ok {
+	if _, ok := est("gpt-5.6", review.TokenUsage{Input: 1000, Output: 200}); ok {
 		t.Error("a model the price table does not list must not be estimated")
 	}
-	if _, ok := est("gpt-5.6", 0, 0, 5000, 900000); ok {
+	if _, ok := est("gpt-5.6", review.TokenUsage{CacheWrite: 5000, CacheRead: 900000}); ok {
 		t.Error("a review with no input/output split must not be estimated, even with cache tokens")
 	}
 }

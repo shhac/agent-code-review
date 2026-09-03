@@ -19,9 +19,9 @@ COMMANDS:
         [--no-discovery] [--no-reviews] [--no-schedule=both]
                                                      Per-loop overrides for this boot; config
                                                      (discovery.enabled/schedule.enabled) sets defaults
-  run  [--once]                                      Run a single review cycle, then exit
+  run  [--once] [--ignore-usage-floor]               Discover, drain the queue, then exit
                                                      (stdout: outcome records + a summary;
-                                                     stderr: cycle progress logs)
+                                                     stderr: progress logs)
 
   queue ls [--repo R]                                List pending candidates (NDJSON)
   queue add <owner/repo> <number>                    Add a PR to the queue
@@ -75,7 +75,7 @@ CANDIDATES (discovery is deterministic: gh + rules, never the LLM):
   Discovered candidates can carry an eligibility hold: settling (PR updated
   within candidates.quiet_period) or cooldown (we reviewed it within
   candidates.rereview_cooldown). Held rows sit visibly in the queue but are
-  skipped by review cycles until eligible_at; queue promote or a manual add
+  not dispatched until eligible_at; queue promote or a manual add
   bypasses holds.
 
 AUTHOR GROUPS: an author belongs to ONE group per repo, and the group IS the
@@ -95,7 +95,7 @@ AUTHOR GROUPS: an author belongs to ONE group per repo, and the group IS the
   that isn't self-authored: the self-review veto sits above the cascade and no
   group or override can lift it. Only this PR's own resolved policy reaches the
   engine, never the roster.
-  A group naming its own engine means one cycle can run both engines, so the
+  A group naming its own engine means concurrent reviews can run both, so the
   usage floor is applied per engine: one being out of headroom holds only its
   own candidates.
 
@@ -134,8 +134,8 @@ COMMANDS:
     as same-sweep tiebreaks). One NDJSON record per candidate. A row with
     claimed_at set is being reviewed right now; a row with eligible_at in the
     future is on hold (hold_reason: cooldown = we reviewed it recently,
-    settling = the PR was pushed/edited too recently) and is skipped by
-    review cycles until then.
+    settling = the PR was pushed/edited too recently) and is not dispatched
+    until then.
 
   queue add <owner/repo> <number>
     Add a PR by hand: live metadata (title/author/SHA) is fetched via gh, and

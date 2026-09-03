@@ -12,7 +12,7 @@ internal/
 │   ├── root.go                 # lib-agent-cli NewRoot; registers subcommands
 │   ├── deps.go                 # buildScheduler (engine + discoverer + gh user); emit()
 │   ├── serve.go                # `serve` daemon: scheduler + dashboard + tailscale.Wire
-│   ├── run.go                  # `run --once`: single review cycle
+│   ├── run.go                  # `run`: discover, drain the queue, exit
 │   ├── queue.go                # `queue ls/add/rm/promote/skip/log`
 │   ├── authors.go              # `authors set/rm/ls/groups/who`: the author roster
 │   ├── repos.go                # `repos ls/add/rm`: the watched repos (config)
@@ -23,7 +23,7 @@ internal/
 ├── store/                      # Store interface + DuckDB subprocess driver + schema.sql
 ├── discover/                   # gh pr list → New/Refreshed/Discussion classification
 ├── review/                     # Engine interface + codex/claude drivers + prompt/rule assembly
-├── scheduler/                  # run-lock, heartbeat loops, parallelism cap, cycle orchestration
+├── scheduler/                  # discovery loop, review dispatcher, parallelism cap, claim leases
 ├── usage/                      # per-engine subscription-headroom polling + usage-floor predicate
 ├── doctor/                     # preflight: gh/duckdb/engine binary, auth, and config sanity
 ├── logbuf/                     # in-memory ring for the daemon's own log tail
@@ -224,7 +224,7 @@ internal/
   family release pipeline. Mirrors `agent-sql`'s driver. Requires the `duckdb`
   CLI at runtime.
 - **Config reloads live via getters.** Scheduler, discoverer, and dashboard
-  hold `func() config.Config` and re-read per cycle/sweep/request (each
+  hold `func() config.Config` and re-read per dispatch/sweep/request (each
   operation snapshots ONCE and threads the snapshot). The loop on/off
   switches are NOT config: serve resolves config defaults + `--no-*` flags
   once at boot and passes them to `StartGraceful` as explicit parameters, so
@@ -239,21 +239,38 @@ internal/
   ever extend on re-sweep; `Promote` (= review now) clears the hold, floats
   the row, and escalates to manual; drag-reorder never touches holds or
   source. Queue order is FIFO by first discovery (`discovered_at` is
-  first-seen, never bumped). Idle review cycles exit before the run-lock;
-  the 1m default cadence records nothing while the queue is empty or held.
+  first-seen, never bumped). A pull that finds nothing ready records nothing
+  and simply waits out `schedule.interval`.
+
+- **The queue is consumed continuously, not in batches.** One dispatcher pulls
+  the queue LIVE and hands the head candidate to a worker whenever a slot is
+  free, waiting `schedule.dispatch_cooldown` between hand-offs. Nothing is
+  snapshotted, so a PR that becomes ready mid-review starts on the next free
+  slot instead of waiting for the batch. There is no global run-lock:
+  `store.Claim` is a compare-and-swap, so two reviewers (even in two
+  processes) can never take the same PR, and that is the only exclusion the
+  design relies on. Two consequences worth knowing: `run` genuinely competes
+  with a live daemon rather than no-opping, and `max_parallel` bounds one
+  process, not the store. A candidate that fails BEFORE its claim leaves its
+  row untouched, so the dispatcher backs it off — without that it would sit
+  at the head being re-offered forever, which the batch loop never had to
+  care about.
 
 - **The engine is a per-candidate choice, so the usage floor is per engine.**
-  A group can name its own engine, model, and effort, so one cycle can run
-  both CLIs. Each candidate's policy is resolved ONCE at the top of the cycle
-  and travels with it, so the engine build, the headroom check, and the prompt
-  all read one answer. The floor is therefore an eligibility FILTER, not a
-  cycle gate: a candidate whose engine is out of headroom is never claimed,
-  completed, or recorded, so it waits exactly like a cooldown hold and runs
-  when the window refills. That framing is what makes it cheap, since the
-  queue already had the vocabulary for "pending but not yet actionable". A
-  fully floored cycle still exits before the run-lock so it records no run.
-  An unbuildable engine is likewise per candidate: one group pointing at a
-  broken engine must not stop everyone else's reviews.
+  A group can name its own engine, model, and effort, so concurrent reviews
+  can run both CLIs. Each candidate's policy is resolved ONCE when the
+  dispatcher pulls it, alongside the config snapshot it was resolved under,
+  and all three travel together on `pending`: the engine build, the headroom
+  check, and the prompt must read one answer, never a config that changed
+  underneath them. Policy is resolved LAZILY, one candidate at a time until
+  one clears its floor, because the dispatcher only ever hands off one and
+  resolving the whole queue would cost a DuckDB subprocess per row per pull.
+  The floor is an eligibility FILTER: a candidate whose engine is out of
+  headroom is never claimed, completed, or recorded, so it waits exactly like
+  a cooldown hold and runs when the window refills. That framing is what makes
+  it cheap, since the queue already had the vocabulary for "pending but not
+  yet actionable". An unbuildable engine is likewise per candidate: one group
+  pointing at a broken engine must not stop everyone else's reviews.
 - **Every external dependency fails late; diagnose it early.** A missing or
   logged-out engine CLI, an absent duckdb, or a model the permission
   classifier rejects all surface the same way at run time: repeated ERROR

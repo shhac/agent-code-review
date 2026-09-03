@@ -52,7 +52,7 @@ func emit(v any) error {
 	return libcli.EmitItem(os.Stdout, format, v)
 }
 
-// stderrLogf is the daemon/cycle log sink: human-readable, on stderr, so
+// stderrLogf is the daemon/run log sink: human-readable, on stderr, so
 // stdout stays clean for any NDJSON a command emits.
 func stderrLogf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
@@ -213,7 +213,7 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 
 	disc := discover.New(cfgFn, s, logf).WithSelfLogin(ghUser)
 
-	// Pricing is read from the cache dir, never fetched here: `run --once`
+	// Pricing is read from the cache dir, never fetched here: `run`
 	// and the daemon both value reviews from whatever the last refresh left on
 	// disk, and neither waits on the network to record an outcome. An empty
 	// cache simply records no estimate.

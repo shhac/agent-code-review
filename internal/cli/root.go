@@ -1,7 +1,7 @@
 // Package cli assembles the agent-code-review root command on lib-agent-cli's
 // shared scaffolding. The CLI is a queue manager + scheduler + dashboard for
 // PR reviews: `serve` runs the daemon (scheduler + web UI + optional Tailscale),
-// `run --once` performs a single cycle, and `queue` manages candidates by hand.
+// `run` drains the queue once, and `queue` manages candidates by hand.
 package cli
 
 import (

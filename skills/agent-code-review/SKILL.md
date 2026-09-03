@@ -3,7 +3,7 @@ name: agent-code-review
 description: |
   PR review queue and scheduler CLI. Use when inspecting or managing the
   queue of pull requests awaiting automated review, adding, removing,
-  promoting, or skipping candidates by hand, running a single review cycle
+  promoting, or skipping candidates by hand, running a one-shot review pass
   or the serve daemon and its dashboard, or checking which repos, author
   groups, and schedule the reviewer is configured with. Triggers: unblock
   PRs.
@@ -33,7 +33,7 @@ The queue holds only pending work, FIFO by first discovery; a row with
 `claimed_at` set is being reviewed right now, and a row with `eligible_at` in
 the future is **on hold** (`hold_reason`: `settling` = the PR was pushed or
 edited within `candidates.quiet_period`; `cooldown` = we reviewed it within
-`candidates.rereview_cooldown`); review cycles skip it until then. Completed
+`candidates.rereview_cooldown`); it is not dispatched until then. Completed
 outcomes live in history (see the dashboard's History page).
 
 ## Manage candidates
@@ -73,7 +73,7 @@ this PR's own resolved policy reaches the engine, never the roster.
 ## Run reviews
 
 ```bash
-agent-code-review run --once                         # one cycle, then exit
+agent-code-review run                                # drain the queue, then exit
 agent-code-review serve --http :8330                 # daemon + dashboard
 agent-code-review serve --http :8330 --tailscale serve   # + expose on tailnet
 ```

@@ -14,7 +14,7 @@ you can expose over Tailscale.
   (`candidates.quiet_period`, default 15m: don't review a PR mid-rebase or
   mid-fix push) and a **re-review cooldown** (`candidates.rereview_cooldown`,
   default 90m: give the author room to respond to the last review). Held PRs
-  sit visibly in the queue and are skipped by review cycles until eligible;
+  sit visibly in the queue and are not dispatched until eligible;
   `queue promote` or a manual add bypasses holds. This is what makes a tight
   review cadence cheap: only genuinely actionable work spends tokens.
 - **Durable queue**: candidates, positions, and review history (verdict,
@@ -104,7 +104,7 @@ tool neither requires nor mentions it.
    agent-code-review repos add your-org/your-repo
    agent-code-review authors set '*' some-handle approver --name "Some Engineer"
    ```
-3. Set your prompts and dials, then kick a single cycle:
+3. Set your prompts and dials, then kick a one-shot run:
 
    ```bash
    agent-code-review prompts set on-approve "Notify the team per your conventions."
@@ -177,8 +177,8 @@ time as the later of two bounds and stored on the queue row (`eligible_at` +
   requests changes, author fixes finding 1 of 3 and pushes"; without the
   cooldown, that first push would immediately burn a re-review.
 
-Held rows stay visible in the queue (badged, with a countdown) but review
-cycles skip them until `eligible_at`. Sweeps only ever *extend* a hold, never
+Held rows stay visible in the queue (badged, with a countdown) but are not
+dispatched until `eligible_at`. Sweeps only ever *extend* a hold, never
 shrink one. Set either dial to `0s` to disable it. `queue promote` (or the
 dashboard's ▶) clears the hold, floats the PR to the top, and treats it as a
 manual add; plain drag-reorder changes only the position and never lifts a
@@ -193,9 +193,16 @@ closed, or merged while waiting in the queue complete as a precheck SKIPPED
 instead of spending a review. Manual adds (`queue add`, dashboard) bypass
 that recheck; an explicit request always goes through.
 
-The review loop itself defaults to a tight `schedule.interval` of 1m: idle
-cycles (nothing eligible) are free no-ops that record nothing, so the cadence
-costs nothing while holds and same-SHA suppression keep the queue quiet.
+Reviews are dispatched one at a time as slots free rather than in batches: the
+moment a review finishes, the next ready candidate is picked up after
+`schedule.dispatch_cooldown` (default 5s). Nothing waits for a batch to
+drain, so a PR discovered while other reviews are in flight starts as soon as
+there is room for it. `schedule.interval` (default 1m) is only the idle poll,
+for when a look at the queue found nothing ready.
+
+There is no global run-lock. Two reviewers can never take the same PR (the
+queue claim is a compare-and-swap, store-wide), but `run` and a live daemon do
+otherwise work the same queue in parallel.
 
 ## Author groups
 
@@ -284,7 +291,7 @@ none of that. A group's own `prompt` covers the unconditional per-cohort case;
 `review.rules` add further conditional instructions (per group, per handle, per
 repo, per candidate type, optionally scoped to one outcome).
 
-Because a group can name its own engine, one cycle can run both engines. The
+Because a group can name its own engine, concurrent reviews can run both. The
 usage floor is therefore applied **per engine**: when one is out of headroom
 its candidates wait in the queue like any other hold, while candidates bound
 for the other engine run as normal.

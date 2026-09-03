@@ -16,14 +16,7 @@ import (
 // newDispatchScheduler wires a scheduler whose dispatcher runs without real
 // waits: no cooldown between hand-offs, and a millisecond idle poll.
 func newDispatchScheduler(fs *fakeDispatchStore, fe review.Engine) *Scheduler {
-	cfg := config.Config{
-		Review:   config.ReviewSettings{MainPrompt: "MAIN"},
-		Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"},
-	}
-	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "the-gh-user"})
-	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
-	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
-	return s
+	return newScheduler(Deps{Store: fs, NewEngine: fixedEngine(fe)})
 }
 
 // drain runs one dispatcher to completion, guarded so a regression that stops
@@ -52,13 +45,16 @@ func TestDispatchGracefulStop(t *testing.T) {
 		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 	}}
 	fe := &fakeEngine{started: make(chan int, 2), release: make(chan struct{}), verdict: review.Verdict{Decision: review.DecisionCommented}}
-	s := newDispatchScheduler(fs, fe)
-	s.cfg = func() config.Config {
-		return config.Config{
-			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
-			Schedule: config.ScheduleSettings{MaxParallel: 1, Interval: "1ms", DispatchCooldown: "0s"},
-		}
-	}
+	s := newScheduler(Deps{
+		Store:     fs,
+		NewEngine: fixedEngine(fe),
+		Config: func() config.Config {
+			return config.Config{
+				Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+				Schedule: config.ScheduleSettings{MaxParallel: 1, Interval: "1ms", DispatchCooldown: "0s"},
+			}
+		},
+	})
 	gracefulCtx, stop := context.WithCancel(context.Background())
 	defer stop()
 
@@ -220,23 +216,25 @@ func TestDispatch(t *testing.T) {
 			{Repo: "o/r", Number: 2, HeadSHA: "s2", Author: "fine"},
 		}}
 		fe := commented()
-		s := newDispatchScheduler(fs, fe)
-		s.newEngine = func(_ config.Config, p config.Policy) (review.Engine, error) {
-			if p.Engine == "broken-engine" {
-				return nil, errors.New("bad engine")
-			}
-			return fe, nil
-		}
-		s.cfg = func() config.Config {
-			return config.Config{
-				Review:   config.ReviewSettings{Engine: "codex", MainPrompt: "MAIN"},
-				Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"},
-				Authors: config.AuthorSettings{Groups: map[string]config.Group{
-					"broken-cohort": {Review: config.ReviewComment, Engine: "broken-engine"},
-					"ok-cohort":     {Review: config.ReviewComment, Engine: "codex"},
-				}},
-			}
-		}
+		s := newScheduler(Deps{
+			Store: fs,
+			NewEngine: func(_ config.Config, p config.Policy) (review.Engine, error) {
+				if p.Engine == "broken-engine" {
+					return nil, errors.New("bad engine")
+				}
+				return fe, nil
+			},
+			Config: func() config.Config {
+				return config.Config{
+					Review:   config.ReviewSettings{Engine: "codex", MainPrompt: "MAIN"},
+					Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"},
+					Authors: config.AuthorSettings{Groups: map[string]config.Group{
+						"broken-cohort": {Review: config.ReviewComment, Engine: "broken-engine"},
+						"ok-cohort":     {Review: config.ReviewComment, Engine: "codex"},
+					}},
+				}
+			},
+		})
 		fs.byHandle = map[string]string{"broken": "broken-cohort", "fine": "ok-cohort"}
 
 		if err := drain(t, s); err != nil {
@@ -402,13 +400,16 @@ func TestDispatchRespectsMaxParallel(t *testing.T) {
 		{Repo: "o/r", Number: 4, HeadSHA: "s4"},
 	}}
 	fe := &concurrencyEngine{started: make(chan struct{}, 4), release: make(chan struct{})}
-	s := newDispatchScheduler(fs, fe)
-	s.cfg = func() config.Config {
-		return config.Config{
-			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
-			Schedule: config.ScheduleSettings{MaxParallel: 2, Interval: "1ms", DispatchCooldown: "0s"},
-		}
-	}
+	s := newScheduler(Deps{
+		Store:     fs,
+		NewEngine: fixedEngine(fe),
+		Config: func() config.Config {
+			return config.Config{
+				Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+				Schedule: config.ScheduleSettings{MaxParallel: 2, Interval: "1ms", DispatchCooldown: "0s"},
+			}
+		},
+	})
 
 	done := make(chan error, 1)
 	go func() { done <- s.dispatch(Stop{Graceful: context.Background(), Force: context.Background()}, true) }()
@@ -448,18 +449,21 @@ func TestDispatchPicksUpAMaxParallelRaise(t *testing.T) {
 		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 	}}
 	fe := &concurrencyEngine{started: make(chan struct{}, 2), release: make(chan struct{})}
-	s := newDispatchScheduler(fs, fe)
 
 	var cfgMu sync.Mutex
 	maxParallel := 1
-	s.cfg = func() config.Config {
-		cfgMu.Lock()
-		defer cfgMu.Unlock()
-		return config.Config{
-			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
-			Schedule: config.ScheduleSettings{MaxParallel: maxParallel, Interval: "1ms", DispatchCooldown: "0s"},
-		}
-	}
+	s := newScheduler(Deps{
+		Store:     fs,
+		NewEngine: fixedEngine(fe),
+		Config: func() config.Config {
+			cfgMu.Lock()
+			defer cfgMu.Unlock()
+			return config.Config{
+				Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+				Schedule: config.ScheduleSettings{MaxParallel: maxParallel, Interval: "1ms", DispatchCooldown: "0s"},
+			}
+		},
+	})
 
 	done := make(chan error, 1)
 	go func() { done <- s.dispatch(Stop{Graceful: context.Background(), Force: context.Background()}, true) }()
@@ -620,9 +624,13 @@ func TestDispatchUsageFloorIsPerEngine(t *testing.T) {
 		return floored()
 	}
 	cfg.Schedule = config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}
-	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "u", Usage: byEngine})
-	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
-	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
+	s := newScheduler(Deps{
+		Store:     fs,
+		Config:    func() config.Config { return cfg },
+		GHUser:    "u",
+		Usage:     byEngine,
+		NewEngine: fixedEngine(fe),
+	})
 
 	if err := drain(t, s); err != nil {
 		t.Fatal(err)
@@ -687,13 +695,13 @@ func TestDispatchAllEnginesFloored(t *testing.T) {
 	fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"}}}
 	fe := &fakeEngine{}
 	cfg := config.Config{Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}}
-	s := New(Deps{
-		Store:  fs,
-		Config: func() config.Config { return cfg },
-		GHUser: "u",
-		Usage:  func(string) usage.Snapshot { return floored() },
+	s := newScheduler(Deps{
+		Store:     fs,
+		Config:    func() config.Config { return cfg },
+		GHUser:    "u",
+		Usage:     func(string) usage.Snapshot { return floored() },
+		NewEngine: fixedEngine(fe),
 	})
-	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
 
 	if err := drain(t, s); err != nil {
 		t.Fatalf("a fully floored queue must drain cleanly, got %v", err)
@@ -725,13 +733,16 @@ func TestDispatchSpacesHandOffsByTheCooldown(t *testing.T) {
 		mu.Unlock()
 		return review.Verdict{Decision: review.DecisionCommented}, nil
 	}}
-	s := newDispatchScheduler(fs, fe)
-	s.cfg = func() config.Config {
-		return config.Config{
-			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
-			Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: cooldown.String()},
-		}
-	}
+	s := newScheduler(Deps{
+		Store:     fs,
+		NewEngine: fixedEngine(fe),
+		Config: func() config.Config {
+			return config.Config{
+				Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+				Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: cooldown.String()},
+			}
+		},
+	})
 
 	if err := drain(t, s); err != nil {
 		t.Fatal(err)
@@ -761,13 +772,16 @@ func TestDispatchStopDuringCooldownReturnsPromptly(t *testing.T) {
 		dispatched <- struct{}{}
 		return review.Verdict{Decision: review.DecisionCommented}, nil
 	}}
-	s := newDispatchScheduler(fs, fe)
-	s.cfg = func() config.Config {
-		return config.Config{
-			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
-			Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "30s"},
-		}
-	}
+	s := newScheduler(Deps{
+		Store:     fs,
+		NewEngine: fixedEngine(fe),
+		Config: func() config.Config {
+			return config.Config{
+				Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+				Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "30s"},
+			}
+		},
+	})
 
 	gracefulCtx, stop := context.WithCancel(context.Background())
 	defer stop()
@@ -782,5 +796,50 @@ func TestDispatchStopDuringCooldownReturnsPromptly(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("a stop during the cooldown must return promptly, not sleep it out")
+	}
+}
+
+// TestDispatchUsesTheInjectedClock proves Deps.Now reaches the dispatcher's
+// backoff, rather than the clock seam existing only on dispatchState where
+// unit tests construct it directly. A candidate that fails is held; advancing
+// the injected clock past the hold makes it offerable again without any real
+// waiting.
+func TestDispatchUsesTheInjectedClock(t *testing.T) {
+	var mu sync.Mutex
+	clock := time.Now()
+	now := func() time.Time { mu.Lock(); defer mu.Unlock(); return clock }
+	advance := func(d time.Duration) { mu.Lock(); clock = clock.Add(d); mu.Unlock() }
+
+	fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, HeadSHA: "s1"}}}
+	attempts := 0
+	s := newScheduler(Deps{
+		Store: fs,
+		Now:   now,
+		NewEngine: func(config.Config, config.Policy) (review.Engine, error) {
+			attempts++
+			if attempts == 1 {
+				return nil, errors.New("engine missing")
+			}
+			return commented(), nil
+		},
+	})
+
+	// First drain: the engine cannot be built, so the candidate fails before
+	// its claim and is held. Nothing is reviewed and the row survives.
+	if err := drain(t, s); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.completed) != 0 {
+		t.Fatalf("nothing may complete on the failing attempt, got %+v", fs.completed)
+	}
+
+	// The hold is measured on the injected clock, so moving it past the first
+	// backoff makes the candidate offerable again with no real delay.
+	advance(backoffFor(1) + time.Second)
+	if err := drain(t, s); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.completed) != 1 {
+		t.Errorf("once the injected clock passes the hold the candidate must be reviewed, got %+v", fs.completed)
 	}
 }

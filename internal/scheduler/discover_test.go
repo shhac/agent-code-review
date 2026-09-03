@@ -19,12 +19,11 @@ func TestDiscoverSkipsWhileASweepIsInFlight(t *testing.T) {
 	calls := make(chan struct{}, 8)
 	var once sync.Once
 
-	s := newDispatchScheduler(&fakeDispatchStore{}, &fakeEngine{})
-	s.sweeper = sweepFn(func(context.Context) ([]store.Candidate, error) {
+	s := newScheduler(Deps{Store: &fakeDispatchStore{}, Sweeper: sweepFn(func(context.Context) ([]store.Candidate, error) {
 		calls <- struct{}{}
 		once.Do(func() { close(entered); <-release })
 		return nil, nil
-	})
+	})})
 
 	first := make(chan error, 1)
 	go func() { first <- s.Discover(context.Background()) }()
@@ -57,11 +56,10 @@ func TestDiscoverSkipsWhileASweepIsInFlight(t *testing.T) {
 // discovery for the life of the daemon.
 func TestDiscoverReleasesTheGuardOnError(t *testing.T) {
 	calls := 0
-	s := newDispatchScheduler(&fakeDispatchStore{}, &fakeEngine{})
-	s.sweeper = sweepFn(func(context.Context) ([]store.Candidate, error) {
+	s := newScheduler(Deps{Store: &fakeDispatchStore{}, Sweeper: sweepFn(func(context.Context) ([]store.Candidate, error) {
 		calls++
 		return nil, errors.New("gh exploded")
-	})
+	})})
 
 	if err := s.Discover(context.Background()); err == nil {
 		t.Fatal("a sweep error must propagate")
@@ -81,10 +79,9 @@ func TestDiscoverReleasesTheGuardOnError(t *testing.T) {
 func TestRunOnceErrorContract(t *testing.T) {
 	t.Run("a discovery failure aborts the run", func(t *testing.T) {
 		fs := &fakeDispatchStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, HeadSHA: "s1"}}}
-		s := newDispatchScheduler(fs, &fakeEngine{})
-		s.sweeper = sweepFn(func(context.Context) ([]store.Candidate, error) {
+		s := newScheduler(Deps{Store: fs, Sweeper: sweepFn(func(context.Context) ([]store.Candidate, error) {
 			return nil, errors.New("gh unavailable")
-		})
+		})})
 		if err := s.RunOnce(context.Background()); err == nil {
 			t.Fatal("a discovery failure must propagate so cron exits non-zero")
 		}
@@ -100,12 +97,11 @@ func TestRunOnceErrorContract(t *testing.T) {
 		}
 		// Reconcile lists the queue, so the seeded error fails it. The run
 		// must carry on to discovery rather than aborting there.
-		s := newDispatchScheduler(fs, &fakeEngine{})
 		swept := false
-		s.sweeper = sweepFn(func(context.Context) ([]store.Candidate, error) {
+		s := newScheduler(Deps{Store: fs, Sweeper: sweepFn(func(context.Context) ([]store.Candidate, error) {
 			swept = true
 			return nil, nil
-		})
+		})})
 		_ = s.RunOnce(context.Background())
 		if !swept {
 			t.Error("a reconcile failure must not stop the run reaching discovery")

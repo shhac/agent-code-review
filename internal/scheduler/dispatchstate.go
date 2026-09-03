@@ -51,9 +51,6 @@ type dispatchState struct {
 }
 
 func newDispatchState(now func() time.Time) *dispatchState {
-	if now == nil {
-		now = time.Now
-	}
 	return &dispatchState{
 		byKey:       map[string]*candidateState{},
 		now:         now,

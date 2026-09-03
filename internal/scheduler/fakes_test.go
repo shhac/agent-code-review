@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -166,3 +167,53 @@ func (f *fakeDispatchStore) ClearClaim(_ context.Context, _ string, number int) 
 	f.cleared = append(f.cleared, number)
 	return nil
 }
+
+// --- test construction ------------------------------------------------------
+//
+// Every test Scheduler is built through Deps, the same door production uses.
+// Nothing writes a Scheduler field afterwards: a test that reaches past the
+// constructor is testing a differently-wired object from the one that ships.
+
+// fastSchedule is the config every dispatcher test wants: no real waits, and a
+// prompt so the engine has something to be handed.
+func fastSchedule() config.Config {
+	return config.Config{
+		Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+		Schedule: config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"},
+	}
+}
+
+// fixedEngine is an EngineFactory that always yields the same engine, instead
+// of the per-review rebuild from live config.
+func fixedEngine(fe review.Engine) EngineFactory {
+	return func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
+}
+
+// stillACandidate is the default candidacy recheck: yes, review it. Tests about
+// the precheck itself pass their own.
+func stillACandidate(context.Context, string, int, string, string) (bool, string, error) {
+	return true, "", nil
+}
+
+// newScheduler builds a Scheduler from d, filling the defaults tests share.
+// Pass whatever the test cares about; the rest is sensible.
+func newScheduler(d Deps) *Scheduler {
+	if d.Config == nil {
+		d.Config = fastSchedule
+	}
+	if d.GHUser == "" {
+		d.GHUser = "the-gh-user"
+	}
+	if d.NewEngine == nil {
+		d.NewEngine = fixedEngine(commented())
+	}
+	if d.StillCandidate == nil {
+		d.StillCandidate = stillACandidate
+	}
+	return New(d)
+}
+
+// sweepFn adapts a function to the Sweeper interface.
+type sweepFn func(context.Context) ([]store.Candidate, error)
+
+func (f sweepFn) Discover(ctx context.Context) ([]store.Candidate, error) { return f(ctx) }

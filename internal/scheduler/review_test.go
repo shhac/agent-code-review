@@ -82,14 +82,20 @@ func (f *fakeSchedStore) Complete(_ context.Context, r store.Review) error {
 }
 
 func newTestScheduler(fs *fakeSchedStore, fe *fakeEngine) *Scheduler {
-	cfg := config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
-	s := New(Deps{Store: fs, Config: func() config.Config { return cfg }, GHUser: "the-gh-user"})
-	// Tests drive a fixed fake engine instead of the per-review rebuild.
-	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
-	// Default the candidacy recheck to "still a candidate" so tests exercise
-	// the review path; precheck-specific tests override this.
-	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
-	return s
+	return newReviewScheduler(fs, fe, Deps{})
+}
+
+// newReviewScheduler is newTestScheduler with room for the test to state the
+// dependency it cares about (its own config, or its own candidacy recheck).
+func newReviewScheduler(fs *fakeSchedStore, fe *fakeEngine, d Deps) *Scheduler {
+	d.Store = fs
+	d.NewEngine = fixedEngine(fe)
+	if d.Config == nil {
+		d.Config = func() config.Config {
+			return config.Config{Review: config.ReviewSettings{MainPrompt: "MAIN"}}
+		}
+	}
+	return newScheduler(d)
 }
 
 // reviewOne invokes Scheduler.reviewOne with what the dispatcher would hand
@@ -242,8 +248,7 @@ func TestReviewOneGroupReachesPrompt(t *testing.T) {
 	run := func(group string) string {
 		fs := &fakeSchedStore{group: group}
 		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
-		s := newTestScheduler(fs, fe)
-		s.cfg = func() config.Config { return cfg }
+		s := newReviewScheduler(fs, fe, Deps{Config: func() config.Config { return cfg }})
 		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, Author: "alice"}); err != nil {
 			t.Fatal(err)
 		}
@@ -291,10 +296,9 @@ func TestReviewOnePrecheck(t *testing.T) {
 	t.Run("stale discovered candidate records a precheck skip", func(t *testing.T) {
 		fs := &fakeSchedStore{}
 		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionApproved}}
-		s := newTestScheduler(fs, fe)
-		s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) {
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string) (bool, string, error) {
 			return false, "already approved", nil
-		}
+		}})
 		c := store.Candidate{Repo: "o/r", Number: 7, HeadSHA: "sha1", Source: store.SourceDiscovered}
 		if err := reviewOne(s, fe, c); err != nil {
 			t.Fatal(err)
@@ -310,11 +314,10 @@ func TestReviewOnePrecheck(t *testing.T) {
 	t.Run("manual candidates bypass the recheck", func(t *testing.T) {
 		fs := &fakeSchedStore{}
 		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionCommented}}
-		s := newTestScheduler(fs, fe)
-		s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) {
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string) (bool, string, error) {
 			t.Error("manual candidate must not be rechecked")
 			return false, "", nil
-		}
+		}})
 		c := store.Candidate{Repo: "o/r", Number: 8, HeadSHA: "sha1", Source: store.SourceManual}
 		if err := reviewOne(s, fe, c); err != nil {
 			t.Fatal(err)
@@ -327,10 +330,9 @@ func TestReviewOnePrecheck(t *testing.T) {
 	t.Run("recheck error propagates and records nothing", func(t *testing.T) {
 		fs := &fakeSchedStore{}
 		fe := &fakeEngine{}
-		s := newTestScheduler(fs, fe)
-		s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) {
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string) (bool, string, error) {
 			return false, "", errors.New("gh unavailable")
-		}
+		}})
 		c := store.Candidate{Repo: "o/r", Number: 9, HeadSHA: "sha1", Source: store.SourceDiscovered}
 		if err := reviewOne(s, fe, c); err == nil {
 			t.Fatal("recheck error must propagate")

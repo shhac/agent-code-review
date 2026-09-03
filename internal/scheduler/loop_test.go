@@ -85,8 +85,10 @@ func TestStartGracefulForceContextReturnsWithoutWaitingForLoops(t *testing.T) {
 func TestLoopCadence(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := New(Deps{Config: func() config.Config { return config.Config{} }})
-	s.heartbeat = time.Millisecond
+	s := newScheduler(Deps{
+		Config:    func() config.Config { return config.Config{} },
+		Heartbeat: time.Millisecond,
+	})
 
 	var mu sync.Mutex
 	runs := 0
@@ -139,18 +141,22 @@ func TestStartGracefulSwitchesOwnTheLoops(t *testing.T) {
 
 	fs := &fakeDispatchStore{}
 	swept := make(chan struct{}, 8)
-	s := newLoopScheduler(fs, &fakeEngine{}, func(context.Context) ([]store.Candidate, error) {
-		swept <- struct{}{}
-		return nil, nil
+	s := newScheduler(Deps{
+		Store:     fs,
+		Heartbeat: time.Millisecond,
+		Sweeper: sweepFn(func(context.Context) ([]store.Candidate, error) {
+			swept <- struct{}{}
+			return nil, nil
+		}),
+		// Config enables BOTH loops; the boot flags must still win.
+		Config: func() config.Config {
+			return config.Config{
+				Discovery: config.DiscoverySettings{Enabled: config.Bool(true)},
+				Schedule:  config.ScheduleSettings{Enabled: config.Bool(true), Interval: "1ms", DispatchCooldown: "0s"},
+				Review:    config.ReviewSettings{MainPrompt: "MAIN"},
+			}
+		},
 	})
-	// Config enables BOTH loops; the boot flags must still win.
-	s.cfg = func() config.Config {
-		return config.Config{
-			Discovery: config.DiscoverySettings{Enabled: config.Bool(true)},
-			Schedule:  config.ScheduleSettings{Enabled: config.Bool(true), Interval: "1ms", DispatchCooldown: "0s"},
-			Review:    config.ReviewSettings{MainPrompt: "MAIN"},
-		}
-	}
 
 	done := make(chan error, 1)
 	go func() { done <- s.StartGraceful(Stop{Graceful: ctx, Force: context.Background()}, false, true) }()
@@ -189,7 +195,7 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 	release := make(chan struct{})
 	fe := &fakeEngine{seen: engineCtx, started: started, release: release, verdict: review.Verdict{Decision: review.DecisionCommented}}
 
-	s := New(Deps{
+	s := newScheduler(Deps{
 		Store:  fs,
 		GHUser: "u",
 		Config: func() config.Config {
@@ -198,10 +204,9 @@ func TestStartGracefulWiresBothContextsThroughToTheEngine(t *testing.T) {
 				Schedule: config.ScheduleSettings{MaxParallel: 1, Interval: "1ms", DispatchCooldown: "0s"},
 			}
 		},
+		NewEngine: fixedEngine(fe),
+		Heartbeat: time.Millisecond,
 	})
-	s.newEngine = func(config.Config, config.Policy) (review.Engine, error) { return fe, nil }
-	s.stillCandidate = func(context.Context, string, int, string, string) (bool, string, error) { return true, "", nil }
-	s.heartbeat = time.Millisecond
 
 	gracefulCtx, stop := context.WithCancel(context.Background())
 	reviewCtx, force := context.WithCancel(context.Background())
@@ -271,19 +276,16 @@ func waitFor(t *testing.T, cond func() bool, what string) {
 	}
 }
 
-// sweepFn adapts a function to the Sweeper interface.
-type sweepFn func(context.Context) ([]store.Candidate, error)
-
-func (f sweepFn) Discover(ctx context.Context) ([]store.Candidate, error) { return f(ctx) }
-
 // newLoopScheduler builds a scheduler whose real loops run without real
 // waits, so StartGraceful's orchestration is exercised rather than replaced by
 // stubs.
 func newLoopScheduler(fs *fakeDispatchStore, fe review.Engine, sweep sweepFn) *Scheduler {
-	s := newDispatchScheduler(fs, fe)
-	s.sweeper = sweep
-	s.heartbeat = time.Millisecond
-	return s
+	return newScheduler(Deps{
+		Store:     fs,
+		NewEngine: fixedEngine(fe),
+		Sweeper:   sweep,
+		Heartbeat: time.Millisecond,
+	})
 }
 
 // TestDue pins the heartbeat's firing rule, including the live-reload

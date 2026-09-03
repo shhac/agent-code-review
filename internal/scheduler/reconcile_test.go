@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -28,8 +27,11 @@ func TestReconcile(t *testing.T) {
 			{Repo: "o/r", Number: 5, ClaimedAt: &now, ClaimHost: host, ClaimPID: 0}, // pre-tracking pid 0... host matches, pid dead → release
 		},
 	}
-	s := New(Deps{Store: fs, Config: func() config.Config { return config.Config{} }, GHUser: "u"})
-	s.pidAlive = func(pid int) bool { return pid == 222 }
+	s := newScheduler(Deps{
+		Store:    fs,
+		GHUser:   "u",
+		PIDAlive: func(pid int) bool { return pid == 222 },
+	})
 
 	if err := s.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)

@@ -85,6 +85,10 @@ type Scheduler struct {
 	// heartbeat is loop's interval-re-read cadence (loopHeartbeat in
 	// production; shrunk by tests so the loop is drivable without real waits).
 	heartbeat time.Duration
+	// now is the dispatcher's clock. The per-candidate backoff it hands out
+	// runs from a minute to an hour, so without a seam no test can reach an
+	// expiry and "a held candidate is eventually offered again" goes unpinned.
+	now func() time.Time
 }
 
 // PriceFn values one review's token classes in USD. The second result is
@@ -116,6 +120,7 @@ func New(cfg func() config.Config, s SchedulerStore, d *discover.Discoverer, ghU
 		stillCandidate: discover.StillCandidateAt,
 		pidAlive:       pidAlive,
 		heartbeat:      loopHeartbeat,
+		now:            time.Now,
 	}
 	// Method-valued seams can't appear in the literal above; same convention
 	// as the other seams: production impls at construction, tests overwrite.

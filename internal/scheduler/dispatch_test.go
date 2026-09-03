@@ -543,3 +543,121 @@ func TestDispatchRespectsMaxParallel(t *testing.T) {
 		t.Errorf("every candidate must still be reviewed, got %d", len(fs.completed))
 	}
 }
+
+// TestDispatchPicksUpAMaxParallelRaise pins the live re-read: raising the cap
+// while reviews are in flight must take effect without a restart, which is the
+// property the at-capacity reap arm's `cfg = s.cfg()` exists for.
+func TestDispatchPicksUpAMaxParallelRaise(t *testing.T) {
+	fs := &fakeDispatchStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, HeadSHA: "s2"},
+	}}
+	fe := &concurrencyEngine{started: make(chan struct{}, 2), release: make(chan struct{})}
+	s := newDispatchScheduler(fs, fe)
+
+	var cfgMu sync.Mutex
+	maxParallel := 1
+	s.cfg = func() config.Config {
+		cfgMu.Lock()
+		defer cfgMu.Unlock()
+		return config.Config{
+			Review:   config.ReviewSettings{MainPrompt: "MAIN"},
+			Schedule: config.ScheduleSettings{MaxParallel: maxParallel, Interval: "1ms", DispatchCooldown: "0s"},
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- s.dispatch(context.Background(), context.Background(), true) }()
+
+	<-fe.started // one in flight, cap reached
+	select {
+	case <-fe.started:
+		t.Fatal("a second review started while the cap was 1")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cfgMu.Lock()
+	maxParallel = 2
+	cfgMu.Unlock()
+
+	select {
+	case <-fe.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("raising max_parallel mid-flight did not start a second reviewer")
+	}
+
+	close(fe.release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain never finished")
+	}
+}
+
+// TestDispatchStateBackoffExpiry pins the half of the backoff nothing could
+// reach before the clock seam: that a held candidate is offered AGAIN once its
+// hold lapses, and that a clean finish forgets the candidate rather than
+// leaving it holding. A change making the hold permanent, or dropping the
+// clear, would silently starve the queue with a green suite.
+func TestDispatchStateBackoffExpiry(t *testing.T) {
+	clock := time.Now()
+	st := newDispatchState(func() time.Time { return clock })
+
+	st.fail("o/r#1")
+	if !st.skip("o/r#1") {
+		t.Fatal("a just-failed candidate must be held")
+	}
+	clock = clock.Add(backoffFor(1) - time.Second)
+	if !st.skip("o/r#1") {
+		t.Error("still inside the hold window, must stay held")
+	}
+	clock = clock.Add(2 * time.Second)
+	if st.skip("o/r#1") {
+		t.Error("past the hold window, the candidate must be offered again")
+	}
+
+	// A second failure escalates rather than restarting at the base.
+	st.fail("o/r#1")
+	if got := st.byKey["o/r#1"].fails; got != 2 {
+		t.Errorf("consecutive failures = %d, want 2", got)
+	}
+
+	// A clean finish forgets it entirely: no hold, and the next failure
+	// starts again at the base rather than continuing to escalate.
+	st.start("o/r#1")
+	st.finish("o/r#1", false)
+	if st.skip("o/r#1") {
+		t.Error("a cleanly finished candidate must not be held")
+	}
+	st.fail("o/r#1")
+	if got := st.byKey["o/r#1"].fails; got != 1 {
+		t.Errorf("failures after a clean finish = %d, want the count reset to 1", got)
+	}
+}
+
+// TestDispatchStatePrune pins the leak fix: a candidate that leaves the queue
+// by a route the dispatcher never sees (merged, dequeued, completed by a
+// sibling daemon) must not keep its backoff entry for the life of the process.
+// An in-flight candidate is never pruned, because it is not in the listing it
+// was dispatched from.
+func TestDispatchStatePrune(t *testing.T) {
+	st := newDispatchState(time.Now)
+	st.fail("o/r#1")  // failed, still queued
+	st.fail("o/r#2")  // failed, about to vanish from the queue
+	st.start("o/r#3") // in flight, absent from the listing
+
+	st.prune(map[string]bool{"o/r#1": true})
+
+	if _, ok := st.byKey["o/r#1"]; !ok {
+		t.Error("a still-queued candidate must keep its backoff")
+	}
+	if _, ok := st.byKey["o/r#2"]; ok {
+		t.Error("a candidate that left the queue must be forgotten")
+	}
+	if _, ok := st.byKey["o/r#3"]; !ok {
+		t.Error("an in-flight candidate must never be pruned")
+	}
+	if st.active() != 1 {
+		t.Errorf("active = %d, want 1", st.active())
+	}
+}

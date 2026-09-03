@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -10,100 +9,28 @@ import (
 	"github.com/shhac/agent-code-review/internal/usage"
 )
 
-// dispatchBackoffBase and dispatchBackoffCap bound the per-candidate hold
-// applied after a review fails. The dispatcher always offers the queue's head
-// first, so a candidate that fails BEFORE its claim (an unbuildable engine, a
-// workdir that cannot be created, a roster lookup that errors) leaves its row
-// exactly as it found it and would otherwise be re-offered forever, blocking
-// every candidate behind it. The batch cycle this replaced never had that
-// problem: it walked a snapshot, so a failing candidate cost one slot and the
-// rest of the batch still ran.
-const (
-	dispatchBackoffBase = time.Minute
-	dispatchBackoffCap  = time.Hour
-)
-
-// dispatchState is the dispatcher's private bookkeeping. Only the dispatch
-// goroutine touches it (workers report completion over a channel, and the
-// dispatcher applies it), so it needs no lock.
-type dispatchState struct {
-	inFlight  map[string]bool      // dispatched, not yet finished
-	fails     map[string]int       // consecutive failures, per candidate
-	holdUntil map[string]time.Time // backoff expiry, per candidate
-	flooredAt map[string]time.Time // last "at its usage floor" log, per engine
-}
-
-func newDispatchState() *dispatchState {
-	return &dispatchState{
-		inFlight:  map[string]bool{},
-		fails:     map[string]int{},
-		holdUntil: map[string]time.Time{},
-		flooredAt: map[string]time.Time{},
-	}
-}
-
-func candidateKey(c store.Candidate) string { return fmt.Sprintf("%s#%d", c.Repo, c.Number) }
-
-// skip reports whether a candidate is unavailable to this dispatcher right
-// now: already handed to a worker, or serving a failure backoff. Both are
-// in-process concerns; cross-process exclusion is the claim CAS in reviewOne.
-func (d *dispatchState) skip(key string, now time.Time) bool {
-	return d.inFlight[key] || now.Before(d.holdUntil[key])
-}
-
-func (d *dispatchState) start(key string) { d.inFlight[key] = true }
-
-// finish clears the dispatch and either resets or extends the candidate's
-// backoff. A failure here means "the attempt did not end in a recorded
-// outcome", which is exactly the case where the queue row may still be
-// sitting at the head waiting to be offered again.
-func (d *dispatchState) finish(key string, failed bool) {
-	delete(d.inFlight, key)
-	if !failed {
-		delete(d.fails, key)
-		delete(d.holdUntil, key)
-		return
-	}
-	d.fail(key)
-}
-
-// fail extends a candidate's backoff. Separate from finish because a
-// candidate can fail before it is ever dispatched (its roster lookup errors),
-// and that must hold it back just the same.
-func (d *dispatchState) fail(key string) {
-	d.fails[key]++
-	d.holdUntil[key] = time.Now().Add(backoffFor(d.fails[key]))
-}
-
-// backoffFor doubles from the base with each consecutive failure, capped.
-func backoffFor(fails int) time.Duration {
-	wait := dispatchBackoffBase
-	for i := 1; i < fails && wait < dispatchBackoffCap; i++ {
-		wait *= 2
-	}
-	if wait > dispatchBackoffCap {
-		return dispatchBackoffCap
-	}
-	return wait
-}
-
-// logFloored rate-limits the per-engine "at its usage floor" line: "why is
-// nothing moving" has to be answerable from the log without one line per
-// pull. Replaces the batch cycle's once-per-cycle map, which had a cycle to
-// key on.
-func (d *dispatchState) logFloored(engine string, every time.Duration) bool {
-	now := time.Now()
-	if last, ok := d.flooredAt[engine]; ok && now.Sub(last) < every {
-		return false
-	}
-	d.flooredAt[engine] = now
-	return true
-}
-
 // finishedReview carries one completed hand-off back to the dispatcher.
 type finishedReview struct {
 	key    string
 	failed bool
+}
+
+// stopMsg is the one wording for a graceful stop, so the three places that
+// can observe one cannot drift apart.
+const stopMsg = "dispatch: shutdown requested, waiting for in-flight reviewer(s)"
+
+// stopping reports whether either context has ended, logging the graceful
+// case. It is called with an explicit Err() check rather than left to a
+// select, because a select with a ready case chooses uniformly at random:
+// leaving cancellation to the selects alone started a new review roughly half
+// the time after a shutdown was requested, at the cost of a whole engine
+// invocation each time.
+func (s *Scheduler) stopping(gracefulCtx, reviewCtx context.Context) bool {
+	if gracefulCtx.Err() != nil {
+		s.logf("%s", stopMsg)
+		return true
+	}
+	return reviewCtx.Err() != nil
 }
 
 // dispatch is the review consumer: one goroutine pulling the next ready
@@ -115,88 +42,68 @@ type finishedReview struct {
 // expired hold, an engine back over its usage floor) is picked up by the next
 // free slot instead of waiting out every in-flight review.
 //
+// The loop is deliberately one shape: harvest finished workers, decide
+// whether to stop, pull if there is room, and otherwise wait. There is a
+// single wait, and it always watches the idle timer as well as the completion
+// channel — including while at capacity, which is what makes a mid-flight
+// max_parallel raise take effect within one idle poll rather than only after
+// some review happens to finish.
+//
 // gracefulCtx stops new dispatches; reviewCtx cancels reviews already
-// running. With drain set (the `run` one-shot) the loop returns once nothing
-// is dispatchable and no worker is in flight, instead of idling, and a failed
-// pull aborts rather than being logged and retried: a cron run whose store is
-// unreadable has to exit non-zero, while a daemon has to keep trying.
-func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, drain bool) error {
-	state := newDispatchState()
+// running. With stopWhenIdle set (the `run` one-shot) the loop returns once
+// nothing is dispatchable and no worker is in flight, instead of idling, and
+// carries out the last pull error so a cron run whose store is unreadable
+// exits non-zero.
+func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, stopWhenIdle bool) error {
+	state := newDispatchState(s.now)
 	finished := make(chan finishedReview, 1)
-	active := 0
+	var pullErr error
 
 	// Every return path waits for the workers: a dispatcher that outlived its
 	// reviewers would let StartGraceful report the loops drained while engine
 	// subprocesses were still running.
 	defer func() {
-		for active > 0 {
+		for state.active() > 0 {
 			d := <-finished
 			state.finish(d.key, d.failed)
-			active--
 		}
 	}()
 
 	for {
 		cfg := s.cfg()
 
-		// At capacity: the only useful thing left is to reap. MaxParallel is
-		// re-read after each completion so raising it mid-flight takes effect
-		// without a restart (lowering it takes effect as slots free).
-		for active >= cfg.MaxParallel() {
+		// Harvest whatever finished while we were elsewhere, so the in-flight
+		// set never holds keys whose reviews are long over.
+		for harvesting := true; harvesting; {
 			select {
 			case d := <-finished:
 				state.finish(d.key, d.failed)
-				active--
-				cfg = s.cfg()
-			case <-gracefulCtx.Done():
-				s.logf("dispatch: shutdown requested, waiting for in-flight reviewer(s)")
-				return nil
-			case <-reviewCtx.Done():
-				return nil
-			}
-		}
-		// Reap anything else that finished while we were dispatching, so the
-		// in-flight set does not hold keys whose reviews are long over.
-		for reaping := true; reaping; {
-			select {
-			case d := <-finished:
-				state.finish(d.key, d.failed)
-				active--
 			default:
-				reaping = false
+				harvesting = false
 			}
 		}
 
-		// Checked BEFORE the pull, and again below, because a select with a
-		// ready case chooses uniformly at random: leaving cancellation to the
-		// selects alone started a new review roughly half the time after a
-		// shutdown was requested, at the cost of a whole engine invocation
-		// each time. Same reasoning the batch loop carried.
-		if gracefulCtx.Err() != nil {
-			s.logf("dispatch: shutdown requested, waiting for in-flight reviewer(s)")
-			return nil
-		}
-		if reviewCtx.Err() != nil {
+		if s.stopping(gracefulCtx, reviewCtx) {
 			return nil
 		}
 
-		next, err := s.pullNext(reviewCtx, cfg, state)
-		if err != nil {
-			if drain {
-				return err
+		var next *pending
+		if state.active() < cfg.MaxParallel() {
+			var err error
+			next, err = s.pullNext(reviewCtx, cfg, state)
+			if err != nil {
+				pullErr = err
+				s.logf("dispatch: %v", err)
 			}
-			s.logf("dispatch: %v", err)
 		}
+
 		if next == nil {
-			if drain && active == 0 {
-				return nil
+			if stopWhenIdle && state.active() == 0 {
+				return pullErr
 			}
-			// Waking on a completion rather than only on the timer keeps the
-			// idle poll from delaying work that a finishing review unblocks.
 			select {
 			case d := <-finished:
 				state.finish(d.key, d.failed)
-				active--
 			case <-time.After(cfg.Interval()):
 			case <-gracefulCtx.Done():
 				return nil
@@ -212,20 +119,15 @@ func (s *Scheduler) dispatch(gracefulCtx, reviewCtx context.Context, drain bool)
 		// the result rather than hand it to a worker, or the first Ctrl-C
 		// still starts one more review than it promised. The candidate is
 		// simply left queued; nothing about it was touched.
-		if gracefulCtx.Err() != nil {
-			s.logf("dispatch: shutdown requested, waiting for in-flight reviewer(s)")
-			return nil
-		}
-		if reviewCtx.Err() != nil {
+		if s.stopping(gracefulCtx, reviewCtx) {
 			return nil
 		}
 
 		key := candidateKey(next.candidate)
 		state.start(key)
-		active++
-		go func(p pending) {
+		go func(p pending, key string) {
 			finished <- finishedReview{key: key, failed: s.runOne(reviewCtx, p) != nil}
-		}(*next)
+		}(*next, key)
 
 		if !sleepCtx(gracefulCtx, reviewCtx, cfg.DispatchCooldown()) {
 			return nil
@@ -262,10 +164,18 @@ func (s *Scheduler) pullNext(ctx context.Context, cfg config.Config, state *disp
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
-	for _, c := range availableCandidates(queue, now, cfg.LeaseWindow()) {
+	// Forget candidates that have left the queue by a route the dispatcher
+	// never sees, so their backoff entries do not accumulate for the life of
+	// the daemon.
+	queued := make(map[string]bool, len(queue))
+	for _, c := range queue {
+		queued[candidateKey(c)] = true
+	}
+	state.prune(queued)
+
+	for _, c := range availableCandidates(queue, state.now(), cfg.LeaseWindow()) {
 		key := candidateKey(c)
-		if state.skip(key, now) {
+		if state.skip(key) {
 			continue
 		}
 		membership, err := s.store.AuthorGroup(ctx, c.Repo, c.Author)

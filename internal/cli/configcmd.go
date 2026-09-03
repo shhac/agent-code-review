@@ -97,7 +97,7 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *string { return &c.GHUser }, nil)),
 		static(optionalBoolKey("schedule.enabled", "Whether the serve daemon dispatches reviews (default true)",
 			func(c *config.Config) **bool { return &c.Schedule.Enabled }), boolValues),
-		plain(stringKey("schedule.interval", "Idle poll as a Go duration: how long the dispatcher waits when nothing is ready (default 1m)",
+		plain(stringKey("schedule.interval", "Idle poll as a Go duration: how long the dispatcher waits when nothing is ready (default 10s)",
 			func(c *config.Config) *string { return &c.Schedule.Interval }, validateDuration)),
 		plain(stringKey("schedule.dispatch_cooldown", "Pause between dispatches as a Go duration (default 5s, 0s disables)",
 			func(c *config.Config) *string { return &c.Schedule.DispatchCooldown }, validateHoldDuration)),

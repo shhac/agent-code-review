@@ -20,6 +20,13 @@ const (
 	dispatchBackoffCap  = time.Hour
 )
 
+// flooredLogEvery throttles the per-engine "at its usage floor" line. It has
+// its own constant rather than borrowing the idle poll: an engine can sit
+// below its floor for hours, and at a 10s poll that would be 360 identical
+// lines an hour into a 1000-entry log ring. Five minutes still answers "why is
+// nothing moving" from the log without burying what else happened.
+const flooredLogEvery = 5 * time.Minute
+
 func candidateKey(c store.Candidate) string { return fmt.Sprintf("%s#%d", c.Repo, c.Number) }
 
 // candidateState is everything the dispatcher remembers about ONE candidate.

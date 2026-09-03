@@ -118,7 +118,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 	if cfg.GHUser != "" || cfg.Schedule.Interval != "" {
 		t.Errorf("unset keys must clear, got gh_user=%q interval=%q", cfg.GHUser, cfg.Schedule.Interval)
 	}
-	if cfg.Interval().String() != "1m0s" {
+	if cfg.Interval().String() != "10s" {
 		t.Errorf("cleared interval must resolve to the default, got %s", cfg.Interval())
 	}
 	if !cfg.ScheduleEnabled() || !cfg.DiscoveryEnabled() {

@@ -203,7 +203,7 @@ func (s *Scheduler) pullNext(ctx context.Context, cfg config.Config, state *disp
 			// or recorded, so it simply waits like a cooldown hold and runs
 			// the moment its window refills. Per engine, so an engine out of
 			// headroom does not stop the other's work.
-			if state.logFloored(engine, cfg.Interval()) {
+			if state.logFloored(engine, flooredLogEvery) {
 				s.logf("dispatch: %s is at its usage floor (%s), holding its candidates", engine, reason)
 			}
 			continue

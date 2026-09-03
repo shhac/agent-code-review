@@ -16,10 +16,10 @@
     "rereview_cooldown": "90m",
     "quiet_period": "15m"
   },
-  "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates on its own poll (deterministic gh calls, no LLM); schedule consumes the queue (engine invocations, hence max_parallel). Reviews are dispatched one at a time as slots free, waiting dispatch_cooldown between hand-offs; interval is only the idle poll for when nothing is ready.",
+  "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates on its own poll (deterministic gh calls, no LLM); schedule consumes the queue (engine invocations, hence max_parallel). Reviews are dispatched one at a time as slots free, waiting dispatch_cooldown between hand-offs; interval is only the idle poll for when nothing is ready, and bounds how long a `queue add` from another process waits to be noticed.",
   "schedule": {
     "enabled": true,
-    "interval": "1m",
+    "interval": "10s",
     "max_parallel": 4,
     "dispatch_cooldown": "5s",
     "//usage_floor_note": "Hold a candidate when the engine that would review it has less than this % remaining in its 5h or weekly window; it runs when that window refills. Applied PER ENGINE, since a group can name its own: codex being out of headroom does not hold candidates bound for claude. A held candidate is never claimed or recorded, exactly like a cooldown hold. 0 disables a floor. Omit for the default of 10.",

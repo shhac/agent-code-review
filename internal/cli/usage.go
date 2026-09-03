@@ -359,7 +359,7 @@ COMMANDS:
 KEYS:
   gh_user                              self-review detection (empty = derive via gh)
   schedule.enabled                     true|false: daemon dispatches reviews
-  schedule.interval                    idle poll, e.g. 1m (only when nothing is ready)
+  schedule.interval                    idle poll, e.g. 10s (only when nothing is ready)
   schedule.dispatch_cooldown           pause between dispatches, e.g. 5s (0s disables)
   discovery.enabled                    true|false: daemon scrapes for candidates
   discovery.interval                   scrape cadence, e.g. 10m (gh only, no LLM)

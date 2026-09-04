@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,13 +21,7 @@ import (
 // fakeStore fakes the handler-facing store surface; unused methods panic
 // via the embedded nil interface so an unexpected dependency shows up loudly.
 func newTestServer(fs *fakeStore, cfg config.Config) *Server {
-	return &Server{
-		store:  fs,
-		config: func() config.Config { return cfg },
-		manualCandidate: func(_ context.Context, repo string, number int) (store.Candidate, error) {
-			return store.Candidate{Repo: repo, Number: number, Title: "T", Author: "a", HeadSHA: "sha", Source: store.SourceManual}, nil
-		},
-	}
+	return testServer(withStore(fs), withConfig(cfg))
 }
 
 // serveJSON drives one handler call and decodes its JSON body: the shared

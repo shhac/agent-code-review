@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -157,10 +156,7 @@ func TestHandleReviewLog(t *testing.T) {
 		return serveJSON[reviewLogResp](t, s.handleReviewLog, http.MethodGet, target, "")
 	}
 	newServer := func(queue []store.Candidate) *Server {
-		return &Server{
-			store:  &fakeStore{queue: queue},
-			config: func() config.Config { return config.Config{} },
-		}
+		return testServer(withStore(&fakeStore{queue: queue}))
 	}
 	newServerWithReviews := func(queue []store.Candidate, reviews ...store.Review) *Server {
 		byKey := make(map[string]store.Review, len(reviews))
@@ -168,10 +164,7 @@ func TestHandleReviewLog(t *testing.T) {
 			r.LogKey = store.ReviewLogKey(r)
 			byKey[r.LogKey] = r
 		}
-		return &Server{
-			store:  &fakeStore{queue: queue, byKey: byKey},
-			config: func() config.Config { return config.Config{} },
-		}
+		return testServer(withStore(&fakeStore{queue: queue, byKey: byKey}))
 	}
 
 	t.Run("invalid repo is a 400", func(t *testing.T) {

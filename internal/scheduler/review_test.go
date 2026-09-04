@@ -26,15 +26,16 @@ type fakeSchedStore struct {
 	// byHandle answers per author. Concurrent reviews can run several engines,
 	// so a fake that gives every handle the same group cannot express the case
 	// the per-engine floor exists for: one candidate held while another runs.
-	byHandle  map[string]string
-	groupErr  error // simulate the roster lookup failing
-	claimErr  error // simulate the claim itself failing
-	claimLost bool  // simulate losing the compare-and-swap to another worker
-	claims    []store.Lease
-	workDirs  []string
-	completed []store.Review
-	cleared   []int // queue rows whose claim was released
-	steering  store.Steering
+	byHandle    map[string]string
+	groupErr    error // simulate the roster lookup failing
+	claimErr    error // simulate the claim itself failing
+	claimLost   bool  // simulate losing the compare-and-swap to another worker
+	claims      []store.Lease
+	workDirs    []string
+	completed   []store.Review
+	cleared     []int // queue rows whose claim was released
+	steering    store.Steering
+	steeringErr error
 }
 
 // Steering answers the per-review lookup. Most tests want none, and the zero
@@ -42,6 +43,9 @@ type fakeSchedStore struct {
 func (f *fakeSchedStore) Steering(_ context.Context, _ string, _ int) (store.Steering, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.steeringErr != nil {
+		return store.Steering{}, false, f.steeringErr
+	}
 	if f.steering.Message == "" {
 		return store.Steering{}, false, nil
 	}
@@ -451,4 +455,63 @@ func TestRunOneWorkdirFailureLeavesTheRowUntouched(t *testing.T) {
 	if fe.lastPrompt() != "" {
 		t.Error("the engine must never run")
 	}
+}
+
+// TestReviewOneAppliesSteering pins the only path by which an author's
+// instruction reaches an LLM. Before this existed the wiring was executed by
+// nothing: the fake carried a steering field no test ever set, so deleting
+// the two assignments in reviewOne left the suite green.
+func TestReviewOneAppliesSteering(t *testing.T) {
+	t.Run("steering reaches the prompt, after the approval directive", func(t *testing.T) {
+		fs := &fakeSchedStore{steering: store.Steering{
+			Message: "the migration is behind a flag; focus on the rollback path",
+			SetBy:   "octocat",
+		}}
+		fe := commented()
+		s := newTestScheduler(fs, fe)
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 3, Author: "octocat", HeadSHA: "s1"}); err != nil {
+			t.Fatal(err)
+		}
+		p := fe.lastPrompt()
+		if !strings.Contains(p, "## Steering from @octocat") {
+			t.Errorf("prompt carries no attributed steering:\n%s", p)
+		}
+		if !strings.Contains(p, "focus on the rollback path") {
+			t.Errorf("prompt carries no steering text:\n%s", p)
+		}
+		// Ordering is the safety property: steering must not read as amending
+		// the approval policy stated above it.
+		if strings.Index(p, "Approval policy") > strings.Index(p, "## Steering from") {
+			t.Error("steering must render after the approval directive")
+		}
+	})
+
+	t.Run("no steering leaves the prompt untouched", func(t *testing.T) {
+		fs := &fakeSchedStore{}
+		fe := commented()
+		s := newTestScheduler(fs, fe)
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 4, HeadSHA: "s1"}); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(fe.lastPrompt(), "Steering") {
+			t.Errorf("an unsteered review must not mention steering:\n%s", fe.lastPrompt())
+		}
+	})
+
+	t.Run("a steering read failure degrades to an unsteered review", func(t *testing.T) {
+		// A store hiccup must not stall the queue: the review runs without the
+		// instruction rather than failing and backing the candidate off.
+		fs := &fakeSchedStore{steeringErr: errors.New("db busy")}
+		fe := commented()
+		s := newTestScheduler(fs, fe)
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "s1"}); err != nil {
+			t.Fatalf("a steering read failure must not fail the review: %v", err)
+		}
+		if len(fs.completed) != 1 {
+			t.Errorf("the review must still complete, got %+v", fs.completed)
+		}
+		if strings.Contains(fe.lastPrompt(), "Steering") {
+			t.Error("a failed read must yield an unsteered prompt, not a partial one")
+		}
+	})
 }

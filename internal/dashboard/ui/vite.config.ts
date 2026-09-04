@@ -24,6 +24,12 @@ export default defineConfig({
     outDir: '../assets',
     emptyOutDir: false,
   },
+  // Vitest's default include would also collect e2e/*.spec.ts, which are
+  // Playwright tests and throw on import. The two suites are separate: unit
+  // tests under src/, browser tests under e2e/ via `npm run test:e2e`.
+  test: {
+    include: ['src/**/*.test.ts'],
+  },
   server: {
     proxy: {
       // Point the dev server at a running daemon's API. Defaults to the

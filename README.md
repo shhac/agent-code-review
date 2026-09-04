@@ -313,7 +313,8 @@ The migration is behind a flag, so focus on:
 ```
 
 Markdown is preserved and reaches the reviewer as written. It renders last in
-the prompt, inside explicit markers, under a framing that names who wrote it
+the prompt, inside markers the author cannot predict, under a framing that
+names who wrote it
 and states that it cannot change the approval policy, widen what the reviewer
 may do, or ask it to skip the review. Steering from the PR author is presented
 as an interested party's context; steering from the reviewing account is

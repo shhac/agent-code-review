@@ -1,7 +1,7 @@
 package review
 
 import (
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -32,6 +32,11 @@ type Facts struct {
 	// the model whether it is reading the PR author or the operator of the
 	// reviewer itself.
 	SteeringRole SteeringRole
+	// SteeringNonce wraps the message in markers the author cannot predict.
+	// Carried on Facts rather than generated inside BuildPrompt so that
+	// BuildPrompt stays a pure function of its inputs, which is what lets the
+	// whole prompt be asserted in a test.
+	SteeringNonce string
 }
 
 // SteeringRole is who a steering message came from, in terms of this review.
@@ -69,12 +74,20 @@ func steeringRole(st *store.Steering, author, ghUser string) SteeringRole {
 // DeriveFacts computes the rule inputs for a candidate. ghUser is the resolved
 // current gh login; policy comes from config.ResolvePolicy over the store's
 // membership row, which the caller looks up, keeping this pure.
+// Not pure, deliberately: the steering marker must be unpredictable, so it is
+// drawn fresh here rather than derived from anything the caller can see. Only
+// this one field is random; a test that needs a fixed prompt sets it after.
 func DeriveFacts(c store.Candidate, ghUser string, policy config.Policy) Facts {
+	nonce := ""
+	if c.Steering != nil {
+		nonce = steeringNonce()
+	}
 	return Facts{
 		AuthorIsGHUser: ghUser != "" && strings.EqualFold(c.Author, ghUser),
 		Policy:         policy,
 		Steering:       c.Steering,
 		SteeringRole:   steeringRole(c.Steering, c.Author, ghUser),
+		SteeringNonce:  nonce,
 	}
 }
 
@@ -118,7 +131,7 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	if f.Steering != nil {
 		if msg := strings.TrimSpace(f.Steering.Message); msg != "" {
 			b.WriteString("\n\n")
-			b.WriteString(steeringSection(f.SteeringRole, f.Steering.SetBy, msg))
+			b.WriteString(steeringSection(f.SteeringRole, f.Steering.SetBy, msg, f.SteeringNonce))
 		}
 	}
 	return strings.TrimSpace(b.String())
@@ -310,22 +323,31 @@ func ExplainRules(cfg config.Config, c store.Candidate, f Facts) []RuleTrace {
 	return traces
 }
 
-// steeringNonce derives the marker suffix for one steering block.
+// steeringNonce is the marker suffix for one steering block: 8 random bytes,
+// fresh per rendered prompt.
 //
 // The threat is an author writing their own END marker so the block closes on
-// their line and everything after it reads as operator prose. They control the
-// whole message, so they can search for a FIXED POINT: a message that contains
-// the very marker its own digest produces. What stops that is the cost of the
-// search, not any secret, since the digest is computed from public input by a
-// deterministic function.
+// their line and everything after it reads as operator prose. Randomness is
+// what stops that, and it stops it categorically: there is nothing to search
+// for. The author is not shown the nonce, it is never stored, and it differs
+// every time the prompt is built, so a message written today cannot name the
+// marker that will wrap it.
 //
-// 16 bytes makes that search 2^128. An earlier version used 3 bytes on the
-// reasoning that an author "cannot know the digest of text they are still
-// writing" — which is wrong, because they choose that text: a fixed point fell
-// out in about five seconds of brute force.
-func steeringNonce(message string) string {
-	sum := sha256.Sum256([]byte(message))
-	return hex.EncodeToString(sum[:16])
+// Two earlier versions derived it from the message with SHA-256. That was the
+// wrong shape however many bytes it used, because the function is public and
+// its input is entirely the attacker's: they can search offline for a FIXED
+// POINT, a message containing the very marker its own digest produces, with
+// unlimited attempts and no feedback from us. At 3 bytes one fell out in about
+// five seconds. Going to 16 bytes made that search 2^128 rather than
+// impossible, which is a computational assumption where none is needed.
+//
+// crypto/rand.Read never returns an error; it crashes the program if the
+// system source fails, which is the right outcome. There is deliberately no
+// fallback, because a fallback would be a deterministic marker again.
+func steeringNonce() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 // steeringSection renders one supplied instruction inside explicit markers.
@@ -342,12 +364,11 @@ func steeringNonce(message string) string {
 // only "@someone said this" would flatten that difference, and describing the
 // operator's own guidance as untrusted participant input would have it
 // discounted for the wrong reason.
-func steeringSection(role SteeringRole, by, message string) string {
+func steeringSection(role SteeringRole, by, message, nonce string) string {
 	who := "a participant"
 	if by != "" {
 		who = "@" + by
 	}
-	nonce := steeringNonce(message)
 
 	var heading, framing string
 	switch role {

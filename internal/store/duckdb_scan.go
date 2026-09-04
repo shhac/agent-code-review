@@ -168,7 +168,7 @@ func scanAuthor(m map[string]any) (Author, error) {
 
 func scanCandidate(m map[string]any) (Candidate, error) {
 	r := &row{values: m}
-	return Candidate{
+	c := Candidate{
 		Repo:         r.str("repo"),
 		Number:       r.int("number"),
 		Type:         r.str("type"),
@@ -187,7 +187,14 @@ func scanCandidate(m map[string]any) (Candidate, error) {
 		ClaimPID:     r.int("claim_pid"),
 		ClaimedAt:    r.timePtr("claimed_at"),
 		EligibleAt:   r.timePtr("eligible_at"),
-	}, r.err
+	}
+	// Steering is present only when a message is: set_by and set_at ride with
+	// it, so a row with no instruction carries no empty struct to be mistaken
+	// for one.
+	if msg := r.str("steering_message"); msg != "" {
+		c.Steering = &Steering{Message: msg, SetBy: r.str("steering_by"), SetAt: r.time("steering_at")}
+	}
+	return c, r.err
 }
 
 // text renders a SQL string literal (single quotes doubled). An empty string

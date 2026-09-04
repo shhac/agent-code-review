@@ -19,13 +19,11 @@ type Facts struct {
 	// Nothing here knows that groups, overrides, and an unlisted fallback
 	// produced it; the cascade resolved before this point.
 	Policy config.Policy
-	// Steering is an instruction supplied by the PR's author (or by the
-	// account reviews are posted as) via the dashboard, and SteeringBy is the
-	// GitHub handle that was proved before it was accepted. Empty for the
-	// overwhelming majority of reviews. Carried on Facts rather than read from
-	// the store here so BuildPrompt stays pure.
-	Steering   string
-	SteeringBy string
+	// Steering is the instruction the PR's author (or the account reviews are
+	// posted as) attached to this PR, nil for the overwhelming majority of
+	// reviews. Taken from the candidate, which carries it, so BuildPrompt
+	// stays pure and there is no second place for it to disagree.
+	Steering *store.Steering
 }
 
 // DeriveFacts computes the rule inputs for a candidate. ghUser is the resolved
@@ -35,6 +33,7 @@ func DeriveFacts(c store.Candidate, ghUser string, policy config.Policy) Facts {
 	return Facts{
 		AuthorIsGHUser: ghUser != "" && strings.EqualFold(c.Author, ghUser),
 		Policy:         policy,
+		Steering:       c.Steering,
 	}
 }
 
@@ -75,9 +74,11 @@ func BuildPrompt(cfg config.Config, c store.Candidate, f Facts) string {
 	// review and nothing more. Framing it as a request from a named person,
 	// rather than merging it into the operator's instructions, is what keeps
 	// "focus on the migration" from being read the same way as "approve this".
-	if st := strings.TrimSpace(f.Steering); st != "" {
-		b.WriteString("\n\n")
-		b.WriteString(steeringSection(f.SteeringBy, st))
+	if f.Steering != nil {
+		if msg := strings.TrimSpace(f.Steering.Message); msg != "" {
+			b.WriteString("\n\n")
+			b.WriteString(steeringSection(f.Steering.SetBy, msg))
+		}
 	}
 	return strings.TrimSpace(b.String())
 }

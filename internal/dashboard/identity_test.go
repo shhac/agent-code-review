@@ -14,11 +14,19 @@ import (
 
 // steerStore is the roster + queue + steering surface the identity and
 // steering handlers touch. Embeds the full Store so an unexpected call panics.
+// steerCall records one SetSteering, with the PR it named: the store no
+// longer carries repo/number on the value, so the test has to keep them.
+type steerCall struct {
+	store.Steering
+	repo   string
+	number int
+}
+
 type steerStore struct {
 	store.Store
 	queue   []store.Candidate
 	byLogin map[string]store.Author
-	set     []store.Steering
+	set     []steerCall
 	cleared int
 }
 
@@ -33,8 +41,8 @@ func (f *steerStore) AuthorByTailscaleLogin(_ context.Context, login string) (st
 	}
 	return store.Author{}, false, nil
 }
-func (f *steerStore) SetSteering(_ context.Context, st store.Steering) error {
-	f.set = append(f.set, st)
+func (f *steerStore) SetSteering(_ context.Context, repo string, number int, st store.Steering) error {
+	f.set = append(f.set, steerCall{repo: repo, number: number, Steering: st})
 	return nil
 }
 func (f *steerStore) ClearSteering(context.Context, string, int) error {

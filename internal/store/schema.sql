@@ -193,13 +193,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS allowed_authors_tailscale_login
 -- history survives.
 
 -- Steering: a short instruction from the PR's author (or from the account
--- reviews are posted as) that shapes the NEXT review of that PR. One row per
--- PR: steering is guidance for the review about to happen, not a thread, so a
--- new message replaces the old rather than accumulating context nobody pruned.
+-- reviews are posted as) that shapes the NEXT review of that PR. Columns on
+-- the queue row rather than a table of their own, because steering is exactly
+-- a per-row attribute: same key, same lifetime, one per row. As a separate
+-- table the 1:1 had to be maintained by hand at every site that retires a row,
+-- and Complete needed an EXISTS subquery purely to re-derive "is the queue row
+-- about to go". Here it goes when the row goes, structurally.
 --
--- set_by is the GitHub handle the dashboard proved via the roster, kept so the
--- prompt can attribute the instruction and so an operator can see who asked
--- for what. Rows are keyed like the queue and deleted with it.
+-- steering_by is the GitHub handle the dashboard proved via the roster, kept
+-- so the prompt can attribute the instruction and an operator can see who
+-- asked for what.
+-- The retired standalone table. Unlike `runs` it is still declared, because
+-- the backfill below reads it and must not depend on whether this store
+-- predates the move. On a fresh store it is created empty and stays that way;
+-- nothing reads or writes it after the backfill.
 CREATE TABLE IF NOT EXISTS steering (
   repo       TEXT      NOT NULL,
   number     INTEGER   NOT NULL,
@@ -208,3 +215,19 @@ CREATE TABLE IF NOT EXISTS steering (
   set_at     TIMESTAMP NOT NULL,
   PRIMARY KEY (repo, number)
 );
+
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS steering_message TEXT;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS steering_by TEXT;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS steering_at TIMESTAMP;
+
+-- Carry across anything the standalone table already holds. Idempotent: the
+-- UPDATE only writes rows whose column is still NULL, so re-running the schema
+-- never resurrects steering a later edit cleared. The old table is left in
+-- place rather than dropped, as with `runs`: nothing reads it, and dropping it
+-- would discard history a live store may hold.
+UPDATE queue SET
+  steering_message = (SELECT s.message FROM steering s WHERE s.repo = queue.repo AND s.number = queue.number),
+  steering_by      = (SELECT s.set_by  FROM steering s WHERE s.repo = queue.repo AND s.number = queue.number),
+  steering_at      = (SELECT s.set_at  FROM steering s WHERE s.repo = queue.repo AND s.number = queue.number)
+WHERE steering_message IS NULL
+  AND EXISTS (SELECT 1 FROM steering s WHERE s.repo = queue.repo AND s.number = queue.number);

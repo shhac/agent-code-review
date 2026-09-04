@@ -489,9 +489,11 @@ func TestSteeringInPrompt(t *testing.T) {
 
 	t.Run("attributed, quoted, and last", func(t *testing.T) {
 		f := Facts{
-			Policy:     config.Policy{Review: config.ReviewComment},
-			Steering:   "the migration is behind a flag\nfocus on the rollback path",
-			SteeringBy: "octocat",
+			Policy: config.Policy{Review: config.ReviewComment},
+			Steering: &store.Steering{
+				Message: "the migration is behind a flag\nfocus on the rollback path",
+				SetBy:   "octocat",
+			},
 		}
 		got := BuildPrompt(cfg, c, f)
 		for _, want := range []string{
@@ -520,7 +522,7 @@ func TestSteeringInPrompt(t *testing.T) {
 	})
 
 	t.Run("an unattributed message still says who it is not", func(t *testing.T) {
-		got := BuildPrompt(cfg, c, Facts{Policy: config.Policy{Review: config.ReviewComment}, Steering: "hi"})
+		got := BuildPrompt(cfg, c, Facts{Policy: config.Policy{Review: config.ReviewComment}, Steering: &store.Steering{Message: "hi"}})
 		if !strings.Contains(got, "Steering from a participant") {
 			t.Errorf("want a neutral attribution:\n%s", got)
 		}

@@ -97,12 +97,11 @@ type Store interface {
 	// don't narrow on that field.
 	ListAuthors(ctx context.Context, repo, group string) ([]Author, error)
 	// SetSteering records the instruction shaping the next review of a PR,
-	// replacing any previous one. ClearSteering drops it; Complete drops it
-	// too, since steering guides one review rather than every future one.
-	SetSteering(ctx context.Context, st Steering) error
+	// replacing any previous one; an empty message clears it. Reading it needs
+	// no method: it rides on the Candidate, so ListQueue already carries it,
+	// and it is retired with the row by Complete and Dequeue.
+	SetSteering(ctx context.Context, repo string, number int, st Steering) error
 	ClearSteering(ctx context.Context, repo string, number int) error
-	Steering(ctx context.Context, repo string, number int) (Steering, bool, error)
-	ListSteering(ctx context.Context) ([]Steering, error)
 	// AuthorByTailscaleLogin resolves a Tailscale-User-Login header value to
 	// the roster row claiming it, which is how the dashboard learns which
 	// GitHub handle a tailnet viewer is.

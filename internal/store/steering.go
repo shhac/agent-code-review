@@ -3,9 +3,10 @@ package store
 import "time"
 
 // Steering is one author-supplied instruction shaping the next review of a PR.
+// It carries no repo/number: it is a field of the Candidate that holds it, and
+// giving it its own identity is what previously let a steering row and its
+// queue row disagree about which PR they meant.
 type Steering struct {
-	Repo    string    `json:"repo"`
-	Number  int       `json:"number"`
 	Message string    `json:"message"`
 	SetBy   string    `json:"set_by"`
 	SetAt   time.Time `json:"set_at"`

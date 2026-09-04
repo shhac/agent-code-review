@@ -63,9 +63,8 @@ type rosterStore interface {
 	ListAuthors(ctx context.Context, repo, group string) ([]store.Author, error)
 	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
 	AuthorByTailscaleLogin(ctx context.Context, login string) (store.Author, bool, error)
-	SetSteering(ctx context.Context, st store.Steering) error
+	SetSteering(ctx context.Context, repo string, number int, st store.Steering) error
 	ClearSteering(ctx context.Context, repo string, number int) error
-	ListSteering(ctx context.Context) ([]store.Steering, error)
 }
 
 // dashboardStore is the whole surface the web server uses. It deliberately

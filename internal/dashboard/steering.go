@@ -124,8 +124,8 @@ func (s *Server) handleSteering(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, steeringResp{Cleared: true})
 		return
 	}
-	st := store.Steering{Repo: req.Repo, Number: req.Number, Message: msg, SetBy: v.Handle, SetAt: time.Now()}
-	if err := s.store.SetSteering(ctx, st); err != nil {
+	st := store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}
+	if err := s.store.SetSteering(ctx, req.Repo, req.Number, st); err != nil {
 		s.fail(w, err)
 		return
 	}

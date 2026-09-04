@@ -1,5 +1,8 @@
 <script lang="ts">
   import { feed } from './lib/feed';
+  import { poll } from './lib/poll';
+  import { refreshViewer, viewer } from './lib/viewer';
+  import ViewerChip from './lib/ViewerChip.svelte';
   import { navigate } from './lib/nav';
   import { parseReviewLogPath, reviewLogRouteKey } from './lib/reviewlog';
   import type { ReviewLogRef } from './lib/types';
@@ -46,6 +49,10 @@
   window.addEventListener('popstate', () => {
     applyPath(location.pathname);
   });
+
+  // Identity is polled, not fetched once: adding someone's tailscale_login to
+  // the roster should reach them while they are looking at the page.
+  poll(refreshViewer, 30000);
 </script>
 
 <svelte:head>
@@ -66,6 +73,7 @@
         <a href={item.path} class:active={route === item.route} on:click|preventDefault={() => navigate(item.path)}>{item.label}</a>
       {/each}
     </nav>
+    <ViewerChip viewer={$viewer} />
     <div class:stale={!$feed.ok} class="feed">
       <span class="signal"></span>
       <span>{$feed.ok ? 'live' : 'stale'}</span>

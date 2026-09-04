@@ -11,6 +11,7 @@ import type {
   PromptResponse,
   PromptPreviewResponse,
   StatsResponse,
+  Viewer,
   UsageResponse,
   ReviewLogRef,
 } from './types';
@@ -93,3 +94,11 @@ export const queuePR = (url: string) => post('/api/queue', { url });
 export const removeQueuedPR = ({ repo, number }: PRRef) => del('/api/queue', { repo, number });
 export const promoteQueuedPR = ({ repo, number }: PRRef) => post('/api/queue/promote', { repo, number });
 export const reorderQueue = (order: PRRef[]) => post('/api/queue/reorder', { order });
+
+export const getViewer = () => fetchJSON<Viewer>('/api/viewer');
+
+// setSteering sets the instruction for one PR, or clears it when message is
+// empty. The server decides whether the caller may: it reads the PR's author
+// from the queue, never from this request, so a rejection here is the answer.
+export const setSteering = (repo: string, number: number, message: string) =>
+  post('/api/steering', { repo, number, message });

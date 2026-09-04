@@ -18,6 +18,7 @@ export type Candidate = {
   work_dir?: string;
   eligible_at?: string;
   hold_reason?: string;
+  steering?: Steering;
 };
 
 // Header-badge tallies computed server-side (dashboard countQueue): the one
@@ -280,4 +281,27 @@ export type ReviewLogResponse = {
   truncated?: boolean;
   content?: string;
   error?: string;
+};
+
+// Steering is an instruction from the PR's author (or from the account
+// reviews are posted as) that shapes the next review of that PR.
+export type Steering = {
+  repo: string;
+  number: number;
+  message: string;
+  set_by: string;
+  set_at: string;
+};
+
+// Viewer is who the dashboard believes is asking, derived from the identity
+// `tailscale serve` attaches. `handle` is empty for someone the roster does
+// not claim: authenticated, but owning no PRs here.
+export type Viewer = {
+  login?: string;
+  handle?: string;
+  is_gh_user: boolean;
+  anonymous: boolean;
+  max_message: number;
+  steer_any_pr: boolean;
+  explanation?: string;
 };

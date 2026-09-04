@@ -35,6 +35,12 @@ type handlerStore struct {
 	tokens     map[bool]int64        // keyed by since.IsZero()
 	since      time.Time
 	sinceErr   error
+	steering   []store.Steering
+}
+
+// ListSteering: most handler tests have none, and nil says so.
+func (f *handlerStore) ListSteering(context.Context) ([]store.Steering, error) {
+	return f.steering, nil
 }
 
 func (f *handlerStore) ListQueue(context.Context, string) ([]store.Candidate, error) {

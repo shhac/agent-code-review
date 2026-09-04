@@ -299,6 +299,48 @@ usage floor is therefore applied **per engine**: when one is out of headroom
 its candidates wait in the queue like any other hold, while candidates bound
 for the other engine run as normal.
 
+## Steering a review
+
+A PR's author can leave a short instruction that shapes the next review of
+their PR, from the dashboard. The account reviews are posted as can steer any
+of them.
+
+```
+The migration is behind a flag, so focus on:
+
+- the rollback path
+- the `down` migration
+```
+
+Markdown is preserved and reaches the reviewer as written. It renders last in
+the prompt, inside explicit markers, under a framing that names who wrote it
+and states that it cannot change the approval policy, widen what the reviewer
+may do, or ask it to skip the review. Steering from the PR author is presented
+as an interested party's context; steering from the reviewing account is
+presented as the operator's guidance.
+
+Steering lives as long as the queue row: it is dropped when the review
+completes, and survives when new commits land mid-review, because the
+instruction still applies to the re-review.
+
+### Who may steer
+
+The dashboard has no login of its own. `--tailscale serve` authenticates the
+viewer and asserts their identity in a header, and the roster maps that to a
+GitHub handle:
+
+```
+agent-code-review authors set '*' octocat approver --tailscale-login octo@example.com
+```
+
+Without a `tailscale_login` a person can browse and steer nothing. The
+identity chip at the bottom of the sidebar always shows who the dashboard
+thinks you are, which is the first thing to check when steering is refused.
+
+Because a manual add is usually claimed by a free reviewer within one idle
+poll, the queue form has a second button that sets steering as part of the
+add rather than after it.
+
 ## Configuration
 
 `~/.config/agent-code-review/config.json` (respects `XDG_CONFIG_HOME`). See

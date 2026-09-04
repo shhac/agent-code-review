@@ -136,7 +136,11 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	})
 
 	running := runningLoops(opts, cfg)
-	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version)
+	// Funnel is public internet traffic that Tailscale attaches no identity
+	// to, so the dashboard must not read one from it. Serve (or no tunnel at
+	// all, which is loopback-only) is where the header means something.
+	trustIdentity := opts.tailscaleMode != "funnel"
+	dash := dashboard.NewServer(s, config.Read, running, usageCache, discover.CurrentUser, logs, opts.version, trustIdentity)
 	// Bind BEFORE the scheduler starts: the port doubles as the "one daemon
 	// per address" guard, and the loops fire immediately on start; an
 	// accidental second instance must die here, not after it has already

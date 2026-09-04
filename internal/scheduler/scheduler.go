@@ -68,6 +68,7 @@ type SchedulerStore interface {
 	AppendHistory(context.Context, store.Review) error
 	Complete(context.Context, store.Review) error
 	AuthorGroup(context.Context, string, string) (config.Membership, error)
+	Steering(ctx context.Context, repo string, number int) (store.Steering, bool, error)
 }
 
 // Scheduler wires the deterministic machinery around a review engine. Config

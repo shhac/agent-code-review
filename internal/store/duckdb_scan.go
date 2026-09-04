@@ -156,6 +156,8 @@ func scanAuthor(m map[string]any) (Author, error) {
 		Name:         r.str("name"),
 		Email:        r.str("email"),
 		SlackID:      r.str("slack_id"),
+
+		TailscaleLogin: r.str("tailscale_login"),
 	}
 	// A row written before group_name existed still means what it meant then.
 	if a.Group == "" {

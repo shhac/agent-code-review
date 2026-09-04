@@ -1226,3 +1226,74 @@ func TestAuthorGroupRepoPrecedenceSurvivesCaseFolding(t *testing.T) {
 		t.Errorf("exact repo row must win over the wildcard even when case differs, got %+v", got)
 	}
 }
+
+// TestTailscaleLoginIdentity pins the column that decides who may steer whose
+// review. It is the roster's only authorisation-bearing field, so the
+// properties that matter are: it resolves back to a GitHub handle, matching
+// ignores case (the header carries the identity provider's casing and the
+// roster whatever the operator typed), unset rows never match, and two people
+// cannot claim the same login.
+func TestTailscaleLoginIdentity(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	must := func(a Author) {
+		t.Helper()
+		if err := s.SetAuthorGroup(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(Author{Repo: "*", GitHubHandle: "Firanus", Group: "approver", TailscaleLogin: "Ivan@LetsDoThis.com"})
+	must(Author{Repo: "*", GitHubHandle: "hhumph", Group: "approver", Email: "helen@letsdothis.com"})
+
+	t.Run("resolves to the handle, case-insensitively", func(t *testing.T) {
+		for _, probe := range []string{"Ivan@LetsDoThis.com", "ivan@letsdothis.com", "IVAN@LETSDOTHIS.COM"} {
+			got, ok, err := s.AuthorByTailscaleLogin(ctx, probe)
+			if err != nil || !ok {
+				t.Fatalf("%s: ok=%v err=%v", probe, ok, err)
+			}
+			if got.GitHubHandle != "Firanus" {
+				t.Errorf("%s resolved to %q, want Firanus", probe, got.GitHubHandle)
+			}
+		}
+	})
+
+	t.Run("a row with no login never matches", func(t *testing.T) {
+		// hhumph has an email but no tailscale login. Email must not stand in
+		// for it: that is the whole reason the column is separate.
+		if _, ok, err := s.AuthorByTailscaleLogin(ctx, "helen@letsdothis.com"); err != nil || ok {
+			t.Errorf("an email must not resolve as a tailscale login, got ok=%v err=%v", ok, err)
+		}
+		if _, ok, err := s.AuthorByTailscaleLogin(ctx, ""); err != nil || ok {
+			t.Errorf("an empty header must resolve to nobody, got ok=%v err=%v", ok, err)
+		}
+	})
+
+	t.Run("several rows may leave it unset", func(t *testing.T) {
+		// The unique index must not make "no login" a scarce resource: most of
+		// the roster will never have one.
+		must(Author{Repo: "o/r", GitHubHandle: "alice", Group: "approver"})
+		must(Author{Repo: "o/r", GitHubHandle: "bob", Group: "approver"})
+		if _, ok, _ := s.AuthorByTailscaleLogin(ctx, "nobody@example.com"); ok {
+			t.Error("an unknown login must resolve to nobody")
+		}
+	})
+
+	t.Run("two people cannot claim one login", func(t *testing.T) {
+		err := s.SetAuthorGroup(ctx, Author{
+			Repo: "*", GitHubHandle: "impostor", Group: "approver",
+			TailscaleLogin: "ivan@letsdothis.com",
+		})
+		if err == nil {
+			t.Fatal("a second row claiming the same login must be refused: it would let one person steer as another")
+		}
+	})
+
+	t.Run("the owner may still update their own row", func(t *testing.T) {
+		must(Author{Repo: "*", GitHubHandle: "Firanus", Group: "commenter", TailscaleLogin: "ivan@letsdothis.com"})
+		got, ok, err := s.AuthorByTailscaleLogin(ctx, "ivan@letsdothis.com")
+		if err != nil || !ok || got.Group != "commenter" {
+			t.Fatalf("re-setting the same person must work, got %+v ok=%v err=%v", got, ok, err)
+		}
+	})
+}

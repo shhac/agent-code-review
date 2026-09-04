@@ -65,7 +65,7 @@ func authorsLsCmd() *cobra.Command {
 }
 
 func authorsSetCmd() *cobra.Command {
-	var name, email, slackID string
+	var name, email, slackID, tailscaleLogin string
 	cmd := &cobra.Command{
 		Use:   "set <owner/repo|*> <github-handle> <group>",
 		Short: "Put an author in a group for a repo (upserts)",
@@ -91,15 +91,21 @@ func authorsSetCmd() *cobra.Command {
 					Name:         name,
 					Email:        email,
 					SlackID:      slackID,
+
+					TailscaleLogin: tailscaleLogin,
 				}
 				if err := s.SetAuthorGroup(cmd.Context(), a); err != nil {
 					return err
 				}
-				return emit(map[string]any{
+				out := map[string]any{
 					"set":    a.Repo + " / @" + a.GitHubHandle,
 					"group":  group,
 					"policy": cfg.ResolvePolicy(a.Repo, a.GitHubHandle, config.Membership{Group: group, Repo: a.Repo}),
-				})
+				}
+				if a.TailscaleLogin != "" {
+					out["tailscale_login"] = a.TailscaleLogin
+				}
+				return emit(out)
 			})
 		},
 	}
@@ -107,6 +113,8 @@ func authorsSetCmd() *cobra.Command {
 	f.StringVar(&name, "name", "", "Display name")
 	f.StringVar(&email, "email", "", "Email")
 	f.StringVar(&slackID, "slack-id", "", "Slack user ID")
+	f.StringVar(&tailscaleLogin, "tailscale-login", "",
+		"Tailscale identity (the Tailscale-User-Login header), e.g. alice@example.com. Lets this person steer their own reviews from the dashboard.")
 	cmd.ValidArgsFunction = completePositional(completeAuthorRepo, completeAuthorHandle, completeGroupArg)
 	return cmd
 }

@@ -165,6 +165,26 @@ CREATE TABLE IF NOT EXISTS allowed_authors (
 ALTER TABLE allowed_authors ADD COLUMN IF NOT EXISTS group_name TEXT;
 UPDATE allowed_authors SET group_name = 'approver' WHERE group_name IS NULL;
 
+-- tailscale_login is the identity `tailscale serve` asserts in the
+-- Tailscale-User-Login header, and it is what lets the dashboard answer "which
+-- GitHub handle is this person". Deliberately its own column rather than
+-- reusing `email`: they are the same string today, but email is free-text
+-- contact detail that may be a shared alias or change independently, and this
+-- one grants the right to steer somebody's review. Keeping them apart means a
+-- collision in one cannot become an authorisation bug in the other.
+--
+-- One person can own several devices; Tailscale reports the USER on all of
+-- them, so this needs no device dimension.
+ALTER TABLE allowed_authors ADD COLUMN IF NOT EXISTS tailscale_login TEXT;
+-- Case-insensitively unique: two rows sharing a login would let one person act
+-- as another, which is the whole point of the column. DuckDB has no partial
+-- indexes, but it treats NULLs as distinct, so the many rows without a login
+-- coexist freely. An EMPTY STRING is not distinct and would collide on the
+-- second row, which is why every write goes through nullText and stores unset
+-- as NULL rather than ''.
+CREATE UNIQUE INDEX IF NOT EXISTS allowed_authors_tailscale_login
+  ON allowed_authors (lower(tailscale_login));
+
 -- The `runs` table (one row per review CYCLE, the advisory run-lock) is
 -- deliberately absent: reviews are dispatched individually as slots free, and
 -- cross-process exclusion is the per-candidate CAS in Claim above. Stores

@@ -18,6 +18,10 @@ type Author struct {
 	Name         string `json:"name,omitempty"`
 	Email        string `json:"email,omitempty"`
 	SlackID      string `json:"slack_id,omitempty"`
+	// TailscaleLogin is the identity `tailscale serve` asserts for this person
+	// (the Tailscale-User-Login header). Separate from Email on purpose: this
+	// one is load-bearing for authorisation, and email is contact detail.
+	TailscaleLogin string `json:"tailscale_login,omitempty"`
 }
 
 // Membership is the roster row expressed as what the policy cascade consumes.

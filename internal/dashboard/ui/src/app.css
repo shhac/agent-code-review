@@ -259,15 +259,30 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .review-row-wrap:last-child { border-bottom: 0; }
 .review-row-wrap.open { background: var(--surface-warm); }
 .review-row:hover { background: var(--surface-warm); }
-.review-table .mono { white-space: nowrap; }
-.review-table .num { color: var(--dim); text-align: right; white-space: nowrap; }
-.review-table .num small { display: block; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
-.review-table .chev { color: var(--faint); text-align: center; }
+/* DIRECT children of a row only. As descendant selectors these also reached
+   into the expanded detail below, where the 40-character head SHA inherited
+   white-space:nowrap and overflowed across its neighbours. The same trap is
+   documented on .authors > p further down; a row's cells are children of the
+   row, and nothing nested deeper is one. */
+.review-row > .mono { white-space: nowrap; }
+.review-row > .num { color: var(--dim); text-align: right; white-space: nowrap; }
+.review-row > .num small { display: block; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.review-row > .chev { color: var(--faint); text-align: center; }
 .review-detail { padding: 4px 0 14px; display: grid; gap: 10px; }
-.review-detail dl { margin: 0; display: grid; gap: 6px 18px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-.review-detail dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+/* Wide enough for a 40-character SHA beside its label, so the value column is
+   not forced to break a word to fit ("esti / mated"). */
+.review-detail dl { margin: 0; display: grid; gap: 8px 24px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.review-detail dl div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: baseline; }
 .review-detail dt { color: var(--dim); font-size: 12px; }
-.review-detail dd { margin: 0; overflow-wrap: anywhere; }
+/* break-word, not anywhere: anywhere splits mid-word whenever it helps, which
+   turned "estimated" into "esti / mated". This breaks only what cannot fit,
+   which is the SHA. */
+.review-detail dd { margin: 0; overflow-wrap: break-word; }
+.review-detail dd.mono { overflow-wrap: anywhere; }
+/* Spacing via CSS, not a literal space in the markup: Svelte collapses
+   whitespace between an expression and an adjacent element, which rendered
+   "$0.8011estimated". */
+.review-detail .tag-mute { margin-left: 6px; }
 .log-link { color: var(--accent); font-size: 12px; font-weight: 750; }
 .log-link:hover { text-decoration: underline; }
 .review-table .ticket-pr { font-size: 15px; }
@@ -462,7 +477,7 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
      accordion — the table sheds columns rather than truth. */
   .review-head, .review-row { grid-template-columns: minmax(140px, 1fr) 150px 20px; gap: 12px; }
   .review-head span:nth-child(3), .review-head span:nth-child(4), .review-head span:nth-child(5) { display: none; }
-  .review-table .num, .review-table .mono, .review-table time { display: none; }
+  .review-row > .num, .review-row > .mono, .review-row > time { display: none; }
 }
 
 @media (max-width: 760px) {

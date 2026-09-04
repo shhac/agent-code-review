@@ -273,12 +273,19 @@ internal/
   the account reviews are posted as) can attach a short instruction that
   shapes the next review of that PR. It is the only part of a prompt written
   by somebody other than the operator, so it renders LAST, inside explicit
-  `BEGIN/END STEERING <digest>` markers, under a framing that names the
-  setter's ROLE and states what it cannot do. The digest is derived from the
-  message, so an author cannot close their own block and continue outside it:
-  forging the end marker needs the hash of text they are still writing. The
-  message reaches the engine verbatim, markdown included, because mangling it
-  is not what makes it safe; the markers are.
+  `BEGIN/END STEERING <nonce>` markers, under a framing that names the setter's
+  ROLE and states what it cannot do. The message reaches the engine verbatim,
+  markdown included, because mangling it is not what makes it safe; the markers
+  are.
+
+  The nonce is RANDOM per rendered prompt, never stored and never shown. It was
+  twice derived from the message with SHA-256, which is the wrong shape at any
+  length: the function is public and its input is entirely the author's, so
+  they can search offline for a message containing the very marker its own
+  digest produces, with unlimited attempts and no feedback. At three bytes one
+  fell out in five seconds. Randomness removes the search rather than pricing
+  it, so there is deliberately no fallback if the system entropy source
+  fails — a fallback would be a predictable marker again.
 
   Role matters as much as attribution. Steering from the PR author is framed
   as an interested party; steering from the reviewing account is the operator

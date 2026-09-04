@@ -379,7 +379,7 @@ KEYS:
   claude.bin | claude.model | claude.effort | claude.permission_mode
   claude.max_budget_usd                per-review ceiling at API rates (0 = uncapped;
                                        set it from the Metrics page's median + peak)
-  dashboard.addr                       listen address (default :8330)
+  dashboard.addr                       listen address (default 127.0.0.1:8330)
   dashboard.tailscale.mode             "" | serve | funnel
   dashboard.usage_poll_interval        engine usage refresh cadence (default 10m)
   store.path                           DuckDB file location

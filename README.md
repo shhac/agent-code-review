@@ -310,7 +310,15 @@ Group *membership* is **not** in config; it lives in the store; manage it with
 
 ## Dashboard
 
-`serve` hosts a small web UI (default `:8330`):
+`serve` hosts a small web UI (default `127.0.0.1:8330`):
+
+The bind is loopback on purpose. The dashboard has no login of its own:
+reaching it *is* the authorisation, and `--tailscale serve` is what grants
+that, proxying from your tailnet to this port. It also attaches the
+`Tailscale-User-Login` identity header the roster trusts, stripping any forged
+copy on the way through, so a request that reaches the port without going
+through the proxy could assert whatever it liked. Bind wider only
+deliberately.
 
 - **Queue**: the pending worklist (add via pasted PR URL or
   `owner/repo/pull/N`; live title/author fetched on add, closed/merged PRs

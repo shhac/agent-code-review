@@ -141,7 +141,7 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *float64 { return &c.Review.Claude.MaxBudgetUSD }, 0, 1000)),
 		plain(optionalIntKey("claude.max_resumes", "Resume nudges when a claude run ends without a final report (default 2, 0 disables)",
 			func(c *config.Config) **int { return &c.Review.Claude.MaxResumes }, 0, 10)),
-		plain(stringKey("dashboard.addr", "Dashboard listen address (default :8330)",
+		plain(stringKey("dashboard.addr", "Dashboard listen address (default 127.0.0.1:8330; bind wider only deliberately, the dashboard has no auth of its own)",
 			func(c *config.Config) *string { return &c.Dashboard.Addr }, nil)),
 		static(stringKey("dashboard.tailscale.mode", `Tailscale exposure: "", "serve", or "funnel"`,
 			func(c *config.Config) *string { return &c.Dashboard.Tailscale.Mode }, validateOneOf("tailscale mode", tailscaleModeValues)), tailscaleModeValues),

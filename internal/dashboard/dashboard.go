@@ -63,6 +63,7 @@ type rosterStore interface {
 	ListAuthors(ctx context.Context, repo, group string) ([]store.Author, error)
 	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
 	AuthorByTailscaleLogin(ctx context.Context, login string) (store.Author, bool, error)
+	QueuedPR(ctx context.Context, repo string, number int) (store.Candidate, bool, error)
 	SetSteering(ctx context.Context, repo string, number int, st store.Steering) error
 	ClearSteering(ctx context.Context, repo string, number int) error
 }

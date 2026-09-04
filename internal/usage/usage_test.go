@@ -11,7 +11,12 @@ func TestCachePollRecordsFetchFailures(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go cache.Poll(ctx, time.Hour, Source{Engine: "codex", Bin: fakeCodex(t, "exit 12")})
-	deadline := time.Now().Add(time.Second)
+	// Poll has no completion signal, so this waits on the observable effect.
+	// The ceiling is generous because the first fetch spawns a subprocess:
+	// a one-second budget passed alone and missed under -race with the whole
+	// suite competing for the machine. The loop exits the moment the error
+	// lands, so a large ceiling costs nothing except when genuinely broken.
+	deadline := time.Now().Add(10 * time.Second)
 	for cache.Get("codex").Error == "" && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}

@@ -235,3 +235,73 @@ func TestSteeringAuthorisation(t *testing.T) {
 		}
 	})
 }
+
+// TestViewerState pins the classification the chip renders. Pure, so the four
+// cases cost nothing; previously handleViewer had no test at all and the
+// client re-derived these cases from a combination of booleans.
+func TestViewerState(t *testing.T) {
+	for name, tc := range map[string]struct {
+		v    viewer
+		want viewerState
+	}{
+		"nothing proved":        {viewer{}, viewerAnonymous},
+		"proved, no roster row": {viewer{Login: "x@e.com"}, viewerUnmapped},
+		"rostered author":       {viewer{Login: "o@e.com", Handle: "octocat"}, viewerAuthor},
+		"the gh account":        {viewer{Login: "p@e.com", Handle: "paul-gh", IsGH: true}, viewerOperator},
+	} {
+		if got := tc.v.state(); got != tc.want {
+			t.Errorf("%s: state = %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
+// TestHandleViewer: the endpoint reports the identity it proved, and reports
+// nobody when nothing was proved. It must never echo a handle it did not
+// resolve, since the chip is what tells a person they were recognised.
+func TestHandleViewer(t *testing.T) {
+	get := func(t *testing.T, s *Server, remote, login string) viewerResp {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/viewer", nil)
+		r.RemoteAddr = remote
+		if login != "" {
+			r.Header.Set(tailscaleLoginHeader, login)
+		}
+		w := httptest.NewRecorder()
+		s.handleViewer(w, r)
+		var resp viewerResp
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v (%s)", err, w.Body)
+		}
+		return resp
+	}
+
+	fs := queuedPR()
+	t.Run("a proxied roster member is named", func(t *testing.T) {
+		got := get(t, steerServer(fs, true), "127.0.0.1:1", "octo@example.com")
+		if got.State != viewerAuthor || got.Handle != "octocat" || got.Login != "octo@example.com" {
+			t.Errorf("viewer = %+v", got)
+		}
+	})
+	t.Run("the gh account is the operator", func(t *testing.T) {
+		if got := get(t, steerServer(fs, true), "127.0.0.1:1", "paul@example.com"); got.State != viewerOperator {
+			t.Errorf("state = %q, want operator", got.State)
+		}
+	})
+	t.Run("an unrostered login is unmapped, with no handle", func(t *testing.T) {
+		got := get(t, steerServer(fs, true), "127.0.0.1:1", "stranger@example.com")
+		if got.State != viewerUnmapped || got.Handle != "" {
+			t.Errorf("viewer = %+v, want unmapped with no handle", got)
+		}
+	})
+	t.Run("a direct connection is anonymous, whatever it claims", func(t *testing.T) {
+		got := get(t, steerServer(fs, true), "100.64.0.1:1", "paul@example.com")
+		if got.State != viewerAnonymous || got.Handle != "" || got.Login != "" {
+			t.Errorf("viewer = %+v, want anonymous with nothing echoed back", got)
+		}
+	})
+	t.Run("funnel mode is anonymous", func(t *testing.T) {
+		if got := get(t, steerServer(fs, false), "127.0.0.1:1", "paul@example.com"); got.State != viewerAnonymous {
+			t.Errorf("state = %q, want anonymous", got.State)
+		}
+	})
+}

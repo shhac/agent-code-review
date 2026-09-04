@@ -295,15 +295,16 @@ export type Steering = {
   set_at: string;
 };
 
+// ViewerState is how the dashboard knows the caller. The server classifies;
+// the client only chooses words and colours for each case.
+export type ViewerState = 'anonymous' | 'unmapped' | 'author' | 'operator';
+
 // Viewer is who the dashboard believes is asking, derived from the identity
 // `tailscale serve` attaches. `handle` is empty for someone the roster does
-// not claim: authenticated, but owning no PRs here.
+// not claim: authenticated, but owning no PRs here. Whether a PARTICULAR PR is
+// steerable is not here: the queue answers that per row via may_steer.
 export type Viewer = {
+  state: ViewerState;
   login?: string;
   handle?: string;
-  is_gh_user: boolean;
-  anonymous: boolean;
-  max_message: number;
-  steer_any_pr: boolean;
-  explanation?: string;
 };

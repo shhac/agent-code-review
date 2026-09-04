@@ -6,7 +6,6 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -99,7 +98,10 @@ func (s *Server) handleSteering(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	author, ok, err := s.candidateAuthor(ctx, req.Repo, req.Number)
+	// Steering is only meaningful for work that is going to be reviewed, and
+	// the author it is checked against comes from the STORE: naming a
+	// different author in the request cannot widen anyone's rights.
+	c, ok, err := s.store.QueuedPR(ctx, req.Repo, req.Number)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -108,6 +110,7 @@ func (s *Server) handleSteering(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusNotFound, "that PR is not queued")
 		return
 	}
+	author := c.Author
 	// 403 rather than 404: the caller is authenticated and the PR exists, and
 	// telling them plainly that it is not theirs is more useful than pretending
 	// it is missing.
@@ -130,20 +133,4 @@ func (s *Server) handleSteering(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, steeringResp{Steering: &st})
-}
-
-// candidateAuthor returns the queued PR's author. Steering is only meaningful
-// for work that is going to be reviewed, so an unqueued PR is a 404 rather
-// than a row waiting for a review that may never come.
-func (s *Server) candidateAuthor(ctx context.Context, repo string, number int) (string, bool, error) {
-	queue, err := s.store.ListQueue(ctx, repo)
-	if err != nil {
-		return "", false, err
-	}
-	for _, c := range queue {
-		if strings.EqualFold(c.Repo, repo) && c.Number == number {
-			return c.Author, true, nil
-		}
-	}
-	return "", false, nil
 }

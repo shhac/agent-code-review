@@ -96,6 +96,9 @@ type Store interface {
 	// ListAuthors returns roster rows, narrowed by repo and/or group; "" means
 	// don't narrow on that field.
 	ListAuthors(ctx context.Context, repo, group string) ([]Author, error)
+	// QueuedPR returns one queued candidate, or ok=false when that PR is not
+	// queued.
+	QueuedPR(ctx context.Context, repo string, number int) (Candidate, bool, error)
 	// SetSteering records the instruction shaping the next review of a PR,
 	// replacing any previous one; an empty message clears it. Reading it needs
 	// no method: it rides on the Candidate, so ListQueue already carries it,

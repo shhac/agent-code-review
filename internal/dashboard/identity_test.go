@@ -30,8 +30,16 @@ type steerStore struct {
 	cleared int
 }
 
-func (f *steerStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
-	return f.queue, nil
+// QueuedPR mirrors the store's predicate: repo is matched EXACTLY, as
+// prWhere does. The previous fake ignored its repo argument entirely, which is
+// why a Go-side EqualFold that the SQL filter made unreachable went unnoticed.
+func (f *steerStore) QueuedPR(_ context.Context, repo string, number int) (store.Candidate, bool, error) {
+	for _, c := range f.queue {
+		if c.Repo == repo && c.Number == number {
+			return c, true, nil
+		}
+	}
+	return store.Candidate{}, false, nil
 }
 func (f *steerStore) AuthorByTailscaleLogin(_ context.Context, login string) (store.Author, bool, error) {
 	for k, a := range f.byLogin {
@@ -184,6 +192,18 @@ func TestSteeringAuthorisation(t *testing.T) {
 		body := `{"repo":"o/r","number":1,"message":"x","author":"mallory"}`
 		if w := post(t, steerServer(fs, true), "127.0.0.1:1", "mallory@example.com", body); w.Code != http.StatusForbidden {
 			t.Errorf("status = %d, want 403", w.Code)
+		}
+	})
+
+	t.Run("a mis-cased repo is not a different PR", func(t *testing.T) {
+		// The store matches repo exactly, so this is a 404 rather than a hit.
+		// Pinned because the handler used to carry a case-insensitive
+		// comparison that the SQL filter made unreachable, reading as a
+		// promise the store never kept.
+		fs := queuedPR()
+		body := `{"repo":"O/R","number":1,"message":"x"}`
+		if w := post(t, steerServer(fs, true), "127.0.0.1:1", "paul@example.com", body); w.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", w.Code)
 		}
 	})
 

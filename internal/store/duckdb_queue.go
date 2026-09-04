@@ -70,6 +70,15 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	return d.exec(ctx, sql)
 }
 
+// QueuedPR returns one queued candidate. Callers that want a single row use
+// this rather than filtering ListQueue: the predicate then lives in one place
+// (prWhere, exact on repo, as every other single-row queue operation uses)
+// instead of being split between an SQL filter and a Go comparison that
+// disagreed about case folding.
+func (d *duckDB) QueuedPR(ctx context.Context, repo string, number int) (Candidate, bool, error) {
+	return queryOne(ctx, d, "SELECT * FROM queue WHERE "+prWhere(repo, number), scanCandidate)
+}
+
 func (d *duckDB) ListQueue(ctx context.Context, repo string) ([]Candidate, error) {
 	sql := "SELECT * FROM queue"
 	if repo != "" {

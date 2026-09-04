@@ -310,17 +310,22 @@ func ExplainRules(cfg config.Config, c store.Candidate, f Facts) []RuleTrace {
 	return traces
 }
 
-// steeringNonce derives the marker suffix for one steering block. It is a
-// hash of the message, so it cannot be predicted by whoever wrote that
-// message without also fixing the message: an author cannot close the block
-// early and continue outside it, because they would have to know the digest
-// of the text they are still writing.
+// steeringNonce derives the marker suffix for one steering block.
 //
-// Short on purpose. This is a delimiter, not a secret; it only has to be
-// unlikely to appear verbatim in the very text it wraps.
+// The threat is an author writing their own END marker so the block closes on
+// their line and everything after it reads as operator prose. They control the
+// whole message, so they can search for a FIXED POINT: a message that contains
+// the very marker its own digest produces. What stops that is the cost of the
+// search, not any secret, since the digest is computed from public input by a
+// deterministic function.
+//
+// 16 bytes makes that search 2^128. An earlier version used 3 bytes on the
+// reasoning that an author "cannot know the digest of text they are still
+// writing" — which is wrong, because they choose that text: a fixed point fell
+// out in about five seconds of brute force.
 func steeringNonce(message string) string {
 	sum := sha256.Sum256([]byte(message))
-	return hex.EncodeToString(sum[:3])
+	return hex.EncodeToString(sum[:16])
 }
 
 // steeringSection renders one supplied instruction inside explicit markers.

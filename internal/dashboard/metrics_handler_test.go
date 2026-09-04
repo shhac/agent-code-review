@@ -11,7 +11,7 @@ import (
 )
 
 func TestHandleMetricsAppliesFiltersAndRange(t *testing.T) {
-	fs := &handlerStore{reviews: []store.Review{
+	fs := &fakeStore{reviews: []store.Review{
 		{Model: "gpt-5.5", Effort: "high", Verdict: "APPROVED", ReviewedAt: time.Now()},
 		{Model: "gpt-5.6-terra", Effort: "medium", Verdict: "COMMENTED", ReviewedAt: time.Now()},
 	}}
@@ -25,7 +25,7 @@ func TestHandleMetricsAppliesFiltersAndRange(t *testing.T) {
 }
 
 func TestHandleMetricsStoreError(t *testing.T) {
-	fs := &handlerStore{sinceErr: errors.New("duckdb down")}
+	fs := &fakeStore{sinceErr: errors.New("duckdb down")}
 	if code, _ := doJSON(t, newTestServer(fs, config.Config{}).handleMetrics, http.MethodGet, "/api/metrics", ""); code != http.StatusInternalServerError {
 		t.Errorf("code = %d, want 500", code)
 	}

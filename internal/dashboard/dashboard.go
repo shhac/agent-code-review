@@ -41,6 +41,11 @@ type Running struct {
 // a fake in a queue test stop having to satisfy authors and runs methods it
 // never calls. This was the one place declaring thirteen at once.
 //
+// A segment is defined by the surface that asks it, not by the table it hits:
+// steering and identity got their own rather than being appended to the
+// roster's, which is where they first landed and where they forced every
+// roster and queue test to fake methods it never called.
+//
 // dashboardStore composes them, so wiring a real store is still one
 // assignment; handlers take the narrow piece they need.
 type queueStore interface {
@@ -62,7 +67,19 @@ type historyStore interface {
 type rosterStore interface {
 	ListAuthors(ctx context.Context, repo, group string) ([]store.Author, error)
 	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
+}
+
+// identityStore answers "which GitHub handle is this tailnet login", the one
+// question the identity layer asks. Separate from rosterStore because the
+// roster PAGE never asks it and should not have to fake it.
+type identityStore interface {
 	AuthorByTailscaleLogin(ctx context.Context, login string) (store.Author, bool, error)
+}
+
+// steeringStore is the steering write surface plus the single-row read the
+// authorisation check needs. Reading steering back needs nothing: it rides on
+// the candidate, so queueStore.ListQueue already carries it.
+type steeringStore interface {
 	QueuedPR(ctx context.Context, repo string, number int) (store.Candidate, bool, error)
 	SetSteering(ctx context.Context, repo string, number int, st store.Steering) error
 	ClearSteering(ctx context.Context, repo string, number int) error
@@ -75,6 +92,8 @@ type dashboardStore interface {
 	queueStore
 	historyStore
 	rosterStore
+	identityStore
+	steeringStore
 }
 
 // Server renders the queue, config, and prompt views. Config comes through a

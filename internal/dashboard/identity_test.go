@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,53 +11,9 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// steerStore is the roster + queue + steering surface the identity and
+// fakeStore is the roster + queue + steering surface the identity and
 // steering handlers touch. Embeds the full Store so an unexpected call panics.
-// steerCall records one SetSteering, with the PR it named: the store no
-// longer carries repo/number on the value, so the test has to keep them.
-type steerCall struct {
-	store.Steering
-	repo   string
-	number int
-}
-
-type steerStore struct {
-	store.Store
-	queue   []store.Candidate
-	byLogin map[string]store.Author
-	set     []steerCall
-	cleared int
-}
-
-// QueuedPR mirrors the store's predicate: repo is matched EXACTLY, as
-// prWhere does. The previous fake ignored its repo argument entirely, which is
-// why a Go-side EqualFold that the SQL filter made unreachable went unnoticed.
-func (f *steerStore) QueuedPR(_ context.Context, repo string, number int) (store.Candidate, bool, error) {
-	for _, c := range f.queue {
-		if c.Repo == repo && c.Number == number {
-			return c, true, nil
-		}
-	}
-	return store.Candidate{}, false, nil
-}
-func (f *steerStore) AuthorByTailscaleLogin(_ context.Context, login string) (store.Author, bool, error) {
-	for k, a := range f.byLogin {
-		if strings.EqualFold(k, login) {
-			return a, true, nil
-		}
-	}
-	return store.Author{}, false, nil
-}
-func (f *steerStore) SetSteering(_ context.Context, repo string, number int, st store.Steering) error {
-	f.set = append(f.set, steerCall{repo: repo, number: number, Steering: st})
-	return nil
-}
-func (f *steerStore) ClearSteering(context.Context, string, int) error {
-	f.cleared++
-	return nil
-}
-
-func steerServer(fs *steerStore, trust bool) *Server {
+func steerServer(fs *fakeStore, trust bool) *Server {
 	return &Server{
 		store:              fs,
 		config:             func() config.Config { return config.Config{GHUser: "paul-gh"} },
@@ -83,8 +38,8 @@ func post(t *testing.T, s *Server, remote, login, body string) *httptest.Respons
 
 const octoPR = `{"repo":"o/r","number":1,"message":"focus on the rollback path"}`
 
-func queuedPR() *steerStore {
-	return &steerStore{
+func queuedPR() *fakeStore {
+	return &fakeStore{
 		queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "octocat", HeadSHA: "s1"}},
 		byLogin: map[string]store.Author{
 			"octo@example.com":    {GitHubHandle: "octocat"},
@@ -108,8 +63,8 @@ func TestSteeringRejectsForgedIdentity(t *testing.T) {
 		if w.Code != http.StatusUnauthorized {
 			t.Errorf("status = %d, want 401: a header on a direct connection is client-supplied", w.Code)
 		}
-		if len(fs.set) != 0 {
-			t.Errorf("nothing may be written, got %+v", fs.set)
+		if len(fs.steered) != 0 {
+			t.Errorf("nothing may be written, got %+v", fs.steered)
 		}
 	})
 
@@ -129,8 +84,8 @@ func TestSteeringRejectsForgedIdentity(t *testing.T) {
 		if w.Code != http.StatusUnauthorized {
 			t.Errorf("status = %d, want 401 when serving over funnel", w.Code)
 		}
-		if len(fs.set) != 0 {
-			t.Errorf("nothing may be written, got %+v", fs.set)
+		if len(fs.steered) != 0 {
+			t.Errorf("nothing may be written, got %+v", fs.steered)
 		}
 	})
 
@@ -150,8 +105,8 @@ func TestSteeringAuthorisation(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d body=%s", w.Code, w.Body)
 		}
-		if len(fs.set) != 1 || fs.set[0].SetBy != "octocat" {
-			t.Errorf("steering = %+v, want one row attributed to octocat", fs.set)
+		if len(fs.steered) != 1 || fs.steered[0].SetBy != "octocat" {
+			t.Errorf("steering = %+v, want one row attributed to octocat", fs.steered)
 		}
 	})
 
@@ -161,8 +116,8 @@ func TestSteeringAuthorisation(t *testing.T) {
 		if w.Code != http.StatusForbidden {
 			t.Errorf("status = %d, want 403", w.Code)
 		}
-		if len(fs.set) != 0 {
-			t.Errorf("nothing may be written, got %+v", fs.set)
+		if len(fs.steered) != 0 {
+			t.Errorf("nothing may be written, got %+v", fs.steered)
 		}
 	})
 
@@ -172,8 +127,8 @@ func TestSteeringAuthorisation(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d body=%s", w.Code, w.Body)
 		}
-		if len(fs.set) != 1 || fs.set[0].SetBy != "paul-gh" {
-			t.Errorf("steering = %+v", fs.set)
+		if len(fs.steered) != 1 || fs.steered[0].SetBy != "paul-gh" {
+			t.Errorf("steering = %+v", fs.steered)
 		}
 	})
 
@@ -221,8 +176,8 @@ func TestSteeringAuthorisation(t *testing.T) {
 		if w := post(t, steerServer(fs, true), "127.0.0.1:1", "octo@example.com", body); w.Code != http.StatusOK {
 			t.Fatalf("status = %d", w.Code)
 		}
-		if fs.cleared != 1 || len(fs.set) != 0 {
-			t.Errorf("cleared=%d set=%+v, want a clear and no write", fs.cleared, fs.set)
+		if len(fs.cleared) != 1 || len(fs.steered) != 0 {
+			t.Errorf("cleared=%+v steered=%+v, want a clear and no write", fs.cleared, fs.steered)
 		}
 	})
 

@@ -19,79 +19,9 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// handlerStore fakes the handler-facing store surface; unused methods panic
+// fakeStore fakes the handler-facing store surface; unused methods panic
 // via the embedded nil interface so an unexpected dependency shows up loudly.
-type handlerStore struct {
-	store.Store
-
-	queue      []store.Candidate
-	reviews    []store.Review
-	logReview  store.Review
-	enqueued   []store.Candidate
-	dequeued   []prref.Ref
-	positions  []store.QueuePosition // Reorder's complete position list
-	reorderErr error                 // optional Reorder failure
-	promoted   []prref.Ref           // Promote calls in order
-	tokens     map[bool]int64        // keyed by since.IsZero()
-	since      time.Time
-	sinceErr   error
-}
-
-func (f *handlerStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
-	return f.queue, nil
-}
-
-func (f *handlerStore) ListReviews(context.Context, int) ([]store.Review, error) {
-	return f.reviews, nil
-}
-
-func (f *handlerStore) LastOutcome(context.Context, string, int) (store.Review, bool, error) {
-	if f.logReview.WorkDir == "" {
-		return store.Review{}, false, nil
-	}
-	return f.logReview, true, nil
-}
-
-func (f *handlerStore) ReviewByLogKey(_ context.Context, _ string, _ int, key string) (store.Review, bool, error) {
-	if f.logReview.WorkDir == "" || store.ReviewLogKey(f.logReview) != key {
-		return store.Review{}, false, nil
-	}
-	return f.logReview, true, nil
-}
-
-func (f *handlerStore) ListReviewsSince(_ context.Context, since time.Time) ([]store.Review, error) {
-	f.since = since
-	return f.reviews, f.sinceErr
-}
-
-func (f *handlerStore) Enqueue(_ context.Context, c store.Candidate) error {
-	f.enqueued = append(f.enqueued, c)
-	return nil
-}
-
-func (f *handlerStore) Dequeue(_ context.Context, repo string, number int) error {
-	f.dequeued = append(f.dequeued, prref.Ref{Repo: repo, Number: number})
-	return nil
-}
-
-func (f *handlerStore) Reorder(_ context.Context, positions []store.QueuePosition) error {
-	if f.reorderErr != nil {
-		return f.reorderErr
-	}
-	f.positions = append(f.positions, positions...)
-	return nil
-}
-
-func (f *handlerStore) Promote(_ context.Context, repo string, number int) error {
-	f.promoted = append(f.promoted, prref.Ref{Repo: repo, Number: number})
-	return nil
-}
-
-func (f *handlerStore) FreshTokens(_ context.Context, since time.Time) (int64, error) {
-	return f.tokens[since.IsZero()], nil
-}
-
-func newTestServer(fs *handlerStore, cfg config.Config) *Server {
+func newTestServer(fs *fakeStore, cfg config.Config) *Server {
 	return &Server{
 		store:  fs,
 		config: func() config.Config { return cfg },
@@ -152,7 +82,7 @@ func TestDashboardAPISmoke(t *testing.T) {
 		WorkDir:    workDir,
 	}
 	finished.LogKey = store.ReviewLogKey(finished)
-	fs := &handlerStore{
+	fs := &fakeStore{
 		queue: []store.Candidate{{
 			Repo:         "o/r",
 			Number:       8,
@@ -203,7 +133,7 @@ func TestHandleQueue(t *testing.T) {
 
 	t.Run("GET lists candidates with counts", func(t *testing.T) {
 		fresh := time.Now().Add(-time.Minute)
-		fs := &handlerStore{queue: []store.Candidate{
+		fs := &fakeStore{queue: []store.Candidate{
 			{Repo: "o/r", Number: 1},
 			{Repo: "o/r", Number: 2, ClaimedAt: &fresh},
 		}}
@@ -218,7 +148,7 @@ func TestHandleQueue(t *testing.T) {
 	})
 
 	t.Run("POST add gates on watched repos", func(t *testing.T) {
-		fs := &handlerStore{}
+		fs := &fakeStore{}
 		code, resp := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodPost, "/api/queue", `{"url":"other/repo/pull/5"}`)
 		if code != http.StatusForbidden {
 			t.Errorf("unwatched repo must 403, got %d %v", code, resp)
@@ -229,14 +159,14 @@ func TestHandleQueue(t *testing.T) {
 	})
 
 	t.Run("POST add rejects the retired repo/number shape", func(t *testing.T) {
-		fs := &handlerStore{}
+		fs := &fakeStore{}
 		if code, _ := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodPost, "/api/queue", `{"repo":"o/r","number":5}`); code != http.StatusBadRequest {
 			t.Errorf("repo/number body must 400 (url-only wire shape), got %d", code)
 		}
 	})
 
 	t.Run("POST add accepts a PR URL", func(t *testing.T) {
-		fs := &handlerStore{}
+		fs := &fakeStore{}
 		code, resp := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodPost, "/api/queue", `{"url":"https://github.com/o/r/pull/7"}`)
 		if code != http.StatusOK || resp["queued"] != true {
 			t.Fatalf("add must succeed, got %d %v", code, resp)
@@ -247,14 +177,14 @@ func TestHandleQueue(t *testing.T) {
 	})
 
 	t.Run("POST add rejects garbage", func(t *testing.T) {
-		fs := &handlerStore{}
+		fs := &fakeStore{}
 		if code, _ := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodPost, "/api/queue", `{"url":"not a pr"}`); code != http.StatusBadRequest {
 			t.Errorf("garbage URL must 400, got %d", code)
 		}
 	})
 
 	t.Run("DELETE removes", func(t *testing.T) {
-		fs := &handlerStore{}
+		fs := &fakeStore{}
 		code, _ := doJSON(t, newTestServer(fs, watched).handleQueue, http.MethodDelete, "/api/queue", `{"repo":"o/r","number":3}`)
 		if code != http.StatusOK || len(fs.dequeued) != 1 || fs.dequeued[0].Number != 3 {
 			t.Errorf("remove must dequeue o/r#3, got %d %v", code, fs.dequeued)
@@ -267,7 +197,7 @@ func TestHandleQueue(t *testing.T) {
 // validates its input like the other queue writes.
 func TestHandleQueuePromote(t *testing.T) {
 	t.Run("POST promotes", func(t *testing.T) {
-		fs := &handlerStore{}
+		fs := &fakeStore{}
 		code, resp := doJSON(t, newTestServer(fs, config.Config{}).handleQueuePromote, http.MethodPost, "/api/queue/promote", `{"repo":"o/r","number":9}`)
 		if code != http.StatusOK || resp["promoted"] != true {
 			t.Fatalf("code = %d resp = %v", code, resp)
@@ -277,7 +207,7 @@ func TestHandleQueuePromote(t *testing.T) {
 		}
 	})
 	t.Run("rejects garbage and non-POST", func(t *testing.T) {
-		fs := &handlerStore{}
+		fs := &fakeStore{}
 		if code, _ := doJSON(t, newTestServer(fs, config.Config{}).handleQueuePromote, http.MethodPost, "/api/queue/promote", `{"repo":"nonsense","number":0}`); code != http.StatusBadRequest {
 			t.Errorf("garbage body must 400, got %d", code)
 		}
@@ -293,7 +223,7 @@ func TestHandleQueuePromote(t *testing.T) {
 // TestHandleQueueReorder pins the write path above the (already-tested)
 // validator: a valid full ordering lands in one atomic store call, in order.
 func TestHandleQueueReorder(t *testing.T) {
-	fs := &handlerStore{queue: []store.Candidate{
+	fs := &fakeStore{queue: []store.Candidate{
 		{Repo: "o/r", Number: 1},
 		{Repo: "o/r", Number: 2},
 	}}
@@ -310,7 +240,7 @@ func TestHandleQueueReorder(t *testing.T) {
 		t.Errorf("incomplete order must 400, got %d", code)
 	}
 
-	fail := &handlerStore{
+	fail := &fakeStore{
 		queue: []store.Candidate{
 			{Repo: "o/r", Number: 1},
 			{Repo: "o/r", Number: 2},
@@ -328,7 +258,7 @@ func TestHandleQueueReorder(t *testing.T) {
 // TestHandleUsage pins the no-cache branch: token sums come from the store
 // even when the daemon isn't polling codex usage.
 func TestHandleUsage(t *testing.T) {
-	fs := &handlerStore{tokens: map[bool]int64{true: 500000, false: 12000}}
+	fs := &fakeStore{tokens: map[bool]int64{true: 500000, false: 12000}}
 	code, resp := doJSON(t, newTestServer(fs, config.Config{}).handleUsage, http.MethodGet, "/api/usage", "")
 	if code != http.StatusOK || resp["available"] != false {
 		t.Fatalf("no usage cache must report available:false, got %d %v", code, resp)
@@ -341,7 +271,7 @@ func TestHandleUsage(t *testing.T) {
 // TestHandleConfig pins the fields the Config page renders, including the
 // build version and the boot-pinned loop states.
 func TestHandleConfig(t *testing.T) {
-	fs := &handlerStore{}
+	fs := &fakeStore{}
 	s := newTestServer(fs, config.Config{
 		Repos:                   []string{"zeta/api", "Alpha/web", "alpha/admin"},
 		AllowedAuthorsOnlyRepos: []string{"Alpha/web"},

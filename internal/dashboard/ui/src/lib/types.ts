@@ -297,6 +297,15 @@ export type Steering = {
 
 // ViewerState is how the dashboard knows the caller. The server classifies;
 // the client only chooses words and colours for each case.
+// QueuePreflight answers "what is this PR, and may I steer it" before an add.
+export type QueuePreflight = {
+  repo: string;
+  number: number;
+  title: string;
+  author: string;
+  may_steer: boolean;
+};
+
 export type ViewerState = 'anonymous' | 'unmapped' | 'author' | 'operator';
 
 // Viewer is who the dashboard believes is asking, derived from the identity

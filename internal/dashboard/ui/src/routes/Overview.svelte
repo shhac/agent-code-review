@@ -1,11 +1,13 @@
 <script lang="ts">
   import ActivityChart from '../lib/ActivityChart.svelte';
-  import { getQueue, getReviews, getStats, getUsage, queuePR } from '../lib/api';
+  import { getQueue, getReviews, getStats, getUsage, preflightPR, queuePR } from '../lib/api';
   import { withFeed } from '../lib/feed';
   import { rel, tokens, when, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
+  import Modal from '../lib/Modal.svelte';
   import QueueBoard from '../lib/QueueBoard.svelte';
-  import type { Bucket, Candidate, QueueCounts, Review, UsageResponse, UsageSnapshot } from '../lib/types';
+  import SteeringEditor from '../lib/SteeringEditor.svelte';
+  import type { Bucket, Candidate, QueueCounts, QueuePreflight, Review, UsageResponse, UsageSnapshot } from '../lib/types';
 
   let queue: Candidate[] = [];
   let counts: QueueCounts = { total: 0, queued: 0, reviewing: 0, held: 0 };
@@ -66,6 +68,43 @@
     }
   }
 
+  // Adding WITH steering is a separate button because most adds want none, and
+  // because there is no chance to steer afterwards: a manual add lands on an
+  // empty queue and the dispatcher takes it within the idle poll.
+  let steerModal: QueuePreflight | null = null;
+  let steerDraft = '';
+  let steerBusy = false;
+
+  async function openAddWithSteering() {
+    addErr = '';
+    steerBusy = true;
+    try {
+      // Resolve first so the box can say whose PR this is, and be disabled
+      // with a reason when it is not yours. The add re-checks regardless.
+      steerModal = await preflightPR(addInput.trim());
+      steerDraft = '';
+    } catch (e: any) {
+      addErr = e.message;
+    } finally {
+      steerBusy = false;
+    }
+  }
+
+  async function addWithSteering() {
+    steerBusy = true;
+    addErr = '';
+    try {
+      await queuePR(addInput.trim(), steerModal?.may_steer ? steerDraft.trim() : '');
+      addInput = '';
+      steerModal = null;
+      await withFeed(refresh)();
+    } catch (e: any) {
+      addErr = e.message;
+    } finally {
+      steerBusy = false;
+    }
+  }
+
   poll(withFeed(refresh), 15000);
 </script>
 
@@ -78,6 +117,13 @@
   <form class="add" on:submit|preventDefault={addToQueue}>
     <input bind:value={addInput} placeholder="owner/repo/pull/123 or GitHub PR URL" required />
     <button type="submit">Queue PR</button>
+    <button
+      type="button"
+      class="secondary"
+      disabled={!addInput.trim() || steerBusy}
+      title="Add this PR and give the reviewer an instruction for it"
+      on:click={openAddWithSteering}
+    >Queue with steering…</button>
     {#if addErr}<span class="err">{addErr}</span>{/if}
   </form>
 </section>
@@ -136,3 +182,20 @@
 
   </aside>
 </div>
+
+{#if steerModal}
+  <Modal title={`Queue ${steerModal.repo}#${steerModal.number} with steering`} onclose={() => (steerModal = null)}>
+    <p class="muted">{steerModal.title} · by @{steerModal.author}</p>
+    <SteeringEditor
+      bind:value={steerDraft}
+      disabled={!steerModal.may_steer}
+      refusal={`only @${steerModal.author} (or the account reviews are posted as) can steer this PR`}
+    />
+    <svelte:fragment slot="actions">
+      <button class="go" on:click={addWithSteering} disabled={steerBusy}>
+        {steerBusy ? 'queueing…' : steerModal.may_steer ? 'Queue with steering' : 'Queue anyway'}
+      </button>
+      <button on:click={() => (steerModal = null)} disabled={steerBusy}>Cancel</button>
+    </svelte:fragment>
+  </Modal>
+{/if}

@@ -12,6 +12,7 @@ import type {
   PromptPreviewResponse,
   StatsResponse,
   Viewer,
+  QueuePreflight,
   UsageResponse,
   ReviewLogRef,
 } from './types';
@@ -47,6 +48,17 @@ async function send(method: 'POST' | 'DELETE', path: string, body: unknown) {
 }
 
 export const post = (path: string, body: unknown) => send('POST', path, body);
+
+// postJSON is send for the few writes whose RESPONSE matters.
+export async function postJSON<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await errorFrom(res);
+  return (await res.json()) as T;
+}
 export const del = (path: string, body: unknown) => send('DELETE', path, body);
 
 type PRRef = { repo: string; number: number };
@@ -90,7 +102,12 @@ export function getReviewLog(ref: ReviewLogRef) {
   return fetchJSON<ReviewLogResponse>(url);
 }
 
-export const queuePR = (url: string) => post('/api/queue', { url });
+export const queuePR = (url: string, steering = '') => post('/api/queue', { url, steering });
+
+// preflightPR resolves a PR reference without queueing it, so the add form can
+// ask who wrote it and whether this viewer may steer it. Advisory: the add
+// re-resolves and re-checks, so nothing here is load-bearing.
+export const preflightPR = (url: string) => postJSON<QueuePreflight>('/api/queue/preflight', { url });
 export const removeQueuedPR = ({ repo, number }: PRRef) => del('/api/queue', { repo, number });
 export const promoteQueuedPR = ({ repo, number }: PRRef) => post('/api/queue/promote', { repo, number });
 export const reorderQueue = (order: PRRef[]) => post('/api/queue/reorder', { order });

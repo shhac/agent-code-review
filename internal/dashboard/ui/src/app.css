@@ -55,6 +55,9 @@ code, pre, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monosp
 }
 /* Identity chip: sits directly above the live/stale indicator, so the bottom
    of the rail answers "who am I to this thing, and is it talking to me". */
+.add .secondary { background: transparent; border: 1px solid var(--line); }
+.add .secondary:disabled { opacity: .5; cursor: not-allowed; }
+
 .viewer-chip { margin-top: auto; display: grid; gap: 4px; padding-bottom: 12px; }
 .viewer-chip small { color: var(--dim); font-size: 12px; line-height: 1.35; }
 .viewer-chip .status { justify-self: start; }

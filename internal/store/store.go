@@ -96,6 +96,10 @@ type Store interface {
 	// ListAuthors returns roster rows, narrowed by repo and/or group; "" means
 	// don't narrow on that field.
 	ListAuthors(ctx context.Context, repo, group string) ([]Author, error)
+	// AuthorByTailscaleLogin resolves a Tailscale-User-Login header value to
+	// the roster row claiming it, which is how the dashboard learns which
+	// GitHub handle a tailnet viewer is.
+	AuthorByTailscaleLogin(ctx context.Context, login string) (Author, bool, error)
 	// AuthorGroup returns the membership that applies to handle on repo: the
 	// repo's own row if there is one, else the wildcard row, else the zero
 	// value (unlisted, so config's unlisted fallback decides).

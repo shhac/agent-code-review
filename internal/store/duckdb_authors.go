@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/shhac/agent-code-review/internal/config"
 )
@@ -31,10 +32,11 @@ func (d *duckDB) SetAuthorGroup(ctx context.Context, a Author) error {
 	// case-variant first keeps one row per identity, and re-inserting rather
 	// than updating preserves the casing the caller last used for display.
 	sql := fmt.Sprintf(`DELETE FROM allowed_authors WHERE %s;
-	INSERT INTO allowed_authors (repo, github_handle, group_name, name, email, slack_id)
-	VALUES (%s, %s, %s, %s, %s, %s)`,
+	INSERT INTO allowed_authors (repo, github_handle, group_name, name, email, slack_id, tailscale_login)
+	VALUES (%s, %s, %s, %s, %s, %s, %s)`,
 		sameAuthor(a.Repo, a.GitHubHandle),
-		text(a.Repo), text(a.GitHubHandle), text(a.Group), nullText(a.Name), nullText(a.Email), nullText(a.SlackID))
+		text(a.Repo), text(a.GitHubHandle), text(a.Group), nullText(a.Name), nullText(a.Email), nullText(a.SlackID),
+		nullText(a.TailscaleLogin))
 	return d.exec(ctx, sql)
 }
 
@@ -85,4 +87,24 @@ func (d *duckDB) AuthorGroup(ctx context.Context, repo, handle string) (config.M
 		group = config.GroupApprover
 	}
 	return config.Membership{Group: group, Repo: getString(rows[0], "repo")}, nil
+}
+
+// AuthorByTailscaleLogin resolves the identity `tailscale serve` asserts to
+// the roster row that claims it. Case-insensitive, because the header carries
+// whatever casing the identity provider used and the roster whatever the
+// operator typed.
+//
+// A person can hold rows for several repos (a wildcard row plus repo-specific
+// ones), so this returns the one that claims the login rather than a set: the
+// GitHub handle is the answer being asked for, and a login is unique across
+// the roster by index. Ordering is deterministic so a roster that predates
+// that index still resolves the same way twice.
+func (d *duckDB) AuthorByTailscaleLogin(ctx context.Context, login string) (Author, bool, error) {
+	if strings.TrimSpace(login) == "" {
+		return Author{}, false, nil
+	}
+	return queryOne(ctx, d, fmt.Sprintf(
+		`SELECT * FROM allowed_authors
+		 WHERE tailscale_login IS NOT NULL AND lower(tailscale_login) = lower(%s)
+		 ORDER BY lower(github_handle), lower(repo) LIMIT 1`, text(login)), scanAuthor)
 }

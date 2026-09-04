@@ -152,3 +152,48 @@ func (f *fakeStore) ClearSteering(_ context.Context, repo string, number int) er
 	f.cleared = append(f.cleared, prref.Ref{Repo: repo, Number: number})
 	return nil
 }
+
+// --- test server construction -----------------------------------------------
+//
+// One builder with options, because there were six. Each of the old ones
+// existed because the previous did not expose the field the next test needed,
+// so every server-level dependency added a seventh: trustProxyIdentity was the
+// most recent. Options mean a new dependency is one function here, not a new
+// constructor at the call site.
+
+type serverOpt func(*Server)
+
+func withStore(fs *fakeStore) serverOpt { return func(s *Server) { s.store = fs } }
+
+func withConfig(cfg config.Config) serverOpt {
+	return func(s *Server) { s.config = func() config.Config { return cfg } }
+}
+
+// withTrustedProxy makes the identity header meaningful, as `tailscale serve`
+// does. Off by default so a test that has not thought about identity gets the
+// safe answer rather than an authenticated one.
+func withTrustedProxy() serverOpt { return func(s *Server) { s.trustProxyIdentity = true } }
+
+func withManualCandidate(fn func(context.Context, string, int) (store.Candidate, error)) serverOpt {
+	return func(s *Server) { s.manualCandidate = fn }
+}
+
+// testServer builds a Server with defaults that make the zero call useful: an
+// empty store, empty config, and a manual-add resolver that invents a
+// plausible PR rather than reaching for gh.
+func testServer(opts ...serverOpt) *Server {
+	s := &Server{
+		store:  &fakeStore{},
+		config: func() config.Config { return config.Config{} },
+		manualCandidate: func(_ context.Context, repo string, number int) (store.Candidate, error) {
+			return store.Candidate{
+				Repo: repo, Number: number, Title: "T", Author: "a",
+				HeadSHA: "sha", Source: store.SourceManual,
+			}, nil
+		},
+	}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}

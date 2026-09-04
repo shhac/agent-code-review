@@ -11,9 +11,7 @@ import (
 // promptServer builds a config-only Server (the prompt handlers never touch the
 // store) with the given review settings and watched repos.
 func promptServer(review config.ReviewSettings, repos ...string) *Server {
-	return &Server{config: func() config.Config {
-		return config.Config{Repos: repos, Review: review}
-	}}
+	return testServer(withConfig(config.Config{Repos: repos, Review: review}))
 }
 
 // TestHandlePrompt pins the read-only /api/prompt response shape: the slots,
@@ -178,7 +176,7 @@ func TestPromptPreviewGroupOverridesTheRosterLookup(t *testing.T) {
 			}},
 		},
 	}
-	s := &Server{config: func() config.Config { return cfg }}
+	s := testServer(withConfig(cfg))
 
 	code, resp := serveJSON[promptPreviewResp](t, s.handlePromptPreview, http.MethodGet,
 		"/api/prompt/preview?author=alice&group=contractors&repo=org/repo", "")
@@ -213,10 +211,7 @@ func TestPromptPreviewReadsTheAuthorsRealGroup(t *testing.T) {
 			},
 		},
 	}
-	s := &Server{
-		config: func() config.Config { return cfg },
-		store:  &fakeStore{groups: map[string]string{"alice": "contractors"}},
-	}
+	s := testServer(withConfig(cfg), withStore(&fakeStore{groups: map[string]string{"alice": "contractors"}}))
 
 	code, resp := serveJSON[promptPreviewResp](t, s.handlePromptPreview, http.MethodGet,
 		"/api/prompt/preview?author=alice&repo=org/repo", "")

@@ -125,12 +125,45 @@ type Server struct {
 	trustProxyIdentity bool
 }
 
-func NewServer(s dashboardStore, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring, version string, trustProxyIdentity bool) *Server {
+// Deps is everything a Server is built from, matching scheduler.Deps. A struct
+// rather than a positional list because the list had reached eight and ended
+// in a bare bool, where the compiler cannot tell one caller's mistake from
+// another's intent, and because every new server-level dependency was churning
+// the one production call site and every test constructor.
+//
+// Store and Config are required; the rest default to their production
+// implementations, so a caller states what it cares about.
+type Deps struct {
+	Store   dashboardStore
+	Config  func() config.Config
+	Running Running
+	Usage   *usage.Cache
+	GHUser  func(ctx context.Context) (string, error)
+	Logs    *logbuf.Ring
+	Version string
+
+	// TrustProxyIdentity is false when this daemon serves over Funnel, where
+	// requests arrive from the public internet with no identity Tailscale
+	// vouches for. Named rather than positional: as the eighth argument it was
+	// a bare bool at a call site that could not say what it meant.
+	TrustProxyIdentity bool
+
+	// ManualCandidate fetches live PR metadata for a manual queue add.
+	// Defaults to discover.ManualCandidate; injected in tests so the add path
+	// is exercisable without gh.
+	ManualCandidate func(ctx context.Context, repo string, number int) (store.Candidate, error)
+}
+
+// NewServer builds a Server from d, filling unset optional fields.
+func NewServer(d Deps) *Server {
+	if d.ManualCandidate == nil {
+		d.ManualCandidate = discover.ManualCandidate
+	}
 	return &Server{
-		store: s, config: cfg, running: running, usage: u, ghUser: ghUser,
-		logs: logs, version: version,
-		manualCandidate:    discover.ManualCandidate,
-		trustProxyIdentity: trustProxyIdentity,
+		store: d.Store, config: d.Config, running: d.Running, usage: d.Usage,
+		ghUser: d.GHUser, logs: d.Logs, version: d.Version,
+		manualCandidate:    d.ManualCandidate,
+		trustProxyIdentity: d.TrustProxyIdentity,
 	}
 }
 

@@ -15,11 +15,11 @@ import (
 // fakeStore is the roster + queue + steering surface the identity and
 // steering handlers touch. Embeds the full Store so an unexpected call panics.
 func steerServer(fs *fakeStore, trust bool) *Server {
-	return &Server{
-		store:              fs,
-		config:             func() config.Config { return config.Config{GHUser: "paul-gh"} },
-		trustProxyIdentity: trust,
+	opts := []serverOpt{withStore(fs), withConfig(config.Config{GHUser: "paul-gh"})}
+	if trust {
+		opts = append(opts, withTrustedProxy())
 	}
+	return testServer(opts...)
 }
 
 // post drives the steering handler with a chosen peer address and headers,
@@ -268,14 +268,14 @@ func TestHandleViewer(t *testing.T) {
 // time or not at all.
 func TestAddWithSteering(t *testing.T) {
 	server := func(fs *fakeStore) *Server {
-		s := steerServer(fs, true)
-		s.config = func() config.Config {
-			return config.Config{GHUser: "paul-gh", Repos: []string{"o/r"}}
-		}
-		s.manualCandidate = func(_ context.Context, repo string, number int) (store.Candidate, error) {
-			return store.Candidate{Repo: repo, Number: number, Title: "T", Author: "octocat", HeadSHA: "sha"}, nil
-		}
-		return s
+		return testServer(
+			withStore(fs),
+			withTrustedProxy(),
+			withConfig(config.Config{GHUser: "paul-gh", Repos: []string{"o/r"}}),
+			withManualCandidate(func(_ context.Context, repo string, number int) (store.Candidate, error) {
+				return store.Candidate{Repo: repo, Number: number, Title: "T", Author: "octocat", HeadSHA: "sha"}, nil
+			}),
+		)
 	}
 	add := func(t *testing.T, s *Server, login, body string) (int, queueAddResp) {
 		t.Helper()

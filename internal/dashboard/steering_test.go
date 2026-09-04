@@ -107,7 +107,12 @@ func TestSteeringAuthorisation(t *testing.T) {
 			t.Fatalf("status = %d body=%s", w.Code, w.Body)
 		}
 		if len(fs.steered) != 1 || fs.steered[0].SetBy != "octocat" {
-			t.Errorf("steering = %+v, want one row attributed to octocat", fs.steered)
+			t.Fatalf("steering = %+v, want one row attributed to octocat", fs.steered)
+		}
+		// And against the PR that was named. Recording the target without
+		// checking it would let a handler steer the wrong row unnoticed.
+		if got := fs.steered[0]; got.repo != "o/r" || got.number != 1 {
+			t.Errorf("steered %s#%d, want o/r#1", got.repo, got.number)
 		}
 	})
 
@@ -129,7 +134,10 @@ func TestSteeringAuthorisation(t *testing.T) {
 			t.Fatalf("status = %d body=%s", w.Code, w.Body)
 		}
 		if len(fs.steered) != 1 || fs.steered[0].SetBy != "paul-gh" {
-			t.Errorf("steering = %+v", fs.steered)
+			t.Fatalf("steering = %+v", fs.steered)
+		}
+		if got := fs.steered[0]; got.repo != "o/r" || got.number != 1 {
+			t.Errorf("steered %s#%d, want o/r#1", got.repo, got.number)
 		}
 	})
 
@@ -178,7 +186,10 @@ func TestSteeringAuthorisation(t *testing.T) {
 			t.Fatalf("status = %d", w.Code)
 		}
 		if len(fs.cleared) != 1 || len(fs.steered) != 0 {
-			t.Errorf("cleared=%+v steered=%+v, want a clear and no write", fs.cleared, fs.steered)
+			t.Fatalf("cleared=%+v steered=%+v, want a clear and no write", fs.cleared, fs.steered)
+		}
+		if got := fs.cleared[0]; got.Repo != "o/r" || got.Number != 1 {
+			t.Errorf("cleared %s#%d, want o/r#1", got.Repo, got.Number)
 		}
 	})
 

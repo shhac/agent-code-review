@@ -27,7 +27,7 @@
   $: remaining = MAX_STEERING - value.length;
 </script>
 
-<div class="steer-editor" class:disabled>
+<div class="steer-editor">
   <div class="steer-editor-head">
     <label for="steering-text">Steering</label>
     {#if !disabled}<PillToggle bind:value={mode} options={modes} />{/if}

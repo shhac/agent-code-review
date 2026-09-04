@@ -72,3 +72,50 @@ jobs:
       - run: npm test --prefix internal/dashboard/ui
       - run: npm run build --prefix internal/dashboard/ui
       - run: git diff --exit-code -- internal/dashboard/assets
+
+  # Layout and identity rules that only hold once a browser lays the page out:
+  # a stylesheet rule reaching into the wrong subtree, a grid whose columns
+  # stopped lining up, a viewer shown a steering control for someone else's PR.
+  # jsdom cannot see any of them (no layout engine, every rect is zero), so
+  # these run against the real daemon and a real DuckDB store.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: internal/dashboard/ui/package-lock.json
+      # The daemon's store is DuckDB-via-subprocess, so the fixture cannot
+      # seed anything without the CLI on PATH.
+      - name: Install DuckDB CLI
+        env:
+          DUCKDB_VERSION: v1.5.5
+        run: |
+          curl -fsSL -o /tmp/duckdb.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb_cli-linux-amd64.zip"
+          # unzip -d creates only the final directory, and the runner has no
+          # ~/.local at all, so the parents have to exist first.
+          mkdir -p "$HOME/.local/bin"
+          unzip -o -d "$HOME/.local/bin" /tmp/duckdb.zip
+          chmod +x "$HOME/.local/bin/duckdb"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: npm ci --prefix internal/dashboard/ui
+      # Chromium only: these assert layout rules the engine agrees on, not
+      # per-browser rendering, so a second engine would triple the runtime for
+      # no extra signal.
+      - run: npm exec --prefix internal/dashboard/ui -- playwright install --with-deps chromium
+      # The harness builds both halves itself (make dashboard build): the UI is
+      # go:embedded, so testing a binary built from stale assets is the one
+      # failure mode this job exists to rule out.
+      - run: npm run test:e2e --prefix internal/dashboard/ui
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: internal/dashboard/ui/test-results/
+          retention-days: 7

@@ -141,3 +141,67 @@ func TestSteeringLifecycle(t *testing.T) {
 		}
 	})
 }
+
+// TestEnqueueSteering pins the two enqueue behaviours steering depends on.
+//
+// Setting it through Enqueue is what makes a manual add atomic: adding then
+// steering as two writes leaves a window where a freed dispatcher slot claims
+// the row unsteered, which for an empty queue is the common case rather than
+// a race.
+//
+// Preserving it is the other half. Discovery re-enqueues every sweep with no
+// steering attached, so a conflict arm that wrote NULL would wipe an author's
+// instruction within the idle poll.
+func TestEnqueueSteering(t *testing.T) {
+	ctx := context.Background()
+	add := func(t *testing.T, s Store, sha string, st *Steering) {
+		t.Helper()
+		if err := s.Enqueue(ctx, Candidate{
+			Repo: "o/r", Number: 1, Type: TypeNew, Author: "octocat", HeadSHA: sha,
+			CreatedAt: time.Now(), UpdatedAt: time.Now(), DiscoveredAt: time.Now(),
+			Steering: st,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	steeringOf := func(t *testing.T, s Store) *Steering {
+		t.Helper()
+		c, ok := getQueued(t, s, "o/r", 1)
+		if !ok {
+			t.Fatal("row vanished")
+		}
+		return c.Steering
+	}
+
+	t.Run("an add can carry steering", func(t *testing.T) {
+		s := newTestStore(t)
+		add(t, s, "sha1", &Steering{Message: "focus on rollback", SetBy: "octocat", SetAt: time.Now()})
+		got := steeringOf(t, s)
+		if got == nil || got.Message != "focus on rollback" || got.SetBy != "octocat" {
+			t.Fatalf("steering = %+v, want it set by the add itself", got)
+		}
+	})
+
+	t.Run("a later sweep does not wipe it", func(t *testing.T) {
+		s := newTestStore(t)
+		add(t, s, "sha1", &Steering{Message: "keep me", SetBy: "octocat", SetAt: time.Now()})
+		add(t, s, "sha2", nil) // discovery re-seeing the PR, no steering
+		got := steeringOf(t, s)
+		if got == nil || got.Message != "keep me" {
+			t.Fatalf("steering = %+v, want it to survive a sweep", got)
+		}
+		if c, _ := getQueued(t, s, "o/r", 1); c.HeadSHA != "sha2" {
+			t.Errorf("the sweep must still refresh the head, got %q", c.HeadSHA)
+		}
+	})
+
+	t.Run("a later add can replace it", func(t *testing.T) {
+		s := newTestStore(t)
+		add(t, s, "sha1", &Steering{Message: "first", SetBy: "octocat", SetAt: time.Now()})
+		add(t, s, "sha1", &Steering{Message: "second", SetBy: "paul-gh", SetAt: time.Now()})
+		got := steeringOf(t, s)
+		if got == nil || got.Message != "second" || got.SetBy != "paul-gh" {
+			t.Fatalf("steering = %+v, want the newer one", got)
+		}
+	})
+}

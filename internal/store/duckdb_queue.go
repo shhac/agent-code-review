@@ -51,9 +51,22 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	    WHEN %s THEN excluded.%s
 	    ELSE queue.%s END`, manualWins, newerHold, column, column)
 	}
+	// Steering rides along only when the caller supplies one. Discovery
+	// re-enqueues every sweep with no steering, so the conflict arms KEEP
+	// whatever is there rather than writing NULL: a sweep must never wipe an
+	// author's instruction. Supplying one is how a manual add sets steering
+	// atomically, closing the window where a freed slot could claim the row
+	// between the insert and a follow-up update.
+	steerCase := func(column, incoming string) string {
+		return fmt.Sprintf("CASE WHEN %s IS NOT NULL THEN %s ELSE queue.%s END", incoming, incoming, column)
+	}
+	var msg, by, at string = "NULL", "NULL", "NULL"
+	if c.Steering != nil && c.Steering.Message != "" {
+		msg, by, at = text(c.Steering.Message), nullText(c.Steering.SetBy), ts(c.Steering.SetAt)
+	}
 	sql := fmt.Sprintf(`INSERT INTO queue
-	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, eligible_at, hold_reason)
-	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s)
+	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, eligible_at, hold_reason, steering_message, steering_by, steering_at)
+	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s)
 	ON CONFLICT (repo, number) DO UPDATE SET
 	  type = excluded.type,
 	  title = excluded.title,
@@ -63,10 +76,13 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  updated_at = excluded.updated_at,
 	  eligible_at = `+holdCase("eligible_at")+`,
 	  hold_reason = `+holdCase("hold_reason")+`,
+	  steering_message = `+steerCase("steering_message", "excluded.steering_message")+`,
+	  steering_by = `+steerCase("steering_by", "excluded.steering_by")+`,
+	  steering_at = `+steerCase("steering_at", "excluded.steering_at")+`,
 	  source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE queue.source END`,
 		nullText(c.Repo), c.Number, nullText(cmp.Or(c.Type, TypeNew)), nullText(c.Title), nullText(c.Author), nullText(c.URL), nullText(c.HeadSHA),
 		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), nullText(cmp.Or(c.Source, SourceDiscovered)),
-		tsp(c.EligibleAt), nullText(c.HoldReason))
+		tsp(c.EligibleAt), nullText(c.HoldReason), msg, by, at)
 	return d.exec(ctx, sql)
 }
 

@@ -461,7 +461,7 @@ func TestReviewOneAppliesSteering(t *testing.T) {
 			t.Fatal(err)
 		}
 		p := fe.lastPrompt()
-		if !strings.Contains(p, "## Steering from @octocat") {
+		if !strings.Contains(p, "## Untrusted input: steering from @octocat") {
 			t.Errorf("prompt carries no attributed steering:\n%s", p)
 		}
 		if !strings.Contains(p, "focus on the rollback path") {
@@ -469,7 +469,7 @@ func TestReviewOneAppliesSteering(t *testing.T) {
 		}
 		// Ordering is the safety property: steering must not read as amending
 		// the approval policy stated above it.
-		if strings.Index(p, "Approval policy") > strings.Index(p, "## Steering from") {
+		if strings.Index(p, "Approval policy") > strings.Index(p, "## Untrusted input") {
 			t.Error("steering must render after the approval directive")
 		}
 	})
@@ -481,7 +481,7 @@ func TestReviewOneAppliesSteering(t *testing.T) {
 		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 4, HeadSHA: "s1"}); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(fe.lastPrompt(), "Steering") {
+		if strings.Contains(fe.lastPrompt(), "STEERING") {
 			t.Errorf("an unsteered review must not mention steering:\n%s", fe.lastPrompt())
 		}
 	})
@@ -496,7 +496,7 @@ func TestReviewOneAppliesSteering(t *testing.T) {
 		if err := reviewOne(s, fe, c); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(fe.lastPrompt(), "Steering") {
+		if strings.Contains(fe.lastPrompt(), "STEERING") {
 			t.Errorf("an empty message must render nothing:\n%s", fe.lastPrompt())
 		}
 	})

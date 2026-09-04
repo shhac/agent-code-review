@@ -34,6 +34,18 @@ type fakeSchedStore struct {
 	workDirs  []string
 	completed []store.Review
 	cleared   []int // queue rows whose claim was released
+	steering  store.Steering
+}
+
+// Steering answers the per-review lookup. Most tests want none, and the zero
+// value says so, so only a test about steering has to set it.
+func (f *fakeSchedStore) Steering(_ context.Context, _ string, _ int) (store.Steering, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.steering.Message == "" {
+		return store.Steering{}, false, nil
+	}
+	return f.steering, true, nil
 }
 
 // ClearClaim records a released claim. It lives on the base fake because both

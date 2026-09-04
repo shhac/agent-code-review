@@ -1,0 +1,209 @@
+package dashboard
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/store"
+)
+
+// steerStore is the roster + queue + steering surface the identity and
+// steering handlers touch. Embeds the full Store so an unexpected call panics.
+type steerStore struct {
+	store.Store
+	queue   []store.Candidate
+	byLogin map[string]store.Author
+	set     []store.Steering
+	cleared int
+}
+
+func (f *steerStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
+	return f.queue, nil
+}
+func (f *steerStore) AuthorByTailscaleLogin(_ context.Context, login string) (store.Author, bool, error) {
+	for k, a := range f.byLogin {
+		if strings.EqualFold(k, login) {
+			return a, true, nil
+		}
+	}
+	return store.Author{}, false, nil
+}
+func (f *steerStore) SetSteering(_ context.Context, st store.Steering) error {
+	f.set = append(f.set, st)
+	return nil
+}
+func (f *steerStore) ClearSteering(context.Context, string, int) error {
+	f.cleared++
+	return nil
+}
+
+func steerServer(fs *steerStore, trust bool) *Server {
+	return &Server{
+		store:              fs,
+		config:             func() config.Config { return config.Config{GHUser: "paul-gh"} },
+		trustProxyIdentity: trust,
+	}
+}
+
+// post drives the steering handler with a chosen peer address and headers,
+// which is the whole point: the two spoofing defences are about WHERE the
+// request came from, not what it says.
+func post(t *testing.T, s *Server, remote, login, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, "/api/steering", strings.NewReader(body))
+	r.RemoteAddr = remote
+	if login != "" {
+		r.Header.Set(tailscaleLoginHeader, login)
+	}
+	w := httptest.NewRecorder()
+	s.handleSteering(w, r)
+	return w
+}
+
+const octoPR = `{"repo":"o/r","number":1,"message":"focus on the rollback path"}`
+
+func queuedPR() *steerStore {
+	return &steerStore{
+		queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "octocat", HeadSHA: "s1"}},
+		byLogin: map[string]store.Author{
+			"octo@example.com":    {GitHubHandle: "octocat"},
+			"paul@example.com":    {GitHubHandle: "paul-gh"},
+			"mallory@example.com": {GitHubHandle: "mallory"},
+		},
+	}
+}
+
+// TestSteeringRejectsForgedIdentity is the security property: the header is
+// proof only because Tailscale attached it, and the only requests Tailscale
+// attached anything to are the ones it proxied. Everything else must be
+// anonymous, however convincing the header looks.
+func TestSteeringRejectsForgedIdentity(t *testing.T) {
+	t.Run("a non-loopback peer is never identified", func(t *testing.T) {
+		// What a direct hit on the port looks like if the listener is ever
+		// bound wider than loopback: a real tailnet address, a header the
+		// client wrote itself, and nothing in between to strip it.
+		fs := queuedPR()
+		w := post(t, steerServer(fs, true), "100.101.66.81:54321", "paul@example.com", octoPR)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401: a header on a direct connection is client-supplied", w.Code)
+		}
+		if len(fs.set) != 0 {
+			t.Errorf("nothing may be written, got %+v", fs.set)
+		}
+	})
+
+	t.Run("a public address is never identified", func(t *testing.T) {
+		fs := queuedPR()
+		w := post(t, steerServer(fs, true), "203.0.113.7:443", "paul@example.com", octoPR)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", w.Code)
+		}
+	})
+
+	t.Run("funnel mode trusts no header at all", func(t *testing.T) {
+		// Funnel carries public traffic Tailscale attaches no identity to, so
+		// even a loopback peer (the funnel proxy itself) proves nothing.
+		fs := queuedPR()
+		w := post(t, steerServer(fs, false), "127.0.0.1:54321", "paul@example.com", octoPR)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401 when serving over funnel", w.Code)
+		}
+		if len(fs.set) != 0 {
+			t.Errorf("nothing may be written, got %+v", fs.set)
+		}
+	})
+
+	t.Run("no header is anonymous, not permissive", func(t *testing.T) {
+		fs := queuedPR()
+		if w := post(t, steerServer(fs, true), "127.0.0.1:1", "", octoPR); w.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", w.Code)
+		}
+	})
+}
+
+// TestSteeringAuthorisation pins who may steer what, once identity is proven.
+func TestSteeringAuthorisation(t *testing.T) {
+	t.Run("the PR author may steer their own", func(t *testing.T) {
+		fs := queuedPR()
+		w := post(t, steerServer(fs, true), "127.0.0.1:1", "octo@example.com", octoPR)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", w.Code, w.Body)
+		}
+		if len(fs.set) != 1 || fs.set[0].SetBy != "octocat" {
+			t.Errorf("steering = %+v, want one row attributed to octocat", fs.set)
+		}
+	})
+
+	t.Run("a rostered stranger may not steer someone else's", func(t *testing.T) {
+		fs := queuedPR()
+		w := post(t, steerServer(fs, true), "127.0.0.1:1", "mallory@example.com", octoPR)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", w.Code)
+		}
+		if len(fs.set) != 0 {
+			t.Errorf("nothing may be written, got %+v", fs.set)
+		}
+	})
+
+	t.Run("the account reviews post as may steer any PR", func(t *testing.T) {
+		fs := queuedPR()
+		w := post(t, steerServer(fs, true), "127.0.0.1:1", "paul@example.com", octoPR)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d body=%s", w.Code, w.Body)
+		}
+		if len(fs.set) != 1 || fs.set[0].SetBy != "paul-gh" {
+			t.Errorf("steering = %+v", fs.set)
+		}
+	})
+
+	t.Run("an identified but unrostered person steers nothing", func(t *testing.T) {
+		fs := queuedPR()
+		w := post(t, steerServer(fs, true), "127.0.0.1:1", "stranger@example.com", octoPR)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403: authenticated but no roster row", w.Code)
+		}
+	})
+
+	t.Run("authorisation reads the author from the store, not the request", func(t *testing.T) {
+		// A caller cannot widen their rights by describing the PR differently:
+		// the author comes from the queued row.
+		fs := queuedPR()
+		body := `{"repo":"o/r","number":1,"message":"x","author":"mallory"}`
+		if w := post(t, steerServer(fs, true), "127.0.0.1:1", "mallory@example.com", body); w.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", w.Code)
+		}
+	})
+
+	t.Run("an unqueued PR is a 404", func(t *testing.T) {
+		fs := queuedPR()
+		body := `{"repo":"o/r","number":99,"message":"x"}`
+		if w := post(t, steerServer(fs, true), "127.0.0.1:1", "paul@example.com", body); w.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want 404", w.Code)
+		}
+	})
+
+	t.Run("an empty message clears", func(t *testing.T) {
+		fs := queuedPR()
+		body := `{"repo":"o/r","number":1,"message":"   "}`
+		if w := post(t, steerServer(fs, true), "127.0.0.1:1", "octo@example.com", body); w.Code != http.StatusOK {
+			t.Fatalf("status = %d", w.Code)
+		}
+		if fs.cleared != 1 || len(fs.set) != 0 {
+			t.Errorf("cleared=%d set=%+v, want a clear and no write", fs.cleared, fs.set)
+		}
+	})
+
+	t.Run("an over-long message is refused", func(t *testing.T) {
+		fs := queuedPR()
+		long, _ := json.Marshal(strings.Repeat("x", store.SteeringMaxLen+1))
+		body := `{"repo":"o/r","number":1,"message":` + string(long) + `}`
+		if w := post(t, steerServer(fs, true), "127.0.0.1:1", "octo@example.com", body); w.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", w.Code)
+		}
+	})
+}

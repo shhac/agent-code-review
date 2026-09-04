@@ -62,6 +62,10 @@ type historyStore interface {
 type rosterStore interface {
 	ListAuthors(ctx context.Context, repo, group string) ([]store.Author, error)
 	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
+	AuthorByTailscaleLogin(ctx context.Context, login string) (store.Author, bool, error)
+	SetSteering(ctx context.Context, st store.Steering) error
+	ClearSteering(ctx context.Context, repo string, number int) error
+	ListSteering(ctx context.Context) ([]store.Steering, error)
 }
 
 // dashboardStore is the whole surface the web server uses. It deliberately
@@ -94,13 +98,20 @@ type Server struct {
 	// (discover.ManualCandidate in production; injected in tests so the add
 	// path is testable without gh).
 	manualCandidate func(ctx context.Context, repo string, number int) (store.Candidate, error)
+
+	// trustProxyIdentity is false when this daemon serves over Funnel, where
+	// requests come from the public internet with no identity Tailscale
+	// vouches for. Fixed at boot: whether the header can mean anything is a
+	// property of how the daemon was started, not of a request.
+	trustProxyIdentity bool
 }
 
-func NewServer(s dashboardStore, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring, version string) *Server {
+func NewServer(s dashboardStore, cfg func() config.Config, running Running, u *usage.Cache, ghUser func(ctx context.Context) (string, error), logs *logbuf.Ring, version string, trustProxyIdentity bool) *Server {
 	return &Server{
 		store: s, config: cfg, running: running, usage: u, ghUser: ghUser,
 		logs: logs, version: version,
-		manualCandidate: discover.ManualCandidate,
+		manualCandidate:    discover.ManualCandidate,
+		trustProxyIdentity: trustProxyIdentity,
 	}
 }
 
@@ -129,6 +140,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/queue", s.handleQueue)
 	mux.HandleFunc("/api/queue/reorder", s.handleQueueReorder)
 	mux.HandleFunc("/api/queue/promote", s.handleQueuePromote)
+	mux.HandleFunc("/api/steering", s.handleSteering)
+	mux.HandleFunc("/api/viewer", s.handleViewer)
 	mux.HandleFunc("/api/reviews", s.handleReviews)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/usage", s.handleUsage)

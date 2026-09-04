@@ -142,6 +142,15 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 	// Leave the tmp dir in place; a future run may reuse it (per the spec).
 
 	facts := review.DeriveFacts(c, s.ghUser, p.policy)
+	// Read at review time, not at dispatch: an author can set steering while
+	// their PR waits in the queue, and the point is that it reaches the review
+	// that is about to run.
+	if st, ok, err := s.store.Steering(ctx, c.Repo, c.Number); err != nil {
+		s.logf("review %s#%d: reading steering: %v", c.Repo, c.Number, err)
+	} else if ok {
+		facts.Steering, facts.SteeringBy = st.Message, st.SetBy
+		s.logf("review %s#%d: steering from @%s", c.Repo, c.Number, st.SetBy)
+	}
 	prompt := review.BuildPrompt(cfg, c, facts)
 
 	if resumeSession != "" {

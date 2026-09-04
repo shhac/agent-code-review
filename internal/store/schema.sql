@@ -191,3 +191,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS allowed_authors_tailscale_login
 -- created before that change still carry the table and its rows; nothing
 -- reads or writes it, and it is left alone rather than dropped so that
 -- history survives.
+
+-- Steering: a short instruction from the PR's author (or from the account
+-- reviews are posted as) that shapes the NEXT review of that PR. One row per
+-- PR: steering is guidance for the review about to happen, not a thread, so a
+-- new message replaces the old rather than accumulating context nobody pruned.
+--
+-- set_by is the GitHub handle the dashboard proved via the roster, kept so the
+-- prompt can attribute the instruction and so an operator can see who asked
+-- for what. Rows are keyed like the queue and deleted with it.
+CREATE TABLE IF NOT EXISTS steering (
+  repo       TEXT      NOT NULL,
+  number     INTEGER   NOT NULL,
+  message    TEXT      NOT NULL,
+  set_by     TEXT      NOT NULL,
+  set_at     TIMESTAMP NOT NULL,
+  PRIMARY KEY (repo, number)
+);

@@ -92,6 +92,10 @@ type queuePreflightResp struct {
 	Title    string `json:"title"`
 	Author   string `json:"author"`
 	MaySteer bool   `json:"may_steer"`
+	// Refusal is the server's wording for why not, empty when MaySteer. Sent
+	// so the client renders what the server said rather than keeping its own
+	// copy of a sentence that has already drifted once.
+	Refusal string `json:"refusal,omitempty"`
 }
 
 type queueRemoveResp struct {

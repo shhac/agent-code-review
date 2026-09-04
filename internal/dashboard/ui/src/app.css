@@ -110,6 +110,12 @@ button, .add button, .show {
   color: var(--surface); cursor: pointer; font-weight: 750;
 }
 button:hover, .show:hover { transform: translateY(-1px); }
+/* A disabled control has to LOOK disabled. Without this the base rule above
+   left it fully saturated with a pointer cursor, so clicking simply did
+   nothing and the only feedback was the absence of a result. */
+button:disabled, button:disabled:hover {
+  opacity: .4; cursor: not-allowed; transform: none; filter: grayscale(1);
+}
 .err { grid-column: 1 / -1; color: var(--red); font-size: 13px; }
 
 .overview { display: grid; grid-template-columns: minmax(0, 1fr) 370px; gap: 22px; margin-top: 22px; align-items: start; }
@@ -228,18 +234,44 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .changes, .legend .changes { background: var(--red); }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; color: var(--dim); font-size: 12px; }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
-  margin: 0; display: grid; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line);
+
+/* History: one grid template shared by the header and every row, so the
+   columns cannot drift apart. Each row is its own grid (rows expand
+   independently), which is why the trailing columns are fixed rather than
+   auto: an auto column would size to "precheck" on one row and "codex" on the
+   next. */
+.review-table { display: grid; }
+.review-head, .review-row {
+  margin: 0; display: grid; gap: 14px; align-items: center;
+  grid-template-columns: minmax(220px, 1fr) 170px 110px 96px 92px 20px;
 }
-/* Fixed widths on the trailing columns: each row is its own grid, so an
-   auto-sized column (e.g. "precheck" vs "codex") would drift per row. */
-.review-list p { grid-template-columns: max-content minmax(200px, 1fr) 170px 172px 74px 70px 34px; gap: 14px; }
-.review-list .mono { white-space: nowrap; }
-.review-list .dur { color: var(--dim); text-align: right; white-space: nowrap; }
-.review-list .dur small { display: block; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.review-head {
+  padding: 0 0 6px; font-size: 11px; font-weight: 750; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line);
+}
+.review-row { padding: 9px 0; cursor: pointer; }
+/* PrIdentity renders TWO elements (the #number link and the title/author
+   block). Wrapping them keeps this table's column count independent of that:
+   unwrapped they were two grid items, so every later column sat one place
+   left and the chevron wrapped onto a second line. */
+.pr-cell { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; align-items: baseline; min-width: 0; }
+.review-row-wrap { border-bottom: 1px solid var(--line); }
+.review-row-wrap:last-child { border-bottom: 0; }
+.review-row-wrap.open { background: var(--surface-warm); }
+.review-row:hover { background: var(--surface-warm); }
+.review-table .mono { white-space: nowrap; }
+.review-table .num { color: var(--dim); text-align: right; white-space: nowrap; }
+.review-table .num small { display: block; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.review-table .chev { color: var(--faint); text-align: center; }
+.review-detail { padding: 4px 0 14px; display: grid; gap: 10px; }
+.review-detail dl { margin: 0; display: grid; gap: 6px 18px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.review-detail dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+.review-detail dt { color: var(--dim); font-size: 12px; }
+.review-detail dd { margin: 0; overflow-wrap: anywhere; }
 .log-link { color: var(--accent); font-size: 12px; font-weight: 750; }
 .log-link:hover { text-decoration: underline; }
-.review-list .ticket-pr { font-size: 15px; }
-.review-list .ticket-copy strong { font-size: 14px; }
+.review-table .ticket-pr { font-size: 15px; }
+.review-table .ticket-copy strong { font-size: 14px; }
 .authors { display: grid; }
 .tag-mute { opacity: 0.75; }
 /* DIRECT children only. As a descendant selector this also caught the label
@@ -293,8 +325,8 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .detail-prompt { max-width: 900px; }
 .authors > p a:hover, .author-detail dd a:hover { text-decoration: underline; }
 time { color: var(--dim); }
-.review-list { padding: 0 20px; }
-.review-list a { color: var(--accent); font-weight: 850; }
+.review-table { padding: 0 20px; }
+.review-table a { color: var(--accent); font-weight: 850; }
 .show { width: max-content; margin: 14px 20px; }
 .empty { padding: 30px 20px; color: var(--dim); text-align: center; }
 
@@ -425,9 +457,12 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 @media (max-width: 1100px) {
   .overview { grid-template-columns: 1fr; }
   .context { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .review-list p { grid-template-columns: max-content minmax(140px, 1fr) 150px; gap: 12px; }
-  .review-list .dur, .review-list .log-link { display: none; }
-  .review-list .mono, .review-list time { display: none; }
+  /* Narrow: keep PR, outcome and the chevron. Everything dropped here is
+     still reachable by expanding the row, which is the point of the
+     accordion — the table sheds columns rather than truth. */
+  .review-head, .review-row { grid-template-columns: minmax(140px, 1fr) 150px 20px; gap: 12px; }
+  .review-head span:nth-child(3), .review-head span:nth-child(4), .review-head span:nth-child(5) { display: none; }
+  .review-table .num, .review-table .mono, .review-table time { display: none; }
 }
 
 @media (max-width: 760px) {
@@ -448,6 +483,7 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
   .ticket-actions { padding: 0 18px 14px 94px; }
   .ticket-detail { grid-template-columns: 1fr; padding-left: 18px; }
   dl div, .settings .cluster > div { grid-template-columns: 1fr; gap: 3px; }
+  .review-row, .review-head { grid-template-columns: 1fr; gap: 4px; }
 }
 
 /* Inline code in page-head prose. Markdown backticks are not rendered here,

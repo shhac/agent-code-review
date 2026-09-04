@@ -19,6 +19,8 @@ export type Candidate = {
   eligible_at?: string;
   hold_reason?: string;
   steering?: Steering;
+  // Whether the current viewer may steer this PR, decided server-side.
+  may_steer?: boolean;
 };
 
 // Header-badge tallies computed server-side (dashboard countQueue): the one

@@ -64,7 +64,7 @@ func TestViewQueue(t *testing.T) {
 		{Number: 5, EligibleAt: &holdUntil}, // eligibility hold: visible but skipped
 		{Number: 6, EligibleAt: &holdOver},  // expired hold: plain queued again
 	}
-	got := viewQueue(in, now, staleAfter)
+	got := viewQueue(in, now, staleAfter, viewer{})
 	want := []string{"queued", "reviewing", "queued", "reviewing", "held", "queued"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d rows, want %d", len(got), len(want))
@@ -74,7 +74,7 @@ func TestViewQueue(t *testing.T) {
 			t.Errorf("row %d (#%d) status = %q, want %q", i, got[i].Number, got[i].Status, status)
 		}
 	}
-	if empty := viewQueue(nil, now, staleAfter); empty == nil || len(empty) != 0 {
+	if empty := viewQueue(nil, now, staleAfter, viewer{}); empty == nil || len(empty) != 0 {
 		t.Errorf("nil input must return a non-nil empty slice, got %#v", empty)
 	}
 }
@@ -113,7 +113,7 @@ func TestCountQueue(t *testing.T) {
 		{Number: 2, ClaimedAt: &fresh},
 		{Number: 3, ClaimedAt: &stale},
 		{Number: 4, EligibleAt: &holdUntil},
-	}, now, lease)
+	}, now, lease, viewer{})
 	got := countQueue(views)
 	if got.Total != 4 || got.Queued != 2 || got.Reviewing != 1 || got.Held != 1 {
 		t.Errorf("counts = %+v, want total 4 / queued 2 / reviewing 1 / held 1", got)
@@ -131,12 +131,47 @@ func TestViewQueueCarriesSteering(t *testing.T) {
 	views := viewQueue([]store.Candidate{
 		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
 		{Repo: "o/r", Number: 2, HeadSHA: "s2", Steering: &store.Steering{Message: "focus on rollback", SetBy: "octocat"}},
-	}, now, 2*time.Hour)
+	}, now, 2*time.Hour, viewer{})
 
 	if views[0].Steering != nil {
 		t.Errorf("PR 1 has no steering, got %+v", views[0].Steering)
 	}
 	if views[1].Steering == nil || views[1].Steering.SetBy != "octocat" {
 		t.Errorf("PR 2 must carry its steering, got %+v", views[1].Steering)
+	}
+}
+
+// TestViewQueueMaySteer: the queue tells the UI which rows this viewer may
+// steer, decided by the same rule the write path enforces. Without it the
+// component reimplemented the rule in TypeScript, where nothing bound the two
+// together and a drift showed up as a control that 403s.
+func TestViewQueueMaySteer(t *testing.T) {
+	now := time.Now()
+	rows := []store.Candidate{
+		{Repo: "o/r", Number: 1, Author: "octocat"},
+		{Repo: "o/r", Number: 2, Author: "someone-else"},
+	}
+	steerable := func(v viewer) []bool {
+		out := []bool{}
+		for _, view := range viewQueue(rows, now, 2*time.Hour, v) {
+			out = append(out, view.MaySteer)
+		}
+		return out
+	}
+
+	for name, tc := range map[string]struct {
+		v    viewer
+		want []bool
+	}{
+		"anonymous":            {viewer{}, []bool{false, false}},
+		"identified, unmapped": {viewer{Login: "x@e.com"}, []bool{false, false}},
+		"the author":           {viewer{Login: "o@e.com", Handle: "octocat"}, []bool{true, false}},
+		"author, cased oddly":  {viewer{Login: "o@e.com", Handle: "OctoCat"}, []bool{true, false}},
+		"the gh user":          {viewer{Login: "p@e.com", Handle: "paul-gh", IsGH: true}, []bool{true, true}},
+	} {
+		got := steerable(tc.v)
+		if got[0] != tc.want[0] || got[1] != tc.want[1] {
+			t.Errorf("%s: may_steer = %v, want %v", name, got, tc.want)
+		}
 	}
 }

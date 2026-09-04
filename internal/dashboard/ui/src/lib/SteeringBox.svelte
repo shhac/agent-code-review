@@ -1,13 +1,18 @@
 <script lang="ts">
   import { ago, when } from './format';
-  import type { Steering, Viewer } from './types';
+  import { MAX_STEERING } from './steering';
+  import type { Steering } from './types';
 
-  // The steering control for one queued PR. Rendered only where the viewer
-  // could actually set it, so nobody is offered a box that will 403; anyone
-  // else sees the existing steering read-only, because what shaped a review
-  // is worth seeing even if you cannot change it.
+  // The steering control for one queued PR. The editor appears only where the
+  // server would accept the write, so nobody is offered a box that will 403;
+  // anyone else sees the existing steering read-only, because what shaped a
+  // review is worth seeing even if you cannot change it.
+  //
+  // mayEdit is the SERVER's answer (queueView.may_steer), not a rule
+  // recomputed here. It used to be reimplemented in TypeScript, which meant
+  // one rule in two languages with nothing binding them.
   export let steering: Steering | null = null;
-  export let viewer: Viewer | null = null;
+  export let mayEdit = false;
   export let author = '';
   export let onsave: (message: string) => Promise<void>;
 
@@ -16,11 +21,7 @@
   let saving = false;
   let err = '';
 
-  $: mayEdit =
-    !!viewer && !viewer.anonymous && !!viewer.handle &&
-    (viewer.steer_any_pr || viewer.handle.toLowerCase() === author.toLowerCase());
-  $: max = viewer?.max_message ?? 2000;
-  $: remaining = max - draft.length;
+  $: remaining = MAX_STEERING - draft.length;
 
   function start() {
     draft = steering?.message ?? '';
@@ -48,7 +49,7 @@
   {#if editing}
     <textarea
       bind:value={draft}
-      maxlength={max}
+      maxlength={MAX_STEERING}
       rows="3"
       placeholder="What should the next review pay attention to?"
       aria-label="Steering message"

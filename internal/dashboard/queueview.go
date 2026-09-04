@@ -20,6 +20,11 @@ import (
 type queueView struct {
 	store.Candidate
 	Status string `json:"status"` // queued|reviewing|held
+	// MaySteer is whether the CURRENT viewer may steer this PR, decided by the
+	// same viewer.maySteer the write path enforces. Sent per row so the UI can
+	// offer the control exactly where it would be accepted, without
+	// reimplementing the rule in TypeScript where it could drift.
+	MaySteer bool `json:"may_steer"`
 }
 
 // claimStatus maps the shared predicates (store.Candidate.ClaimActive and
@@ -41,10 +46,14 @@ func claimStatus(c store.Candidate, now time.Time, staleAfter time.Duration) str
 // viewQueue derives each candidate's display status. Steering needs no
 // attaching: it is a field of the candidate, so ListQueue already carried it.
 // Pure: unit-tested.
-func viewQueue(candidates []store.Candidate, now time.Time, staleAfter time.Duration) []queueView {
+func viewQueue(candidates []store.Candidate, now time.Time, staleAfter time.Duration, v viewer) []queueView {
 	out := make([]queueView, 0, len(candidates))
 	for _, c := range candidates {
-		out = append(out, queueView{Candidate: c, Status: claimStatus(c, now, staleAfter)})
+		out = append(out, queueView{
+			Candidate: c,
+			Status:    claimStatus(c, now, staleAfter),
+			MaySteer:  v.maySteer(c.Author),
+		})
 	}
 	return out
 }
@@ -105,7 +114,11 @@ func (s *Server) listQueue(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return queueResp{}, err
 		}
-		views := viewQueue(candidates, time.Now(), s.config().LeaseWindow())
+		v, err := s.identify(ctx, r)
+		if err != nil {
+			return queueResp{}, err
+		}
+		views := viewQueue(candidates, time.Now(), s.config().LeaseWindow(), v)
 		return queueResp{Candidates: views, Counts: countQueue(views)}, nil
 	})
 }

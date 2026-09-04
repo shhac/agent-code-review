@@ -4,7 +4,6 @@
   import { withFeed } from '../lib/feed';
   import { rel, tokens, when, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
-  import { viewer } from '../lib/viewer';
   import QueueBoard from '../lib/QueueBoard.svelte';
   import type { Bucket, Candidate, QueueCounts, Review, UsageResponse, UsageSnapshot } from '../lib/types';
 
@@ -84,7 +83,7 @@
 </section>
 
 <div class="overview">
-  <QueueBoard {queue} {counts} {reviews} viewer={$viewer} bind:dragging onchanged={refresh} onerror={(msg) => (addErr = msg)} />
+  <QueueBoard {queue} {counts} {reviews} bind:dragging onchanged={refresh} onerror={(msg) => (addErr = msg)} />
 
   <aside class="context">
     <section>

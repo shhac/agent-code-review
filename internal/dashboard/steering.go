@@ -6,6 +6,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -81,60 +82,86 @@ func (s *Server) handleViewer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewerResp{State: v.state(), Login: v.Login, Handle: v.Handle})
 }
 
+// apiErr is a refusal with the status it should carry, so the authorisation
+// ladder can be one function that returns "no, and here is the code" rather
+// than a sequence of writes interleaved with transport concerns.
+type apiErr struct {
+	code int
+	msg  string
+}
+
+// steeringActor answers "may this request steer that PR", in the order the
+// answers must be given.
+//
+// The ORDER is the security property, not just the outcomes. Identity is
+// checked before existence, so an anonymous caller cannot use this endpoint as
+// an oracle for what is queued; existence is checked before permission, so a
+// 403 is only ever returned to someone who could already see the PR is there.
+// Reordering these compiles fine and changes what the endpoint discloses,
+// which is why they live together in one function with this comment rather
+// than spread through a handler.
+//
+// The author comes from the STORE. Nothing the request says about who wrote
+// the PR is consulted.
+func (s *Server) steeringActor(ctx context.Context, r *http.Request, repo string, number int) (viewer, *apiErr) {
+	v, err := s.identify(ctx, r)
+	if err != nil {
+		return viewer{}, &apiErr{http.StatusInternalServerError, err.Error()}
+	}
+	if v.anonymous() {
+		return viewer{}, &apiErr{http.StatusUnauthorized,
+			"not identified: steering needs the identity `tailscale serve` attaches"}
+	}
+	c, ok, err := s.store.QueuedPR(ctx, repo, number)
+	if err != nil {
+		return viewer{}, &apiErr{http.StatusInternalServerError, err.Error()}
+	}
+	if !ok {
+		return viewer{}, &apiErr{http.StatusNotFound, "that PR is not queued"}
+	}
+	if !v.maySteer(c.Author) {
+		// 403 rather than 404: the caller is identified and the PR exists, and
+		// saying so plainly beats pretending it is missing.
+		return viewer{}, &apiErr{http.StatusForbidden,
+			"only @" + c.Author + " (or the account reviews are posted as) can steer that PR"}
+	}
+	return v, nil
+}
+
+// parseSteeringReq decodes and validates the body. Pure over the reader, so
+// the wire contract is table-testable without a Server.
+func parseSteeringReq(r *http.Request) (steeringReq, string, *apiErr) {
+	var req steeringReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Repo == "" || req.Number <= 0 {
+		return req, "", &apiErr{http.StatusBadRequest,
+			`need {"repo": "owner/name", "number": N, "message": "..."}`}
+	}
+	msg := strings.TrimSpace(req.Message)
+	if len(msg) > store.SteeringMaxLen {
+		return req, "", &apiErr{http.StatusBadRequest, "message is longer than the steering limit"}
+	}
+	return req, msg, nil
+}
+
 // handleSteering sets or clears the steering for one PR. POST with a message
 // sets it; POST with an empty message clears it.
-//
-// Authorisation is checked against the QUEUED candidate's author rather than
-// anything the caller sent: the request names a PR, and who wrote that PR is a
-// fact the store already holds. A caller cannot widen their own rights by
-// describing the PR differently.
 func (s *Server) handleSteering(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	var req steeringReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Repo == "" || req.Number <= 0 {
-		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N, "message": "..."}`)
-		return
-	}
-	msg := strings.TrimSpace(req.Message)
-	if len(msg) > store.SteeringMaxLen {
-		httpError(w, http.StatusBadRequest, "message is longer than the steering limit")
+	req, msg, bad := parseSteeringReq(r)
+	if bad != nil {
+		httpError(w, bad.code, bad.msg)
 		return
 	}
 
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 
-	v, err := s.identify(ctx, r)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if v.anonymous() {
-		httpError(w, http.StatusUnauthorized, "not identified: steering needs the identity `tailscale serve` attaches")
-		return
-	}
-
-	// Steering is only meaningful for work that is going to be reviewed, and
-	// the author it is checked against comes from the STORE: naming a
-	// different author in the request cannot widen anyone's rights.
-	c, ok, err := s.store.QueuedPR(ctx, req.Repo, req.Number)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if !ok {
-		httpError(w, http.StatusNotFound, "that PR is not queued")
-		return
-	}
-	author := c.Author
-	// 403 rather than 404: the caller is authenticated and the PR exists, and
-	// telling them plainly that it is not theirs is more useful than pretending
-	// it is missing.
-	if !v.maySteer(author) {
-		httpError(w, http.StatusForbidden, "only @"+author+" (or the account reviews are posted as) can steer that PR")
+	v, bad := s.steeringActor(ctx, r, req.Repo, req.Number)
+	if bad != nil {
+		httpError(w, bad.code, bad.msg)
 		return
 	}
 

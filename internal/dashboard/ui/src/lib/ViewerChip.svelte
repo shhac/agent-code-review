@@ -28,3 +28,9 @@
   <span class="status {c.kind}"><i></i>{label}</span>
   {#if c.note}<small>{c.note}</small>{/if}
 </div>
+
+<style>
+  .viewer-chip { display: grid; gap: 4px; padding-bottom: 12px; }
+  .viewer-chip small { color: var(--dim); font-size: 12px; line-height: 1.35; }
+  .viewer-chip :global(.status) { justify-self: start; }
+</style>

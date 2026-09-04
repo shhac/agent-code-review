@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -205,24 +204,6 @@ func TestPromptPreviewGroupOverridesTheRosterLookup(t *testing.T) {
 }
 
 // rosterServer is promptServer plus a roster, for the lookup below.
-type rosterOnlyStore struct {
-	dashboardStore // unused methods panic loudly
-	groups         map[string]string
-}
-
-func (f *rosterOnlyStore) AuthorGroup(_ context.Context, _, handle string) (config.Membership, error) {
-	g, ok := f.groups[handle]
-	if !ok {
-		return config.Membership{}, nil
-	}
-	return config.Membership{Group: g, Repo: config.WildcardRepo}, nil
-}
-
-// Naming a real author must resolve THEIR row, not a guess. The handler used
-// to substitute the built-in approver group whenever no group was picked, so
-// previewing a rostered author showed a policy they were not on and attributed
-// it to a group they were not in. It agreed by luck whenever their real group
-// also permitted approval, which is why it survived a casual look.
 func TestPromptPreviewReadsTheAuthorsRealGroup(t *testing.T) {
 	cfg := config.Config{
 		Review: config.ReviewSettings{MainPrompt: "MAIN"},
@@ -234,7 +215,7 @@ func TestPromptPreviewReadsTheAuthorsRealGroup(t *testing.T) {
 	}
 	s := &Server{
 		config: func() config.Config { return cfg },
-		store:  &rosterOnlyStore{groups: map[string]string{"alice": "contractors"}},
+		store:  &fakeStore{groups: map[string]string{"alice": "contractors"}},
 	}
 
 	code, resp := serveJSON[promptPreviewResp](t, s.handlePromptPreview, http.MethodGet,

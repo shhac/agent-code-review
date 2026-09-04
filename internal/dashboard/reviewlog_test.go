@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -149,30 +148,9 @@ func TestTailFile(t *testing.T) {
 	})
 }
 
-// reviewLogStore fakes the two reads handleReviewLog performs through
+// fakeStore fakes the two reads handleReviewLog performs through
 // store.FindReviewWorkspace; everything else panics via the embedded nil interface.
-type reviewLogStore struct {
-	store.Store
-	queue []store.Candidate
-	byKey map[string]store.Review
-}
 
-func (f *reviewLogStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
-	return f.queue, nil
-}
-
-func (f *reviewLogStore) LastOutcome(context.Context, string, int) (store.Review, bool, error) {
-	return store.Review{}, false, nil
-}
-
-func (f *reviewLogStore) ReviewByLogKey(_ context.Context, repo string, number int, key string) (store.Review, bool, error) {
-	r, ok := f.byKey[key]
-	return r, ok && r.Repo == repo && r.Number == number, nil
-}
-
-// TestHandleReviewLog covers the HTTP wiring above the tested pure cores:
-// param validation, the nothing-recorded envelope, the resolved-but-missing-
-// log error envelope, and the success envelope the ReviewLog page consumes.
 func TestHandleReviewLog(t *testing.T) {
 	get := func(t *testing.T, s *Server, target string) (int, reviewLogResp) {
 		t.Helper()
@@ -180,7 +158,7 @@ func TestHandleReviewLog(t *testing.T) {
 	}
 	newServer := func(queue []store.Candidate) *Server {
 		return &Server{
-			store:  &reviewLogStore{queue: queue},
+			store:  &fakeStore{queue: queue},
 			config: func() config.Config { return config.Config{} },
 		}
 	}
@@ -191,7 +169,7 @@ func TestHandleReviewLog(t *testing.T) {
 			byKey[r.LogKey] = r
 		}
 		return &Server{
-			store:  &reviewLogStore{queue: queue, byKey: byKey},
+			store:  &fakeStore{queue: queue, byKey: byKey},
 			config: func() config.Config { return config.Config{} },
 		}
 	}

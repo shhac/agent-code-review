@@ -60,7 +60,7 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	steerCase := func(column, incoming string) string {
 		return fmt.Sprintf("CASE WHEN %s IS NOT NULL THEN %s ELSE queue.%s END", incoming, incoming, column)
 	}
-	var msg, by, at string = "NULL", "NULL", "NULL"
+	msg, by, at := "NULL", "NULL", "NULL"
 	if c.Steering != nil && c.Steering.Message != "" {
 		msg, by, at = text(c.Steering.Message), nullText(c.Steering.SetBy), ts(c.Steering.SetAt)
 	}

@@ -461,7 +461,7 @@ func TestReviewOneAppliesSteering(t *testing.T) {
 			t.Fatal(err)
 		}
 		p := fe.lastPrompt()
-		if !strings.Contains(p, "## Untrusted input: steering from @octocat") {
+		if !strings.Contains(p, "steering from the PR author (@octocat)") {
 			t.Errorf("prompt carries no attributed steering:\n%s", p)
 		}
 		if !strings.Contains(p, "focus on the rollback path") {
@@ -469,7 +469,7 @@ func TestReviewOneAppliesSteering(t *testing.T) {
 		}
 		// Ordering is the safety property: steering must not read as amending
 		// the approval policy stated above it.
-		if strings.Index(p, "Approval policy") > strings.Index(p, "## Untrusted input") {
+		if strings.Index(p, "Approval policy") > strings.Index(p, "Untrusted input") {
 			t.Error("steering must render after the approval directive")
 		}
 	})

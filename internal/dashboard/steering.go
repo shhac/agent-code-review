@@ -25,16 +25,49 @@ type steeringResp struct {
 	Cleared  bool            `json:"cleared,omitempty"`
 }
 
-// viewerResp tells the UI who it is talking to, so it can show the steering
-// box only where it would be accepted rather than offering it and failing.
+// viewerResp tells the UI who it is talking to. Deliberately narrow: the chip
+// renders an identity, and whether a given PR is steerable is answered per row
+// by queueView.MaySteer, so nothing here describes permissions.
+//
+// State is the classification, named once here rather than re-derived by the
+// client from a combination of booleans. The English prose that used to ride
+// along was assembled by a switch in Go and consumed only as a tooltip;
+// wording belongs to the client.
 type viewerResp struct {
-	Login       string `json:"login,omitempty"`
-	Handle      string `json:"handle,omitempty"`
-	IsGHUser    bool   `json:"is_gh_user"`
-	Anonymous   bool   `json:"anonymous"`
-	MaxMessage  int    `json:"max_message"`
-	SteerAnyPR  bool   `json:"steer_any_pr"`
-	Explanation string `json:"explanation,omitempty"`
+	State  viewerState `json:"state"`
+	Login  string      `json:"login,omitempty"`
+	Handle string      `json:"handle,omitempty"`
+}
+
+// viewerState is the four ways the dashboard can know a caller.
+type viewerState string
+
+const (
+	// viewerAnonymous: nothing was proved. Either the request did not come
+	// through the tailscale proxy, or it is a tagged device or Funnel traffic,
+	// for which Tailscale attaches no identity at all.
+	viewerAnonymous viewerState = "anonymous"
+	// viewerUnmapped: authenticated, but no roster row claims that login.
+	viewerUnmapped viewerState = "unmapped"
+	// viewerAuthor: a rostered person, who may steer their own PRs.
+	viewerAuthor viewerState = "author"
+	// viewerOperator: the account reviews are posted as, which may steer any.
+	viewerOperator viewerState = "operator"
+)
+
+// state classifies a viewer. Pure, so the four cases are table-testable
+// without building a request.
+func (v viewer) state() viewerState {
+	switch {
+	case v.anonymous():
+		return viewerAnonymous
+	case v.Handle == "":
+		return viewerUnmapped
+	case v.IsGH:
+		return viewerOperator
+	default:
+		return viewerAuthor
+	}
 }
 
 func (s *Server) handleViewer(w http.ResponseWriter, r *http.Request) {
@@ -45,21 +78,7 @@ func (s *Server) handleViewer(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	resp := viewerResp{
-		Login: v.Login, Handle: v.Handle, IsGHUser: v.IsGH,
-		Anonymous: v.anonymous(), MaxMessage: store.SteeringMaxLen, SteerAnyPR: v.IsGH,
-	}
-	switch {
-	case v.anonymous():
-		resp.Explanation = "not identified: the dashboard reads the identity `tailscale serve` attaches, so a direct connection or a tagged device is anonymous"
-	case v.Handle == "":
-		resp.Explanation = "identified as " + v.Login + ", which no roster row claims, so no PR is yours to steer"
-	case v.IsGH:
-		resp.Explanation = "reviews are posted as @" + v.Handle + ", so any PR here can be steered"
-	default:
-		resp.Explanation = "you may steer PRs authored by @" + v.Handle
-	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, viewerResp{State: v.state(), Login: v.Login, Handle: v.Handle})
 }
 
 // handleSteering sets or clears the steering for one PR. POST with a message

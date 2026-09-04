@@ -193,12 +193,22 @@ func (c Config) TailscalePort() int {
 	return 443
 }
 
-// DashboardAddr is the HTTP listen address (default ":8330").
+// DashboardAddr is the HTTP listen address (default "127.0.0.1:8330").
+//
+// Loopback, not ":8330". The dashboard has no auth of its own: reaching it is
+// the authorisation, and `tailscale serve` is what grants that by proxying
+// from the tailnet to this port. Binding every interface let anything that
+// could reach the machine reach the dashboard directly, bypassing the proxy
+// entirely, which matters twice over now that the proxy also attaches the
+// identity headers the roster trusts: Tailscale strips forged copies on the
+// way through, so a request that never goes through it can assert whatever it
+// likes. `tailscale serve` proxies to 127.0.0.1 already, so this changes
+// nothing for the supported setup. Bind wider only deliberately.
 func (c Config) DashboardAddr() string {
 	if c.Dashboard.Addr != "" {
 		return c.Dashboard.Addr
 	}
-	return ":8330"
+	return "127.0.0.1:8330"
 }
 
 // DiscoverInterval is the candidate-scraping cadence (default 10m; discovery

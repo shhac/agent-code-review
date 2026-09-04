@@ -38,8 +38,8 @@ func TestDefaults(t *testing.T) {
 	if !c.ScheduleEnabled() || !c.DiscoveryEnabled() {
 		t.Errorf("loop defaults = schedule:%t discovery:%t, want both true", c.ScheduleEnabled(), c.DiscoveryEnabled())
 	}
-	if got := c.DashboardAddr(); got != ":8330" {
-		t.Errorf("DashboardAddr default = %q, want :8330", got)
+	if got := c.DashboardAddr(); got != "127.0.0.1:8330" {
+		t.Errorf("DashboardAddr default = %q, want 127.0.0.1:8330 (loopback: the tailscale proxy is the only supported way in)", got)
 	}
 }
 

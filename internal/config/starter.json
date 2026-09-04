@@ -81,7 +81,7 @@
     "path": ""
   },
   "dashboard": {
-    "addr": ":8330",
+    "addr": "127.0.0.1:8330",
     "public_url": "",
     "tailscale": {
       "mode": "",

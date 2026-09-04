@@ -298,6 +298,9 @@ func TestAddWithSteering(t *testing.T) {
 		}
 		if got := probe("mallory@example.com"); got.Author != "octocat" || got.MaySteer {
 			t.Errorf("a stranger must be told they may not: %+v", got)
+		} else if !strings.Contains(got.Refusal, "octocat") {
+			// The client renders this verbatim, so it has to name the author.
+			t.Errorf("refusal = %q, want it to name the author", got.Refusal)
 		}
 		if got := probe(""); got.MaySteer {
 			t.Errorf("anonymous must be told they may not: %+v", got)

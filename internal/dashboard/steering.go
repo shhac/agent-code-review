@@ -122,8 +122,7 @@ func (s *Server) steeringActor(ctx context.Context, r *http.Request, repo string
 	if !v.maySteer(c.Author) {
 		// 403 rather than 404: the caller is identified and the PR exists, and
 		// saying so plainly beats pretending it is missing.
-		return viewer{}, &apiErr{http.StatusForbidden,
-			"only @" + c.Author + " (or the account reviews are posted as) can steer that PR"}
+		return viewer{}, &apiErr{http.StatusForbidden, cannotSteer(c.Author)}
 	}
 	return v, nil
 }

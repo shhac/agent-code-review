@@ -190,11 +190,7 @@
 {#if steerModal}
   <Modal title={`Queue ${steerModal.repo}#${steerModal.number} with steering`} onclose={() => (steerModal = null)}>
     <p class="muted">{steerModal.title} · by @{steerModal.author}</p>
-    <SteeringEditor
-      bind:value={steerDraft}
-      disabled={!steerModal.may_steer}
-      refusal={`only @${steerModal.author} (or the account reviews are posted as) can steer this PR`}
-    />
+    <SteeringEditor bind:value={steerDraft} refusal={steerModal.may_steer ? '' : (steerModal.refusal ?? '')} />
     <svelte:fragment slot="actions">
       <button class="go" on:click={addWithSteering} disabled={steerBusy}>
         {steerBusy ? 'queueing…' : steerModal.may_steer ? 'Queue with steering' : 'Queue anyway'}

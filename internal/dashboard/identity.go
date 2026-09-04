@@ -68,6 +68,14 @@ func fromLoopback(r *http.Request) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// cannotSteer is the refusal, worded once. It sits beside maySteer because it
+// is that rule stated in prose, and it had drifted into three copies across
+// two languages ("that PR" in Go, "this PR" in TypeScript) within an hour of
+// being written.
+func cannotSteer(author string) string {
+	return "only @" + author + " (or the account reviews are posted as) can steer that PR"
+}
+
 // identify resolves the caller. A header naming nobody the roster knows still
 // yields a viewer with a Login: the person is authenticated, just unmapped.
 //

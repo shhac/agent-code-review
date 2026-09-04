@@ -311,6 +311,9 @@ export type QueuePreflight = {
   title: string;
   author: string;
   may_steer: boolean;
+  // The server's wording for why not, when may_steer is false. Rendered as
+  // sent: the client does not keep its own copy of the sentence.
+  refusal?: string;
 };
 
 // ViewerState is how the dashboard knows the caller. The server classifies;

@@ -10,9 +10,13 @@
   // message verbatim, so a list or a code fence reaches the model as one, and
   // an author should be able to see that before saving.
   export let value = '';
-  export let disabled = false;
-  // Why the box is disabled, shown in its place. Empty when it is editable.
+  // A refusal IS the disabled state: the two were separate props that had to
+  // be set together, where one could be set without the other and produce a
+  // box disabled for no stated reason, or a reason with an editable box.
+  // Empty means editable.
   export let refusal = '';
+
+  $: disabled = refusal !== '';
 
   let mode = 'write';
   const modes = [
@@ -31,7 +35,7 @@
 
   {#if disabled}
     <div class="steer-refusal">
-      <p class="status warn"><i></i>{refusal || 'you cannot steer this PR'}</p>
+      <p class="status warn"><i></i>{refusal}</p>
       <textarea
         id="steering-text"
         disabled

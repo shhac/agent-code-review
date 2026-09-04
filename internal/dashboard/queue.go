@@ -80,10 +80,14 @@ func (s *Server) handleQueuePreflight(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, queuePreflightResp{
+	resp := queuePreflightResp{
 		Repo: c.Repo, Number: c.Number, Title: c.Title, Author: c.Author,
 		MaySteer: v.maySteer(c.Author),
-	})
+	}
+	if !resp.MaySteer {
+		resp.Refusal = cannotSteer(c.Author)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // addReq is the add/preflight wire shape: a full GitHub PR URL or the bare
@@ -154,7 +158,7 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		case len(msg) > store.SteeringMaxLen:
 			steeringRefused = "message is longer than the steering limit"
 		case !v.maySteer(c.Author):
-			steeringRefused = "only @" + c.Author + " (or the account reviews are posted as) can steer that PR"
+			steeringRefused = cannotSteer(c.Author)
 		default:
 			c.Steering = &store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}
 		}

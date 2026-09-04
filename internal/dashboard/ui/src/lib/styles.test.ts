@@ -80,6 +80,20 @@ describe('the history table lines up', () => {
     expect(cells, `header renders ${cells} cells for ${columns} columns`).toBe(columns);
   });
 
+  // The row's cell rules (nowrap, right-alignment) must not reach into the
+  // detail panel below it, where a 40-character head SHA inherited nowrap and
+  // overflowed across its neighbours. app.css documents the same trap for
+  // `.authors > p`; a row's cells are its CHILDREN.
+  it('scopes row cell rules to direct children', () => {
+    const leaky = [...bare.matchAll(/^\s*\.review-(?:table|row)\s+\.(mono|num|chev)\b[^{]*\{/gm)]
+      .map((m) => m[0].trim());
+    expect(
+      leaky,
+      `descendant selectors reach into .review-detail: ${leaky.join(' | ')}`,
+    ).toEqual([]);
+    expect(bare).toMatch(/\.review-row\s*>\s*\.mono/);
+  });
+
   // PrIdentity renders TWO elements. Dropped straight into the row it became
   // two grid items, pushing every later column one place left and wrapping
   // the chevron onto a second line. The wrapper is what keeps this table's

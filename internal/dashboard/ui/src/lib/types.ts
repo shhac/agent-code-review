@@ -288,15 +288,22 @@ export type ReviewLogResponse = {
 // Steering is an instruction from the PR's author (or from the account
 // reviews are posted as) that shapes the next review of that PR.
 export type Steering = {
-  repo: string;
-  number: number;
   message: string;
   set_by: string;
   set_at: string;
 };
 
-// ViewerState is how the dashboard knows the caller. The server classifies;
-// the client only chooses words and colours for each case.
+// QueueAdd is the add's answer. steering_refused says why an accompanying
+// message was not applied: the add still happened, so the caller has to be
+// told which half of what they asked for they got.
+export type QueueAdd = {
+  queued: boolean;
+  title?: string;
+  author?: string;
+  steered?: boolean;
+  steering_refused?: string;
+};
+
 // QueuePreflight answers "what is this PR, and may I steer it" before an add.
 export type QueuePreflight = {
   repo: string;
@@ -306,6 +313,8 @@ export type QueuePreflight = {
   may_steer: boolean;
 };
 
+// ViewerState is how the dashboard knows the caller. The server classifies;
+// the client only chooses words and colours for each case.
 export type ViewerState = 'anonymous' | 'unmapped' | 'author' | 'operator';
 
 // Viewer is who the dashboard believes is asking, derived from the identity

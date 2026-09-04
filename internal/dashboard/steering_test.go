@@ -252,6 +252,11 @@ func TestAddWithSteering(t *testing.T) {
 		if resp.Steered || resp.SteeringRefused == "" {
 			t.Errorf("resp = %+v, want steered=false with a stated reason", resp)
 		}
+		// The reason has to name the author, since "you cannot steer this" is
+		// only actionable if you know whose PR it is.
+		if !strings.Contains(resp.SteeringRefused, "octocat") {
+			t.Errorf("refusal = %q, want it to name the author", resp.SteeringRefused)
+		}
 		if fs.enqueued[0].Steering != nil {
 			t.Errorf("no steering may be stored, got %+v", fs.enqueued[0].Steering)
 		}

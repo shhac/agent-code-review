@@ -48,12 +48,6 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, queueRemoveResp{Removed: true})
 }
 
-// addToQueue accepts {"url": "<PR reference>"}: a full GitHub PR URL or the
-// bare "owner/repo/pull/N" form (which also covers "I know the repo and
-// number"). One wire shape for the dashboard's only non-trivial untrusted
-// input; the repo must be one of the configured watched repos, because the
-// dashboard is the surface other people use, so it only takes PRs this tool
-// is actually set up to review.
 // handleQueuePreflight resolves a PR reference WITHOUT queueing it, so the UI
 // can ask "who wrote this, and may I steer it" before committing to an add.
 //
@@ -69,7 +63,7 @@ func (s *Server) handleQueuePreflight(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	ref, ok := s.decodeWatchedPR(w, r)
+	_, ref, ok := s.decodeWatchedPR(w, r)
 	if !ok {
 		return
 	}
@@ -92,45 +86,41 @@ func (s *Server) handleQueuePreflight(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// decodeWatchedPR is the shared front half of add and preflight: parse the
-// reference and refuse a repo this tool is not set up to review. The dashboard
-// is the surface other people use, so the watched-repo check is not optional.
-func (s *Server) decodeWatchedPR(w http.ResponseWriter, r *http.Request) (prref.Ref, bool) {
-	var req struct {
-		URL string `json:"url"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
-		httpError(w, http.StatusBadRequest, `need {"url": "https://github.com/owner/repo/pull/N" or "owner/repo/pull/N"}`)
-		return prref.Ref{}, false
-	}
-	ref, ok := prref.ParseGitHubPull(req.URL)
-	if !ok {
-		httpError(w, http.StatusBadRequest, "not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
-		return prref.Ref{}, false
-	}
-	if !s.config().WatchesRepo(ref.Repo) {
-		httpError(w, http.StatusForbidden, ref.Repo+" is not a watched repo; see the Config page for the allowed list")
-		return prref.Ref{}, false
-	}
-	return ref, true
+// addReq is the add/preflight wire shape: a full GitHub PR URL or the bare
+// "owner/repo/pull/N" form, plus an optional steering message that only add
+// reads. One shape for the dashboard's only non-trivial untrusted input.
+type addReq struct {
+	URL      string `json:"url"`
+	Steering string `json:"steering"`
 }
 
-func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		URL      string `json:"url"`
-		Steering string `json:"steering"`
-	}
+// decodeWatchedPR is the shared front half of add and preflight: decode the
+// body, parse the reference, and refuse a repo this tool is not set up to
+// review. The dashboard is the surface other people use, so the watched-repo
+// check is not optional, and having one function do it means add and preflight
+// cannot come to different conclusions about what is acceptable.
+func (s *Server) decodeWatchedPR(w http.ResponseWriter, r *http.Request) (addReq, prref.Ref, bool) {
+	var req addReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
 		httpError(w, http.StatusBadRequest, `need {"url": "https://github.com/owner/repo/pull/N" or "owner/repo/pull/N"}`)
-		return
+		return req, prref.Ref{}, false
 	}
 	ref, ok := prref.ParseGitHubPull(req.URL)
 	if !ok {
 		httpError(w, http.StatusBadRequest, "not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
-		return
+		return req, prref.Ref{}, false
 	}
 	if !s.config().WatchesRepo(ref.Repo) {
 		httpError(w, http.StatusForbidden, ref.Repo+" is not a watched repo; see the Config page for the allowed list")
+		return req, prref.Ref{}, false
+	}
+	return req, ref, true
+}
+
+// addToQueue queues a PR, optionally with a steering message.
+func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
+	req, ref, ok := s.decodeWatchedPR(w, r)
+	if !ok {
 		return
 	}
 	// Fetching metadata involves a gh round-trip; give it room.

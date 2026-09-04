@@ -269,6 +269,46 @@ internal/
   `max_parallel` raise take effect within one idle poll rather than only
   after some review happens to finish.
 
+- **Steering is untrusted input, and the prompt says so.** A PR's author (or
+  the account reviews are posted as) can attach a short instruction that
+  shapes the next review of that PR. It is the only part of a prompt written
+  by somebody other than the operator, so it renders LAST, inside explicit
+  `BEGIN/END STEERING <digest>` markers, under a framing that names the
+  setter's ROLE and states what it cannot do. The digest is derived from the
+  message, so an author cannot close their own block and continue outside it:
+  forging the end marker needs the hash of text they are still writing. The
+  message reaches the engine verbatim, markdown included, because mangling it
+  is not what makes it safe; the markers are.
+
+  Role matters as much as attribution. Steering from the PR author is framed
+  as an interested party; steering from the reviewing account is the operator
+  and framed as guidance to weigh. Neither can change the approval policy,
+  which is configuration rather than conversation.
+
+- **Who may steer is decided in Go, once, from the store.** The dashboard has
+  no login: `tailscale serve` authenticates the person and asserts it in a
+  header, and `allowed_authors.tailscale_login` maps that to a GitHub handle,
+  which is compared against the queued row's author. Three things must hold
+  before the header counts, and only the last is Tailscale's: the daemon is
+  not serving over Funnel (public traffic Tailscale attaches no identity to),
+  the connection arrived on loopback (so it came through the proxy), and
+  Tailscale strips any client-supplied copy. The loopback check is the one
+  that does not depend on config being right: a wider bind degrades to
+  "nobody is identified" rather than "everybody is whoever they say".
+
+  The answer is computed server-side per queue row (`may_steer`) rather than
+  in the client, so the rule exists in one language. The author is always read
+  from the store; naming a different one in a request grants nothing.
+
+- **Steering is a queue-row field, not a table.** Same key, same lifetime, one
+  per row: as a separate table the 1:1 had to be maintained by hand at every
+  site that retires a row, and `Complete` needed an `EXISTS` subquery purely
+  to re-derive whether the delete below it was about to fire. A manual add can
+  carry steering on the insert, because a freed dispatcher slot claims an
+  added row within the idle poll and there is otherwise no window to steer it.
+  Discovery re-enqueues every sweep with none attached, so the conflict arms
+  KEEP existing steering rather than writing NULL.
+
 - **The scheduler's dependencies are declared, not patched.** `New` takes a
   `Deps` struct: `Store`, `Config` and `Sweeper` are required and everything
   else defaults to its production implementation, so a caller states what it

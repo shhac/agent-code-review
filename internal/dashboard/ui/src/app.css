@@ -95,7 +95,11 @@ h3 { margin: 0 0 8px; font-size: 13px; color: var(--accent); text-transform: upp
   font-weight: 760; letter-spacing: 0;
 }
 
-.add { min-width: min(520px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+/* Input, then Queue, then Steer, on one row. Three columns rather than two:
+   with `1fr auto` the third control wrapped underneath. The error message
+   spans the row beneath them. */
+.add { min-width: min(560px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: start; }
+.add .err { grid-column: 1 / -1; }
 input {
   min-width: 0; border: 1px solid var(--line-strong); border-radius: 8px; padding: 11px 12px;
   background: var(--surface); color: var(--ink);

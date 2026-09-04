@@ -17,6 +17,7 @@
   // new usage field is a template edit, not another mirrored scalar.
   let usageResp: UsageResponse | null = null;
   let addInput = '';
+  $: hasInput = addInput.trim() !== '';
   let addErr = '';
   let dragging = false;
 
@@ -116,14 +117,14 @@
   </div>
   <form class="add" on:submit|preventDefault={addToQueue}>
     <input bind:value={addInput} placeholder="owner/repo/pull/123 or GitHub PR URL" required />
-    <button type="submit">Queue PR</button>
+    <button type="submit" disabled={!hasInput || steerBusy}>Queue</button>
     <button
       type="button"
       class="secondary"
-      disabled={!addInput.trim() || steerBusy}
-      title="Add this PR and give the reviewer an instruction for it"
+      disabled={!hasInput || steerBusy}
+      title="Queue this PR with an instruction for the reviewer"
       on:click={openAddWithSteering}
-    >Queue with steering…</button>
+    >Steer</button>
     {#if addErr}<span class="err">{addErr}</span>{/if}
   </form>
 </section>

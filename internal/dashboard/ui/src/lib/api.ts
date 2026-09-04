@@ -12,6 +12,7 @@ import type {
   PromptPreviewResponse,
   StatsResponse,
   Viewer,
+  QueueAdd,
   QueuePreflight,
   UsageResponse,
   ReviewLogRef,
@@ -102,7 +103,10 @@ export function getReviewLog(ref: ReviewLogRef) {
   return fetchJSON<ReviewLogResponse>(url);
 }
 
-export const queuePR = (url: string, steering = '') => post('/api/queue', { url, steering });
+// postJSON, not post: the response says whether an accompanying steering
+// message was applied, and dropping it would let a refusal pass as success.
+export const queuePR = (url: string, steering = '') =>
+  postJSON<QueueAdd>('/api/queue', { url, steering });
 
 // preflightPR resolves a PR reference without queueing it, so the add form can
 // ask who wrote it and whether this viewer may steer it. Advisory: the add

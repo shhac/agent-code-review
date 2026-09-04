@@ -95,9 +95,12 @@
     steerBusy = true;
     addErr = '';
     try {
-      await queuePR(addInput.trim(), steerModal?.may_steer ? steerDraft.trim() : '');
+      const res = await queuePR(addInput.trim(), steerModal?.may_steer ? steerDraft.trim() : '');
       addInput = '';
       steerModal = null;
+      // The PR was queued either way; say so if only half of what was asked
+      // for happened, rather than letting a refusal read as success.
+      if (res.steering_refused) addErr = `Queued, but not steered: ${res.steering_refused}`;
       await withFeed(refresh)();
     } catch (e: any) {
       addErr = e.message;

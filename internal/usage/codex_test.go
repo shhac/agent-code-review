@@ -16,7 +16,17 @@ import (
 func fakeCodex(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "codex")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+	// The trailing drain keeps the fake alive on stdin until the parent closes
+	// it. fetchCodex writes the 3-message handshake BEFORE reading a reply, so
+	// a fake that printed its answer and exited raced the writer: when the
+	// child won, the write failed with EPIPE and fetchCodex returned that
+	// instead of the answer already sitting in the pipe. It went red on CI
+	// (a loaded runner schedules the child sooner) and never locally.
+	//
+	// A body that exits deliberately returns before reaching the drain, so the
+	// failure fakes still exit as written.
+	script := "#!/bin/sh\n" + body + "\ncat >/dev/null\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return path

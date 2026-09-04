@@ -64,7 +64,7 @@ func TestViewQueue(t *testing.T) {
 		{Number: 5, EligibleAt: &holdUntil}, // eligibility hold: visible but skipped
 		{Number: 6, EligibleAt: &holdOver},  // expired hold: plain queued again
 	}
-	got := viewQueue(in, now, staleAfter, nil)
+	got := viewQueue(in, now, staleAfter)
 	want := []string{"queued", "reviewing", "queued", "reviewing", "held", "queued"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d rows, want %d", len(got), len(want))
@@ -74,7 +74,7 @@ func TestViewQueue(t *testing.T) {
 			t.Errorf("row %d (#%d) status = %q, want %q", i, got[i].Number, got[i].Status, status)
 		}
 	}
-	if empty := viewQueue(nil, now, staleAfter, nil); empty == nil || len(empty) != 0 {
+	if empty := viewQueue(nil, now, staleAfter); empty == nil || len(empty) != 0 {
 		t.Errorf("nil input must return a non-nil empty slice, got %#v", empty)
 	}
 }
@@ -113,7 +113,7 @@ func TestCountQueue(t *testing.T) {
 		{Number: 2, ClaimedAt: &fresh},
 		{Number: 3, ClaimedAt: &stale},
 		{Number: 4, EligibleAt: &holdUntil},
-	}, now, lease, nil)
+	}, now, lease)
 	got := countQueue(views)
 	if got.Total != 4 || got.Queued != 2 || got.Reviewing != 1 || got.Held != 1 {
 		t.Errorf("counts = %+v, want total 4 / queued 2 / reviewing 1 / held 1", got)
@@ -123,23 +123,20 @@ func TestCountQueue(t *testing.T) {
 	}
 }
 
-// TestViewQueueAttachesSteering: the queue is rendered in one request, so a
-// PR's steering has to arrive on its row. Matching folds repo casing, because
-// the two tables preserve whatever casing their writer used.
-func TestViewQueueAttachesSteering(t *testing.T) {
+// TestViewQueueCarriesSteering: steering rides on the candidate, so the view
+// passes it through untouched. It used to be joined from a second table here,
+// which is the coupling the move onto the queue row removed.
+func TestViewQueueCarriesSteering(t *testing.T) {
 	now := time.Now()
-	views := viewQueue(
-		[]store.Candidate{
-			{Repo: "o/r", Number: 1, HeadSHA: "s1"},
-			{Repo: "o/r", Number: 2, HeadSHA: "s2"},
-		},
-		now, 2*time.Hour,
-		[]store.Steering{{Repo: "O/R", Number: 2, Message: "focus on rollback", SetBy: "octocat"}},
-	)
+	views := viewQueue([]store.Candidate{
+		{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, HeadSHA: "s2", Steering: &store.Steering{Message: "focus on rollback", SetBy: "octocat"}},
+	}, now, 2*time.Hour)
+
 	if views[0].Steering != nil {
 		t.Errorf("PR 1 has no steering, got %+v", views[0].Steering)
 	}
 	if views[1].Steering == nil || views[1].Steering.SetBy != "octocat" {
-		t.Errorf("PR 2 must carry its steering despite the repo casing, got %+v", views[1].Steering)
+		t.Errorf("PR 2 must carry its steering, got %+v", views[1].Steering)
 	}
 }

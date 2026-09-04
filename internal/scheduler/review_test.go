@@ -26,30 +26,14 @@ type fakeSchedStore struct {
 	// byHandle answers per author. Concurrent reviews can run several engines,
 	// so a fake that gives every handle the same group cannot express the case
 	// the per-engine floor exists for: one candidate held while another runs.
-	byHandle    map[string]string
-	groupErr    error // simulate the roster lookup failing
-	claimErr    error // simulate the claim itself failing
-	claimLost   bool  // simulate losing the compare-and-swap to another worker
-	claims      []store.Lease
-	workDirs    []string
-	completed   []store.Review
-	cleared     []int // queue rows whose claim was released
-	steering    store.Steering
-	steeringErr error
-}
-
-// Steering answers the per-review lookup. Most tests want none, and the zero
-// value says so, so only a test about steering has to set it.
-func (f *fakeSchedStore) Steering(_ context.Context, _ string, _ int) (store.Steering, bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.steeringErr != nil {
-		return store.Steering{}, false, f.steeringErr
-	}
-	if f.steering.Message == "" {
-		return store.Steering{}, false, nil
-	}
-	return f.steering, true, nil
+	byHandle  map[string]string
+	groupErr  error // simulate the roster lookup failing
+	claimErr  error // simulate the claim itself failing
+	claimLost bool  // simulate losing the compare-and-swap to another worker
+	claims    []store.Lease
+	workDirs  []string
+	completed []store.Review
+	cleared   []int // queue rows whose claim was released
 }
 
 // ClearClaim records a released claim. It lives on the base fake because both
@@ -458,18 +442,22 @@ func TestRunOneWorkdirFailureLeavesTheRowUntouched(t *testing.T) {
 }
 
 // TestReviewOneAppliesSteering pins the only path by which an author's
-// instruction reaches an LLM. Before this existed the wiring was executed by
-// nothing: the fake carried a steering field no test ever set, so deleting
-// the two assignments in reviewOne left the suite green.
+// instruction reaches an LLM. It rides on the candidate, so this is now a
+// question about one struct field rather than about a store lookup that could
+// fail independently of the row it belonged to.
 func TestReviewOneAppliesSteering(t *testing.T) {
 	t.Run("steering reaches the prompt, after the approval directive", func(t *testing.T) {
-		fs := &fakeSchedStore{steering: store.Steering{
-			Message: "the migration is behind a flag; focus on the rollback path",
-			SetBy:   "octocat",
-		}}
+		fs := &fakeSchedStore{}
 		fe := commented()
 		s := newTestScheduler(fs, fe)
-		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 3, Author: "octocat", HeadSHA: "s1"}); err != nil {
+		c := store.Candidate{
+			Repo: "o/r", Number: 3, Author: "octocat", HeadSHA: "s1",
+			Steering: &store.Steering{
+				Message: "the migration is behind a flag; focus on the rollback path",
+				SetBy:   "octocat",
+			},
+		}
+		if err := reviewOne(s, fe, c); err != nil {
 			t.Fatal(err)
 		}
 		p := fe.lastPrompt()
@@ -498,20 +486,18 @@ func TestReviewOneAppliesSteering(t *testing.T) {
 		}
 	})
 
-	t.Run("a steering read failure degrades to an unsteered review", func(t *testing.T) {
-		// A store hiccup must not stall the queue: the review runs without the
-		// instruction rather than failing and backing the candidate off.
-		fs := &fakeSchedStore{steeringErr: errors.New("db busy")}
+	t.Run("an empty message is not steering", func(t *testing.T) {
+		// The store clears rather than storing empty, but a candidate built by
+		// hand can still carry one, and it must not render an empty quote.
+		fs := &fakeSchedStore{}
 		fe := commented()
 		s := newTestScheduler(fs, fe)
-		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "s1"}); err != nil {
-			t.Fatalf("a steering read failure must not fail the review: %v", err)
-		}
-		if len(fs.completed) != 1 {
-			t.Errorf("the review must still complete, got %+v", fs.completed)
+		c := store.Candidate{Repo: "o/r", Number: 6, HeadSHA: "s1", Steering: &store.Steering{SetBy: "octocat"}}
+		if err := reviewOne(s, fe, c); err != nil {
+			t.Fatal(err)
 		}
 		if strings.Contains(fe.lastPrompt(), "Steering") {
-			t.Error("a failed read must yield an unsteered prompt, not a partial one")
+			t.Errorf("an empty message must render nothing:\n%s", fe.lastPrompt())
 		}
 	})
 }

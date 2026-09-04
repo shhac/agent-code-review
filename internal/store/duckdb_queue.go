@@ -114,23 +114,18 @@ func (d *duckDB) ClearClaim(ctx context.Context, repo string, number int) error 
 // head_sha on the claimed row), the row survives with its claim cleared so
 // the next cycle reviews the newer commits.
 func (d *duckDB) Complete(ctx context.Context, r Review) error {
-	// Steering is dropped in lockstep with the queue row, and gated on the same
-	// SHA predicate, so it lives exactly as long as the work it was guiding.
-	// It runs BEFORE the queue delete because it asks whether that delete is
-	// about to happen. When new commits arrived mid-review the row survives
-	// with its claim cleared, and so does the steering: the author's
-	// instruction still applies to the re-review of the newer code.
+	// Steering needs no clause of its own: it lives on the row, so it is
+	// retired by the same DELETE and survives the same stale-SHA path, where
+	// the author's instruction still applies to the re-review of the newer
+	// code. That used to be an EXISTS subquery re-deriving whether this very
+	// DELETE was about to fire.
+	pr := prWhere(r.Repo, r.Number)
+	retiring := pr + " AND head_sha IS NOT DISTINCT FROM " + nullText(r.HeadSHA)
 	sql := fmt.Sprintf(`BEGIN;
 	%s
-	DELETE FROM steering WHERE %s AND EXISTS (
-	  SELECT 1 FROM queue WHERE %s AND head_sha IS NOT DISTINCT FROM %s);
-	DELETE FROM queue WHERE %s AND head_sha IS NOT DISTINCT FROM %s;
+	DELETE FROM queue WHERE %s;
 	UPDATE queue SET claimed_at = NULL, claim_host = NULL, claim_pid = NULL WHERE %s;
-	COMMIT;`,
-		historyInsert(r),
-		prWhere(r.Repo, r.Number), prWhere(r.Repo, r.Number), nullText(r.HeadSHA),
-		prWhere(r.Repo, r.Number), nullText(r.HeadSHA),
-		prWhere(r.Repo, r.Number))
+	COMMIT;`, historyInsert(r), retiring, pr)
 	return d.exec(ctx, sql)
 }
 
@@ -143,11 +138,7 @@ func historyInsert(r Review) string {
 }
 
 func (d *duckDB) Dequeue(ctx context.Context, repo string, number int) error {
-	// Steering goes with the row: it is guidance for a review that will now
-	// never happen, and leaving it would silently apply to a future re-add.
-	return d.exec(ctx, fmt.Sprintf(
-		"BEGIN; DELETE FROM steering WHERE %s; DELETE FROM queue WHERE %s; COMMIT;",
-		prWhere(repo, number), prWhere(repo, number)))
+	return d.exec(ctx, fmt.Sprintf("DELETE FROM queue WHERE %s", prWhere(repo, number)))
 }
 
 func (d *duckDB) Reorder(ctx context.Context, positions []QueuePosition) error {

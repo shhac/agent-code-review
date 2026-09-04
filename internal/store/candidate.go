@@ -23,6 +23,10 @@ type Candidate struct {
 	WorkDir      string     `json:"work_dir,omitempty"`    // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
 	EligibleAt   *time.Time `json:"eligible_at,omitempty"` // eligibility hold: the scheduler skips this row until then; nil = eligible now
 	HoldReason   string     `json:"hold_reason,omitempty"` // HoldCooldown | HoldSettling while a hold is set
+	// Steering is the instruction shaping this PR's next review, if one is
+	// set. A field on the row rather than a joined entity: it shares the row's
+	// key and lifetime exactly, so it goes when the row goes.
+	Steering *Steering `json:"steering,omitempty"`
 }
 
 // QueuePosition is one member of a complete queue ordering.

@@ -32,19 +32,19 @@ func TestSteeringLifecycle(t *testing.T) {
 	}
 	steer := func(t *testing.T, s Store, msg string) {
 		t.Helper()
-		if err := s.SetSteering(ctx, Steering{
-			Repo: "o/r", Number: 1, Message: msg, SetBy: "octocat", SetAt: time.Now(),
-		}); err != nil {
+		if err := s.SetSteering(ctx, "o/r", 1, Steering{Message: msg, SetBy: "octocat", SetAt: time.Now()}); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// Reading needs no store method: steering rides on the candidate, so the
+	// queue listing already carries it.
 	has := func(t *testing.T, s Store) (Steering, bool) {
 		t.Helper()
-		st, ok, err := s.Steering(ctx, "o/r", 1)
-		if err != nil {
-			t.Fatal(err)
+		c, ok := getQueued(t, s, "o/r", 1)
+		if !ok || c.Steering == nil {
+			return Steering{}, false
 		}
-		return st, ok
+		return *c.Steering, true
 	}
 
 	t.Run("set replaces rather than accumulating", func(t *testing.T) {
@@ -56,9 +56,20 @@ func TestSteeringLifecycle(t *testing.T) {
 		if !ok || st.Message != "second" {
 			t.Fatalf("steering = %+v ok=%v, want the second message only", st, ok)
 		}
-		all, err := s.ListSteering(ctx)
-		if err != nil || len(all) != 1 {
-			t.Errorf("ListSteering = %d rows (err %v), want exactly 1", len(all), err)
+		if st.SetBy != "octocat" {
+			t.Errorf("attribution lost on replace: %+v", st)
+		}
+	})
+
+	t.Run("an empty message clears rather than storing empty", func(t *testing.T) {
+		s := newTestStore(t)
+		queued(t, s, "sha1")
+		steer(t, s, "x")
+		if err := s.SetSteering(ctx, "o/r", 1, Steering{SetBy: "octocat"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := has(t, s); ok {
+			t.Error("an empty message must clear, so callers have one operation not two")
 		}
 	})
 

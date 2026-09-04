@@ -4,7 +4,8 @@
   import PrIdentity from './PrIdentity.svelte';
   import { liveReviewLogRef, reviewLogPath } from './reviewlog';
   import StatusBadge from './StatusBadge.svelte';
-  import type { Candidate, Review } from './types';
+  import SteeringBox from './SteeringBox.svelte';
+  import type { Candidate, Review, Viewer } from './types';
 
   // One queue row's content: main line, status variant, actions, and the
   // expandable detail. The article shell (keyed flip animation, dragover
@@ -18,6 +19,8 @@
   export let onpromote: () => void;
   export let ondragstart: (e: DragEvent) => void;
   export let ondragend: () => void;
+  export let viewer: Viewer | null = null;
+  export let onsteer: (message: string) => Promise<void>;
 </script>
 
 <div
@@ -88,6 +91,7 @@
       {/if}
       <div><dt>Queue position</dt><dd>{c.queue_pos}</dd></div>
     </dl>
+    <SteeringBox steering={c.steering ?? null} {viewer} author={c.author} onsave={onsteer} />
     <div class="review-history">
       <h3>Reviews of this PR</h3>
       {#if history.length}

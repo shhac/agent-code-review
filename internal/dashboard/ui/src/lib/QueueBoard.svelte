@@ -1,10 +1,10 @@
 <script lang="ts">
   import { flip } from 'svelte/animate';
-  import { promoteQueuedPR, removeQueuedPR, reorderQueue } from './api';
+  import { promoteQueuedPR, removeQueuedPR, reorderQueue, setSteering } from './api';
   import { keyOf } from './format';
   import { moveByKey, reorderPayload } from './queueorder';
   import QueueTicket from './QueueTicket.svelte';
-  import type { Candidate, QueueCounts, Review } from './types';
+  import type { Candidate, QueueCounts, Review, Viewer } from './types';
 
   export let queue: Candidate[] = [];
   // Server-computed tallies (the same payload the Overview header reads):
@@ -18,6 +18,15 @@
   export let onchanged: () => Promise<void>;
   // Mutation errors surface in the parent's add form, the page's one error slot.
   export let onerror: (msg: string) => void;
+  // Who is looking, so each ticket knows whether to offer its steering box.
+  export let viewer: Viewer | null = null;
+
+  // Steering errors are shown INSIDE the box rather than the page slot: a 403
+  // is the answer to what that person just tried, and belongs next to it.
+  async function steer(c: Candidate, message: string) {
+    await setSteering(c.repo, c.number, message);
+    await onchanged();
+  }
 
   let queueShowAll = false;
   let expanded = new Set<string>();
@@ -132,6 +141,8 @@
             ontoggle={() => toggleCandidate(c)}
             onremove={() => removeCandidate(c)}
             onpromote={() => promoteCandidate(c)}
+            {viewer}
+            onsteer={(m) => steer(c, m)}
             ondragstart={(e) => dragStart(e, c)}
             ondragend={dragEnd}
           />

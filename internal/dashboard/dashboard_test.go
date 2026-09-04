@@ -64,7 +64,7 @@ func TestViewQueue(t *testing.T) {
 		{Number: 5, EligibleAt: &holdUntil}, // eligibility hold: visible but skipped
 		{Number: 6, EligibleAt: &holdOver},  // expired hold: plain queued again
 	}
-	got := viewQueue(in, now, staleAfter)
+	got := viewQueue(in, now, staleAfter, nil)
 	want := []string{"queued", "reviewing", "queued", "reviewing", "held", "queued"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d rows, want %d", len(got), len(want))
@@ -74,7 +74,7 @@ func TestViewQueue(t *testing.T) {
 			t.Errorf("row %d (#%d) status = %q, want %q", i, got[i].Number, got[i].Status, status)
 		}
 	}
-	if empty := viewQueue(nil, now, staleAfter); empty == nil || len(empty) != 0 {
+	if empty := viewQueue(nil, now, staleAfter, nil); empty == nil || len(empty) != 0 {
 		t.Errorf("nil input must return a non-nil empty slice, got %#v", empty)
 	}
 }
@@ -113,12 +113,33 @@ func TestCountQueue(t *testing.T) {
 		{Number: 2, ClaimedAt: &fresh},
 		{Number: 3, ClaimedAt: &stale},
 		{Number: 4, EligibleAt: &holdUntil},
-	}, now, lease)
+	}, now, lease, nil)
 	got := countQueue(views)
 	if got.Total != 4 || got.Queued != 2 || got.Reviewing != 1 || got.Held != 1 {
 		t.Errorf("counts = %+v, want total 4 / queued 2 / reviewing 1 / held 1", got)
 	}
 	if got.Queued+got.Reviewing+got.Held != got.Total {
 		t.Errorf("counts must sum to total, got %+v", got)
+	}
+}
+
+// TestViewQueueAttachesSteering: the queue is rendered in one request, so a
+// PR's steering has to arrive on its row. Matching folds repo casing, because
+// the two tables preserve whatever casing their writer used.
+func TestViewQueueAttachesSteering(t *testing.T) {
+	now := time.Now()
+	views := viewQueue(
+		[]store.Candidate{
+			{Repo: "o/r", Number: 1, HeadSHA: "s1"},
+			{Repo: "o/r", Number: 2, HeadSHA: "s2"},
+		},
+		now, 2*time.Hour,
+		[]store.Steering{{Repo: "O/R", Number: 2, Message: "focus on rollback", SetBy: "octocat"}},
+	)
+	if views[0].Steering != nil {
+		t.Errorf("PR 1 has no steering, got %+v", views[0].Steering)
+	}
+	if views[1].Steering == nil || views[1].Steering.SetBy != "octocat" {
+		t.Errorf("PR 2 must carry its steering despite the repo casing, got %+v", views[1].Steering)
 	}
 }

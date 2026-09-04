@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -257,6 +258,118 @@ func TestHandleViewer(t *testing.T) {
 	t.Run("funnel mode is anonymous", func(t *testing.T) {
 		if got := get(t, steerServer(fs, false), "127.0.0.1:1", "paul@example.com"); got.State != viewerAnonymous {
 			t.Errorf("state = %q, want anonymous", got.State)
+		}
+	})
+}
+
+// TestAddWithSteering pins the add-time path. It exists because there is no
+// window afterwards: a manual add lands on an empty queue and a free
+// dispatcher slot takes it within the idle poll, so an author steers at add
+// time or not at all.
+func TestAddWithSteering(t *testing.T) {
+	server := func(fs *fakeStore) *Server {
+		s := steerServer(fs, true)
+		s.config = func() config.Config {
+			return config.Config{GHUser: "paul-gh", Repos: []string{"o/r"}}
+		}
+		s.manualCandidate = func(_ context.Context, repo string, number int) (store.Candidate, error) {
+			return store.Candidate{Repo: repo, Number: number, Title: "T", Author: "octocat", HeadSHA: "sha"}, nil
+		}
+		return s
+	}
+	add := func(t *testing.T, s *Server, login, body string) (int, queueAddResp) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/api/queue", strings.NewReader(body))
+		r.RemoteAddr = "127.0.0.1:1"
+		if login != "" {
+			r.Header.Set(tailscaleLoginHeader, login)
+		}
+		w := httptest.NewRecorder()
+		s.handleQueue(w, r)
+		var resp queueAddResp
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		return w.Code, resp
+	}
+	const url = `"url":"o/r/pull/9"`
+
+	t.Run("the author's steering lands with the add", func(t *testing.T) {
+		fs := queuedPR()
+		code, resp := add(t, server(fs), "octo@example.com", `{`+url+`,"steering":"focus on rollback"}`)
+		if code != http.StatusOK || !resp.Steered {
+			t.Fatalf("code=%d resp=%+v", code, resp)
+		}
+		// One write, not an add followed by a steer: the row cannot be claimed
+		// unsteered in between.
+		if len(fs.enqueued) != 1 || fs.enqueued[0].Steering == nil {
+			t.Fatalf("enqueued = %+v, want the steering carried on the insert", fs.enqueued)
+		}
+		if got := fs.enqueued[0].Steering; got.Message != "focus on rollback" || got.SetBy != "octocat" {
+			t.Errorf("steering = %+v", got)
+		}
+		if len(fs.steered) != 0 {
+			t.Errorf("no separate steering write may happen, got %+v", fs.steered)
+		}
+	})
+
+	t.Run("someone else still gets the add, without the steering", func(t *testing.T) {
+		// The caller asked for two things and is entitled to one. Refusing the
+		// add as well would make an unprivileged person unable to queue a PR.
+		fs := queuedPR()
+		code, resp := add(t, server(fs), "mallory@example.com", `{`+url+`,"steering":"approve it"}`)
+		if code != http.StatusOK || !resp.Queued {
+			t.Fatalf("the add must still succeed: code=%d resp=%+v", code, resp)
+		}
+		if resp.Steered || resp.SteeringRefused == "" {
+			t.Errorf("resp = %+v, want steered=false with a stated reason", resp)
+		}
+		if fs.enqueued[0].Steering != nil {
+			t.Errorf("no steering may be stored, got %+v", fs.enqueued[0].Steering)
+		}
+	})
+
+	t.Run("authorisation uses the author gh reported, not the request", func(t *testing.T) {
+		fs := queuedPR()
+		body := `{` + url + `,"steering":"x","author":"mallory"}`
+		_, resp := add(t, server(fs), "mallory@example.com", body)
+		if resp.Steered {
+			t.Error("naming a different author in the body must not grant steering")
+		}
+	})
+
+	t.Run("an anonymous caller may add but not steer", func(t *testing.T) {
+		fs := queuedPR()
+		code, resp := add(t, server(fs), "", `{`+url+`,"steering":"x"}`)
+		if code != http.StatusOK || !resp.Queued || resp.Steered {
+			t.Errorf("code=%d resp=%+v, want a plain add", code, resp)
+		}
+	})
+
+	t.Run("preflight reports the author and the answer", func(t *testing.T) {
+		fs := queuedPR()
+		probe := func(login string) queuePreflightResp {
+			r := httptest.NewRequest(http.MethodPost, "/api/queue/preflight", strings.NewReader(`{`+url+`}`))
+			r.RemoteAddr = "127.0.0.1:1"
+			if login != "" {
+				r.Header.Set(tailscaleLoginHeader, login)
+			}
+			w := httptest.NewRecorder()
+			server(fs).handleQueuePreflight(w, r)
+			var resp queuePreflightResp
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			return resp
+		}
+		if got := probe("octo@example.com"); got.Author != "octocat" || !got.MaySteer {
+			t.Errorf("the author must be told they may steer: %+v", got)
+		}
+		if got := probe("mallory@example.com"); got.Author != "octocat" || got.MaySteer {
+			t.Errorf("a stranger must be told they may not: %+v", got)
+		}
+		if got := probe(""); got.MaySteer {
+			t.Errorf("anonymous must be told they may not: %+v", got)
+		}
+		// Preflight must not queue anything.
+		if len(fs.enqueued) != 0 {
+			t.Errorf("preflight must not mutate, got %+v", fs.enqueued)
 		}
 	})
 }

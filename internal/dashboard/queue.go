@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/prref"
@@ -53,9 +54,71 @@ func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
 // input; the repo must be one of the configured watched repos, because the
 // dashboard is the surface other people use, so it only takes PRs this tool
 // is actually set up to review.
-func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
+// handleQueuePreflight resolves a PR reference WITHOUT queueing it, so the UI
+// can ask "who wrote this, and may I steer it" before committing to an add.
+//
+// It exists because there is no window afterwards. A manual add lands on an
+// empty queue and a free dispatcher slot takes it within the idle poll, so an
+// author who wants to steer their own PR has to say so at add time or not at
+// all.
+//
+// Advisory only: the add re-resolves and re-checks. A caller cannot gain
+// anything by lying to this endpoint, because nothing here is remembered.
+func (s *Server) handleQueuePreflight(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	ref, ok := s.decodeWatchedPR(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := reqCtx(r, 30*time.Second)
+	defer cancel()
+
+	c, err := s.manualCandidate(ctx, ref.Repo, ref.Number)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	v, err := s.identify(ctx, r)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, queuePreflightResp{
+		Repo: c.Repo, Number: c.Number, Title: c.Title, Author: c.Author,
+		MaySteer: v.maySteer(c.Author),
+	})
+}
+
+// decodeWatchedPR is the shared front half of add and preflight: parse the
+// reference and refuse a repo this tool is not set up to review. The dashboard
+// is the surface other people use, so the watched-repo check is not optional.
+func (s *Server) decodeWatchedPR(w http.ResponseWriter, r *http.Request) (prref.Ref, bool) {
 	var req struct {
 		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		httpError(w, http.StatusBadRequest, `need {"url": "https://github.com/owner/repo/pull/N" or "owner/repo/pull/N"}`)
+		return prref.Ref{}, false
+	}
+	ref, ok := prref.ParseGitHubPull(req.URL)
+	if !ok {
+		httpError(w, http.StatusBadRequest, "not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
+		return prref.Ref{}, false
+	}
+	if !s.config().WatchesRepo(ref.Repo) {
+		httpError(w, http.StatusForbidden, ref.Repo+" is not a watched repo; see the Config page for the allowed list")
+		return prref.Ref{}, false
+	}
+	return ref, true
+}
+
+func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL      string `json:"url"`
+		Steering string `json:"steering"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
 		httpError(w, http.StatusBadRequest, `need {"url": "https://github.com/owner/repo/pull/N" or "owner/repo/pull/N"}`)
@@ -82,13 +145,41 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	// Steering rides in on the same write. Two writes would leave a window
+	// where a free dispatcher slot claims the row before the instruction
+	// lands, which on an empty queue is the normal case.
+	//
+	// Authorisation is decided HERE, against the author gh just reported, not
+	// against anything the request claimed and not on the strength of the
+	// preflight. An unauthorised steering message is dropped and the add still
+	// happens: the caller asked for two things and is entitled to one.
+	var steeringRefused string
+	if msg := strings.TrimSpace(req.Steering); msg != "" {
+		v, idErr := s.identify(ctx, r)
+		if idErr != nil {
+			s.fail(w, idErr)
+			return
+		}
+		switch {
+		case len(msg) > store.SteeringMaxLen:
+			steeringRefused = "message is longer than the steering limit"
+		case !v.maySteer(c.Author):
+			steeringRefused = "only @" + c.Author + " (or the account reviews are posted as) can steer that PR"
+		default:
+			c.Steering = &store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}
+		}
+	}
+
 	// Completed/skipped PRs are absent from the queue, so a manual re-add is
 	// a plain enqueue; if it's already queued this just refreshes metadata.
 	if err := s.store.Enqueue(ctx, c); err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, queueAddResp{Queued: true, Title: c.Title, Author: c.Author})
+	writeJSON(w, http.StatusOK, queueAddResp{
+		Queued: true, Title: c.Title, Author: c.Author,
+		Steered: c.Steering != nil, SteeringRefused: steeringRefused,
+	})
 }
 
 // decodePRRef decodes the queue-row wire shape shared by the remove and

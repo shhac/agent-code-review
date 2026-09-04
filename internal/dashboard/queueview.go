@@ -75,8 +75,23 @@ type queueResp struct {
 
 type queueAddResp struct {
 	Queued bool   `json:"queued"`
-	Title  string `json:"title"`
-	Author string `json:"author"`
+	Title  string `json:"title,omitempty"`
+	Author string `json:"author,omitempty"`
+	// Steered says whether an accompanying steering message was applied.
+	// SteeringRefused says why not, when one was sent and rejected: the add
+	// still happened, so the caller has to be told which half it got.
+	Steered         bool   `json:"steered,omitempty"`
+	SteeringRefused string `json:"steering_refused,omitempty"`
+}
+
+// queuePreflightResp answers "what is this PR, and may I steer it" before the
+// add. Advisory: the add re-resolves and re-checks.
+type queuePreflightResp struct {
+	Repo     string `json:"repo"`
+	Number   int    `json:"number"`
+	Title    string `json:"title"`
+	Author   string `json:"author"`
+	MaySteer bool   `json:"may_steer"`
 }
 
 type queueRemoveResp struct {

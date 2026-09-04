@@ -159,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/queue", s.handleQueue)
 	mux.HandleFunc("/api/queue/reorder", s.handleQueueReorder)
 	mux.HandleFunc("/api/queue/promote", s.handleQueuePromote)
+	mux.HandleFunc("/api/queue/preflight", s.handleQueuePreflight)
 	mux.HandleFunc("/api/steering", s.handleSteering)
 	mux.HandleFunc("/api/viewer", s.handleViewer)
 	mux.HandleFunc("/api/reviews", s.handleReviews)

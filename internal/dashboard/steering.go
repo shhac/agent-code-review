@@ -90,6 +90,12 @@ type apiErr struct {
 	msg  string
 }
 
+// Error makes a refusal usable as a plain error, which is what lets a handler
+// inside the serveGet frame return one. Without it the frame's only vocabulary
+// was 500, so a caller's own mistake (an unparseable cursor) was reported as
+// the server having broken.
+func (e *apiErr) Error() string { return e.msg }
+
 // steeringActor answers "may this request steer that PR", in the order the
 // answers must be given.
 //

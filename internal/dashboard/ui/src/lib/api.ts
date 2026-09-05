@@ -65,7 +65,12 @@ export const del = (path: string, body: unknown) => send('DELETE', path, body);
 type PRRef = { repo: string; number: number };
 
 export const getQueue = () => fetchJSON<QueueResponse>('/api/queue');
-export const getReviews = (limit = 100) => fetchJSON<ReviewsResponse>(`/api/reviews?limit=${limit}`);
+export const getReviews = (opts: { q?: string; limit?: number; cursor?: string } = {}) => {
+  const params = new URLSearchParams({ limit: String(opts.limit ?? 50) });
+  if (opts.q) params.set('q', opts.q);
+  if (opts.cursor) params.set('cursor', opts.cursor);
+  return fetchJSON<ReviewsResponse>(`/api/reviews?${params}`);
+};
 export const getUsage = () => fetchJSON<UsageResponse>('/api/usage');
 export const getStats = () => fetchJSON<StatsResponse>('/api/stats');
 export const getMetrics = (range: string, model: string, effort: string) => {

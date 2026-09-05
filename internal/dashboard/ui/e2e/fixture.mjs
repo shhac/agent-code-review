@@ -31,6 +31,28 @@ VALUES
  ('acme/widgets',22775,'fix(cx-widget): treat a default event as the subject','someone-else',
   'aeed56b594c59c73bb1a196e0026903d5e7a1d57','COMMENTED','codex','gpt-5.6-terra','medium',now(),240,1100000,0.4481,0);
 
+-- 600 rows, deliberately more than the 500 the page used to fetch. The search
+-- ran in the browser over that window, so a handle whose reviews had scrolled
+-- out of it returned nothing while looking like it had searched everywhere.
+-- The count is the assertion: a seed under 500 would pass on the broken build
+-- and prove nothing, which is the trap this comment exists to keep set.
+INSERT INTO history
+ (repo,number,title,author,head_sha,verdict,engine,model,effort,reviewed_at,duration_secs,tokens_used,cost_usd,est_cost_usd)
+SELECT 'acme/widgets', 30000 + i, 'chore: routine change ' || i, 'busy-bot',
+ repeat('b', 40), 'COMMENTED', 'codex', 'gpt-5.6-terra', 'medium',
+ now() - INTERVAL (i) MINUTE, 60, 1000, 0.01, 0
+FROM generate_series(1, 600) AS t(i);
+
+-- Older than every busy-bot row, so these three fall outside any window of
+-- recent history. All three also share one reviewed_at: a cursor carrying only
+-- the timestamp would skip the rest of the group or repeat it at a boundary.
+INSERT INTO history
+ (repo,number,title,author,head_sha,verdict,engine,model,effort,reviewed_at,duration_secs,tokens_used,cost_usd,est_cost_usd)
+SELECT 'acme/widgets', 40000 + i, 'feat: buried work ' || i, 'deepsearch-hank',
+ repeat('d', 40), 'APPROVED', 'codex', 'gpt-5.6-terra', 'medium',
+ now() - INTERVAL 2000 MINUTE, 90, 2000, 0.02, 0
+FROM generate_series(1, 3) AS t(i);
+
 INSERT INTO queue
  (repo,number,type,title,author,url,head_sha,created_at,updated_at,discovered_at,source,steering_message,steering_by,steering_at)
 VALUES

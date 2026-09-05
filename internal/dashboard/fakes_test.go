@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,8 +46,12 @@ type fakeStore struct {
 	// Injected failures.
 	reorderErr error
 	sinceErr   error
+	searchErr  error
 
 	since time.Time
+	// lastQuery is what the handler asked for, so a test can assert the
+	// endpoint forwarded q, sort and the cursor rather than dropping them.
+	lastQuery store.ReviewQuery
 }
 
 // steerCall records one SetSteering with the PR it named. The stored value
@@ -99,8 +105,47 @@ func (f *fakeStore) LastOutcome(context.Context, string, int) (store.Review, boo
 	return store.Review{}, false, nil
 }
 
-func (f *fakeStore) ListReviews(context.Context, int) ([]store.Review, error) {
-	return f.reviews, nil
+// SearchReviews mirrors the real store closely enough for the handler tests to
+// be about the handler: it filters, orders, pages by cursor, and reports the
+// total. A fake that ignored q and returned everything would have passed the
+// endpoint's own bug.
+func (f *fakeStore) SearchReviews(_ context.Context, q store.ReviewQuery) (store.ReviewPage, error) {
+	if f.searchErr != nil {
+		return store.ReviewPage{}, f.searchErr
+	}
+	f.lastQuery = q
+	needle := strings.ToLower(strings.TrimSpace(q.Text))
+	matched := make([]store.Review, 0, len(f.reviews))
+	for _, r := range f.reviews {
+		hay := strings.ToLower(fmt.Sprintf("%s#%d %s %s %s", r.Repo, r.Number, r.Title, r.Author, r.Verdict))
+		if needle == "" || strings.Contains(hay, needle) {
+			matched = append(matched, r)
+		}
+	}
+	sort.SliceStable(matched, func(i, j int) bool { return matched[i].ReviewedAt.After(matched[j].ReviewedAt) })
+	total := len(matched)
+	if !q.After.IsZero() {
+		for i, r := range matched {
+			if !r.ReviewedAt.After(q.After.ReviewedAt) {
+				matched = matched[i:]
+				break
+			}
+		}
+	}
+	limit := 50
+	if q.Limit > 0 {
+		limit = q.Limit
+	}
+	next := ""
+	if len(matched) > limit {
+		matched = matched[:limit]
+		last := matched[len(matched)-1]
+		next = store.ReviewCursor{
+			Sort: store.SortNewest, Text: q.Text,
+			ReviewedAt: last.ReviewedAt, Repo: last.Repo, Number: last.Number,
+		}.String()
+	}
+	return store.ReviewPage{Reviews: matched, Total: total, NextCursor: next}, nil
 }
 
 func (f *fakeStore) ListReviewsSince(_ context.Context, since time.Time) ([]store.Review, error) {

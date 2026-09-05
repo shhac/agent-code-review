@@ -66,11 +66,49 @@ func historyReviewsOf(reviews []store.Review) []historyReview {
 
 type reviewsResp struct {
 	Reviews []historyReview `json:"reviews"`
+	// Total is how many history rows match q, across the whole table rather
+	// than this page. Without it the page cannot tell "50 results" from "the
+	// first 50 of 900", which is the bug this endpoint used to have in its
+	// worst form: the browser filtered a fixed 500-row window and presented
+	// the survivors as the complete answer.
+	Total int `json:"total"`
+	// NextCursor is what the page sends back as ?cursor= to advance. Opaque
+	// to the browser: it names a row, so the page never has to compute an
+	// offset that a review completing mid-read would invalidate.
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
+// handleReviews serves one page of history, filtered and paged server-side.
+//
+// q is matched in SQL against every row, not against the page: searching is
+// the whole reason the endpoint pages at all, so a filter that only saw the
+// current page would be the browser-side bug moved one layer down.
+//
+// A bad cursor is a 400 rather than a silent first page. The browser only ever
+// sends back a cursor this endpoint gave it, so a malformed one means the page
+// and the server disagree about where the reader is, and showing page 1 while
+// the pager reads "3/18" hides that.
 func (s *Server) handleReviews(w http.ResponseWriter, r *http.Request) {
 	serveGet(s, w, r, func(ctx context.Context) (reviewsResp, error) {
-		reviews, err := s.store.ListReviews(ctx, queryInt(r, "limit", 50, 500))
-		return reviewsResp{Reviews: historyReviewsOf(reviews)}, err
+		text := r.URL.Query().Get("q")
+		sort, err := store.ReviewSort(r.URL.Query().Get("sort")).Normalise()
+		if err != nil {
+			return reviewsResp{}, &apiErr{http.StatusBadRequest, err.Error()}
+		}
+		after, err := store.ParseReviewCursor(r.URL.Query().Get("cursor"), text, sort)
+		if err != nil {
+			return reviewsResp{}, &apiErr{http.StatusBadRequest, err.Error()}
+		}
+		page, err := s.store.SearchReviews(ctx, store.ReviewQuery{
+			Text:  text,
+			Sort:  sort,
+			Limit: queryInt(r, "limit", 50, 500),
+			After: after,
+		})
+		return reviewsResp{
+			Reviews:    historyReviewsOf(page.Reviews),
+			Total:      page.Total,
+			NextCursor: page.NextCursor,
+		}, err
 	})
 }

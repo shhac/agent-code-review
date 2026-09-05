@@ -67,8 +67,11 @@ type Store interface {
 	// LastOutcome returns the most recent history row of ANY verdict for a
 	// PR, if any: the input to same-SHA re-enqueue suppression.
 	LastOutcome(ctx context.Context, repo string, number int) (Review, bool, error)
-	// ListReviews returns outcome history, most recent first, capped at limit.
-	ListReviews(ctx context.Context, limit int) ([]Review, error)
+	// SearchReviews returns one page of outcome history, most recent first,
+	// alongside the total number of rows the query matches. The total is
+	// separate from the page because a caller paging through results has to
+	// know how many there are without fetching them all.
+	SearchReviews(ctx context.Context, q ReviewQuery) (ReviewPage, error)
 	// ReviewByLogKey returns one exact history row by its ReviewLogKey.
 	ReviewByLogKey(ctx context.Context, repo string, number int, logKey string) (Review, bool, error)
 	// ListReviewsSince returns all outcomes at or after since, oldest first.

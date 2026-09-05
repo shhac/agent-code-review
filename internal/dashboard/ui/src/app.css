@@ -413,6 +413,15 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 .head-tools input.filter::placeholder { color: var(--faint); }
 .head-tools input.filter:focus { outline: none; border-color: var(--accent); }
 
+/* The match count is the honest half of the search: it counts the whole
+   history, not the rows on screen. .pending dims it while the answer is still
+   provisional, so an optimistic page never reads as a settled one. */
+.head-tools .matches {
+  color: var(--faint); font-size: 11px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
+}
+.head-tools .matches.pending { opacity: .55; font-style: italic; }
+
 .tokens-line {
   display: flex; justify-content: space-between; gap: 12px; margin-top: 12px;
   padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px;

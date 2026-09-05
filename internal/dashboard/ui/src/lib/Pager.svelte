@@ -3,12 +3,16 @@
   // the control hides itself when there's only one page.
   export let page = 0;
   export let pageCount: number;
+  // busy blocks forward paging while the current page is still loading. A
+  // cursor pager can only address the page after one it has already received,
+  // so a second click landing before the first response has nowhere to go.
+  export let busy = false;
 </script>
 
 {#if pageCount > 1}
   <span class="pager">
     <button type="button" disabled={page === 0} on:click={() => (page -= 1)}>‹</button>
     {page + 1}/{pageCount}
-    <button type="button" disabled={page >= pageCount - 1} on:click={() => (page += 1)}>›</button>
+    <button type="button" disabled={busy || page >= pageCount - 1} on:click={() => (page += 1)}>›</button>
   </span>
 {/if}

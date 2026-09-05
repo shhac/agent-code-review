@@ -267,3 +267,9 @@ func getInt(r map[string]any, key string) int {
 func num(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
+
+// scanCount reads a single-column count(*) result.
+func scanCount(m map[string]any) (int, error) {
+	r := &row{values: m}
+	return r.int("n"), r.err
+}

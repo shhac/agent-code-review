@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -359,5 +360,78 @@ func TestSPACaching(t *testing.T) {
 		if got := cacheOf(p); got != "public, max-age=31536000, immutable" {
 			t.Errorf("%s Cache-Control = %q, want immutable", p, got)
 		}
+	}
+}
+
+// TestReviewsEndpointSearchesServerSide covers what the endpoint has to do
+// that the browser cannot: match every row rather than the page it returns,
+// and say how many matched. The page used to filter a fixed window locally,
+// which reported a subset as the whole answer.
+func TestReviewsEndpointSearchesServerSide(t *testing.T) {
+	at := time.Now().UTC().Truncate(time.Second)
+	var rows []store.Review
+	for i := range 21 {
+		rows = append(rows, store.Review{
+			Repo: "o/r", Number: 100 + i, Author: "nicole", Title: "change",
+			Verdict: store.VerdictCommented, ReviewedAt: at.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	for i := range 40 {
+		rows = append(rows, store.Review{
+			Repo: "o/r", Number: 500 + i, Author: "someone-else", Title: "other",
+			Verdict: store.VerdictCommented, ReviewedAt: at.Add(time.Duration(i+1) * time.Minute),
+		})
+	}
+	fs := &fakeStore{reviews: rows}
+	h := newTestServer(fs, config.Config{Repos: []string{"o/r"}}).Handler()
+
+	code, page := serveHandlerJSON[reviewsResp](t, h, http.MethodGet, "/api/reviews?q=nicole&limit=5", "")
+	if code != http.StatusOK {
+		t.Fatalf("search = %d", code)
+	}
+	if page.Total != 21 {
+		t.Errorf("total must count every match, not the page: got %d want 21", page.Total)
+	}
+	if len(page.Reviews) != 5 {
+		t.Errorf("page must hold limit rows: got %d", len(page.Reviews))
+	}
+	if page.NextCursor == "" {
+		t.Fatal("a full page must carry a cursor for the next one")
+	}
+	if fs.lastQuery.Text != "nicole" {
+		t.Errorf("the handler must forward q to the store, got %q", fs.lastQuery.Text)
+	}
+
+	// The cursor round-trips through the URL and lands on the same search.
+	code, next := serveHandlerJSON[reviewsResp](t, h, http.MethodGet,
+		"/api/reviews?q=nicole&limit=5&cursor="+url.QueryEscape(page.NextCursor), "")
+	if code != http.StatusOK || next.Total != 21 || len(next.Reviews) == 0 {
+		t.Fatalf("second page = %d %+v", code, next)
+	}
+	if next.Reviews[0].Number == page.Reviews[0].Number {
+		t.Error("the second page must start after the first, not repeat it")
+	}
+}
+
+// TestReviewsEndpointRefusesABadCursor pins the choice not to fall back to the
+// first page. A cursor the server did not mint, or one from another search,
+// means the page and the server disagree about where the reader is; showing
+// page 1 under a pager that reads "3/18" hides that.
+func TestReviewsEndpointRefusesABadCursor(t *testing.T) {
+	h := newTestServer(&fakeStore{}, config.Config{Repos: []string{"o/r"}}).Handler()
+
+	for _, tc := range []struct{ name, path string }{
+		{"malformed", "/api/reviews?cursor=not-base64!!"},
+		{"unknown sort", "/api/reviews?sort=cheapest"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, resp := serveHandlerJSON[map[string]string](t, h, http.MethodGet, tc.path, "")
+			if code != http.StatusBadRequest {
+				t.Errorf("want 400, got %d (%v)", code, resp)
+			}
+			if resp["error"] == "" {
+				t.Error("a refusal must say why")
+			}
+		})
 	}
 }

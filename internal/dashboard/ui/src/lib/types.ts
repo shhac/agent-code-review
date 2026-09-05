@@ -61,6 +61,10 @@ export type Review = {
 
 export type ReviewsResponse = {
   reviews: Review[];
+  // Rows matching the query across the whole table, not just this page.
+  total: number;
+  // Opaque cursor for the next page, absent on the last one.
+  next_cursor?: string;
 };
 
 export type Bucket = {

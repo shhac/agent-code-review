@@ -8,6 +8,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/http"
 	"path"
@@ -59,7 +60,7 @@ type queueStore interface {
 
 type historyStore interface {
 	ReviewByLogKey(context.Context, string, int, string) (store.Review, bool, error)
-	ListReviews(context.Context, int) ([]store.Review, error)
+	SearchReviews(context.Context, store.ReviewQuery) (store.ReviewPage, error)
 	ListReviewsSince(context.Context, time.Time) ([]store.Review, error)
 	FreshTokens(context.Context, time.Time) (int64, error)
 }
@@ -303,8 +304,15 @@ func serveGet[T any](s *Server, w http.ResponseWriter, r *http.Request, fetch fu
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// fail writes the standard 500 error envelope.
+// fail writes the error envelope: an apiErr carries its own status, anything
+// else is a 500. The default stays 500 deliberately, so an error nobody has
+// classified is reported as ours rather than blamed on the caller.
 func (s *Server) fail(w http.ResponseWriter, err error) {
+	var api *apiErr
+	if errors.As(err, &api) {
+		httpError(w, api.code, api.msg)
+		return
+	}
 	httpError(w, http.StatusInternalServerError, err.Error())
 }
 

@@ -410,7 +410,8 @@ func TestLastReviewVsLastOutcome(t *testing.T) {
 		t.Errorf("LastOutcome must see every verdict, got %+v", outcome)
 	}
 	// Duplicates per PR are the point of history: all three rows exist.
-	all, err := s.ListReviews(ctx, 10)
+	page, err := s.SearchReviews(ctx, ReviewQuery{Limit: 10})
+	all := page.Reviews
 	if err != nil || len(all) != 3 {
 		t.Errorf("history must keep duplicates: %d rows err=%v", len(all), err)
 	}
@@ -600,9 +601,10 @@ func TestCompleteSnapshotRoundTrip(t *testing.T) {
 		t.Errorf("effective cost = %v estimated=%v, want the reported 0.6231",
 			last.EffectiveCostUSD(), last.CostEstimated())
 	}
-	all, err := s.ListReviews(ctx, 5)
+	page, err := s.SearchReviews(ctx, ReviewQuery{Limit: 5})
+	all := page.Reviews
 	if err != nil || len(all) != 1 || all[0].Title != title {
-		t.Errorf("ListReviews must carry the snapshot too: %+v err=%v", all, err)
+		t.Errorf("SearchReviews must carry the snapshot too: %+v err=%v", all, err)
 	}
 	// The SQL aggregate must sum the comparable figure, not the cache-inflated
 	// total: Overview and the Metrics page read the same history and used to
@@ -904,10 +906,11 @@ func TestInitMigratesPreExistingHistory(t *testing.T) {
 		}
 	}
 
-	reviews, err := s.ListReviews(ctx, 10)
+	found, err := s.SearchReviews(ctx, ReviewQuery{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
+	reviews := found.Reviews
 	if len(reviews) != 2 {
 		t.Fatalf("history rows = %d, want the seeded rows to survive", len(reviews))
 	}
@@ -1029,10 +1032,11 @@ func TestEstimateCostsFillsOnlyTheGaps(t *testing.T) {
 	}
 
 	byNumber := map[int]Review{}
-	all, err := s.ListReviews(ctx, 10)
+	page, err := s.SearchReviews(ctx, ReviewQuery{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
+	all := page.Reviews
 	for _, r := range all {
 		byNumber[r.Number] = r
 	}
@@ -1296,4 +1300,148 @@ func TestTailscaleLoginIdentity(t *testing.T) {
 			t.Fatalf("re-setting the same person must work, got %+v ok=%v err=%v", got, ok, err)
 		}
 	})
+}
+
+// seedHistory writes n rows for one author, all at the same instant. The tie
+// is the point: this history has 676 groups of rows sharing a timestamp, so a
+// cursor that carried only reviewed_at would skip or repeat inside a group.
+func seedHistory(t *testing.T, s Store, author string, n int, at time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	for i := range n {
+		c := Candidate{Repo: "o/r", Number: 1000 + i, Type: TypeNew, HeadSHA: fmt.Sprintf("sha%d", i)}
+		rec := ReviewFrom(c, VerdictCommented, "codex", at)
+		rec.Author = author
+		rec.Title = fmt.Sprintf("change %d", i)
+		if err := s.AppendHistory(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestSearchReviewsFindsMatchesPastTheFirstPage is the regression for the bug
+// this replaced: the dashboard fetched a fixed window of recent rows and
+// filtered it in the browser, so a search for an author with 21 reviews
+// returned only the 3 that happened to be inside the window, and said nothing
+// about the other 18.
+//
+// The assertion is on Total, not on the page. A search that returns a page and
+// no count is exactly the shape that made the old bug invisible.
+func TestSearchReviewsFindsMatchesPastTheFirstPage(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	at := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+
+	seedHistory(t, s, "nicole", 21, at)
+	seedHistory(t, s, "someone-else", 40, at.Add(time.Minute))
+
+	page, err := s.SearchReviews(ctx, ReviewQuery{Text: "nicole", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 21 {
+		t.Errorf("Total must count every match in the table, not the page: got %d want 21", page.Total)
+	}
+	if len(page.Reviews) != 5 {
+		t.Fatalf("page must hold Limit rows: got %d", len(page.Reviews))
+	}
+	for _, r := range page.Reviews {
+		if r.Author != "nicole" {
+			t.Errorf("search returned a non-matching row: %+v", r)
+		}
+	}
+
+	// The 40 newer rows by another author would fill any window of recent
+	// history, which is what hid nicole's older reviews before.
+	if page.NextCursor == "" {
+		t.Fatal("a full page must offer a cursor for the next one")
+	}
+}
+
+// TestSearchReviewsPagesWithoutSkippingOrRepeating walks every page of a
+// search whose rows all share one timestamp, and checks the walk visits each
+// row exactly once. Ties are where an under-specified cursor fails: with only
+// reviewed_at to compare, "strictly after" either excludes the whole group or
+// none of it.
+func TestSearchReviewsPagesWithoutSkippingOrRepeating(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	at := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	seedHistory(t, s, "nicole", 21, at)
+
+	seen := map[string]int{}
+	q := ReviewQuery{Text: "nicole", Limit: 5}
+	for pages := 0; ; pages++ {
+		if pages > 10 {
+			t.Fatal("paging did not terminate")
+		}
+		page, err := s.SearchReviews(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range page.Reviews {
+			seen[fmt.Sprintf("%s#%d@%s", r.Repo, r.Number, r.ReviewedAt)]++
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor, err := ParseReviewCursor(page.NextCursor, q.Text, SortNewest)
+		if err != nil {
+			t.Fatalf("the store's own cursor must parse back: %v", err)
+		}
+		q.After = cursor
+	}
+	if len(seen) != 21 {
+		t.Errorf("paging must visit every match: saw %d distinct rows, want 21", len(seen))
+	}
+	for key, n := range seen {
+		if n != 1 {
+			t.Errorf("row %s returned %d times; pages must not overlap", key, n)
+		}
+	}
+}
+
+// TestSearchReviewsTreatsWildcardsAsLiterals pins the LIKE escaping. Without
+// it a search for "%" matches every row, which is a search box that reports a
+// number it did not find.
+func TestSearchReviewsTreatsWildcardsAsLiterals(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	at := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	seedHistory(t, s, "nicole", 3, at)
+
+	for _, needle := range []string{"%", "_", "100%", `\`, "'"} {
+		page, err := s.SearchReviews(ctx, ReviewQuery{Text: needle, Limit: 50})
+		if err != nil {
+			t.Fatalf("search for %q must not error: %v", needle, err)
+		}
+		if page.Total != 0 {
+			t.Errorf("search for literal %q matched %d rows; wildcards and quotes must not be special", needle, page.Total)
+		}
+	}
+}
+
+// TestReviewCursorRejectsAForeignCursor covers the guard the cursor's payload
+// buys: it carries the search and the ordering it belongs to, so one held
+// across a change of either is refused rather than silently paging through the
+// rows of the old result set.
+func TestReviewCursorRejectsAForeignCursor(t *testing.T) {
+	minted := ReviewCursor{
+		Sort: SortNewest, Text: "nicole",
+		ReviewedAt: time.Now().UTC().Truncate(time.Second), Repo: "o/r", Number: 7,
+	}.String()
+
+	if _, err := ParseReviewCursor(minted, "nicole", SortNewest); err != nil {
+		t.Errorf("a cursor must parse under the search that minted it: %v", err)
+	}
+	if _, err := ParseReviewCursor(minted, "someone-else", SortNewest); err == nil {
+		t.Error("a cursor from a different search must be refused, not silently reused")
+	}
+	if _, err := ParseReviewCursor("not-base64!!", "nicole", SortNewest); err == nil {
+		t.Error("a malformed cursor must be an error, not a silent first page")
+	}
+	// The empty cursor is the first page, and stays valid under any search.
+	if c, err := ParseReviewCursor("", "anything", SortNewest); err != nil || !c.IsZero() {
+		t.Errorf("the empty cursor is the first page: %+v err=%v", c, err)
+	}
 }

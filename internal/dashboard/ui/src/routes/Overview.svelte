@@ -47,7 +47,7 @@
     if (dragging) return; // never yank the list out from under a drag
     const [q, rv, us, st] = await Promise.all([
       getQueue(),
-      getReviews(100),
+      getReviews({ limit: 100 }),
       getUsage(),
       getStats(),
     ]);

@@ -131,8 +131,15 @@ describe('costTitle', () => {
 });
 
 describe('estimatedShare', () => {
+  const base = {
+    reviews: 10, outcomes: 12, fresh_tokens: 0, cache_read_tokens: 0,
+    median_duration_secs: 0, cost_usd: 0, median_cost_usd: 0, max_cost_usd: 0,
+    priced_reviews: 0, estimated_reviews: 0,
+    check_reported_usd: 0, check_estimated_usd: 0, check_reviews: 0,
+  };
+
   it('is empty when there is nothing inferred to disclose', () => {
     expect(estimatedShare(undefined)).toBe('');
-    expect(estimatedShare({ ...({} as never), priced_reviews: 5, estimated_reviews: 0 } as never)).toBe('');
+    expect(estimatedShare({ ...base, priced_reviews: 5, estimated_reviews: 0 })).toBe('');
   });
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsGroups } from '../lib/configview';
   import { toggleIn } from '../lib/expandable';
   import { onMount } from 'svelte';
   import { getAuthors, getConfig } from '../lib/api';
@@ -6,14 +7,7 @@
   import PromptBox from '../lib/PromptBox.svelte';
   import type { AllowedAuthor, ConfigResponse } from '../lib/types';
 
-  type SettingsGroup = [string, [string, string][]];
 
-  // One wording for the per-daemon loop state cells (review + discovery).
-  function loopState(running: boolean, enabled: boolean): string {
-    if (running) return 'running';
-    if (enabled) return 'off (config enabled, boot flag disabled)';
-    return 'off';
-  }
 
   // What a roster row actually grants, in one cell: the review level, plus
   // any engine dials the group or an override pinned. A row whose group config
@@ -65,33 +59,7 @@
     ['Model', a.policy?.model || 'inherits the engine default'],
     ['Effort', a.policy?.effort || 'inherits the engine default'],
   ];
-  $: settingsGroups = configData ? ([
-    ['Daemon', [
-      ['Version', configData.version || 'dev'],
-      ['Reviewing as', configData.reviewing_as ? `@${configData.reviewing_as}` : 'unknown (gh not authenticated?)'],
-    ]],
-    ['Review loop', [
-      ['State (this daemon)', loopState(configData.review_running, configData.schedule.enabled)],
-      ['Default engine', configData.engine],
-      [`${configData.engine} model`, configData.engine_config.model || 'engine default'],
-      [`${configData.engine} effort`, configData.engine_config.effort || 'model default'],
-      ['Interval', configData.schedule.interval],
-      ['Max parallel', String(configData.schedule.max_parallel)],
-      ['Usage floor (5h)', configData.schedule.usage_floor_5h_percent ? `hold below ${configData.schedule.usage_floor_5h_percent}% remaining, per engine` : 'disabled'],
-      ['Usage floor (weekly)', configData.schedule.usage_floor_weekly_percent ? `hold below ${configData.schedule.usage_floor_weekly_percent}% remaining, per engine` : 'disabled'],
-    ]],
-    ['Discovery', [
-      ['State (this daemon)', loopState(configData.discovery_running, configData.discovery.enabled)],
-      ['Interval', configData.discovery.interval],
-    ]],
-    ['Candidate eligibility', [
-      ['New PR window', `${configData.candidates.new_max_age_days} days`],
-      ['Refreshed window', `${configData.candidates.refreshed_max_age_days} days`],
-      ['Discussion window', `${configData.candidates.discussion_max_age_days} days`],
-      ['Re-review cooldown', configData.candidates.rereview_cooldown === '0s' ? 'disabled' : `hold ${configData.candidates.rereview_cooldown} after our review`],
-      ['Quiet period', configData.candidates.quiet_period === '0s' ? 'disabled' : `hold until untouched for ${configData.candidates.quiet_period}`],
-    ]],
-  ] satisfies SettingsGroup[]) : [];
+  $: groups = settingsGroups(configData);
 
   async function load() {
     const [cfg, au] = await Promise.all([getConfig(), getAuthors()]);
@@ -132,7 +100,7 @@
     <section class="surface">
       <div class="section-head"><h2>Settings</h2></div>
       <div class="settings">
-        {#each settingsGroups as group}
+        {#each groups as group}
           <div class="cluster">
             <h3>{group[0]}</h3>
             {#each group[1] as row}

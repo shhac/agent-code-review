@@ -192,7 +192,7 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	// check instead of returning flat.
 	discussion := false
 	if hasOutcome && outcome.HeadSHA == pr.HeadRefOID {
-		if !d.conversationMoved(ctx, cfg, repo, pr, last, reviewed, now) {
+		if !d.conversationMoved(ctx, cfg, repo, pr, outcome, reviewed, now) {
 			return store.Candidate{}, false, nil
 		}
 		discussion = true
@@ -213,8 +213,21 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 }
 
 // conversationMoved reports whether a person has said something on this PR
-// since our last real review of it. It is the same-SHA escape hatch: true means
-// the code is unchanged but the discussion around it is not.
+// since we last LOOKED at it. It is the same-SHA escape hatch: true means the
+// code is unchanged but the discussion around it is not.
+//
+// Since we last looked, not since our last real review. Those differ whenever
+// an outcome was a skip or an error, and the difference is a live loop: a skip
+// does not advance a real-review watermark, so one human comment made the
+// check true forever and the same PR was re-enqueued, rechecked and
+// re-skipped every sweep until its SHA changed. One stack of six PRs burned
+// ~300 cycles each over five days that way, and precheck skips grew to be half
+// of all recorded history.
+//
+// The spec said so first: "same SHA suppresses only when there has been no
+// human conversation activity since the recorded OUTCOME'S timestamp"
+// (design-docs/decisions/2026-08-conversation-triggered-rereview.md). The
+// implementation reached for the real-review watermark instead.
 //
 // Two stages, cheap first. gh's updatedAt is already in the list payload and is
 // a necessary condition for any new conversation, so a PR nobody has touched
@@ -230,13 +243,15 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 // errored every time would otherwise re-enqueue the same PR forever. The
 // skill's own fingerprints are the real guard against a wasted review; this is
 // only the trigger.
-func (d *Discoverer) conversationMoved(ctx context.Context, cfg config.Config, repo string, pr ghPR, last store.Review, reviewed bool, now time.Time) bool {
+func (d *Discoverer) conversationMoved(ctx context.Context, cfg config.Config, repo string, pr ghPR, outcome store.Review, reviewed bool, now time.Time) bool {
 	// A targeted re-review re-judges the findings of a previous one, so
 	// without a real review in our history there is nothing to revisit.
+	// Whether one EXISTS is still the real-review question; only the "since
+	// when" watermark comes from the latest outcome.
 	if !reviewed {
 		return false
 	}
-	if !pr.UpdatedAt.After(last.ReviewedAt) {
+	if !pr.UpdatedAt.After(outcome.ReviewedAt) {
 		return false
 	}
 	if now.Sub(pr.CreatedAt) > cfg.DiscussionMaxAge() {
@@ -247,7 +262,7 @@ func (d *Discoverer) conversationMoved(ctx context.Context, cfg config.Config, r
 		d.logf("discover: %s#%d conversation probe failed, suppressing: %v", repo, pr.Number, err)
 		return false
 	}
-	return latest.After(last.ReviewedAt)
+	return latest.After(outcome.ReviewedAt)
 }
 
 // classifyType is the pure New-vs-Refreshed-vs-Discussion decision, extracted

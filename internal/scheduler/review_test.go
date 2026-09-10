@@ -322,6 +322,54 @@ func TestReviewOnePrecheck(t *testing.T) {
 		}
 	})
 
+	t.Run("a discussion candidate keeps the gates but drops the already-reviewed guard", func(t *testing.T) {
+		// A discussion candidate IS a re-review of a revision we already
+		// reviewed, so passing its head would make stillCandidate reject every
+		// one of them. It did, which is why the feature never ran: discovered,
+		// claimed, skipped, forever. The other gates still apply, so the head
+		// is the only thing withheld.
+		var gotHead string
+		var called bool
+		fs := &fakeSchedStore{}
+		fe := commented()
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(_ context.Context, _ string, _ int, login, head string) (bool, string, error) {
+			called, gotHead = true, head
+			return true, "", nil
+		}})
+		c := store.Candidate{Repo: "o/r", Number: 7, HeadSHA: "sha1", Type: store.TypeDiscussion, Source: store.SourceDiscovered}
+		if err := reviewOne(s, fe, c); err != nil {
+			t.Fatal(err)
+		}
+		if !called {
+			t.Fatal("a discussion candidate must still be rechecked; only the head is withheld")
+		}
+		if gotHead != "" {
+			t.Errorf("head passed = %q, want empty so the already-reviewed guard cannot fire", gotHead)
+		}
+		if fe.lastPrompt() == "" {
+			t.Error("the engine must actually run: a discussion review that always skips is the bug")
+		}
+	})
+
+	t.Run("a refreshed candidate still passes its head", func(t *testing.T) {
+		// The guard is only dropped for discussion. An interrupted attempt that
+		// posted before recording must still be caught for every other type.
+		var gotHead string
+		fs := &fakeSchedStore{}
+		fe := commented()
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(_ context.Context, _ string, _ int, login, head string) (bool, string, error) {
+			gotHead = head
+			return true, "", nil
+		}})
+		c := store.Candidate{Repo: "o/r", Number: 7, HeadSHA: "sha1", Type: store.TypeRefreshed, Source: store.SourceDiscovered}
+		if err := reviewOne(s, fe, c); err != nil {
+			t.Fatal(err)
+		}
+		if gotHead != "sha1" {
+			t.Errorf("head passed = %q, want sha1", gotHead)
+		}
+	})
+
 	t.Run("manual candidates bypass the recheck", func(t *testing.T) {
 		fs := &fakeSchedStore{}
 		fe := commented()

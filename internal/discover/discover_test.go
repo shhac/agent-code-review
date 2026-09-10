@@ -549,6 +549,48 @@ func TestClassifyDiscussionOnReplyAtSameSHA(t *testing.T) {
 	}
 }
 
+// TestClassifySuppressesConversationAlreadyActedOn is the loop regression.
+//
+// The conversation watermark has to move every time we LOOK, not only when we
+// post a real review. It did not, so a single human reply made the same-SHA
+// escape hatch true forever: the PR was re-enqueued, rechecked and re-skipped
+// on every sweep, indefinitely. In the live store one stack of six PRs had
+// burned ~300 cycles each over five days, and precheck skips had grown to 45%
+// of all recorded history.
+func TestClassifySuppressesConversationAlreadyActedOn(t *testing.T) {
+	// A real review, then a later skip: exactly the shape the loop produced.
+	// The human spoke after the review but before the skip, so we have already
+	// acted on everything there is to act on.
+	fs := sameSHAReviewed()
+	fs.hasOutcome = true
+	fs.outcome = store.Review{HeadSHA: "sha1", Verdict: store.VerdictSkipped, ReviewedAt: fixedNow().Add(-30 * time.Minute)}
+
+	d := newDiscoverer(fs)
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		return fixedNow().Add(-1 * time.Hour), nil // after the review, before the skip
+	}
+	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", sameSHAPR()); ok {
+		t.Error("conversation we have already looked at must not re-enqueue; this is the loop")
+	}
+
+	// And the feature still works: a reply arriving after the LAST look is new
+	// information, whatever the last look concluded. updated_at moves with it,
+	// because GitHub bumps the PR when somebody comments — the cheap gate ahead
+	// of the probe relies on exactly that.
+	d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) {
+		return fixedNow().Add(-10 * time.Minute), nil // after the skip
+	}
+	fresh := sameSHAPR()
+	fresh.UpdatedAt = fixedNow().Add(-10 * time.Minute)
+	c, ok, err := d.classify(context.Background(), d.cfg(), "o/r", fresh)
+	if err != nil || !ok {
+		t.Fatalf("a reply since the last look must still be a Discussion candidate, ok=%v err=%v", ok, err)
+	}
+	if c.Type != store.TypeDiscussion {
+		t.Errorf("type = %q, want discussion", c.Type)
+	}
+}
+
 // TestClassifyQuietSameSHAStillSuppressed pins the other half: without new
 // conversation, an unchanged SHA must stay suppressed exactly as before, or
 // every sweep would re-enqueue every PR we have ever reviewed.

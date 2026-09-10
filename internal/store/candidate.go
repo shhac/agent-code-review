@@ -19,10 +19,19 @@ type Candidate struct {
 	ClaimedAt    *time.Time `json:"claimed_at,omitempty"` // set while an engine reviews it; stale claims are reclaimable
 	ClaimHost    string     `json:"claim_host,omitempty"` // which daemon holds the claim; boot reconciliation clears claims whose pid died on this host
 	ClaimPID     int        `json:"claim_pid,omitempty"`
-	Source       string     `json:"source"`                // SourceDiscovered | SourceManual
-	WorkDir      string     `json:"work_dir,omitempty"`    // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
-	EligibleAt   *time.Time `json:"eligible_at,omitempty"` // eligibility hold: the scheduler skips this row until then; nil = eligible now
-	HoldReason   string     `json:"hold_reason,omitempty"` // HoldCooldown | HoldSettling while a hold is set
+	Source       string     `json:"source"`             // SourceDiscovered | SourceManual
+	WorkDir      string     `json:"work_dir,omitempty"` // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
+	// Holds maps each named eligibility hold on this row to the instant it
+	// expires. The row is reviewable once every one of them is in the past,
+	// so holds compose upward: a new kind of hold can defer a PR further, but
+	// can never make it eligible sooner than another hold already made it.
+	// That monotonicity is why an author-triggered hold is safe to sit
+	// alongside the policy ones.
+	//
+	// Expired entries are left in place rather than swept: they are already
+	// not holds, and the alternative is every writer having to know which
+	// names it is allowed to retire.
+	Holds map[string]time.Time `json:"holds,omitempty"`
 	// Steering is the instruction shaping this PR's next review, if one is
 	// set. A field on the row rather than a joined entity: it shares the row's
 	// key and lifetime exactly, so it goes when the row goes.
@@ -47,10 +56,13 @@ type Lease struct {
 	StaleAfter time.Duration
 }
 
-// Hold reasons: why a queued candidate is not yet eligible for review.
+// Hold names: why a queued candidate is not yet eligible for review. Each is
+// one key of Candidate.Holds, and each has exactly one writer, which is what
+// lets a discovery sweep rewrite its own two without touching anybody else's.
 const (
 	HoldCooldown = "cooldown" // we reviewed this PR recently (candidates.rereview_cooldown)
 	HoldSettling = "settling" // the PR was updated too recently (candidates.quiet_period)
+	HoldEditing  = "editing"  // an author has the steering editor open (candidates.steering_hold)
 )
 
 // Candidate sources. Manual adds bypass the pre-review candidacy check so
@@ -81,5 +93,24 @@ func (c Candidate) ClaimActive(now time.Time, window time.Duration) bool {
 // and the dashboard's "on hold" badge are both defined in terms of it, so
 // they cannot disagree.
 func (c Candidate) Held(now time.Time) bool {
-	return c.EligibleAt != nil && now.Before(*c.EligibleAt)
+	until, _ := c.EffectiveReady()
+	return now.Before(until)
+}
+
+// EffectiveReady is the instant every hold has expired, and the name of the
+// hold that decides it. The zero time and "" when nothing holds the row.
+//
+// MAX rather than any other combination: a hold defers, and one hold must not
+// be able to undo another's deferral. Ties break on the name so the reported
+// reason is stable across calls, since Go randomises map iteration and this
+// value is rendered in the dashboard.
+func (c Candidate) EffectiveReady() (time.Time, string) {
+	var until time.Time
+	var name string
+	for n, t := range c.Holds {
+		if t.After(until) || (t.Equal(until) && !t.IsZero() && n < name) {
+			until, name = t, n
+		}
+	}
+	return until, name
 }

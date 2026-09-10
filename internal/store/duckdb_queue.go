@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Enqueue inserts or refreshes a queue row. On conflict:
@@ -14,16 +15,17 @@ import (
 //   - source only ever escalates to manual: a discovery sweep must not
 //     downgrade a PR someone explicitly added (that would re-enable the
 //     precheck they meant to bypass).
-//   - the eligibility hold only ever extends. A later eligible_at from this
-//     sweep wins (the author is still active; push the hold out); an earlier
-//     one loses (a hold, once set, does not shrink). A manual-source enqueue
-//     clears the hold, and a hold is never re-imposed on a manual row.
+//   - holds merge PER NAME. A sweep rewrites the two names it owns and leaves
+//     every other one alone, so it cannot disturb a hold set by somebody else
+//     (the author's editing hold, say). A manual-source enqueue clears them
+//     all, and no hold is re-imposed on a manual row: a manual add means
+//     review this now.
 //
-// Storing the hold (rather than deriving it at read time like the claim
-// lease) is deliberate: the hold is a debounce frozen at discovery, so
-// editing the hold dials never shrinks or lifts holds already granted, and
-// future triggers (e.g. an explicit delay-on-click) can impose holds that no
-// derivation could reconstruct.
+// Storing holds (rather than deriving them at read time like the claim lease)
+// is deliberate: a hold is a debounce frozen at the moment something asked for
+// it, so editing the config dials never shrinks holds already granted, and a
+// trigger with no derivable rule (an author opening the steering editor) can
+// impose one at all.
 // prWhere is the identity predicate for a queue row. Six mutations select the
 // row this way; naming it once means a change to how a PR is identified (repo
 // casing, say) cannot land in five of them.
@@ -38,19 +40,18 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	if c.HeadSHA == "" {
 		return fmt.Errorf("enqueue %s#%d: empty head SHA", c.Repo, c.Number)
 	}
-	// The eligible_at and hold_reason CASE arms must stay in lockstep (the
-	// reason always describes the timestamp it rides with), so both arms are
-	// built from the same predicate strings rather than repeating them.
-	const (
-		manualWins = `excluded.source = 'manual' OR queue.source = 'manual'`
-		newerHold  = `COALESCE(excluded.eligible_at, TIMESTAMP '1970-01-01') > COALESCE(queue.eligible_at, TIMESTAMP '1970-01-01')`
-	)
-	holdCase := func(column string) string {
-		return fmt.Sprintf(`CASE
-	    WHEN %s THEN NULL
-	    WHEN %s THEN excluded.%s
-	    ELSE queue.%s END`, manualWins, newerHold, column, column)
-	}
+	// json_merge_patch applies the incoming names over the stored ones and
+	// leaves the rest untouched, which is the whole reason holds are a map:
+	// the previous single-column form had to choose between the sweep's hold
+	// and the row's, so a sweep could clear a hold it knew nothing about.
+	//
+	// No "only ever extends" comparison any more. hold() derives its two names
+	// from updatedAt and lastReviewedAt, both of which only move forward, so
+	// recomputing them each sweep already extends; a config dial that shrinks
+	// SHOULD take effect on the next sweep, which the old form prevented.
+	const holdsMerge = `CASE
+	    WHEN excluded.source = 'manual' OR queue.source = 'manual' THEN NULL
+	    ELSE json_merge_patch(COALESCE(queue.holds, '{}'), excluded.holds) END`
 	// Steering rides along only when the caller supplies one. Discovery
 	// re-enqueues every sweep with no steering, so the conflict arms KEEP
 	// whatever is there rather than writing NULL: a sweep must never wipe an
@@ -65,8 +66,8 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 		msg, by, at = text(c.Steering.Message), nullText(c.Steering.SetBy), ts(c.Steering.SetAt)
 	}
 	sql := fmt.Sprintf(`INSERT INTO queue
-	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, eligible_at, hold_reason, steering_message, steering_by, steering_at)
-	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s)
+	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, holds, steering_message, steering_by, steering_at)
+	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s)
 	ON CONFLICT (repo, number) DO UPDATE SET
 	  type = excluded.type,
 	  title = excluded.title,
@@ -74,15 +75,14 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  url = excluded.url,
 	  head_sha = excluded.head_sha,
 	  updated_at = excluded.updated_at,
-	  eligible_at = `+holdCase("eligible_at")+`,
-	  hold_reason = `+holdCase("hold_reason")+`,
+	  holds = `+holdsMerge+`,
 	  steering_message = `+steerCase("steering_message", "excluded.steering_message")+`,
 	  steering_by = `+steerCase("steering_by", "excluded.steering_by")+`,
 	  steering_at = `+steerCase("steering_at", "excluded.steering_at")+`,
 	  source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE queue.source END`,
 		nullText(c.Repo), c.Number, nullText(cmp.Or(c.Type, TypeNew)), nullText(c.Title), nullText(c.Author), nullText(c.URL), nullText(c.HeadSHA),
 		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), nullText(cmp.Or(c.Source, SourceDiscovered)),
-		tsp(c.EligibleAt), nullText(c.HoldReason), msg, by, at)
+		holdsJSON(c.Holds), msg, by, at)
 	return d.exec(ctx, sql)
 }
 
@@ -183,12 +183,41 @@ func (d *duckDB) Reorder(ctx context.Context, positions []QueuePosition) error {
 	return d.exec(ctx, sql)
 }
 
+// SetHold adds or replaces ONE named hold and leaves every other hold on the
+// row alone. That per-name write is the whole point of the map: a caller can
+// defer a PR without knowing what else is holding it, and without having to
+// preserve something it never knew about.
+//
+// name is always one of the Hold* constants, never caller input, which is what
+// makes rendering it into the patch literal safe.
+func (d *duckDB) SetHold(ctx context.Context, repo string, number int, name string, until time.Time) error {
+	return d.exec(ctx, d.patchHolds(repo, number, holdsJSON(map[string]time.Time{name: until})))
+}
+
+// ClearHold releases one named hold. A JSON null patch removes exactly that
+// key, so a release can never expose a row that another hold still covers:
+// the failure the single eligible_at column made unavoidable.
+func (d *duckDB) ClearHold(ctx context.Context, repo string, number int, name string) error {
+	return d.exec(ctx, d.patchHolds(repo, number, text(fmt.Sprintf(`{"%s":null}`, name))))
+}
+
+// patchHolds renders a per-name merge over the stored holds. Shared by both
+// hold writers and shaped like Enqueue's conflict arm, so the merge rule has
+// one definition rather than three that could drift apart.
+func (d *duckDB) patchHolds(repo string, number int, patch string) string {
+	return fmt.Sprintf("UPDATE queue SET holds = json_merge_patch(COALESCE(holds, '{}'), %s) WHERE %s",
+		patch, prWhere(repo, number))
+}
+
 // Promote floats the row to the top (negative queue_pos sorts ahead of the
-// default 0), clears any eligibility hold, and escalates source to manual so
-// the pre-review candidacy check is bypassed: one write, same semantics as
+// default 0), clears EVERY hold, and escalates source to manual so the
+// pre-review candidacy check is bypassed: one write, same semantics as
 // removing and manually re-adding the PR at the front.
+//
+// Every hold, deliberately: "review now" is the escape hatch, and one that
+// left some holds standing would be a button that sometimes does nothing.
 func (d *duckDB) Promote(ctx context.Context, repo string, number int) error {
 	return d.exec(ctx, fmt.Sprintf(
-		"UPDATE queue SET queue_pos = -1, eligible_at = NULL, hold_reason = NULL, source = 'manual' WHERE %s",
+		"UPDATE queue SET queue_pos = -1, holds = NULL, source = 'manual' WHERE %s",
 		prWhere(repo, number)))
 }

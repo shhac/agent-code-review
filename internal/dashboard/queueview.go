@@ -20,6 +20,14 @@ import (
 type queueView struct {
 	store.Candidate
 	Status string `json:"status"` // queued|reviewing|held
+	// EligibleAt and HoldReason project the candidate's hold MAP onto the two
+	// fields the frontend renders: when the row becomes reviewable, and which
+	// hold decides that. Derived here rather than stored, because "which hold
+	// wins" is a display question the store has no reason to freeze; both are
+	// omitted entirely unless the row is actually held, so an expired hold
+	// left on the row cannot render as a live one.
+	EligibleAt *time.Time `json:"eligible_at,omitempty"`
+	HoldReason string     `json:"hold_reason,omitempty"`
 	// MaySteer is whether the CURRENT viewer may steer this PR, decided by the
 	// same viewer.maySteer the write path enforces. Sent per row so the UI can
 	// offer the control exactly where it would be accepted, without
@@ -49,11 +57,16 @@ func claimStatus(c store.Candidate, now time.Time, staleAfter time.Duration) str
 func viewQueue(candidates []store.Candidate, now time.Time, staleAfter time.Duration, v viewer) []queueView {
 	out := make([]queueView, 0, len(candidates))
 	for _, c := range candidates {
-		out = append(out, queueView{
+		q := queueView{
 			Candidate: c,
 			Status:    claimStatus(c, now, staleAfter),
 			MaySteer:  v.maySteer(c.Author),
-		})
+		}
+		if c.Held(now) {
+			until, reason := c.EffectiveReady()
+			q.EligibleAt, q.HoldReason = &until, reason
+		}
+		out = append(out, q)
 	}
 	return out
 }

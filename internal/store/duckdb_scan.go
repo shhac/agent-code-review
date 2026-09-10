@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -114,6 +115,63 @@ func (r *row) timePtr(key string) *time.Time {
 	return nil
 }
 
+// holds decodes the named-hold map. DuckDB's jsonlines output renders a JSON
+// column as a nested object rather than as a string, so the value arrives
+// already parsed and this only has to interpret the timestamps.
+//
+// An unparseable entry is drift, recorded like any other: a hold that silently
+// read as the zero time would make a held row look reviewable, which is the
+// one direction this must never fail in.
+func (r *row) holds(key string) map[string]time.Time {
+	v, ok := r.present(key)
+	if !ok {
+		return nil
+	}
+	raw, ok := v.(map[string]any)
+	if !ok {
+		r.fail(key, v, errUnexpectedType)
+		return nil
+	}
+	out := make(map[string]time.Time, len(raw))
+	for name, val := range raw {
+		s, ok := val.(string)
+		if !ok {
+			r.fail(key, v, errUnexpectedType)
+			continue
+		}
+		t, err := parseStoredTime(s)
+		if err != nil {
+			r.fail(key, v, err)
+			continue
+		}
+		out[name] = t
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// holdsJSON renders a hold map as a JSON object literal for SQL. Zero
+// timestamps are dropped rather than written: they are not holds, and a zero
+// instant in the column would read back as one more expired entry to explain.
+func holdsJSON(holds map[string]time.Time) string {
+	names := make([]string, 0, len(holds))
+	for name, t := range holds {
+		if !t.IsZero() {
+			names = append(names, name)
+		}
+	}
+	// Sorted so the same map always renders the same SQL, which keeps the
+	// statements readable in a log and the tests free of map-order flakes.
+	slices.Sort(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%q:%q", name, holds[name].UTC().Format("2006-01-02 15:04:05")))
+	}
+	return text("{" + strings.Join(parts, ",") + "}")
+}
+
 var errUnexpectedType = errors.New("unexpected type")
 
 func scanReview(m map[string]any) (Review, error) {
@@ -182,11 +240,10 @@ func scanCandidate(m map[string]any) (Candidate, error) {
 		DiscoveredAt: r.time("discovered_at"),
 		Source:       r.str("source"),
 		WorkDir:      r.str("work_dir"),
-		HoldReason:   r.str("hold_reason"),
 		ClaimHost:    r.str("claim_host"),
 		ClaimPID:     r.int("claim_pid"),
 		ClaimedAt:    r.timePtr("claimed_at"),
-		EligibleAt:   r.timePtr("eligible_at"),
+		Holds:        r.holds("holds"),
 	}
 	// Steering is present only when a message is: set_by and set_at ride with
 	// it, so a row with no instruction carries no empty struct to be mistaken

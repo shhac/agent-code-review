@@ -346,6 +346,10 @@ func TestClassifyHolds(t *testing.T) {
 		}
 	}
 
+	// ready reports what EffectiveReady makes of the holds a classify produced:
+	// the instant the row becomes reviewable and the name deciding it.
+	ready := func(c store.Candidate) (time.Time, string) { return c.EffectiveReady() }
+
 	t.Run("fresh update settles", func(t *testing.T) {
 		d := newDiscoverer(&fakeStore{})
 		c, ok, err := d.classify(context.Background(), d.cfg(), "o/r", newPR(fixedNow().Add(-5*time.Minute)))
@@ -353,16 +357,16 @@ func TestClassifyHolds(t *testing.T) {
 			t.Fatalf("held PR must still classify as a candidate, ok=%v err=%v", ok, err)
 		}
 		want := fixedNow().Add(-5 * time.Minute).Add(15 * time.Minute) // updated + default quiet period
-		if c.EligibleAt == nil || !c.EligibleAt.Equal(want) || c.HoldReason != store.HoldSettling {
-			t.Errorf("eligible=%v reason=%q, want %v settling", c.EligibleAt, c.HoldReason, want)
+		if until, reason := ready(c); !until.Equal(want) || reason != store.HoldSettling {
+			t.Errorf("ready=%v reason=%q, want %v settling", until, reason, want)
 		}
 	})
 
 	t.Run("quiet PR carries no hold", func(t *testing.T) {
 		d := newDiscoverer(&fakeStore{})
 		c, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", newPR(fixedNow().Add(-time.Hour)))
-		if !ok || c.EligibleAt != nil || c.HoldReason != "" {
-			t.Errorf("settled PR must be eligible now: ok=%v eligible=%v reason=%q", ok, c.EligibleAt, c.HoldReason)
+		if !ok || len(c.Holds) != 0 {
+			t.Errorf("settled PR must be eligible now: ok=%v holds=%v", ok, c.Holds)
 		}
 	})
 
@@ -377,12 +381,12 @@ func TestClassifyHolds(t *testing.T) {
 			t.Fatalf("cooled-down PR must still classify, ok=%v err=%v", ok, err)
 		}
 		want := reviewedAt.Add(90 * time.Minute) // default rereview cooldown
-		if c.EligibleAt == nil || !c.EligibleAt.Equal(want) || c.HoldReason != store.HoldCooldown {
-			t.Errorf("eligible=%v reason=%q, want %v cooldown", c.EligibleAt, c.HoldReason, want)
+		if until, reason := ready(c); !until.Equal(want) || reason != store.HoldCooldown {
+			t.Errorf("ready=%v reason=%q, want %v cooldown", until, reason, want)
 		}
 	})
 
-	t.Run("fresh push during cooldown: settling outlasts and wins", func(t *testing.T) {
+	t.Run("fresh push during cooldown keeps both holds; the later wins", func(t *testing.T) {
 		reviewedAt := fixedNow().Add(-80 * time.Minute) // cooldown ends in 10m
 		fs := &fakeStore{hasLast: true, last: store.Review{HeadSHA: "old-sha", Verdict: "COMMENTED", ReviewedAt: reviewedAt}}
 		d := newDiscoverer(fs)
@@ -392,9 +396,18 @@ func TestClassifyHolds(t *testing.T) {
 		if err != nil || !ok {
 			t.Fatalf("held PR must still classify, ok=%v err=%v", ok, err)
 		}
+		// Both are recorded: the map keeps every hold, and only the reader
+		// decides which one is operative. The old single column could not say
+		// this, which is what let a release of one lift the other.
+		if len(c.Holds) != 2 {
+			t.Fatalf("holds = %v, want both settling and cooldown", c.Holds)
+		}
+		if got, want := c.Holds[store.HoldCooldown], reviewedAt.Add(90*time.Minute); !got.Equal(want) {
+			t.Errorf("cooldown hold = %v, want %v", got, want)
+		}
 		want := fixedNow().Add(-time.Minute).Add(15 * time.Minute)
-		if c.EligibleAt == nil || !c.EligibleAt.Equal(want) || c.HoldReason != store.HoldSettling {
-			t.Errorf("eligible=%v reason=%q, want %v settling (the later bound must win)", c.EligibleAt, c.HoldReason, want)
+		if until, reason := ready(c); !until.Equal(want) || reason != store.HoldSettling {
+			t.Errorf("ready=%v reason=%q, want %v settling (the later bound must win)", until, reason, want)
 		}
 	})
 
@@ -407,8 +420,8 @@ func TestClassifyHolds(t *testing.T) {
 		pr := newPR(fixedNow()) // updated right now AND reviewed a minute ago
 		pr.Reviews = []ghReview{{State: "COMMENTED"}}
 		c, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", pr)
-		if !ok || c.EligibleAt != nil {
-			t.Errorf("0s holds must disable: ok=%v eligible=%v", ok, c.EligibleAt)
+		if !ok || len(c.Holds) != 0 {
+			t.Errorf("0s holds must disable: ok=%v holds=%v", ok, c.Holds)
 		}
 	})
 }

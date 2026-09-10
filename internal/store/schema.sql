@@ -22,8 +22,7 @@ CREATE TABLE IF NOT EXISTS queue (
   claim_pid     INTEGER,
   source        TEXT NOT NULL DEFAULT 'discovered', -- 'discovered' | 'manual'. Manual adds bypass the pre-review candidacy check (drafts and explicit re-review requests must go through).
   work_dir      TEXT,                           -- the engine's scratch workspace, set at claim time; its agent.log is the live review log
-  eligible_at   TIMESTAMP,                      -- eligibility hold: the scheduler skips this row until then. NULL = eligible now. Manual adds/promotion clear it.
-  hold_reason   TEXT,                           -- why the hold exists: 'cooldown' (recently reviewed by us) | 'settling' (PR updated too recently)
+  holds         JSON,                           -- named eligibility holds, {name: expiry}. The row is reviewable once every one is past; NULL/{} = eligible now. Manual adds/promotion clear them all.
   PRIMARY KEY (repo, number)
 );
 
@@ -78,8 +77,6 @@ CREATE TABLE IF NOT EXISTS history (
 -- (No NOT NULL here: DuckDB can't add constrained columns; DEFAULT 0
 -- backfills the pre-existing rows, and Complete always writes a value.)
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS work_dir TEXT;
-ALTER TABLE queue ADD COLUMN IF NOT EXISTS eligible_at TIMESTAMP;
-ALTER TABLE queue ADD COLUMN IF NOT EXISTS hold_reason TEXT;
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS claim_host TEXT;
 ALTER TABLE queue ADD COLUMN IF NOT EXISTS claim_pid INTEGER;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS duration_secs INTEGER DEFAULT 0;
@@ -191,6 +188,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS allowed_authors_tailscale_login
 -- created before that change still carry the table and its rows; nothing
 -- reads or writes it, and it is left alone rather than dropped so that
 -- history survives.
+
+-- eligible_at + hold_reason -> holds: one hold per row became one hold per
+-- NAME per row, so that a discovery sweep can rewrite the two names it owns
+-- without disturbing a hold set by anything else. The old pair could only
+-- express the winner, so releasing one hold released whatever sat underneath.
+--
+-- Add, backfill, drop, in that order, every boot, exactly as engine_version
+-- above: the ADDs keep the backfill valid on a store that never had the old
+-- columns, and the DROPs retire them once their value has been carried across.
+-- A hold is a debounce measured in minutes, so a store upgrading mid-hold
+-- loses at most one deferral.
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS eligible_at TIMESTAMP;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS hold_reason TEXT;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS holds JSON;
+UPDATE queue SET holds = json_object(hold_reason, strftime(eligible_at, '%Y-%m-%d %H:%M:%S'))
+  WHERE holds IS NULL AND eligible_at IS NOT NULL AND hold_reason IS NOT NULL;
+ALTER TABLE queue DROP COLUMN IF EXISTS eligible_at;
+ALTER TABLE queue DROP COLUMN IF EXISTS hold_reason;
 
 -- Steering: a short instruction from the PR's author (or from the account
 -- reviews are posted as) that shapes the NEXT review of that PR. Columns on

@@ -99,6 +99,12 @@ type Store interface {
 	// ListAuthors returns roster rows, narrowed by repo and/or group; "" means
 	// don't narrow on that field.
 	ListAuthors(ctx context.Context, repo, group string) ([]Author, error)
+	// SetHold adds or replaces one named eligibility hold; ClearHold releases
+	// one. Both leave every other hold on the row untouched, so a caller never
+	// has to know what else is deferring the PR. Reading them needs no method:
+	// holds ride on the Candidate, so ListQueue already carries them.
+	SetHold(ctx context.Context, repo string, number int, name string, until time.Time) error
+	ClearHold(ctx context.Context, repo string, number int, name string) error
 	// QueuedPR returns one queued candidate, or ok=false when that PR is not
 	// queued.
 	QueuedPR(ctx context.Context, repo string, number int) (Candidate, bool, error)

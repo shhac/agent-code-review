@@ -43,15 +43,27 @@ func TestHeld(t *testing.T) {
 		v := now.Add(d)
 		return &v
 	}
+	holds := func(name string, t *time.Time) map[string]time.Time {
+		return map[string]time.Time{name: *t}
+	}
 	cases := []struct {
 		name string
 		c    Candidate
 		want bool
 	}{
 		{"no hold", Candidate{}, false},
-		{"future eligibility is held", Candidate{EligibleAt: at(time.Minute)}, true},
-		{"exactly eligible is not held", Candidate{EligibleAt: at(0)}, false},
-		{"expired hold is not held", Candidate{EligibleAt: at(-time.Minute)}, false},
+		{"empty map is no hold", Candidate{Holds: map[string]time.Time{}}, false},
+		{"future eligibility is held", Candidate{Holds: holds(HoldCooldown, at(time.Minute))}, true},
+		{"exactly eligible is not held", Candidate{Holds: holds(HoldCooldown, at(0))}, false},
+		{"expired hold is not held", Candidate{Holds: holds(HoldCooldown, at(-time.Minute))}, false},
+		// The MAX rule: one expired hold cannot release a live one, which is
+		// the whole reason holds are named rather than collapsed to a winner.
+		{"a live hold outlasts an expired one", Candidate{Holds: map[string]time.Time{
+			HoldCooldown: *at(-time.Minute), HoldEditing: *at(time.Minute),
+		}}, true},
+		{"all expired is not held", Candidate{Holds: map[string]time.Time{
+			HoldCooldown: *at(-time.Minute), HoldEditing: *at(-time.Hour),
+		}}, false},
 	}
 	for _, tc := range cases {
 		if got := tc.c.Held(now); got != tc.want {

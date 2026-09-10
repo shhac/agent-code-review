@@ -263,7 +263,7 @@ func TestDispatch(t *testing.T) {
 	t.Run("held candidates are skipped; an all-held queue is idle", func(t *testing.T) {
 		soon := time.Now().Add(30 * time.Minute)
 		fs := &fakeDispatchStore{queue: []store.Candidate{
-			{Repo: "o/r", Number: 1, HeadSHA: "s1", EligibleAt: &soon, HoldReason: store.HoldCooldown},
+			{Repo: "o/r", Number: 1, HeadSHA: "s1", Holds: map[string]time.Time{store.HoldCooldown: soon}},
 			{Repo: "o/r", Number: 2, HeadSHA: "s2"},
 		}}
 		fe := commented()
@@ -277,7 +277,7 @@ func TestDispatch(t *testing.T) {
 
 		// Every row held: nothing dispatched, and the drain still ends.
 		fs = &fakeDispatchStore{queue: []store.Candidate{
-			{Repo: "o/r", Number: 1, HeadSHA: "s1", EligibleAt: &soon, HoldReason: store.HoldSettling},
+			{Repo: "o/r", Number: 1, HeadSHA: "s1", Holds: map[string]time.Time{store.HoldSettling: soon}},
 		}}
 		s = newDispatchScheduler(fs, fe)
 		if err := drain(t, s); err != nil {
@@ -290,7 +290,7 @@ func TestDispatch(t *testing.T) {
 		// An expired hold is eligible again.
 		past := time.Now().Add(-time.Minute)
 		fs = &fakeDispatchStore{queue: []store.Candidate{
-			{Repo: "o/r", Number: 3, HeadSHA: "s3", EligibleAt: &past, HoldReason: store.HoldCooldown},
+			{Repo: "o/r", Number: 3, HeadSHA: "s3", Holds: map[string]time.Time{store.HoldCooldown: past}},
 		}}
 		s = newDispatchScheduler(fs, fe)
 		if err := drain(t, s); err != nil {

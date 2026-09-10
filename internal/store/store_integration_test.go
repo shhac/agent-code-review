@@ -731,60 +731,88 @@ func TestEnqueueDiscoveredAtFirstSeen(t *testing.T) {
 	}
 }
 
-// TestEnqueueHoldSemantics pins the eligibility-hold upsert rules: a hold
-// only ever extends (later wins, earlier is ignored), a manual enqueue clears
-// it, and discovery never re-imposes one on a manual row.
+// TestEnqueueHoldSemantics pins the hold upsert rules: holds merge per NAME,
+// a sweep leaves names it does not own alone, the effective ready is the MAX
+// across them, a manual enqueue clears them all, and discovery never
+// re-imposes one on a manual row.
 func TestEnqueueHoldSemantics(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
 	base := time.Now().UTC().Truncate(time.Second)
-	at := func(d time.Duration) *time.Time { t := base.Add(d); return &t }
+	at := func(d time.Duration) time.Time { return base.Add(d) }
 
-	enq := func(eligible *time.Time, reason, source string) {
+	enq := func(holds map[string]time.Time, source string) {
 		t.Helper()
-		if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 21, Type: TypeNew, HeadSHA: "sha", EligibleAt: eligible, HoldReason: reason, Source: source}); err != nil {
+		if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 21, Type: TypeNew, HeadSHA: "sha", Holds: holds, Source: source}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	hold := func() (*time.Time, string) {
+	row := func() Candidate {
 		t.Helper()
 		c, ok := getQueued(t, s, "o/r", 21)
 		if !ok {
 			t.Fatal("row missing")
 		}
-		return c.EligibleAt, c.HoldReason
+		return c
+	}
+	ready := func() (time.Time, string) {
+		t.Helper()
+		return row().EffectiveReady()
 	}
 
 	// Fresh row with a settling hold.
-	enq(at(15*time.Minute), HoldSettling, SourceDiscovered)
-	if e, r := hold(); e == nil || !e.Equal(*at(15 * time.Minute)) || r != HoldSettling {
-		t.Fatalf("fresh hold not recorded: eligible=%v reason=%q", e, r)
+	enq(map[string]time.Time{HoldSettling: at(15 * time.Minute)}, SourceDiscovered)
+	if e, r := ready(); !e.Equal(at(15*time.Minute)) || r != HoldSettling {
+		t.Fatalf("fresh hold not recorded: ready=%v reason=%q", e, r)
 	}
-	// A later hold extends (and its reason wins).
-	enq(at(90*time.Minute), HoldCooldown, SourceDiscovered)
-	if e, r := hold(); e == nil || !e.Equal(*at(90 * time.Minute)) || r != HoldCooldown {
-		t.Fatalf("later hold must extend: eligible=%v reason=%q", e, r)
+	// A second name joins it, and the later one decides.
+	enq(map[string]time.Time{HoldCooldown: at(90 * time.Minute)}, SourceDiscovered)
+	if e, r := ready(); !e.Equal(at(90*time.Minute)) || r != HoldCooldown {
+		t.Fatalf("later hold must decide: ready=%v reason=%q", e, r)
 	}
-	// An earlier hold must not shrink it.
-	enq(at(5*time.Minute), HoldSettling, SourceDiscovered)
-	if e, r := hold(); e == nil || !e.Equal(*at(90 * time.Minute)) || r != HoldCooldown {
-		t.Fatalf("earlier hold must not shrink: eligible=%v reason=%q", e, r)
+	// Rewriting one name earlier cannot release another that is still live:
+	// this is the MAX rule, and the reason a release is per name.
+	enq(map[string]time.Time{HoldSettling: at(5 * time.Minute)}, SourceDiscovered)
+	if e, r := ready(); !e.Equal(at(90*time.Minute)) || r != HoldCooldown {
+		t.Fatalf("rewriting settling must not shrink the row: ready=%v reason=%q", e, r)
 	}
 	// A hold-free sweep must not clear an existing hold either.
-	enq(nil, "", SourceDiscovered)
-	if e, _ := hold(); e == nil || !e.Equal(*at(90 * time.Minute)) {
-		t.Fatalf("hold-free sweep must keep the hold: eligible=%v", e)
+	enq(nil, SourceDiscovered)
+	if e, _ := ready(); !e.Equal(at(90 * time.Minute)) {
+		t.Fatalf("hold-free sweep must keep the hold: ready=%v", e)
 	}
-	// A manual enqueue clears the hold.
-	enq(nil, "", SourceManual)
-	if e, r := hold(); e != nil || r != "" {
-		t.Fatalf("manual enqueue must clear the hold: eligible=%v reason=%q", e, r)
+	// THE regression this model exists for: a sweep rewrites only the names it
+	// owns. A hold set by anything else survives untouched. Under the old
+	// single-column form this was impossible to express, so a sweep cleared
+	// whatever it did not know about.
+	if err := s.SetHold(ctx, "o/r", 21, HoldEditing, at(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	enq(map[string]time.Time{HoldSettling: at(20 * time.Minute)}, SourceDiscovered)
+	c := row()
+	if got := c.Holds[HoldEditing]; !got.Equal(at(3 * time.Hour)) {
+		t.Fatalf("a sweep must not disturb a hold it does not own: editing=%v, holds=%v", got, c.Holds)
+	}
+	if e, r := ready(); !e.Equal(at(3*time.Hour)) || r != HoldEditing {
+		t.Fatalf("ready=%v reason=%q, want the editing hold to decide", e, r)
+	}
+	// Releasing one name leaves the others standing.
+	if err := s.ClearHold(ctx, "o/r", 21, HoldEditing); err != nil {
+		t.Fatal(err)
+	}
+	if e, r := ready(); !e.Equal(at(90*time.Minute)) || r != HoldCooldown {
+		t.Fatalf("releasing editing must expose the cooldown, not clear it: ready=%v reason=%q", e, r)
+	}
+	// A manual enqueue clears every hold.
+	enq(nil, SourceManual)
+	if e, r := ready(); !e.IsZero() || r != "" {
+		t.Fatalf("manual enqueue must clear every hold: ready=%v reason=%q", e, r)
 	}
 	// Discovery must never re-impose a hold on a manual row.
-	enq(at(2*time.Hour), HoldCooldown, SourceDiscovered)
-	if e, r := hold(); e != nil || r != "" {
-		t.Fatalf("discovery must not hold a manual row: eligible=%v reason=%q", e, r)
+	enq(map[string]time.Time{HoldCooldown: at(2 * time.Hour)}, SourceDiscovered)
+	if e, r := ready(); !e.IsZero() || r != "" {
+		t.Fatalf("discovery must not hold a manual row: ready=%v reason=%q", e, r)
 	}
 }
 
@@ -843,7 +871,10 @@ func TestPromote(t *testing.T) {
 	ctx := context.Background()
 
 	eligible := time.Now().UTC().Truncate(time.Second).Add(time.Hour)
-	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 22, Type: TypeNew, HeadSHA: "sha", EligibleAt: &eligible, HoldReason: HoldCooldown}); err != nil {
+	// Two holds of different kinds: "review now" must lift both, or the button
+	// would sometimes do nothing.
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 22, Type: TypeNew, HeadSHA: "sha", Source: SourceDiscovered,
+		Holds: map[string]time.Time{HoldCooldown: eligible, HoldEditing: eligible.Add(time.Hour)}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Promote(ctx, "o/r", 22); err != nil {
@@ -853,8 +884,8 @@ func TestPromote(t *testing.T) {
 	if !ok {
 		t.Fatal("row missing after promote")
 	}
-	if c.QueuePos != -1 || c.EligibleAt != nil || c.HoldReason != "" || c.Source != SourceManual {
-		t.Errorf("promote must float, clear hold, and escalate: %+v", c)
+	if c.QueuePos != -1 || len(c.Holds) != 0 || c.Source != SourceManual {
+		t.Errorf("promote must float, clear every hold, and escalate: %+v", c)
 	}
 }
 

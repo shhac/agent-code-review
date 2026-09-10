@@ -57,12 +57,12 @@ func TestViewQueue(t *testing.T) {
 	holdUntil := now.Add(30 * time.Minute)
 	holdOver := now.Add(-time.Minute)
 	in := []store.Candidate{
-		{Number: 1},                         // unclaimed
-		{Number: 2, ClaimedAt: &fresh},      // engine on it right now
-		{Number: 3, ClaimedAt: &stale},      // abandoned lease: next cycle reclaims
-		{Number: 4, ClaimedAt: &boundary},   // boundary: must agree with the scheduler
-		{Number: 5, EligibleAt: &holdUntil}, // eligibility hold: visible but skipped
-		{Number: 6, EligibleAt: &holdOver},  // expired hold: plain queued again
+		{Number: 1},                       // unclaimed
+		{Number: 2, ClaimedAt: &fresh},    // engine on it right now
+		{Number: 3, ClaimedAt: &stale},    // abandoned lease: next cycle reclaims
+		{Number: 4, ClaimedAt: &boundary}, // boundary: must agree with the scheduler
+		{Number: 5, Holds: map[string]time.Time{store.HoldCooldown: holdUntil}}, // eligibility hold: visible but skipped
+		{Number: 6, Holds: map[string]time.Time{store.HoldCooldown: holdOver}},  // expired hold: plain queued again
 	}
 	got := viewQueue(in, now, staleAfter, viewer{})
 	want := []string{"queued", "reviewing", "queued", "reviewing", "held", "queued"}
@@ -112,7 +112,7 @@ func TestCountQueue(t *testing.T) {
 		{Number: 1},
 		{Number: 2, ClaimedAt: &fresh},
 		{Number: 3, ClaimedAt: &stale},
-		{Number: 4, EligibleAt: &holdUntil},
+		{Number: 4, Holds: map[string]time.Time{store.HoldCooldown: holdUntil}},
 	}, now, lease, viewer{})
 	got := countQueue(views)
 	if got.Total != 4 || got.Queued != 2 || got.Reviewing != 1 || got.Held != 1 {

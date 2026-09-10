@@ -208,7 +208,7 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 	if reviewed {
 		lastReviewedAt = last.ReviewedAt
 	}
-	c.EligibleAt, c.HoldReason = hold(now, cfg, pr.UpdatedAt, lastReviewedAt)
+	c.Holds = holds(now, cfg, pr.UpdatedAt, lastReviewedAt)
 	return c, true, nil
 }
 
@@ -279,29 +279,33 @@ func classifyType(pr ghPR, cfg config.Config, now time.Time, last store.Review, 
 	}
 }
 
-// hold computes a discovered candidate's eligibility hold: the later of the
-// quiet-period bound (the PR must sit untouched before we review it; a PR
-// being actively pushed to or edited isn't done) and the cooldown bound (we
-// reviewed it recently; give the author room to finish responding). nil
-// means eligible now. Manual adds never pass through here, which is exactly
-// the bypass: an explicit request is reviewed regardless of holds.
-func hold(now time.Time, cfg config.Config, updatedAt, lastReviewedAt time.Time) (*time.Time, string) {
-	var eligible time.Time
-	var reason string
+// holds computes the two eligibility holds discovery owns: the quiet-period
+// bound (the PR must sit untouched before we review it; a PR being actively
+// pushed to or edited isn't done) and the cooldown bound (we reviewed it
+// recently; give the author room to finish responding). Nil means neither
+// applies. Manual adds never pass through here, which is exactly the bypass:
+// an explicit request is reviewed regardless of holds.
+//
+// Both names are returned independently rather than as the later of the two.
+// Which one wins is Candidate.EffectiveReady's business, and keeping them
+// apart is what lets a sweep rewrite exactly these two keys and leave any
+// other hold on the row alone.
+func holds(now time.Time, cfg config.Config, updatedAt, lastReviewedAt time.Time) map[string]time.Time {
+	out := map[string]time.Time{}
 	if q := cfg.QuietPeriod(); q > 0 && !updatedAt.IsZero() {
 		if t := updatedAt.Add(q); t.After(now) {
-			eligible, reason = t, store.HoldSettling
+			out[store.HoldSettling] = t
 		}
 	}
 	if cd := cfg.RereviewCooldown(); cd > 0 && !lastReviewedAt.IsZero() {
-		if t := lastReviewedAt.Add(cd); t.After(now) && t.After(eligible) {
-			eligible, reason = t, store.HoldCooldown
+		if t := lastReviewedAt.Add(cd); t.After(now) {
+			out[store.HoldCooldown] = t
 		}
 	}
-	if eligible.IsZero() {
-		return nil, ""
+	if len(out) == 0 {
+		return nil
 	}
-	return &eligible, reason
+	return out
 }
 
 func (d *Discoverer) toCandidate(repo string, pr ghPR, typ string, now time.Time) store.Candidate {

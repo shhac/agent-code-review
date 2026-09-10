@@ -283,6 +283,32 @@ func TestAddWithSteering(t *testing.T) {
 		}
 	})
 
+	t.Run("a re-add cannot smuggle steering onto a PR under review", func(t *testing.T) {
+		// An add of a PR that is already queued is an upsert, so this path
+		// reaches the same row /api/steering guards. Without the claim check it
+		// is a way around that refusal, and the message would then be discarded
+		// by the completion that retires the row, having reported success.
+		fs := queuedPR()
+		now := time.Now()
+		fs.queue = []store.Candidate{{Repo: "o/r", Number: 9, Author: "octocat", HeadSHA: "s9", ClaimedAt: &now}}
+		code, resp := add(t, server(fs), "octo@example.com", `{`+url+`,"steering":"focus on rollback"}`)
+		// The add itself still happens: it refreshes metadata, which is
+		// harmless, and refusing it would be a worse answer than refusing the
+		// half the caller is not entitled to right now.
+		if code != http.StatusOK || !resp.Queued {
+			t.Fatalf("the add must still succeed: code=%d resp=%+v", code, resp)
+		}
+		if resp.Steered || resp.SteeringRefused == "" {
+			t.Fatalf("resp = %+v, want the steering refused with a reason", resp)
+		}
+		if !strings.Contains(resp.SteeringRefused, "once this review finishes") {
+			t.Errorf("refusal = %q, want it to say when to try again", resp.SteeringRefused)
+		}
+		if fs.enqueued[0].Steering != nil {
+			t.Errorf("no steering may ride along, got %+v", fs.enqueued[0].Steering)
+		}
+	})
+
 	t.Run("an anonymous caller may add but not steer", func(t *testing.T) {
 		fs := queuedPR()
 		code, resp := add(t, server(fs), "", `{`+url+`,"steering":"x"}`)

@@ -6,6 +6,7 @@ package dashboard
 // untrusted input and mutates state.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -122,6 +123,17 @@ func (s *Server) decodeWatchedPR(w http.ResponseWriter, r *http.Request) (addReq
 }
 
 // addToQueue queues a PR, optionally with a steering message.
+// reviewInFlight reports whether this PR is queued AND under a live claim.
+// Not queued is not in flight: the row is gone, so a fresh add is exactly the
+// clean path an author is told to take once a review finishes.
+func (s *Server) reviewInFlight(ctx context.Context, repo string, number int) (bool, error) {
+	c, ok, err := s.store.QueuedPR(ctx, repo, number)
+	if err != nil || !ok {
+		return false, err
+	}
+	return c.ClaimActive(time.Now(), s.config().LeaseWindow()), nil
+}
+
 func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 	req, ref, ok := s.decodeWatchedPR(w, r)
 	if !ok {
@@ -154,11 +166,23 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, idErr)
 			return
 		}
+		// An add of a PR already queued is an upsert, so this path can write
+		// steering onto a row that is under review right now — the one thing
+		// /api/steering refuses. Without this arm the add is a way around that
+		// refusal, and a worse one: the message would be discarded by the
+		// completion that retires the row, having reported success.
+		reviewing, err := s.reviewInFlight(ctx, ref.Repo, ref.Number)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
 		switch {
 		case len(msg) > store.SteeringMaxLen:
 			steeringRefused = "message is longer than the steering limit"
 		case !v.maySteer(c.Author):
 			steeringRefused = cannotSteer(c.Author)
+		case reviewing:
+			steeringRefused = reviewInFlight
 		default:
 			c.Steering = &store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}
 		}

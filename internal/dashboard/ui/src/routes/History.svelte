@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toggleIn } from '../lib/expandable';
   import { errText } from '../lib/errors';
   import { getReviews, preflightPR } from '../lib/api';
   import { withFeed } from '../lib/feed';
@@ -49,11 +50,7 @@
   // choose between being complete and being skimmable.
   let expanded = new Set<string>();
   const rowKey = (r: Review) => `${r.repo}#${r.number}@${r.reviewed_at}`;
-  function toggle(r: Review) {
-    const k = rowKey(r);
-    expanded.has(k) ? expanded.delete(k) : expanded.add(k);
-    expanded = expanded;
-  }
+  const toggle = (r: Review) => (expanded = toggleIn(expanded, rowKey(r)));
 
   // Reviewing a PR again from here, rather than making somebody copy the link,
   // navigate to the queue and retype what they already told it last time. The
@@ -147,12 +144,19 @@
   // poll's opening tick rather than the poll and this statement racing to make
   // the same request twice.
   let lastKey = cacheKey('', '');
+  // Kept beside lastKey rather than recovered from it. This used to read the
+  // query back out with lastKey.split('\n')[0], parsing a value out of a
+  // string built for identity comparison — which misreads any query
+  // containing a newline, and is a decision (debounce or fire now) worth
+  // being able to see.
+  let lastScheduledQuery = '';
   $: schedule(query, page);
   function schedule(q: string, p: number) {
     const key = cacheKey(q, cursors[p] ?? '');
     if (key === lastKey) return;
-    const typed = q !== lastKey.split('\n')[0];
+    const typed = q !== lastScheduledQuery;
     lastKey = key;
+    lastScheduledQuery = q;
     optimistic(q, cursors[p] ?? '');
     clearTimeout(debounce);
     debounce = window.setTimeout(() => void withFeed(load)(), typed ? 200 : 0);

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toggleIn } from './expandable';
   import { errText } from './errors';
   import { flip } from 'svelte/animate';
   import { promoteQueuedPR, removeQueuedPR, reorderQueue, setSteering } from './api';
@@ -59,13 +60,7 @@
   // which only moves positions and never lifts a hold.
   const promoteCandidate = (c: Candidate) => mutate(() => promoteQueuedPR(c));
 
-  function toggleCandidate(c: Candidate) {
-    const next = new Set(expanded);
-    const k = keyOf(c);
-    if (next.has(k)) next.delete(k);
-    else next.add(k);
-    expanded = next;
-  }
+  const toggleCandidate = (c: Candidate) => (expanded = toggleIn(expanded, keyOf(c)));
 
   // Drag-and-drop reordering: the grip is the hotspot; reviewing rows are
   // pinned (not draggable, and nothing can be dropped above them because

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toggleIn } from '../lib/expandable';
   import { onMount } from 'svelte';
   import { getAuthors, getConfig } from '../lib/api';
   import { withFeed } from '../lib/feed';
@@ -31,11 +32,7 @@
   // several repos expands independently per row.
   const rowKey = (a: AllowedAuthor) => `${a.repo}|${a.github_handle}`;
   let expanded = new Set<string>();
-  function toggle(a: AllowedAuthor) {
-    const key = rowKey(a);
-    expanded.has(key) ? expanded.delete(key) : expanded.add(key);
-    expanded = expanded; // reassign so Svelte sees the mutation
-  }
+  const toggle = (a: AllowedAuthor) => (expanded = toggleIn(expanded, rowKey(a)));
 
   // The dials a row inherits rather than sets are worth showing as inherited,
   // not as blank: "no override" and "unknown" look identical otherwise.

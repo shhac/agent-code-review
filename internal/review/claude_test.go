@@ -33,11 +33,7 @@ func hasArg(args []string, flag string) bool {
 // way TestCodexBuildArgs does for codex.
 func TestClaudeBuildArgs(t *testing.T) {
 	budget := 2.5
-	e := newClaude(config.ClaudeSettings{
-		Model: "opus", Effort: "high", PermissionMode: "dontAsk",
-		AllowedTools: []string{"Bash", "Read"}, MaxBudgetUSD: budget,
-		Args: []string{"--strict-mcp-config"},
-	}, "keep going")
+	e := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "opus", Effort: "high", Args: []string{"--strict-mcp-config"}}, PermissionMode: "dontAsk", AllowedTools: []string{"Bash", "Read"}, MaxBudgetUSD: budget}, "keep going")
 	args := e.buildArgs("REVIEW THIS")
 
 	if !hasArg(args, "-p") || !hasArg(args, "--verbose") {
@@ -103,7 +99,7 @@ func TestClaudeProvenanceCarriesPinnedEffort(t *testing.T) {
 	if got := newClaude(config.ClaudeSettings{}, "n").effort; got != defaultEffort {
 		t.Errorf("effort = %q, want %q so history can correlate cost with effort", got, defaultEffort)
 	}
-	if got := newClaude(config.ClaudeSettings{Effort: "xhigh"}, "n").effort; got != "xhigh" {
+	if got := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Effort: "xhigh"}}, "n").effort; got != "xhigh" {
 		t.Errorf("an explicit effort must win, got %q", got)
 	}
 }
@@ -123,7 +119,7 @@ func TestClaudeDefaultModelSupportsAutoMode(t *testing.T) {
 // cannot use: that pairing is the user's to make (and to pair with a static
 // permission mode).
 func TestClaudeExplicitModelWins(t *testing.T) {
-	args := newClaude(config.ClaudeSettings{Model: "haiku"}, "nudge").buildArgs("p")
+	args := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "haiku"}}, "nudge").buildArgs("p")
 	if got, _ := argValue(args, "--model"); got != "haiku" {
 		t.Errorf("--model = %q, want the configured value", got)
 	}
@@ -171,7 +167,7 @@ func TestClaudeExplicitAllowedToolsWin(t *testing.T) {
 }
 
 func TestClaudeBuildResumeArgsCarriesSessionAndNudge(t *testing.T) {
-	e := newClaude(config.ClaudeSettings{Model: "sonnet"}, "finish up")
+	e := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "sonnet"}}, "finish up")
 	args := e.buildResumeArgs("sess-123")
 	if got, _ := argValue(args, "--resume"); got != "sess-123" {
 		t.Errorf("--resume = %q, want sess-123", got)
@@ -260,7 +256,7 @@ func TestClaudeReviewResumesOnWorkingReport(t *testing.T) {
 
 func TestClaudeReviewStopsResumingAtTheCap(t *testing.T) {
 	zero := 0
-	e := newClaude(config.ClaudeSettings{MaxResumes: &zero}, "nudge")
+	e := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{MaxResumes: &zero}}, "nudge")
 	calls := fakeClaude(e, resultLine(t, "s1", DecisionWorking, 10))
 
 	v, err := e.Review(context.Background(), Request{Prompt: "go", WorkDir: t.TempDir()})
@@ -308,7 +304,7 @@ func TestClaudeReviewReportsCost(t *testing.T) {
 	}
 
 	zero := 0
-	failing := newClaude(config.ClaudeSettings{MaxResumes: &zero}, "nudge")
+	failing := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{MaxResumes: &zero}}, "nudge")
 	failing.runCmd = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
 		_, _ = io.WriteString(stream, `{"type":"result","subtype":"success","usage":{"input_tokens":100},"total_cost_usd":0.99}`+"\n")
 		return nil
@@ -344,7 +340,7 @@ func TestResumableRunToleratesMissingCostAccessor(t *testing.T) {
 // error AND in the transcript the dashboard renders.
 func TestClaudeFailureSurfacesReason(t *testing.T) {
 	zero := 0
-	e := newClaude(config.ClaudeSettings{MaxResumes: &zero}, "nudge")
+	e := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{MaxResumes: &zero}}, "nudge")
 	e.runCmd = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
 		_, _ = io.WriteString(stream, `{"type":"system","subtype":"init","session_id":"s1"}`+"\n"+
 			`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"credit balance too low","usage":{"input_tokens":0}}`+"\n")
@@ -376,10 +372,7 @@ func TestClaudeFailureSurfacesReason(t *testing.T) {
 func TestClaudeArgsTerminatePromptWithSeparator(t *testing.T) {
 	// A static mode, so the fallback tool list ships and the variadic flag is
 	// actually in the argv, plus a user-supplied extra arg after it.
-	e := newClaude(config.ClaudeSettings{
-		PermissionMode: "dontAsk",
-		Args:           []string{"--strict-mcp-config"},
-	}, "finish up")
+	e := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Args: []string{"--strict-mcp-config"}}, PermissionMode: "dontAsk"}, "finish up")
 
 	for _, tc := range []struct {
 		name string

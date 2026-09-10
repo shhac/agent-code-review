@@ -269,9 +269,7 @@ func TestHandleConfig(t *testing.T) {
 	s := newTestServer(fs, config.Config{
 		Repos:                   []string{"zeta/api", "Alpha/web", "alpha/admin"},
 		AllowedAuthorsOnlyRepos: []string{"Alpha/web"},
-		Review: config.ReviewSettings{Codex: config.CodexSettings{
-			Model: "gpt-5.6-terra", Effort: "high",
-		}},
+		Review:                  config.ReviewSettings{Codex: config.CodexSettings{EngineCommon: config.EngineCommon{Model: "gpt-5.6-terra", Effort: "high"}}},
 	})
 	s.version = "1.2.3"
 	s.running = Running{Review: true}

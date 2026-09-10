@@ -163,7 +163,6 @@ func Blocking(checks []Check) []Check {
 // differ (codex reports via exit code, claude via JSON), which is the only
 // reason this is a table of functions rather than a table of flags.
 type engineProbe struct {
-	defaultBin  string
 	installHint string
 	auth        func(ctx context.Context, bin string) Check
 }
@@ -176,14 +175,12 @@ type engineProbe struct {
 // strength of codex being installed. Unknown is now its own answer.
 var engineProbes = map[string]engineProbe{
 	"codex": {
-		defaultBin:  "codex",
 		installHint: "install the Codex CLI, or set codex.bin",
 		auth: func(ctx context.Context, bin string) Check {
 			return authCheck(ctx, "engine:codex-auth", bin, []string{"login", "status"}, "run `codex login`")
 		},
 	},
 	"claude": {
-		defaultBin:  "claude",
 		installHint: "install Claude Code, or set claude.bin",
 		auth:        claudeAuthCheck,
 	},
@@ -201,10 +198,7 @@ func engineChecks(ctx context.Context, engine string, cfg config.Config) []Check
 			Hint:   "valid engines: " + strings.Join(config.EngineNames, ", "),
 		}}
 	}
-	bin := cfg.BinFor(engine)
-	if bin == "" {
-		bin = probe.defaultBin
-	}
+	bin := cfg.ResolveBin(engine)
 	return []Check{
 		binaryCheck(ctx, "engine:"+engine, bin, "--version", probe.installHint),
 		probe.auth(ctx, bin),

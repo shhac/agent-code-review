@@ -95,8 +95,8 @@ func TestStartDashboardBindConflict(t *testing.T) {
 // a third engine: no compile error, no failing test, just no usage polled.
 func TestUsageSourcesCoversEveryWiredEngine(t *testing.T) {
 	cfg := config.Config{Review: config.ReviewSettings{
-		Codex:  config.CodexSettings{Bin: "codex-dev"},
-		Claude: config.ClaudeSettings{Bin: "claude-dev"},
+		Codex:  config.CodexSettings{EngineCommon: config.EngineCommon{Bin: "codex-dev"}},
+		Claude: config.ClaudeSettings{EngineCommon: config.EngineCommon{Bin: "claude-dev"}},
 	}}
 	got := usageSources(cfg)
 	if len(got) != len(review.Engines) {

@@ -138,6 +138,8 @@ var ErrClaudeAuthUnreadable = errors.New("claude auth status was not readable JS
 // logged out and reports it in the payload, so callers must check LoggedIn
 // rather than trusting the exit code.
 func ReadClaudeAuthStatus(ctx context.Context, bin string) (ClaudeAuthStatus, error) {
+	// Not config.DefaultBin: this package deliberately has no dependency on
+	// internal/config, and one two-line default is not worth the edge.
 	if bin == "" {
 		bin = "claude"
 	}

@@ -39,6 +39,8 @@ type rpcResponse struct {
 // fetchCodex spawns the codex app-server, requests the account rate limits,
 // and tears the process down. bin is the codex binary ("codex" when empty).
 func fetchCodex(ctx context.Context, bin string) (Snapshot, error) {
+	// Not config.DefaultBin: this package deliberately has no dependency on
+	// internal/config, and one two-line default is not worth the edge.
 	if bin == "" {
 		bin = "codex"
 	}

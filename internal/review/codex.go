@@ -36,10 +36,7 @@ type codexEngine struct {
 }
 
 func newCodex(c config.CodexSettings, resumePrompt string) *codexEngine {
-	bin := c.Bin
-	if bin == "" {
-		bin = "codex"
-	}
+	bin := config.DefaultBin("codex", c.Bin)
 	sandbox := c.Sandbox
 	if sandbox == "" {
 		// The agent needs to write scratch files and run gh; workspace-write

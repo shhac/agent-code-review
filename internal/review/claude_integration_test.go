@@ -28,7 +28,7 @@ func TestClaudeSmoke(t *testing.T) {
 	// Pinned to a static mode and the cheapest model: this exercises the
 	// plumbing, not the classifier (TestClaudeAutoModeSmoke covers that, and
 	// auto mode does not support haiku).
-	engine := newClaude(config.ClaudeSettings{Model: "haiku", PermissionMode: "dontAsk"}, "NUDGE")
+	engine := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "haiku"}, PermissionMode: "dontAsk"}, "NUDGE")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 

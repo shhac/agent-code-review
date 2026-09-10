@@ -12,7 +12,7 @@ import (
 func TestPreflightCatchesAutoModeModelMismatch(t *testing.T) {
 	problems := Preflight(config.ReviewSettings{
 		Engine: "claude",
-		Claude: config.ClaudeSettings{Model: "haiku"}, // auto mode is the default
+		Claude: config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "haiku"}}, // auto mode is the default
 	})
 	if len(problems) != 1 || !strings.Contains(problems[0], "not supported") {
 		t.Fatalf("problems = %v, want the auto-mode model mismatch", problems)
@@ -24,7 +24,7 @@ func TestPreflightCatchesAutoModeModelMismatch(t *testing.T) {
 func TestPreflightAllowsUnsupportedModelInStaticMode(t *testing.T) {
 	if problems := Preflight(config.ReviewSettings{
 		Engine: "claude",
-		Claude: config.ClaudeSettings{Model: "haiku", PermissionMode: "dontAsk"},
+		Claude: config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "haiku"}, PermissionMode: "dontAsk"},
 	}); len(problems) != 0 {
 		t.Errorf("problems = %v, want none for a static mode", problems)
 	}
@@ -47,7 +47,7 @@ func TestPreflightCleanConfigs(t *testing.T) {
 		"codex":            {Engine: "codex"},
 		"engine unset":     {},
 		"claude defaults":  {Engine: "claude"},
-		"claude pinned ok": {Engine: "claude", Claude: config.ClaudeSettings{Model: "claude-sonnet-5"}},
+		"claude pinned ok": {Engine: "claude", Claude: config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "claude-sonnet-5"}}},
 	} {
 		if problems := Preflight(cfg); len(problems) != 0 {
 			t.Errorf("%s: problems = %v, want none", name, problems)

@@ -97,10 +97,7 @@ const defaultEffort = "medium"
 var fallbackAllowedTools = []string{"Bash(gh *)", "Read", "Glob", "Grep"}
 
 func newClaude(c config.ClaudeSettings, resumePrompt string) *claudeEngine {
-	bin := c.Bin
-	if bin == "" {
-		bin = "claude"
-	}
+	bin := config.DefaultBin("claude", c.Bin)
 	mode := c.PermissionMode
 	if mode == "" {
 		mode = defaultPermissionMode

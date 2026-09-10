@@ -169,22 +169,56 @@ func (c Config) LeaseWindow() time.Duration {
 // review re-exports this as review.Engines, so existing callers are unchanged.
 var EngineNames = []string{"codex", "claude"}
 
-// Engine is the review engine id, defaulting to the first wired engine.
-func (c Config) Engine() string {
-	if c.Review.Engine != "" {
-		return c.Review.Engine
+// ResolvedEngine is the review engine id, defaulting to the first wired one.
+// On ReviewSettings rather than Config because that is the value the callers
+// which need it actually hold, and three of them were re-deriving the same
+// `if engine == "" { engine = EngineNames[0] }` on top of Config.Engine.
+func (r ReviewSettings) ResolvedEngine() string {
+	if r.Engine != "" {
+		return r.Engine
 	}
 	return EngineNames[0]
+}
+
+// Engine is the review engine id, defaulting to the first wired engine.
+func (c Config) Engine() string { return c.Review.ResolvedEngine() }
+
+// EngineCommon selects the named engine's shared dials. THE engine switch:
+// the one place that maps a name to its settings, so adding a fourth engine
+// is a case here rather than a hunt through five call sites that each
+// re-derived `if engine == "claude"`.
+//
+// An unknown name falls back to the default engine's block, which keeps
+// BinFor's long-standing behaviour for a name nothing recognises.
+func (r *ReviewSettings) EngineCommon(engine string) *EngineCommon {
+	if engine == "claude" {
+		return &r.Claude.EngineCommon
+	}
+	return &r.Codex.EngineCommon
 }
 
 // BinFor is the named engine's configured binary, whether or not it is the
 // engine currently selected. Callers that meter or diagnose EVERY engine need
 // this; callers that only care about the active one want EngineBin.
 func (c Config) BinFor(engine string) string {
-	if engine == "claude" {
-		return c.Review.Claude.Bin
+	return c.Review.EngineCommon(engine).Bin
+}
+
+// ResolveBin is BinFor with the engine's own name as the default, which is
+// what every caller that actually RUNS something needs. BinFor deliberately
+// reports the unresolved value, so six call sites across five packages each
+// re-applied `if bin == "" { bin = "codex" }`; this is that rule, once.
+func (c Config) ResolveBin(engine string) string {
+	return DefaultBin(engine, c.BinFor(engine))
+}
+
+// DefaultBin resolves a possibly-empty binary against an engine name, for the
+// callers that hold only those two strings and no Config.
+func DefaultBin(engine, bin string) string {
+	if bin != "" {
+		return bin
 	}
-	return c.Review.Codex.Bin
+	return engine
 }
 
 // EngineBin is the configured engine's binary; empty means the engine picks
@@ -202,19 +236,13 @@ func (c Config) EngineBin() string {
 // EngineModel is the configured engine's model; empty means the engine's own
 // default.
 func (c Config) EngineModel() string {
-	if c.Engine() == "claude" {
-		return c.Review.Claude.Model
-	}
-	return c.Review.Codex.Model
+	return c.Review.EngineCommon(c.Engine()).Model
 }
 
 // EngineEffort is the configured engine's reasoning effort; empty means the
 // engine's own default.
 func (c Config) EngineEffort() string {
-	if c.Engine() == "claude" {
-		return c.Review.Claude.Effort
-	}
-	return c.Review.Codex.Effort
+	return c.Review.EngineCommon(c.Engine()).Effort
 }
 
 // TailscalePort is the Tailscale serve/funnel port (default 443).

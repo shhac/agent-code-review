@@ -285,8 +285,8 @@ func TestInitAndReadWrite(t *testing.T) {
 // reached into Review.Codex/Review.Claude themselves.
 func TestEngineDialsFollowConfiguredEngine(t *testing.T) {
 	cfg := Config{Review: ReviewSettings{
-		Codex:  CodexSettings{Bin: "codex-dev", Model: "gpt-5.6", Effort: "high"},
-		Claude: ClaudeSettings{Bin: "claude-dev", Model: "claude-opus-5", Effort: "medium"},
+		Codex:  CodexSettings{EngineCommon: EngineCommon{Bin: "codex-dev", Model: "gpt-5.6", Effort: "high"}},
+		Claude: ClaudeSettings{EngineCommon: EngineCommon{Bin: "claude-dev", Model: "claude-opus-5", Effort: "medium"}},
 	}}
 
 	// Unset engine resolves to codex, matching Engine()'s own default.
@@ -369,5 +369,50 @@ func TestConcurrentInitClaimsTheFileOnce(t *testing.T) {
 
 	if succeeded != 1 {
 		t.Fatalf("%d of %d concurrent Inits claimed the file, want exactly 1", succeeded, writers)
+	}
+}
+
+// TestEngineCommonIsTheOnlyEngineSwitch pins the property the shared dials
+// exist for: adding an engine should be one case in one function, not a hunt
+// through every getter that used to write `if engine == "claude"`.
+func TestEngineCommonIsTheOnlyEngineSwitch(t *testing.T) {
+	c := Config{Review: ReviewSettings{
+		Engine: "claude",
+		Codex:  CodexSettings{EngineCommon: EngineCommon{Bin: "codex-dev", Model: "gpt", Effort: "low"}},
+		Claude: ClaudeSettings{EngineCommon: EngineCommon{Bin: "claude-dev", Model: "opus", Effort: "high"}},
+	}}
+	// Every "which engine's dial" question routes through the one selector.
+	if got := c.EngineBin(); got != "claude-dev" {
+		t.Errorf("EngineBin = %q, want the selected engine's", got)
+	}
+	if got := c.EngineModel(); got != "opus" {
+		t.Errorf("EngineModel = %q", got)
+	}
+	if got := c.EngineEffort(); got != "high" {
+		t.Errorf("EngineEffort = %q", got)
+	}
+	if got := c.BinFor("codex"); got != "codex-dev" {
+		t.Errorf("BinFor names an engine regardless of selection, got %q", got)
+	}
+}
+
+// TestResolveBinDefaultsToTheEngineName covers the rule six call sites across
+// five packages were each re-applying: an unset binary means the engine's own
+// name. BinFor deliberately keeps reporting the unresolved value, because
+// `config show` should say what is configured, not what would run.
+func TestResolveBinDefaultsToTheEngineName(t *testing.T) {
+	var bare Config
+	if got := bare.ResolveBin("claude"); got != "claude" {
+		t.Errorf("ResolveBin = %q, want the engine name", got)
+	}
+	if got := bare.BinFor("claude"); got != "" {
+		t.Errorf("BinFor = %q, want the unresolved empty value", got)
+	}
+	set := Config{Review: ReviewSettings{Claude: ClaudeSettings{EngineCommon: EngineCommon{Bin: "/opt/claude"}}}}
+	if got := set.ResolveBin("claude"); got != "/opt/claude" {
+		t.Errorf("ResolveBin = %q, want the configured binary", got)
+	}
+	if got := DefaultBin("grok", ""); got != "grok" {
+		t.Errorf("DefaultBin = %q: an engine nothing has configured still resolves to its name", got)
 	}
 }

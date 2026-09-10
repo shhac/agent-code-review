@@ -14,7 +14,7 @@ import (
 )
 
 func TestBuildArgs(t *testing.T) {
-	full := newCodex(config.CodexSettings{Model: "some-model", Effort: "high", Sandbox: "read-only", Args: []string{"-c", "k=v"}}, "NUDGE")
+	full := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Model: "some-model", Effort: "high", Args: []string{"-c", "k=v"}}, Sandbox: "read-only"}, "NUDGE")
 	args := full.buildArgs("/wd", "/wd/schema.json", "/wd/last.json", "PROMPT")
 
 	joined := strings.Join(args, " ")
@@ -56,7 +56,7 @@ func TestBuildArgs(t *testing.T) {
 }
 
 func TestBuildResumeArgs(t *testing.T) {
-	e := newCodex(config.CodexSettings{Model: "some-model", Effort: "high", Sandbox: "read-only", Args: []string{"-c", "k=v"}}, "NUDGE")
+	e := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Model: "some-model", Effort: "high", Args: []string{"-c", "k=v"}}, Sandbox: "read-only"}, "NUDGE")
 	args := e.buildResumeArgs("SESSION-ID", "/wd/schema.json", "/wd/last.json")
 
 	joined := strings.Join(args, " ")
@@ -89,11 +89,11 @@ func TestBuildResumeArgs(t *testing.T) {
 
 func TestCodexReviewProcessResultBranches(t *testing.T) {
 	t.Run("valid report wins over non-zero exit", func(t *testing.T) {
-		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t, `printf '%s\n' "raw line"
+		engine := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Bin: fakeCodex(t, `printf '%s\n' "raw line"
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1234}}'
 printf '{"decision":"COMMENTED","summary":"left comments"}' > "$last_msg"
 exit 7
-`)}, "NUDGE")
+`)}}, "NUDGE")
 		v, err := engine.Review(context.Background(), Request{WorkDir: t.TempDir(), Prompt: "P"})
 		if err != nil {
 			t.Fatal(err)
@@ -104,10 +104,10 @@ exit 7
 	})
 
 	t.Run("non-zero without report returns error verdict", func(t *testing.T) {
-		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t, `printf '%s\n' diagnostics
+		engine := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Bin: fakeCodex(t, `printf '%s\n' diagnostics
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":941}}'
 exit 7
-`)}, "NUDGE")
+`)}}, "NUDGE")
 		v, err := engine.Review(context.Background(), Request{WorkDir: t.TempDir(), Prompt: "P"})
 		if err == nil {
 			t.Fatal("expected codex exec error")
@@ -118,10 +118,10 @@ exit 7
 	})
 
 	t.Run("zero exit with invalid report returns error verdict", func(t *testing.T) {
-		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t, `printf '%s\n' done
+		engine := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Bin: fakeCodex(t, `printf '%s\n' done
 printf 'not json' > "$last_msg"
 exit 0
-`)}, "NUDGE")
+`)}}, "NUDGE")
 		v, err := engine.Review(context.Background(), Request{WorkDir: t.TempDir(), Prompt: "P"})
 		if err == nil {
 			t.Fatal("expected parse error")
@@ -166,9 +166,9 @@ func invocations(t *testing.T, workDir string) []string {
 
 func TestCodexResumeOnWorking(t *testing.T) {
 	t.Run("resumes the session and takes the cumulative usage", func(t *testing.T) {
-		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t,
+		engine := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Bin: fakeCodex(t,
 			workingThenBody(`  printf '{"decision":"APPROVED","summary":"finished after nudge"}' > "$last_msg"`),
-		)}, "keep going until you arrive at a decision")
+		)}}, "keep going until you arrive at a decision")
 		workDir := t.TempDir()
 		v, err := engine.Review(context.Background(), Request{WorkDir: workDir, Prompt: "P"})
 		if err != nil {
@@ -193,9 +193,9 @@ func TestCodexResumeOnWorking(t *testing.T) {
 	})
 
 	t.Run("gives up after max_resumes and records ERROR", func(t *testing.T) {
-		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t,
+		engine := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Bin: fakeCodex(t,
 			workingThenBody(`  printf '{"decision":"WORKING","summary":"still going"}' > "$last_msg"`),
-		)}, "NUDGE")
+		)}}, "NUDGE")
 		workDir := t.TempDir()
 		v, err := engine.Review(context.Background(), Request{WorkDir: workDir, Prompt: "P"})
 		if err == nil || v.Decision != DecisionError {
@@ -208,9 +208,9 @@ func TestCodexResumeOnWorking(t *testing.T) {
 
 	t.Run("max_resumes 0 disables resuming", func(t *testing.T) {
 		zero := 0
-		engine := newCodex(config.CodexSettings{MaxResumes: &zero, Bin: fakeCodex(t,
+		engine := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{MaxResumes: &zero, Bin: fakeCodex(t,
 			workingThenBody(`  printf '{"decision":"APPROVED","summary":"never reached"}' > "$last_msg"`),
-		)}, "NUDGE")
+		)}}, "NUDGE")
 		workDir := t.TempDir()
 		v, err := engine.Review(context.Background(), Request{WorkDir: workDir, Prompt: "P"})
 		if err == nil || v.Decision != DecisionError {
@@ -222,11 +222,11 @@ func TestCodexResumeOnWorking(t *testing.T) {
 	})
 
 	t.Run("no session header means no resume", func(t *testing.T) {
-		engine := newCodex(config.CodexSettings{Bin: fakeCodex(t,
+		engine := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Bin: fakeCodex(t,
 			`echo "$(echo "$all_args" | tr '\n' ' ')" >> "$(dirname "$last_msg")/invocations"
 printf '{"decision":"WORKING","summary":"starting"}' > "$last_msg"
 exit 0
-`)}, "NUDGE")
+`)}}, "NUDGE")
 		workDir := t.TempDir()
 		v, err := engine.Review(context.Background(), Request{WorkDir: workDir, Prompt: "P"})
 		if err == nil || v.Decision != DecisionError {

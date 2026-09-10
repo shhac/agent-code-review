@@ -189,7 +189,7 @@ func TestConfigProblemsCoversEveryGroupsSettings(t *testing.T) {
 	cfg := config.Config{
 		Review: config.ReviewSettings{
 			Engine: "claude",
-			Claude: config.ClaudeSettings{Model: "claude-opus-5", PermissionMode: "auto"},
+			Claude: config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "claude-opus-5"}, PermissionMode: "auto"},
 		},
 		Authors: config.AuthorSettings{
 			Groups: map[string]config.Group{"cheap": {Review: config.ReviewComment, Model: "haiku"}},

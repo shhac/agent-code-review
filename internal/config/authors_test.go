@@ -177,8 +177,8 @@ func TestExplainPolicyNamesTheDecidingLayer(t *testing.T) {
 func TestWithPolicyAppliesOnlyTheResolvedEnginesDials(t *testing.T) {
 	base := ReviewSettings{
 		Engine: "codex",
-		Codex:  CodexSettings{Model: "gpt-5.6", Effort: "low"},
-		Claude: ClaudeSettings{Model: "sonnet", Effort: "low"},
+		Codex:  CodexSettings{EngineCommon: EngineCommon{Model: "gpt-5.6", Effort: "low"}},
+		Claude: ClaudeSettings{EngineCommon: EngineCommon{Model: "sonnet", Effort: "low"}},
 	}
 
 	t.Run("switching engine moves the dials to that engine", func(t *testing.T) {

@@ -321,19 +321,12 @@ func (r ReviewSettings) WithPolicy(p Policy) ReviewSettings {
 	if p.Model == "" && p.Effort == "" {
 		return r
 	}
-	engine := r.Engine
-	if engine == "" {
-		engine = EngineNames[0]
-	}
-	model, effort := &r.Codex.Model, &r.Codex.Effort
-	if engine == "claude" {
-		model, effort = &r.Claude.Model, &r.Claude.Effort
-	}
+	e := r.EngineCommon(r.ResolvedEngine())
 	if p.Model != "" {
-		*model = p.Model
+		e.Model = p.Model
 	}
 	if p.Effort != "" {
-		*effort = p.Effort
+		e.Effort = p.Effort
 	}
 	return r
 }

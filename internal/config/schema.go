@@ -123,14 +123,32 @@ type DiscoverySettings struct {
 	Interval string `json:"interval,omitempty"` // e.g. "5m"
 }
 
+// EngineCommon is the set of dials every engine has, whatever it is: which
+// binary, which model, how hard to think, what extra argv to append, how many
+// times to resume an unfinished run.
+//
+// Shared because they are the same QUESTION for every engine, not because
+// engines are interchangeable — they are not. Everything about how an engine
+// is actually invoked (codex's sandbox, claude's permission mode, allowed
+// tools and budget ceiling) deliberately stays on the engine's own struct,
+// because there is no reason to expect a third harness to invoke like either
+// of these two.
+//
+// Embedded anonymously, so the on-disk shape is unchanged: encoding/json
+// flattens promoted fields in both directions, and they stay addressable, so
+// the config key registry's &c.Review.Claude.Bin accessors are untouched.
+type EngineCommon struct {
+	Bin        string   `json:"bin,omitempty"`         // default: the engine's own name
+	Model      string   `json:"model,omitempty"`       // e.g. "gpt-5.6", or an alias like "opus"
+	Effort     string   `json:"effort,omitempty"`      // reasoning effort; empty = model default
+	Args       []string `json:"args,omitempty"`        // extra args appended to the engine's invocation
+	MaxResumes *int     `json:"max_resumes,omitempty"` // resumes when a run ends unfinished; nil = default 2, 0 disables
+}
+
 // CodexSettings configures the default review engine (codex exec).
 type CodexSettings struct {
-	Bin        string   `json:"bin,omitempty"`         // default "codex"
-	Model      string   `json:"model,omitempty"`       // e.g. "gpt-5.6"
-	Effort     string   `json:"effort,omitempty"`      // Codex model_reasoning_effort; empty = model default
-	Sandbox    string   `json:"sandbox,omitempty"`     // codex sandbox mode
-	Args       []string `json:"args,omitempty"`        // extra args appended to `codex exec`
-	MaxResumes *int     `json:"max_resumes,omitempty"` // resumes when a run ends on a WORKING report; nil = default 2, 0 disables
+	EngineCommon
+	Sandbox string `json:"sandbox,omitempty"` // codex sandbox mode
 }
 
 // ClaudeSettings configures the claude review engine (`claude -p`).
@@ -142,14 +160,10 @@ type CodexSettings struct {
 // API-rate valuation of the run, so it bounds runaway reviews rather than
 // literal spend.
 type ClaudeSettings struct {
-	Bin            string   `json:"bin,omitempty"`             // default "claude"
-	Model          string   `json:"model,omitempty"`           // alias ("opus", "sonnet") or full id
-	Effort         string   `json:"effort,omitempty"`          // low|medium|high|xhigh|max; empty = session default
+	EngineCommon
 	PermissionMode string   `json:"permission_mode,omitempty"` // default "acceptEdits"
 	AllowedTools   []string `json:"allowed_tools,omitempty"`   // extra pre-approved tools
 	MaxBudgetUSD   float64  `json:"max_budget_usd,omitempty"`  // --max-budget-usd; 0 = uncapped
-	Args           []string `json:"args,omitempty"`            // extra args appended to `claude -p`
-	MaxResumes     *int     `json:"max_resumes,omitempty"`     // resumes when a run ends without a final report; nil = default 2, 0 disables
 }
 
 // ReviewSettings selects and configures the pluggable review engine.

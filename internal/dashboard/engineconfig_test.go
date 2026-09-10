@@ -13,8 +13,8 @@ import (
 // always reading codex's would show settings that no review will use.
 func TestEngineConfigFollowsConfiguredEngine(t *testing.T) {
 	cfg := config.Config{Review: config.ReviewSettings{
-		Codex:  config.CodexSettings{Model: "gpt-5.6", Effort: "high"},
-		Claude: config.ClaudeSettings{Model: "claude-opus-5", Effort: "medium"},
+		Codex:  config.CodexSettings{EngineCommon: config.EngineCommon{Model: "gpt-5.6", Effort: "high"}},
+		Claude: config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "claude-opus-5", Effort: "medium"}},
 	}}
 
 	if got := engineConfigOf(cfg); got.Model != "gpt-5.6" || got.Effort != "high" {

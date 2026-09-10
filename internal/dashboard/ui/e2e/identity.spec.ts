@@ -113,3 +113,38 @@ test.describe('a PR under review', () => {
     await expect(ticket.locator('.steering').getByRole('button', { name: 'edit' })).toBeVisible();
   });
 });
+
+// Enter is the newline key in both steering flows, and both draft into a
+// textarea inside a modal whose backdrop closes on Enter. keydown bubbles, so
+// the dismiss handler used to answer for keystrokes aimed at the textarea and
+// discard the draft. Driven through the real browser because bubbling is the
+// whole point: nothing short of a real event reproduces it.
+test.describe('typing in a modal', () => {
+  test('Enter writes a newline instead of discarding the draft', async ({ page }) => {
+    await page.goto('/');
+    const ticket = page.locator('.ticket', { hasText: 'Add retry to the HTTP client' });
+    await ticket.locator('.ticket-main').click();
+    await ticket.locator('.steering button', { hasText: /edit/i }).click();
+
+    const modal = page.locator('.modal');
+    const box = modal.locator('textarea');
+    await box.fill('first line');
+    await box.press('Enter');
+    await box.type('second line');
+
+    await expect(modal).toBeVisible();
+    await expect(box).toHaveValue('first line\nsecond line');
+  });
+
+  test('Escape still closes it', async ({ page }) => {
+    await page.goto('/');
+    const ticket = page.locator('.ticket', { hasText: 'Add retry to the HTTP client' });
+    await ticket.locator('.ticket-main').click();
+    await ticket.locator('.steering button', { hasText: /edit/i }).click();
+
+    const modal = page.locator('.modal');
+    await expect(modal).toBeVisible();
+    await modal.locator('textarea').press('Escape');
+    await expect(modal).toBeHidden();
+  });
+});

@@ -3,6 +3,12 @@
   // gives: editing steering, and adding a PR with steering. Escape and a
   // backdrop click both close, because a modal you cannot dismiss by reflex is
   // worse than no modal.
+  //
+  // Both dismiss handlers are |self. The click one always was; the keydown one
+  // was not, and keydown BUBBLES: every Enter typed inside the dialog reached
+  // the backdrop and dismissed it. Since both flows here are textareas, that
+  // made the newline key throw the draft away. A dismiss handler on a wrapper
+  // must only ever answer for the wrapper itself.
   export let title = '';
   export let onclose: () => void;
 
@@ -19,7 +25,7 @@
   tabindex="-1"
   aria-label="Close"
   on:click|self={onclose}
-  on:keydown={(e) => { if (e.key === 'Enter') onclose(); }}
+  on:keydown|self={(e) => { if (e.key === 'Enter') onclose(); }}
 >
   <div class="modal" role="dialog" aria-modal="true" aria-label={title}>
     <div class="modal-head">

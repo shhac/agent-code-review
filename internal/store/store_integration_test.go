@@ -786,7 +786,7 @@ func TestEnqueueHoldSemantics(t *testing.T) {
 	// owns. A hold set by anything else survives untouched. Under the old
 	// single-column form this was impossible to express, so a sweep cleared
 	// whatever it did not know about.
-	if err := s.SetHold(ctx, "o/r", 21, HoldEditing, at(3*time.Hour)); err != nil {
+	if err := s.SetHolds(ctx, "o/r", 21, map[string]time.Time{HoldEditing: at(3 * time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	enq(map[string]time.Time{HoldSettling: at(20 * time.Minute)}, SourceDiscovered)
@@ -798,7 +798,7 @@ func TestEnqueueHoldSemantics(t *testing.T) {
 		t.Fatalf("ready=%v reason=%q, want the editing hold to decide", e, r)
 	}
 	// Releasing one name leaves the others standing.
-	if err := s.ClearHold(ctx, "o/r", 21, HoldEditing); err != nil {
+	if err := s.ClearHolds(ctx, "o/r", 21, HoldEditing); err != nil {
 		t.Fatal(err)
 	}
 	if e, r := ready(); !e.Equal(at(90*time.Minute)) || r != HoldCooldown {
@@ -808,7 +808,7 @@ func TestEnqueueHoldSemantics(t *testing.T) {
 	// manual FOREVER, so a wholesale clear here means every later sweep wipes
 	// whatever the author is holding — the same failure the per-name merge
 	// exists to prevent, on the commonest path there is.
-	if err := s.SetHold(ctx, "o/r", 21, HoldEditing, at(3*time.Hour)); err != nil {
+	if err := s.SetHolds(ctx, "o/r", 21, map[string]time.Time{HoldEditing: at(3 * time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	enq(nil, SourceManual)
@@ -820,7 +820,7 @@ func TestEnqueueHoldSemantics(t *testing.T) {
 	if got := row().Holds[HoldEditing]; !got.Equal(at(3 * time.Hour)) {
 		t.Fatalf("a sweep over a manual row must not clear a foreign hold: editing=%v, holds=%v", got, row().Holds)
 	}
-	if err := s.ClearHold(ctx, "o/r", 21, HoldEditing); err != nil {
+	if err := s.ClearHolds(ctx, "o/r", 21, HoldEditing); err != nil {
 		t.Fatal(err)
 	}
 

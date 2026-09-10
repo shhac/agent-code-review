@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS queue (
   source        TEXT NOT NULL DEFAULT 'discovered', -- 'discovered' | 'manual'. Manual adds bypass the pre-review candidacy check (drafts and explicit re-review requests must go through).
   work_dir      TEXT,                           -- the engine's scratch workspace, set at claim time; its agent.log is the live review log
   holds         JSON,                           -- named eligibility holds, {name: expiry}. The row is reviewable once every one is past; NULL/{} = eligible now. Manual adds/promotion clear them all.
-  steering_editing_since TIMESTAMP,               -- when the current steering-editor session began; the anchor the renewal cap measures from. NOT a hold: it never defers anything by itself.
   PRIMARY KEY (repo, number)
 );
 
@@ -207,7 +206,11 @@ UPDATE queue SET holds = json_object(hold_reason, strftime(eligible_at, '%Y-%m-%
   WHERE holds IS NULL AND eligible_at IS NOT NULL AND hold_reason IS NOT NULL;
 ALTER TABLE queue DROP COLUMN IF EXISTS eligible_at;
 ALTER TABLE queue DROP COLUMN IF EXISTS hold_reason;
-ALTER TABLE queue ADD COLUMN IF NOT EXISTS steering_editing_since TIMESTAMP;
+-- steering_editing_since briefly had its own column. It is one more named
+-- instant on the row, and an instant that is always PAST defers nothing by
+-- arithmetic, so it belongs in holds: same per-name merge, and it lands
+-- atomically with the hold it dates instead of in a second statement.
+ALTER TABLE queue DROP COLUMN IF EXISTS steering_editing_since;
 
 -- Steering: a short instruction from the PR's author (or from the account
 -- reviews are posted as) that shapes the NEXT review of that PR. Columns on

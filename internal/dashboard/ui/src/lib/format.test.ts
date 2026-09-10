@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { durSecs, exact, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
+import { durSecs, exact, holdBlurb, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
 
 describe('maxOf', () => {
   it('takes the largest selected value', () => {
@@ -93,5 +93,30 @@ describe('prHref', () => {
   it('prefers the recorded URL and falls back to the canonical one', () => {
     expect(prHref('o/r', 5, 'https://example.test/x')).toBe('https://example.test/x');
     expect(prHref('o/r', 5)).toBe('https://github.com/o/r/pull/5');
+  });
+});
+
+describe('holdBlurb', () => {
+  const until = '2026-09-10T12:00:00Z';
+
+  it('names each hold the server can set', () => {
+    expect(holdBlurb('cooldown', until)).toContain('cooling down');
+    expect(holdBlurb('settling', until)).toContain('settling');
+    expect(holdBlurb('editing', until)).toContain('writing steering');
+  });
+
+  it('does not tell one hold as if it were another', () => {
+    // The bug this table replaced: a two-branch ternary whose else-arm said
+    // "updated recently, settling" for every name that was not cooldown, so
+    // the editing hold added later described a state the PR was not in.
+    expect(holdBlurb('editing', until)).not.toContain('settling');
+    expect(holdBlurb('editing', until)).not.toContain('Updated recently');
+  });
+
+  it('degrades honestly for a name it does not know', () => {
+    // Hold names are an open set on the server, so the client will meet one
+    // it has never heard of. Vague and true beats specific and wrong.
+    expect(holdBlurb('something-new', until)).toContain('On hold until');
+    expect(holdBlurb(undefined, until)).toContain('On hold until');
   });
 });

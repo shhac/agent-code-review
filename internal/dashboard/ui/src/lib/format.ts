@@ -135,6 +135,22 @@ export function statusKind(s: string) {
   return kinds[s] || 'dim';
 }
 
+// Why a queued PR is not being reviewed yet, in the author's words. A table
+// rather than a ternary: hold names are an open set on the server, and the
+// two-branch version this replaced treated its else-arm as "settling", so a
+// PR parked by an open steering editor reported that it had been "updated
+// recently" — a sentence about a hold it was not under. An unknown name now
+// degrades to something true instead of inheriting another hold's story.
+const holdBlurbs: Record<string, string> = {
+  cooldown: 'Reviewed recently, cooling down until',
+  settling: 'Updated recently, settling until',
+  editing: 'Its author is writing steering for it; held until',
+};
+
+export function holdBlurb(reason: string | undefined, until: string | undefined) {
+  return `${holdBlurbs[reason ?? ''] ?? 'On hold until'} ${when(until ?? '')}`;
+}
+
 export function windowName(w: UsageWindow | undefined, fallback: string) {
   if (!w) return fallback;
   if (w.window_mins >= 10080) return 'Weekly';

@@ -194,22 +194,33 @@ func (d *duckDB) Reorder(ctx context.Context, positions []QueuePosition) error {
 	return d.exec(ctx, sql)
 }
 
-// SetHold adds or replaces ONE named hold and leaves every other hold on the
-// row alone. That per-name write is the whole point of the map: a caller can
-// defer a PR without knowing what else is holding it, and without having to
-// preserve something it never knew about.
+// SetHolds adds or replaces named holds and leaves every other name alone.
+// That per-name write is the whole point of the map: a caller can defer a PR
+// without knowing what else is holding it, and without having to preserve
+// something it never knew about.
 //
-// name is always one of the Hold* constants, never caller input, which is what
-// makes rendering it into the patch literal safe.
-func (d *duckDB) SetHold(ctx context.Context, repo string, number int, name string, until time.Time) error {
-	return d.exec(ctx, d.patchHolds(repo, number, holdsJSON(map[string]time.Time{name: until})))
+// A SET rather than one name, because entries that must agree have to land
+// together. A steering session's hold and the mark dating it were once two
+// statements, and a failure between them left a mark with no hold — the state
+// this file's own comments said must never exist.
+//
+// Names are always Hold*/Mark* constants, never caller input, which is what
+// makes rendering them into the patch literal safe.
+func (d *duckDB) SetHolds(ctx context.Context, repo string, number int, holds map[string]time.Time) error {
+	if len(holds) == 0 {
+		return nil
+	}
+	return d.exec(ctx, d.patchHolds(repo, number, holdsJSON(holds)))
 }
 
-// ClearHold releases one named hold. A JSON null patch removes exactly that
-// key, so a release can never expose a row that another hold still covers:
+// ClearHolds retires named holds. A JSON null patch removes exactly those
+// keys, so a release can never expose a row that another hold still covers:
 // the failure the single eligible_at column made unavoidable.
-func (d *duckDB) ClearHold(ctx context.Context, repo string, number int, name string) error {
-	return d.exec(ctx, d.patchHolds(repo, number, clearHoldsJSON(name)))
+func (d *duckDB) ClearHolds(ctx context.Context, repo string, number int, names ...string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	return d.exec(ctx, d.patchHolds(repo, number, clearHoldsJSON(names...)))
 }
 
 // patchHolds renders a per-name merge over the stored holds. Shared by both
@@ -220,14 +231,6 @@ func (d *duckDB) patchHolds(repo string, number int, patch string) string {
 		patch, prWhere(repo, number))
 }
 
-// SetEditingSince stamps (or with nil clears) the renewal anchor for the
-// steering editor. Separate from SetHold because it is not a hold: the hold
-// says "not yet", this says "since when has somebody been saying that", and
-// only the second is allowed to stop the first from being renewed.
-func (d *duckDB) SetEditingSince(ctx context.Context, repo string, number int, since *time.Time) error {
-	return d.exec(ctx, fmt.Sprintf("UPDATE queue SET steering_editing_since = %s WHERE %s",
-		tsp(since), prWhere(repo, number)))
-}
 
 // Promote floats the row to the top (negative queue_pos sorts ahead of the
 // default 0), clears EVERY hold, and escalates source to manual so the
@@ -238,6 +241,6 @@ func (d *duckDB) SetEditingSince(ctx context.Context, repo string, number int, s
 // left some holds standing would be a button that sometimes does nothing.
 func (d *duckDB) Promote(ctx context.Context, repo string, number int) error {
 	return d.exec(ctx, fmt.Sprintf(
-		"UPDATE queue SET queue_pos = -1, holds = NULL, steering_editing_since = NULL, source = 'manual' WHERE %s",
+		"UPDATE queue SET queue_pos = -1, holds = NULL, source = 'manual' WHERE %s",
 		prWhere(repo, number)))
 }

@@ -21,22 +21,22 @@ type Candidate struct {
 	ClaimPID     int        `json:"claim_pid,omitempty"`
 	Source       string     `json:"source"`             // SourceDiscovered | SourceManual
 	WorkDir      string     `json:"work_dir,omitempty"` // engine scratch workspace, set at claim time; <work_dir>/agent.log is the live review log
-	// Holds maps each named eligibility hold on this row to the instant it
-	// expires. The row is reviewable once every one of them is in the past,
-	// so holds compose upward: a new kind of hold can defer a PR further, but
-	// can never make it eligible sooner than another hold already made it.
-	// That monotonicity is why an author-triggered hold is safe to sit
+	// Holds maps a name to an instant. The row is reviewable once every one of
+	// them is in the past, so holds compose upward: a new name can defer a PR
+	// further, but can never make it eligible sooner than another name already
+	// made it. That monotonicity is why an author-triggered hold is safe to sit
 	// alongside the policy ones.
 	//
-	// Expired entries are left in place rather than swept: they are already
-	// not holds, and the alternative is every writer having to know which
-	// names it is allowed to retire.
+	// Expired entries are left in place rather than swept: they are already not
+	// holds, and the alternative is every writer having to know which names it
+	// is allowed to retire.
+	//
+	// Which is also why an instant that is ALWAYS past — when a thing began
+	// rather than when it ends, MarkEditingSince below — belongs here rather
+	// than in a column of its own. It defers nothing by arithmetic, not by
+	// convention, and it gets the same per-name merge, the same atomic write
+	// alongside the hold it describes, and the same retirement.
 	Holds map[string]time.Time `json:"holds,omitempty"`
-	// EditingSince is when the current steering-editor session began, or nil
-	// when nobody has it open. Deliberately NOT a hold: it defers nothing by
-	// itself, it is only the anchor the renewal cap measures from, so that an
-	// editor left open cannot keep re-imposing HoldEditing forever.
-	EditingSince *time.Time `json:"editing_since,omitempty"`
 	// Steering is the instruction shaping this PR's next review, if one is
 	// set. A field on the row rather than a joined entity: it shares the row's
 	// key and lifetime exactly, so it goes when the row goes.
@@ -69,6 +69,18 @@ const (
 	HoldSettling = "settling" // the PR was updated too recently (candidates.quiet_period)
 	HoldEditing  = "editing"  // an author has the steering editor open (candidates.steering_hold)
 )
+
+// MarkEditingSince is when the current steering-editor session began. It lives
+// in Holds like everything else, but it is a MARK, not a hold: its instant is
+// always in the past, so it can never win the MAX and can never defer the row.
+// It exists so renewal can be capped, and it is written and retired in the same
+// statement as HoldEditing, which is what stops the two disagreeing.
+const MarkEditingSince = "editing-since"
+
+// EditingNames are the entries one steering-editor session owns: the hold that
+// defers the row and the mark that dates the session. Always written and
+// cleared together.
+var EditingNames = []string{HoldEditing, MarkEditingSince}
 
 // DiscoveryHolds are the names a discovery sweep owns and may rewrite. Naming
 // the set once is what lets a manual enqueue clear discovery's holds without

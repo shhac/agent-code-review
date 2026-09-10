@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { holdForSteering, releaseSteeringHold } from './api';
   import { ago, when } from './format';
+  import { steeringSession } from './steering';
   import { mdToHtml } from './markdown';
   import Modal from './Modal.svelte';
   import SteeringEditor from './SteeringEditor.svelte';
@@ -28,69 +28,43 @@
   export let reviewing = false;
 
   // While the editor is open the PR is parked, so a free dispatcher slot
-  // cannot claim it out from under whoever is typing. Two things bound that,
-  // and neither is the client's to decide: the hold expires on its own (a
-  // closed tab releases nothing), and the server stops renewing once the
-  // session has run long enough. `parked` is what the server last told us, so
-  // a capped session stops claiming protection it no longer has.
-  const RENEW_MS = 60_000;
-
+  // cannot claim it out from under whoever is typing. The session rules live
+  // in steering.ts, where they are unit-tested: this component only opens one,
+  // ends it, and reports whether the PR is actually held.
   let draft = '';
   let editing = false;
   let saving = false;
   let err = '';
   let parked = false;
-  let renewTimer: ReturnType<typeof setInterval> | undefined;
+  let session: ReturnType<typeof steeringSession> | undefined;
 
-  async function renew() {
-    try {
-      const res = await holdForSteering(repo, number);
-      parked = !res.capped && !!res.until;
-      if (res.capped) stopRenewing();
-    } catch {
-      // A hold is a nicety, not a precondition: failing to park should never
-      // stop somebody writing. The save is what actually reports refusals.
-      parked = false;
-      stopRenewing();
-    }
-  }
-
-  function stopRenewing() {
-    clearInterval(renewTimer);
-    renewTimer = undefined;
-  }
-
-  function open() {
+  async function open() {
     draft = steering?.message ?? '';
     err = '';
     editing = true;
-    void renew();
-    renewTimer = setInterval(renew, RENEW_MS);
+    session = steeringSession(repo, number);
+    await session.start();
+    parked = session.parked();
   }
 
-  // close releases the hold rather than waiting it out: the author is done, so
-  // the PR should be reviewable now. Best effort on purpose, since the expiry
-  // is what actually guarantees the release.
   function close() {
-    stopRenewing();
     editing = false;
-    if (parked) {
-      parked = false;
-      void releaseSteeringHold(repo, number).catch(() => {});
-    }
+    parked = false;
+    void session?.release();
+    session = undefined;
   }
 
-  // A tab closed mid-edit leaves the hold standing; it expires on its own.
-  onDestroy(stopRenewing);
+  // A tab closed mid-edit leaves the hold standing; it expires on its own,
+  // which is exactly why nothing here may depend on a release arriving.
+  onDestroy(() => void session?.release());
 
   async function save() {
     saving = true;
     err = '';
     try {
       await onsave(draft.trim());
-      // The save released the hold server-side, so closing must not release it
-      // a second time and cannot assume it is still parked.
-      parked = false;
+      // The save already ended the session server-side, so close() releasing
+      // again is a no-op there and cheaper than reasoning about whether it did.
       close();
     } catch (e) {
       err = e instanceof Error ? e.message : String(e);
@@ -104,7 +78,7 @@
   <div class="steering-head">
     <h3>Steering</h3>
     {#if mayEdit && !reviewing}
-      <button class="linkish" on:click={open}>{steering ? 'edit' : 'add'}</button>
+      <button class="linkish" on:click={() => void open()}>{steering ? 'edit' : 'add'}</button>
     {/if}
   </div>
 

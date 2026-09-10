@@ -135,9 +135,10 @@ export const setSteering = (repo: string, number: number, message: string) =>
 // long: the server takes that from config, because a caller that could name
 // the duration could park its own PR indefinitely.
 //
-// `capped` means renewal has stopped and the standing hold is being left to
-// expire. It is a normal 200: the editor stays open, the PR just stops being
-// protected. Believing otherwise is the one thing the caller must not do.
+// Every outcome is a normal 200 carrying a `state`; only `held` means the PR
+// is actually parked. Prefer steeringSession() in steering.ts over calling
+// this directly: the rules about when to stop renewing and when a release is
+// still owed are easy to get wrong and are tested there.
 export const holdForSteering = (repo: string, number: number) =>
   postJSON<SteeringHold>('/api/steering/hold', { repo, number });
 

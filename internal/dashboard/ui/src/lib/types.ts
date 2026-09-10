@@ -297,12 +297,15 @@ export type Steering = {
   set_at: string;
 };
 
-// SteeringHold is the editing hold's answer. `until` is when the PR is parked
-// to; `capped` says renewal has stopped, so the editor must stop claiming the
-// PR is protected even though it is still open.
+// SteeringHold is the editing hold's answer, as one named state rather than a
+// pair of optionals the client has to recombine. Only `held` means the PR is
+// actually parked, and only `held` is worth asking again about: `capped` and
+// `disabled` both mean stop renewing, for different reasons.
+export type SteeringHoldState = 'held' | 'capped' | 'released' | 'disabled';
+
 export type SteeringHold = {
+  state: SteeringHoldState;
   until?: string;
-  capped?: boolean;
 };
 
 // QueueAdd is the add's answer. steering_refused says why an accompanying

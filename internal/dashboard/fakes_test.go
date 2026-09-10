@@ -3,6 +3,8 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -44,7 +46,6 @@ type fakeStore struct {
 	cleared   []prref.Ref
 	holdsSet  []holdCall
 	holdsGone []holdCall
-	sinceSet  []*time.Time
 
 	// Injected failures.
 	reorderErr error
@@ -211,19 +212,29 @@ func (f *fakeStore) ClearSteering(_ context.Context, repo string, number int) er
 	return nil
 }
 
-func (f *fakeStore) SetHold(_ context.Context, repo string, number int, name string, until time.Time) error {
-	f.holdsSet = append(f.holdsSet, holdCall{repo: repo, number: number, name: name, until: until})
+func (f *fakeStore) SetHolds(_ context.Context, repo string, number int, holds map[string]time.Time) error {
+	for _, name := range slices.Sorted(maps.Keys(holds)) {
+		f.holdsSet = append(f.holdsSet, holdCall{repo: repo, number: number, name: name, until: holds[name]})
+	}
 	return nil
 }
 
-func (f *fakeStore) ClearHold(_ context.Context, repo string, number int, name string) error {
-	f.holdsGone = append(f.holdsGone, holdCall{repo: repo, number: number, name: name})
+func (f *fakeStore) ClearHolds(_ context.Context, repo string, number int, names ...string) error {
+	for _, name := range names {
+		f.holdsGone = append(f.holdsGone, holdCall{repo: repo, number: number, name: name})
+	}
 	return nil
 }
 
-func (f *fakeStore) SetEditingSince(_ context.Context, _ string, _ int, since *time.Time) error {
-	f.sinceSet = append(f.sinceSet, since)
-	return nil
+// heldNames is what a test usually wants to assert: which names a write
+// touched, in a stable order, rather than the order a map happened to yield.
+func heldNames(calls []holdCall) []string {
+	out := make([]string, 0, len(calls))
+	for _, c := range calls {
+		out = append(out, c.name)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // --- test server construction -----------------------------------------------

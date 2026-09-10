@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ago, rel, statusKind, statusLabel, untilRel, when } from './format';
+  import { ago, holdBlurb, rel, statusKind, statusLabel, untilRel, when } from './format';
   import { navigate } from './nav';
   import PrIdentity from './PrIdentity.svelte';
   import { liveReviewLogRef, reviewLogPath } from './reviewlog';
@@ -57,9 +57,7 @@
   {:else if c.status === 'held'}
     <span
       class="status {statusKind(c.status)}"
-      title={c.hold_reason === 'cooldown'
-        ? `Reviewed recently, cooling down until ${when(c.eligible_at ?? '')}`
-        : `Updated recently, settling until ${when(c.eligible_at ?? '')}`}
+      title={holdBlurb(c.hold_reason, c.eligible_at)}
     ><i></i>on hold · {statusLabel(c.hold_reason ?? '')}{untilRel(c.eligible_at) ? ` · ${untilRel(c.eligible_at)}` : ''}</span>
   {:else if c.status !== 'queued'}
     <StatusBadge status={c.status} />

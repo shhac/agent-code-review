@@ -84,12 +84,11 @@ type steeringStore interface {
 	QueuedPR(ctx context.Context, repo string, number int) (store.Candidate, bool, error)
 	SetSteering(ctx context.Context, repo string, number int, st store.Steering) error
 	ClearSteering(ctx context.Context, repo string, number int) error
-	// The editing hold and its renewal anchor: set while an author has the
-	// steering editor open, so the dispatcher cannot claim the row out from
+	// The editing hold and the mark dating its session: set while an author has
+	// the steering editor open, so the dispatcher cannot claim the row out from
 	// under them mid-sentence.
-	SetHold(ctx context.Context, repo string, number int, name string, until time.Time) error
-	ClearHold(ctx context.Context, repo string, number int, name string) error
-	SetEditingSince(ctx context.Context, repo string, number int, since *time.Time) error
+	SetHolds(ctx context.Context, repo string, number int, holds map[string]time.Time) error
+	ClearHolds(ctx context.Context, repo string, number int, names ...string) error
 }
 
 // dashboardStore is the whole surface the web server uses. It deliberately

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -365,6 +366,20 @@ func hold(t *testing.T, s *Server, method, login, body string) *httptest.Respons
 
 const octoRef = `{"repo":"o/r","number":1}`
 
+// editingPair is the two names one session owns, in the sorted order
+// heldNames reports. They are asserted together on purpose: the whole reason
+// they share a write is that neither is correct without the other.
+var editingPair = []string{store.HoldEditing, store.MarkEditingSince}
+
+func decodeHold(t *testing.T, w *httptest.ResponseRecorder) steeringHoldResp {
+	t.Helper()
+	var got steeringHoldResp
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode hold response %q: %v", w.Body.String(), err)
+	}
+	return got
+}
+
 // TestSteeringRefusedWhileReviewing is the timing rung of the authorisation
 // ladder. A running review built its prompt from the candidate the dispatcher
 // pulled and never re-reads the row, and completion retires the row along with
@@ -416,48 +431,101 @@ func TestSteeringRefusedWhileReviewing(t *testing.T) {
 	})
 }
 
+// TestEditingSession pins the pure cap decision, including the self-healing
+// rule. A client that fails to release is the NORMAL case here (a closed tab, a
+// dropped network, a capped session that stopped renewing), so a mark that
+// outlived its hold must never be allowed to cap the next session.
+func TestEditingSession(t *testing.T) {
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	const cap = 20 * time.Minute
+	live, dead := now.Add(time.Minute), now.Add(-time.Minute)
+
+	cases := []struct {
+		name       string
+		holds      map[string]time.Time
+		wantSince  time.Time
+		wantCapped bool
+	}{
+		{"no session at all", nil, time.Time{}, false},
+		{"a fresh session is not capped", map[string]time.Time{
+			store.HoldEditing: live, store.MarkEditingSince: now.Add(-time.Minute),
+		}, now.Add(-time.Minute), false},
+		{"at the cap exactly is not yet capped", map[string]time.Time{
+			store.HoldEditing: live, store.MarkEditingSince: now.Add(-cap),
+		}, now.Add(-cap), false},
+		{"one tick past the cap is capped", map[string]time.Time{
+			store.HoldEditing: live, store.MarkEditingSince: now.Add(-cap - time.Second),
+		}, now.Add(-cap - time.Second), true},
+		// The self-healing rule. Without it this row could never be parked
+		// again: every future session would read this mark and cap instantly.
+		{"a mark whose hold expired is an abandoned session", map[string]time.Time{
+			store.HoldEditing: dead, store.MarkEditingSince: now.Add(-24 * time.Hour),
+		}, time.Time{}, false},
+		{"a mark with no hold at all is ignored", map[string]time.Time{
+			store.MarkEditingSince: now.Add(-24 * time.Hour),
+		}, time.Time{}, false},
+		{"a live hold with no mark starts a session", map[string]time.Time{
+			store.HoldEditing: live,
+		}, time.Time{}, false},
+	}
+	for _, tc := range cases {
+		since, capped := editingSession(tc.holds, now, cap)
+		if !since.Equal(tc.wantSince) || capped != tc.wantCapped {
+			t.Errorf("%s: since=%v capped=%v, want since=%v capped=%v",
+				tc.name, since, capped, tc.wantSince, tc.wantCapped)
+		}
+	}
+}
+
 // TestSteeringHoldBounds pins the two independent bounds that keep "parked
 // briefly" honest: the hold expires on its own, and renewal stops at the cap.
 func TestSteeringHoldBounds(t *testing.T) {
-	t.Run("a first hold stamps the anchor and parks the row", func(t *testing.T) {
+	// editing seeds a live session on the queued row: a hold in the future and
+	// a mark dating it, which is the shape the handler reads.
+	editing := func(fs *fakeStore, since time.Time) *fakeStore {
+		fs.queue[0].Holds = map[string]time.Time{
+			store.HoldEditing: time.Now().Add(time.Minute), store.MarkEditingSince: since,
+		}
+		return fs
+	}
+
+	t.Run("a first hold marks the session and parks the row", func(t *testing.T) {
 		fs := queuedPR()
 		w := hold(t, steerServer(fs, true), http.MethodPost, "octo@example.com", octoRef)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 		}
-		if len(fs.holdsSet) != 1 || fs.holdsSet[0].name != store.HoldEditing {
-			t.Fatalf("want one editing hold, got %+v", fs.holdsSet)
+		// One write, not two: the hold and the mark dating it have to agree, so
+		// a half-failure must not be able to leave a mark with no hold.
+		if got := heldNames(fs.holdsSet); !slices.Equal(got, editingPair) {
+			t.Fatalf("want hold and mark written together, got %v", got)
+		}
+		var until time.Time
+		for _, c := range fs.holdsSet {
+			if c.name == store.HoldEditing {
+				until = c.until
+			}
 		}
 		// The server picks the window; the client never said one.
-		if got := time.Until(fs.holdsSet[0].until); got < 4*time.Minute || got > 5*time.Minute {
+		if got := time.Until(until); got < 4*time.Minute || got > 5*time.Minute {
 			t.Errorf("hold window = %v, want the configured 5m", got)
-		}
-		if len(fs.sinceSet) != 1 || fs.sinceSet[0] == nil {
-			t.Errorf("the first hold must stamp the renewal anchor, got %+v", fs.sinceSet)
 		}
 	})
 
-	t.Run("renewal keeps the original anchor", func(t *testing.T) {
-		fs := queuedPR()
-		since := time.Now().Add(-time.Minute)
-		fs.queue[0].EditingSince = &since
+	t.Run("renewal keeps the original mark", func(t *testing.T) {
+		fs := editing(queuedPR(), time.Now().Add(-time.Minute))
 		if w := hold(t, steerServer(fs, true), http.MethodPost, "octo@example.com", octoRef); w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", w.Code)
 		}
-		if len(fs.holdsSet) != 1 {
-			t.Errorf("renewal must re-impose the hold, got %+v", fs.holdsSet)
-		}
-		if len(fs.sinceSet) != 0 {
-			t.Errorf("renewal must not restamp the anchor, or the cap could never be reached: %+v", fs.sinceSet)
+		if got := heldNames(fs.holdsSet); !slices.Equal(got, []string{store.HoldEditing}) {
+			t.Errorf("renewal must re-impose only the hold, or the cap could never be reached: %v", got)
 		}
 	})
 
 	t.Run("past the cap, renewal stops", func(t *testing.T) {
 		// The editor left open: the client is still talking, so the expiry
 		// alone would keep re-parking the PR indefinitely.
-		fs := queuedPR()
-		since := time.Now().Add(-time.Hour)
-		fs.queue[0].EditingSince = &since
+		fs := editing(queuedPR(), time.Now().Add(-time.Hour))
 		w := hold(t, steerServer(fs, true), http.MethodPost, "octo@example.com", octoRef)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", w.Code)
@@ -465,35 +533,64 @@ func TestSteeringHoldBounds(t *testing.T) {
 		if len(fs.holdsSet) != 0 {
 			t.Errorf("a capped session must not renew, got %+v", fs.holdsSet)
 		}
-		var got steeringHoldResp
-		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-			t.Fatal(err)
-		}
-		if !got.Capped {
-			t.Error("the client must be told renewal stopped, or it will believe the PR is still parked")
+		if got := decodeHold(t, w); got.State != holdCapped {
+			t.Errorf("state = %q, want capped: the client must stop believing the PR is parked", got.State)
 		}
 	})
 
-	t.Run("release lifts exactly the editing hold", func(t *testing.T) {
+	t.Run("an abandoned session does not cap the next one", func(t *testing.T) {
+		// The bug this rule exists for: a mark left behind by a tab that closed
+		// without releasing. Read literally it is hours past the cap, and every
+		// future session on this row would be refused a hold forever.
 		fs := queuedPR()
-		if w := hold(t, steerServer(fs, true), http.MethodDelete, "octo@example.com", octoRef); w.Code != http.StatusOK {
+		fs.queue[0].Holds = map[string]time.Time{
+			store.HoldEditing:      time.Now().Add(-time.Hour), // expired: nobody is editing
+			store.MarkEditingSince: time.Now().Add(-24 * time.Hour),
+		}
+		w := hold(t, steerServer(fs, true), http.MethodPost, "octo@example.com", octoRef)
+		if got := decodeHold(t, w); got.State != holdHeld {
+			t.Fatalf("state = %q, want held: an expired hold means the session is over", got.State)
+		}
+		if got := heldNames(fs.holdsSet); !slices.Equal(got, editingPair) {
+			t.Errorf("a new session must restamp its own mark, got %v", got)
+		}
+	})
+
+	t.Run("holds configured off say so, so the client stops asking", func(t *testing.T) {
+		fs := queuedPR()
+		s := testServer(withStore(fs), withTrustedProxy(), withConfig(config.Config{
+			GHUser: "paul-gh", Candidates: config.CandidateSettings{SteeringHold: "0s"},
+		}))
+		w := hold(t, s, http.MethodPost, "octo@example.com", octoRef)
+		if got := decodeHold(t, w); got.State != holdDisabled {
+			t.Errorf("state = %q, want disabled: an empty body would read as a release", got.State)
+		}
+		if len(fs.holdsSet) != 0 {
+			t.Errorf("nothing may be written when holds are off, got %+v", fs.holdsSet)
+		}
+	})
+
+	t.Run("release retires the hold and its mark together", func(t *testing.T) {
+		fs := queuedPR()
+		w := hold(t, steerServer(fs, true), http.MethodDelete, "octo@example.com", octoRef)
+		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", w.Code)
 		}
-		if len(fs.holdsGone) != 1 || fs.holdsGone[0].name != store.HoldEditing {
-			t.Fatalf("want exactly the editing hold released, got %+v", fs.holdsGone)
+		if got := heldNames(fs.holdsGone); !slices.Equal(got, editingPair) {
+			t.Fatalf("want both retired, got %v", got)
 		}
-		if len(fs.sinceSet) != 1 || fs.sinceSet[0] != nil {
-			t.Errorf("release must forget the session, got %+v", fs.sinceSet)
+		if got := decodeHold(t, w); got.State != holdReleased {
+			t.Errorf("state = %q, want released", got.State)
 		}
 	})
 
-	t.Run("saving steering releases the hold", func(t *testing.T) {
+	t.Run("saving steering releases the session", func(t *testing.T) {
 		fs := queuedPR()
 		if w := post(t, steerServer(fs, true), "127.0.0.1:5000", "octo@example.com", octoPR); w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 		}
-		if len(fs.holdsGone) != 1 || fs.holdsGone[0].name != store.HoldEditing {
-			t.Errorf("a save is the end of editing, so the hold goes with it: %+v", fs.holdsGone)
+		if got := heldNames(fs.holdsGone); !slices.Equal(got, editingPair) {
+			t.Errorf("a save is the end of editing, so the session goes with it: %v", got)
 		}
 	})
 

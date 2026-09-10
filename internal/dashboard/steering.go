@@ -164,13 +164,23 @@ func parseSteeringReq(r *http.Request) (steeringReq, string, *apiErr) {
 	return req, msg, nil
 }
 
-// steeringHoldResp tells the editor what the server did. Until is when the PR
-// is parked to; Capped says renewal has stopped, so the client can say the PR
-// is no longer held rather than silently believing it still is.
+// steeringHoldResp tells the editor what the server did, as one named state
+// rather than a pair of optional fields the client has to recombine. The states
+// are distinct actions for the client, which is why "released" and "disabled"
+// stopped sharing an empty body: only one of them means stop asking.
 type steeringHoldResp struct {
-	Until  *time.Time `json:"until,omitempty"`
-	Capped bool       `json:"capped,omitempty"`
+	State holdState  `json:"state"`
+	Until *time.Time `json:"until,omitempty"` // set only for holdHeld
 }
+
+type holdState string
+
+const (
+	holdHeld     holdState = "held"     // parked until Until; keep renewing
+	holdCapped   holdState = "capped"   // this session has run long enough; stop renewing, the standing hold expires on its own
+	holdReleased holdState = "released" // the session is over
+	holdDisabled holdState = "disabled" // candidates.steering_hold is 0s; stop asking
+)
 
 // handleSteeringHold parks a PR while its author has the steering editor open,
 // and releases it when they are done.
@@ -213,48 +223,64 @@ func (s *Server) handleSteeringHold(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, steeringHoldResp{})
+		writeJSON(w, http.StatusOK, steeringHoldResp{State: holdReleased})
 		return
 	}
 
 	window := cfg.SteeringHold()
 	if window <= 0 {
-		// Configured off: answer plainly rather than holding for zero time,
-		// which would read to the client as a hold that expired instantly.
-		writeJSON(w, http.StatusOK, steeringHoldResp{})
+		// Configured off: say so, rather than answering with the same empty
+		// body a release gets. A client that cannot tell those apart keeps
+		// renewing a hold this server is never going to take.
+		writeJSON(w, http.StatusOK, steeringHoldResp{State: holdDisabled})
 		return
 	}
 	now := time.Now()
-	since := c.EditingSince
-	if since != nil && now.Sub(*since) > cfg.SteeringHoldCap() {
+	since, capped := editingSession(c.Holds, now, cfg.SteeringHoldCap())
+	if capped {
 		// Past the cap. The standing hold is left to expire rather than
 		// cleared: the author is still typing, and yanking the hold out from
 		// under them early helps nobody.
-		writeJSON(w, http.StatusOK, steeringHoldResp{Capped: true})
+		writeJSON(w, http.StatusOK, steeringHoldResp{State: holdCapped})
 		return
 	}
-	if since == nil {
-		if err := s.store.SetEditingSince(ctx, req.Repo, req.Number, &now); err != nil {
-			s.fail(w, err)
-			return
-		}
-	}
 	until := now.Add(window)
-	if err := s.store.SetHold(ctx, req.Repo, req.Number, store.HoldEditing, until); err != nil {
+	patch := map[string]time.Time{store.HoldEditing: until}
+	if since.IsZero() {
+		patch[store.MarkEditingSince] = now
+	}
+	if err := s.store.SetHolds(ctx, req.Repo, req.Number, patch); err != nil {
 		s.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, steeringHoldResp{Until: &until})
+	writeJSON(w, http.StatusOK, steeringHoldResp{State: holdHeld, Until: &until})
 }
 
-// releaseEditing lifts the editing hold and forgets the session. Both, always:
-// leaving the anchor behind would make the next editing session start life
+// editingSession reads how long the current steering-editor session has been
+// running, and whether it has outlived the renewal cap.
+//
+// A session is only live while its HOLD is. An expired hold means whoever held
+// it stopped talking, so any mark left behind dates an ABANDONED session and is
+// treated as absent. That self-healing is not a nicety: a client that fails to
+// release is the normal case this whole mechanism is designed around (a closed
+// tab, a dropped network, a capped session that stopped renewing), and a mark
+// that outlived its hold would otherwise cap every future session on that row
+// instantly, silently leaving the PR unprotected for good.
+//
+// Pure, so the cap boundary is table-testable without a clock or a store.
+func editingSession(holds map[string]time.Time, now time.Time, cap time.Duration) (since time.Time, capped bool) {
+	if !holds[store.HoldEditing].After(now) {
+		return time.Time{}, false
+	}
+	since = holds[store.MarkEditingSince]
+	return since, !since.IsZero() && now.Sub(since) > cap
+}
+
+// releaseEditing ends the session: the hold and the mark dating it, in one
+// statement. Leaving the mark behind would make the next session start life
 // already counted against the cap.
 func (s *Server) releaseEditing(ctx context.Context, repo string, number int) error {
-	if err := s.store.ClearHold(ctx, repo, number, store.HoldEditing); err != nil {
-		return err
-	}
-	return s.store.SetEditingSince(ctx, repo, number, nil)
+	return s.store.ClearHolds(ctx, repo, number, store.EditingNames...)
 }
 
 // handleSteering sets or clears the steering for one PR. POST with a message

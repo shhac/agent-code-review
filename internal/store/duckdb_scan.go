@@ -255,7 +255,6 @@ func scanCandidate(m map[string]any) (Candidate, error) {
 		ClaimPID:     r.int("claim_pid"),
 		ClaimedAt:    r.timePtr("claimed_at"),
 		Holds:        r.holds("holds"),
-		EditingSince: r.timePtr("steering_editing_since"),
 	}
 	// Steering is present only when a message is: set_by and set_at ride with
 	// it, so a row with no instruction carries no empty struct to be mistaken
@@ -295,13 +294,6 @@ func ts(t time.Time) string {
 	return "'" + t.UTC().Format("2006-01-02 15:04:05") + "'"
 }
 
-// tsp is ts for optional timestamps: NULL for nil.
-func tsp(t *time.Time) string {
-	if t == nil {
-		return "NULL"
-	}
-	return ts(*t)
-}
 
 // storedTimeLayouts are the shapes DuckDB's JSON output uses for a TIMESTAMP,
 // most specific first.

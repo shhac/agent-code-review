@@ -199,10 +199,6 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 	return reviewErr
 }
 
-// reviewRecord builds the history row for one engine outcome: ReviewFrom's
-// candidate snapshot plus the engine-reported provenance and spend. The
-// companion to store.ReviewFrom, so a new provenance field has exactly one
-// place to be threaded.
 // retryAfterError keeps a failed attempt's PR in the queue instead of retiring
 // it: the attempt is recorded, the row is deferred, and the claim released.
 // Reports whether it did so; false means the caller should complete normally.
@@ -241,6 +237,10 @@ func (s *Scheduler) retryAfterError(ctx context.Context, c store.Candidate, rec 
 	return true, nil
 }
 
+// reviewRecord builds the history row for one engine outcome: ReviewFrom's
+// candidate snapshot plus the engine-reported provenance and spend. The
+// companion to store.ReviewFrom, so a new provenance field has exactly one
+// place to be threaded.
 func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, claimedAt time.Time, price PriceFn) store.Review {
 	rec := store.ReviewFrom(c, v.Decision, p.Engine, claimedAt)
 	rec.Model = p.Model

@@ -214,8 +214,6 @@ func (r resumableRun) tokenUsage() TokenUsage {
 	return r.usage()
 }
 
-// costUSD does the same for the run's API-rate valuation, which only some
-// engines report at all.
 // usageRaw reads the engine's verbatim usage payloads, absent accessor meaning
 // the engine exposes none.
 func (r resumableRun) usageRaw() string {
@@ -225,6 +223,8 @@ func (r resumableRun) usageRaw() string {
 	return r.rawUsage()
 }
 
+// costUSD does the same for the run's API-rate valuation, which only some
+// engines report at all.
 func (r resumableRun) costUSD() float64 {
 	if r.cost == nil {
 		return 0

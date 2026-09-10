@@ -67,6 +67,11 @@ type SchedulerStore interface {
 	ClearClaim(context.Context, string, int) error
 	AppendHistory(context.Context, store.Review) error
 	Complete(context.Context, store.Review) error
+	// LastOutcome and SetHolds are the retry path: whether the previous
+	// attempt at this revision also failed, and the hold that keeps a retry
+	// from becoming a hot loop.
+	LastOutcome(context.Context, string, int) (store.Review, bool, error)
+	SetHolds(context.Context, string, int, map[string]time.Time) error
 	AuthorGroup(context.Context, string, string) (config.Membership, error)
 }
 

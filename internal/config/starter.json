@@ -15,7 +15,8 @@
     "refreshed_max_age_days": 21,
     "rereview_cooldown": "90m",
     "quiet_period": "15m",
-    "steering_hold": "5m"
+    "steering_hold": "5m",
+    "error_backoff": "15m"
   },
   "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates on its own poll (deterministic gh calls, no LLM); schedule consumes the queue (engine invocations, hence max_parallel). Reviews are dispatched one at a time as slots free, waiting dispatch_cooldown between hand-offs; interval is only the idle poll for when nothing is ready, and bounds how long a `queue add` from another process waits to be noticed.",
   "schedule": {

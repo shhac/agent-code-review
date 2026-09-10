@@ -72,6 +72,7 @@ const (
 	HoldCooldown = "cooldown" // we reviewed this PR recently (candidates.rereview_cooldown)
 	HoldSettling = "settling" // the PR was updated too recently (candidates.quiet_period)
 	HoldEditing  = "editing"  // an author has the steering editor open (candidates.steering_hold)
+	HoldRetry    = "retry"    // an engine attempt failed; wait before trying again (candidates.error_backoff)
 )
 
 // MarkEditingSince is when the current steering-editor session began. It lives

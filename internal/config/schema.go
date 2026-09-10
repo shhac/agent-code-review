@@ -88,6 +88,7 @@ type CandidateSettings struct {
 	RereviewCooldown     string `json:"rereview_cooldown,omitempty"`       // Go duration, default "90m"; "0s" disables
 	QuietPeriod          string `json:"quiet_period,omitempty"`            // Go duration, default "15m"; "0s" disables
 	SteeringHold         string `json:"steering_hold,omitempty"`           // Go duration, default "5m"; "0s" disables
+	ErrorBackoff         string `json:"error_backoff,omitempty"`           // Go duration, default "15m"; "0s" retires on the first error
 }
 
 // ScheduleSettings drives the review dispatcher: LLM invocations, so it

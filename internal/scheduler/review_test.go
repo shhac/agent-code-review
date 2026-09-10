@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
@@ -26,14 +27,38 @@ type fakeSchedStore struct {
 	// byHandle answers per author. Concurrent reviews can run several engines,
 	// so a fake that gives every handle the same group cannot express the case
 	// the per-engine floor exists for: one candidate held while another runs.
-	byHandle  map[string]string
-	groupErr  error // simulate the roster lookup failing
-	claimErr  error // simulate the claim itself failing
-	claimLost bool  // simulate losing the compare-and-swap to another worker
-	claims    []store.Lease
-	workDirs  []string
-	completed []store.Review
-	cleared   []int // queue rows whose claim was released
+	byHandle   map[string]string
+	groupErr   error // simulate the roster lookup failing
+	claimErr   error // simulate the claim itself failing
+	claimLost  bool  // simulate losing the compare-and-swap to another worker
+	claims     []store.Lease
+	workDirs   []string
+	completed  []store.Review
+	appended   []store.Review // outcomes recorded WITHOUT retiring the row
+	holds      []map[string]time.Time
+	lastOut    store.Review // what LastOutcome answers, when hasLastOut
+	hasLastOut bool
+	cleared    []int // queue rows whose claim was released
+}
+
+func (f *fakeSchedStore) AppendHistory(_ context.Context, r store.Review) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.appended = append(f.appended, r)
+	return nil
+}
+
+func (f *fakeSchedStore) LastOutcome(_ context.Context, _ string, _ int) (store.Review, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastOut, f.hasLastOut, nil
+}
+
+func (f *fakeSchedStore) SetHolds(_ context.Context, _ string, _ int, h map[string]time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.holds = append(f.holds, h)
+	return nil
 }
 
 // ClearClaim records a released claim. It lives on the base fake because both
@@ -168,21 +193,75 @@ func TestReviewOneCompletesEveryOutcome(t *testing.T) {
 	}
 }
 
-// TestReviewOneEngineErrorStillCompletes: a failed invocation propagates its
-// error AND records an ERROR outcome; the queue row must not stay claimed
-// forever (the old stuck-at-reviewing bug).
-func TestReviewOneEngineErrorStillCompletes(t *testing.T) {
-	fs := &fakeSchedStore{}
-	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionError}, err: errors.New("boom")}
-	s := newTestScheduler(fs, fe)
+// TestReviewOneEngineError: a failed invocation propagates its error AND
+// records an ERROR outcome, and the queue row must not stay claimed forever
+// (the old stuck-at-reviewing bug). It must also not be RETIRED on the first
+// failure: discovery's same-SHA suppression reads any recorded outcome, so a
+// retired error row dropped the PR until somebody pushed a commit.
+func TestReviewOneEngineError(t *testing.T) {
+	failing := func() *fakeEngine {
+		return &fakeEngine{verdict: review.Verdict{Decision: review.DecisionError}, err: errors.New("boom")}
+	}
 
-	err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"})
-	if err == nil {
-		t.Fatal("engine error must propagate")
-	}
-	if len(fs.completed) != 1 || fs.completed[0].Verdict != review.DecisionError {
-		t.Errorf("failed invocation must record an ERROR outcome, got %+v", fs.completed)
-	}
+	t.Run("the first failure keeps the PR queued and backs off", func(t *testing.T) {
+		fs := &fakeSchedStore{}
+		fe := failing()
+		s := newTestScheduler(fs, fe)
+
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}); err == nil {
+			t.Fatal("engine error must propagate")
+		}
+		if len(fs.completed) != 0 {
+			t.Errorf("a failed attempt must not retire the row, got %+v", fs.completed)
+		}
+		if len(fs.appended) != 1 || fs.appended[0].Verdict != review.DecisionError {
+			t.Errorf("the attempt must still be recorded, got %+v", fs.appended)
+		}
+		if len(fs.holds) != 1 || fs.holds[0][store.HoldRetry].IsZero() {
+			t.Errorf("a retry must be deferred, or it becomes a hot loop: %+v", fs.holds)
+		}
+		if len(fs.cleared) != 1 {
+			t.Errorf("the claim must be released so the retry can happen, got %+v", fs.cleared)
+		}
+	})
+
+	t.Run("failing again at the same revision retires it", func(t *testing.T) {
+		// Bounded on purpose. A failure that repeats is about the PR, not the
+		// world, and an unbounded retry would rebuild the loop this codebase
+		// just removed, with ERROR rows instead of SKIPPED ones.
+		fs := &fakeSchedStore{
+			hasLastOut: true,
+			lastOut:    store.Review{HeadSHA: "sha1", Verdict: store.VerdictError},
+		}
+		fe := failing()
+		s := newTestScheduler(fs, fe)
+
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}); err == nil {
+			t.Fatal("engine error must propagate")
+		}
+		if len(fs.completed) != 1 || fs.completed[0].Verdict != review.DecisionError {
+			t.Errorf("a repeat failure must retire the row, got %+v", fs.completed)
+		}
+		if len(fs.appended) != 0 {
+			t.Errorf("a retired attempt is recorded by Complete, not twice: %+v", fs.appended)
+		}
+	})
+
+	t.Run("an error at a DIFFERENT revision is a fresh attempt", func(t *testing.T) {
+		fs := &fakeSchedStore{
+			hasLastOut: true,
+			lastOut:    store.Review{HeadSHA: "older-sha", Verdict: store.VerdictError},
+		}
+		fe := failing()
+		s := newTestScheduler(fs, fe)
+
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}); err == nil {
+			t.Fatal("engine error must propagate")
+		}
+		if len(fs.completed) != 0 || len(fs.appended) != 1 {
+			t.Errorf("new code deserves its own retry: completed=%+v appended=%+v", fs.completed, fs.appended)
+		}
+	})
 }
 
 func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {

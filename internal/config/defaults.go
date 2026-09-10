@@ -52,6 +52,19 @@ func (c Config) SteeringHold() time.Duration {
 	return durationOrZero(c.Candidates.SteeringHold, 5*time.Minute)
 }
 
+// ErrorBackoff is how long a PR waits after an engine attempt failed before
+// it is tried again (default 15m; "0s" retires it on the first error, which
+// was the old behaviour).
+//
+// An engine error is usually the world being briefly unavailable — a rate
+// limit, a dropped connection, a killed subprocess — not a statement about
+// the PR. Retiring the row on the first one dropped the PR until somebody
+// pushed a commit, because discovery's same-SHA suppression keys on ANY
+// recorded outcome.
+func (c Config) ErrorBackoff() time.Duration {
+	return durationOrZero(c.Candidates.ErrorBackoff, 15*time.Minute)
+}
+
 // SteeringHoldCap bounds how long renewal can keep a PR parked, however long
 // the editor stays open. Without it a modal left open over lunch would defer a
 // PR all afternoon: the expiry protects against a client that stops talking,

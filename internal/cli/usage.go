@@ -379,6 +379,8 @@ KEYS:
                                        accepts it (default 15m, 0s disables)
   candidates.steering_hold             defer a PR while its author has the steering
                                        editor open (default 5m, 0s disables)
+  candidates.error_backoff             wait this long after a failed engine attempt
+                                       before one retry (default 15m, 0s retires it)
   review.engine                        codex (default) | claude
   codex.bin | codex.model | codex.effort | codex.sandbox
   claude.bin | claude.model | claude.effort | claude.permission_mode

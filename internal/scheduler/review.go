@@ -174,11 +174,26 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 		s.logf("review %s#%d: engine output tail: %s", c.Repo, c.Number, tail(verdict.Raw, 500))
 	}
 
-	// Every outcome goes to history, SKIPPED/ERROR included. They don't
-	// block a future re-review: store.LastReview filters them out of
-	// Refreshed detection, and new commits change the SHA that discovery's
-	// same-SHA suppression keys on.
-	if err := s.store.Complete(ctx, reviewRecord(c, verdict, engine.Provenance(ctx), claimedAt, s.priceFn)); err != nil {
+	// Every outcome goes to history, SKIPPED/ERROR included.
+	//
+	// Completing RETIRES the queue row, and that is the wrong answer for a
+	// failed attempt. Discovery's same-SHA suppression keys on ANY recorded
+	// outcome, so an ERROR row dropped the PR until somebody pushed a commit:
+	// one rate limit or dropped connection abandoned it silently. (The comment
+	// that used to sit here said errors do not block a future re-review,
+	// citing LastReview. That is true of Refreshed detection and false of the
+	// suppression gate, which reads LastOutcome.)
+	rec := reviewRecord(c, verdict, engine.Provenance(ctx), claimedAt, s.priceFn)
+	if reviewErr != nil {
+		retried, err := s.retryAfterError(ctx, c, rec, cfg)
+		if err != nil {
+			return err
+		}
+		if retried {
+			return reviewErr
+		}
+	}
+	if err := s.store.Complete(ctx, rec); err != nil {
 		return err
 	}
 	return reviewErr
@@ -188,6 +203,44 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 // candidate snapshot plus the engine-reported provenance and spend. The
 // companion to store.ReviewFrom, so a new provenance field has exactly one
 // place to be threaded.
+// retryAfterError keeps a failed attempt's PR in the queue instead of retiring
+// it: the attempt is recorded, the row is deferred, and the claim released.
+// Reports whether it did so; false means the caller should complete normally.
+//
+// Bounded at ONE retry, decided by whether the last outcome at this same head
+// is already an error. A failure that repeats is telling us something about
+// the PR rather than about the world, and an unbounded retry would rebuild the
+// loop this codebase just spent a commit removing — repeated ERROR rows
+// forever instead of repeated SKIPPED ones.
+//
+// Order matters: the hold is written BEFORE the claim is released, or the
+// dispatcher can take the row back in the window between the two.
+func (s *Scheduler) retryAfterError(ctx context.Context, c store.Candidate, rec store.Review, cfg config.Config) (bool, error) {
+	backoff := cfg.ErrorBackoff()
+	if backoff <= 0 {
+		return false, nil
+	}
+	last, ok, err := s.store.LastOutcome(ctx, c.Repo, c.Number)
+	if err != nil {
+		return false, err
+	}
+	if ok && last.HeadSHA == c.HeadSHA && last.Verdict == store.VerdictError {
+		s.logf("review %s#%d: failed again at the same revision, retiring it", c.Repo, c.Number)
+		return false, nil
+	}
+	if err := s.store.AppendHistory(ctx, rec); err != nil {
+		return false, err
+	}
+	if err := s.store.SetHolds(ctx, c.Repo, c.Number, map[string]time.Time{store.HoldRetry: time.Now().Add(backoff)}); err != nil {
+		return false, err
+	}
+	if err := s.store.ClearClaim(ctx, c.Repo, c.Number); err != nil {
+		return false, err
+	}
+	s.logf("review %s#%d: attempt failed, retrying after %s", c.Repo, c.Number, backoff)
+	return true, nil
+}
+
 func reviewRecord(c store.Candidate, v review.Verdict, p review.Provenance, claimedAt time.Time, price PriceFn) store.Review {
 	rec := store.ReviewFrom(c, v.Decision, p.Engine, claimedAt)
 	rec.Model = p.Model

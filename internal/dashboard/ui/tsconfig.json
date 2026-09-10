@@ -6,8 +6,19 @@
     "isolatedModules": true,
     "moduleResolution": "bundler",
     "target": "ES2022",
-    "module": "ESNext"
+    "module": "ESNext",
+    "types": [
+      "node",
+      "vite/client"
+    ]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.svelte"
+  ],
+  "references": [
+    {
+      "path": "./tsconfig.node.json"
+    }
+  ]
 }

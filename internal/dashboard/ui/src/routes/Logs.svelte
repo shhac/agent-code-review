@@ -6,7 +6,7 @@
 
   let logsAvailable = true;
   let logEntries: any[] = [];
-  let logPane: HTMLDivElement;
+  let logPane: HTMLElement;
 
   async function refresh() {
     const pinned = logPane ? logPane.scrollHeight - logPane.scrollTop - logPane.clientHeight < 40 : true;

@@ -15,7 +15,7 @@
   let content = '';
   let truncated = false;
   let pr: ReviewLogPr | null = null;
-  let pane: HTMLDivElement;
+  let pane: HTMLElement;
   let showRaw = false;
 
   async function refresh() {

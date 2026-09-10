@@ -1,5 +1,20 @@
 // Wire shapes returned by the dashboard's JSON API.
 
+// The three states a queued row can be in, mirroring dashboard.claimStatus:
+// a live claim is "reviewing", a hold in the future is "held", anything else
+// is "queued". countQueue on the server emits exactly these and asserts they
+// sum to the total, so the client having its own opinion was never the plan —
+// it just had no way to say so, and compared the literals at ten sites instead.
+//
+// This is a claim about the CURRENT server, which is why the components keep a
+// fallback arm: a deploy can briefly make it false, and rendering something
+// unrecognised beats rendering nothing.
+export type QueueStatus = 'queued' | 'reviewing' | 'held';
+
+// ReviewLogState is the same vocabulary plus the state a row reaches once it
+// has left the queue. The log page is the one view that outlives the row.
+export type ReviewLogState = QueueStatus | 'finished';
+
 export type Candidate = {
   repo: string;
   number: number;
@@ -7,7 +22,7 @@ export type Candidate = {
   title: string;
   type: string;
   author: string;
-  status: string;
+  status: QueueStatus;
   head_sha: string;
   queue_pos: number;
   created_at: string;
@@ -280,7 +295,7 @@ export type ReviewLogRef = {
 
 export type ReviewLogResponse = {
   available: boolean;
-  state?: string;
+  state?: ReviewLogState;
   pr?: ReviewLogPr;
   work_dir?: string;
   size?: number;

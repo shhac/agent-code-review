@@ -69,6 +69,9 @@ jobs:
           cache: npm
           cache-dependency-path: internal/dashboard/ui/package-lock.json
       - run: npm ci --prefix internal/dashboard/ui
+      # svelte-check, not tsc: tsc does not look inside .svelte, which is where
+      # most of the component logic and every status comparison lives.
+      - run: npm run check --prefix internal/dashboard/ui
       - run: npm test --prefix internal/dashboard/ui
       - run: npm run build --prefix internal/dashboard/ui
       - run: git diff --exit-code -- internal/dashboard/assets

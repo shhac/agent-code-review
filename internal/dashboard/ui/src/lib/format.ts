@@ -109,6 +109,15 @@ export function prHref(repo: string, number: number, url?: string) {
   return url || `https://github.com/${repo}/pull/${number}`;
 }
 
+// The verdicts that mean the engine actually posted a review, mirroring
+// store.IsRealVerdict. SKIPPED and ERROR are outcomes: something was recorded,
+// but no review happened. Keeping the distinction in one place is the point —
+// three pages previously each had their own answer, and a precheck skip could
+// show as "last review" on a card whose review count did not move.
+const realVerdicts = new Set(['APPROVED', 'COMMENTED', 'REQUESTED_CHANGES']);
+
+export const isReview = (verdict: string | undefined) => realVerdicts.has(verdict ?? '');
+
 export function statusLabel(s: string) {
   return String(s ?? '').replace(/_/g, ' ');
 }

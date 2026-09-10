@@ -2,7 +2,7 @@
   import ActivityChart from '../lib/ActivityChart.svelte';
   import { getQueue, getReviews, getStats, getUsage, preflightPR, queuePR } from '../lib/api';
   import { withFeed } from '../lib/feed';
-  import { rel, tokens, when, windowName } from '../lib/format';
+  import { isReview, rel, tokens, when, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
   import QueueBoard from '../lib/QueueBoard.svelte';
   import SteerAndQueue from '../lib/SteerAndQueue.svelte';
@@ -22,7 +22,10 @@
 
   $: totalReviews = sumBuckets(buckets, 'approved') + sumBuckets(buckets, 'commented') + sumBuckets(buckets, 'requested_changes');
   $: approvedReviews = sumBuckets(buckets, 'approved');
-  $: lastReview = reviews[0];
+  // The newest REAL review, not the newest row. reviews[0] included precheck
+  // skips, so this card could report "last review 9m" while the 24h count
+  // beside it (which sums real-verdict buckets) had not moved for hours.
+  $: lastReview = reviews.find((r) => isReview(r.verdict));
   $: usagePaused = !!usageResp?.review_paused;
   // Every metered engine, active one first, so the engine in use reads first
   // but the alternative is visible without interaction: the panel exists to

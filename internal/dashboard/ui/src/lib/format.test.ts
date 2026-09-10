@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { durSecs, exact, holdBlurb, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
+import { durSecs, exact, holdBlurb, isReview, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
 
 describe('maxOf', () => {
   it('takes the largest selected value', () => {
@@ -118,5 +118,22 @@ describe('holdBlurb', () => {
     // it has never heard of. Vague and true beats specific and wrong.
     expect(holdBlurb('something-new', until)).toContain('On hold until');
     expect(holdBlurb(undefined, until)).toContain('On hold until');
+  });
+});
+
+describe('isReview', () => {
+  it('counts only verdicts where the engine actually posted', () => {
+    expect(isReview('APPROVED')).toBe(true);
+    expect(isReview('COMMENTED')).toBe(true);
+    expect(isReview('REQUESTED_CHANGES')).toBe(true);
+  });
+
+  it('does not count an outcome as a review', () => {
+    // Half of this store's history has been precheck skips, so treating them
+    // as reviews is not a rounding error: it is the difference between
+    // "last review 9m" and the truth.
+    expect(isReview('SKIPPED')).toBe(false);
+    expect(isReview('ERROR')).toBe(false);
+    expect(isReview(undefined)).toBe(false);
   });
 });

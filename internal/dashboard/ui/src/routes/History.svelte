@@ -178,7 +178,7 @@
       <span class="head-tools">
         <input class="filter" type="search" placeholder="search all history: repo, #number, title, author, verdict" bind:value={query} />
         <span class="matches" class:pending>
-          {#if pending}searching...{:else}{total.toLocaleString()} {query ? (total === 1 ? 'match' : 'matches') : 'reviews'}{/if}
+          {#if pending}searching...{:else}{total.toLocaleString()} {query ? (total === 1 ? 'match' : 'matches') : 'outcomes'}{/if}
         </span>
         <Pager bind:page {pageCount} busy={pending} />
       </span>

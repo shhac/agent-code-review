@@ -39,10 +39,14 @@ func TestMetricsForBucketsDaysAndSortsGroups(t *testing.T) {
 		{Model: "gpt-5.5", Effort: "high", EngineVersion: "v1", Verdict: "COMMENTED", TokensUsed: 100, FreshTokens: 100, DurationSecs: 30, ReviewedAt: time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)},
 		// group B (gpt-5.6/medium/v2): 1 review whose western-evening local time rolls into 07-09 UTC.
 		{Model: "gpt-5.6", Effort: "medium", EngineVersion: "v2", Verdict: "APPROVED", TokensUsed: 50, FreshTokens: 50, DurationSecs: 20, ReviewedAt: time.Date(2026, 7, 8, 22, 0, 0, 0, west)},
-		// group C (gpt-6/low/v3): 3 reviews on 07-10: the largest group.
+		// group C (gpt-6/low/v3): 3 reviews on 07-10: the largest group. The
+		// SKIPPED row alongside them is the point: it is an OUTCOME, not a
+		// review, and counting it as one is what made "reviews completed" wrong
+		// on the metrics page.
 		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, FreshTokens: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)},
 		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "SKIPPED", TokensUsed: 10, FreshTokens: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 2, 0, 0, 0, time.UTC)},
 		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, FreshTokens: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 3, 0, 0, 0, time.UTC)},
+		{Model: "gpt-6", Effort: "low", EngineVersion: "v3", Verdict: "APPROVED", TokensUsed: 10, FreshTokens: 10, DurationSecs: 5, ReviewedAt: time.Date(2026, 7, 10, 4, 0, 0, 0, time.UTC)},
 	}
 	got := metricsFor(reviews, "", "")
 
@@ -58,6 +62,17 @@ func TestMetricsForBucketsDaysAndSortsGroups(t *testing.T) {
 	}
 	if got.Activity[0].Reviews != 2 || got.Activity[1].Reviews != 1 || got.Activity[2].Reviews != 3 {
 		t.Errorf("per-day reviews = %+v", got.Activity)
+	}
+
+	// The two counts are reported apart, and the skip is the difference.
+	if got.Summary.Reviews != 6 || got.Summary.Outcomes != 7 {
+		t.Errorf("reviews = %d, outcomes = %d, want 6 and 7: a skip is an outcome, not a review",
+			got.Summary.Reviews, got.Summary.Outcomes)
+	}
+	// It is still visible where it belongs: the verdict breakdown exists to
+	// show skips and errors, so that one must NOT be filtered.
+	if got.Verdicts["SKIPPED"] != 1 {
+		t.Errorf("verdict counts = %+v, want the skip counted there", got.Verdicts)
 	}
 
 	// Models is descending by review count: C(3) > A(2) > B(1).

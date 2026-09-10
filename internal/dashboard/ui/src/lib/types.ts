@@ -100,7 +100,7 @@ export type StatsResponse = {
 };
 
 export type MetricsResponse = {
-  summary: { reviews: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; cost_usd: number; median_cost_usd: number; max_cost_usd: number; priced_reviews: number; estimated_reviews: number; check_reported_usd: number; check_estimated_usd: number; check_reviews: number };
+  summary: { reviews: number; outcomes: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; cost_usd: number; median_cost_usd: number; max_cost_usd: number; priced_reviews: number; estimated_reviews: number; check_reported_usd: number; check_estimated_usd: number; check_reviews: number };
   verdicts: Record<string, number>;
   activity: { day: string; reviews: number; fresh_tokens: number }[];
   models: { model: string; effort: string; engine_version: string; reviews: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; median_cost_usd: number }[];

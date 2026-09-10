@@ -83,6 +83,7 @@
   <div class="metrics-stack">
     <section class="metric-kpis">
       <div><strong>{data.summary.reviews}</strong><span>reviews completed</span></div>
+      <div title="Every recorded row, including precheck skips and errors. Reviews are the subset where the engine actually posted."><strong>{data.summary.outcomes}</strong><span>outcomes recorded</span></div>
       <div><strong>{tokens(data.summary.fresh_tokens) || '0'}</strong><span>tokens processed</span></div>
       <div><strong>{durSecs(data.summary.median_duration_secs) || '–'}</strong><span>median duration</span></div>
       <div title={costTitle}><strong>{usd(data.summary.median_cost_usd) || '–'}</strong><span>median cost{#if data.summary.max_cost_usd > 0} · peak {usd(data.summary.max_cost_usd)}{/if}{#if estimatedShare} · {estimatedShare} est.{/if}</span></div>

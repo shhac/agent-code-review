@@ -31,7 +31,13 @@ import (
 // history. MedianCost is the number to set a per-review budget from, since a
 // mean is dragged around by the long tail.
 type metricsSummary struct {
+	// Reviews is real verdicts: work the engine actually did. Outcomes is
+	// every recorded row including precheck skips and errors. They are
+	// reported apart because the difference is large and load-bearing, and one
+	// number labelled "reviews" covering both is how three pages ended up
+	// disagreeing about the same word.
 	Reviews         int     `json:"reviews"`
+	Outcomes        int     `json:"outcomes"`
 	FreshTokens     int     `json:"fresh_tokens"`
 	CacheReadTokens int     `json:"cache_read_tokens"`
 	MedianDuration  int     `json:"median_duration_secs"`
@@ -135,17 +141,29 @@ func metricsFor(reviews []store.Review, model, effort string) metricsResp {
 			filtered = append(filtered, r)
 		}
 	}
+	// Every aggregate about WORK DONE counts real verdicts only. A precheck
+	// skip spends no tokens and takes a second, so counting it as a review
+	// inflated "reviews completed" and dragged every median toward zero — and
+	// in this store skips have been up to half of all recorded rows. The
+	// verdict breakdown is the exception: skips and errors are exactly what it
+	// exists to show.
+	real := make([]store.Review, 0, len(filtered))
+	for _, r := range filtered {
+		if store.IsRealVerdict(r.Verdict) {
+			real = append(real, r)
+		}
+	}
 	return metricsResp{
-		Summary:  summaryOf(filtered),
+		Summary:  summaryOf(real, len(filtered)),
 		Verdicts: verdictCounts(filtered),
-		Activity: activityByDay(filtered),
-		Models:   modelGroups(filtered),
-		Scatter:  scatterPoints(filtered),
+		Activity: activityByDay(real),
+		Models:   modelGroups(real),
+		Scatter:  scatterPoints(real),
 	}
 }
 
-func summaryOf(reviews []store.Review) metricsSummary {
-	s := metricsSummary{Reviews: len(reviews)}
+func summaryOf(reviews []store.Review, outcomes int) metricsSummary {
+	s := metricsSummary{Reviews: len(reviews), Outcomes: outcomes}
 	durations := []int{}
 	costs := []float64{}
 	for _, r := range reviews {

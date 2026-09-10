@@ -124,19 +124,19 @@ func TestHoldGetters(t *testing.T) {
 
 func TestDurationGetters(t *testing.T) {
 	var zero Config
-	if got := zero.DiscoverInterval(); got != 10*time.Minute {
-		t.Errorf("DiscoverInterval default = %v, want 10m", got)
+	if got := zero.DiscoverInterval(); got != 5*time.Minute {
+		t.Errorf("DiscoverInterval default = %v, want 5m", got)
 	}
 	if got := zero.UsagePollInterval(); got != 10*time.Minute {
 		t.Errorf("UsagePollInterval default = %v, want 10m", got)
 	}
-	c := Config{Discovery: DiscoverySettings{Interval: "5m"}}
-	if got := c.DiscoverInterval(); got != 5*time.Minute {
-		t.Errorf("DiscoverInterval override = %v, want 5m", got)
+	c := Config{Discovery: DiscoverySettings{Interval: "2m"}}
+	if got := c.DiscoverInterval(); got != 2*time.Minute {
+		t.Errorf("DiscoverInterval override = %v, want 2m", got)
 	}
 	c.Discovery.Interval = "-3m" // non-positive falls back
-	if got := c.DiscoverInterval(); got != 10*time.Minute {
-		t.Errorf("DiscoverInterval negative = %v, want 10m fallback", got)
+	if got := c.DiscoverInterval(); got != 5*time.Minute {
+		t.Errorf("DiscoverInterval negative = %v, want 5m fallback", got)
 	}
 }
 

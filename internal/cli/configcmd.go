@@ -103,7 +103,7 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *string { return &c.Schedule.DispatchCooldown }, validateHoldDuration)),
 		static(optionalBoolKey("discovery.enabled", "Whether the serve daemon scrapes repos for candidates (default true)",
 			func(c *config.Config) **bool { return &c.Discovery.Enabled }), boolValues),
-		plain(stringKey("discovery.interval", "Candidate-scraping cadence as a Go duration (default 10m; deterministic gh calls, no LLM)",
+		plain(stringKey("discovery.interval", "Candidate-scraping cadence as a Go duration (default 5m; deterministic gh calls, no LLM)",
 			func(c *config.Config) *string { return &c.Discovery.Interval }, validateDuration)),
 		plain(intKey("schedule.max_parallel", "Max PRs reviewed concurrently (default 4)",
 			func(c *config.Config) *int { return &c.Schedule.MaxParallel }, 1, 32)),

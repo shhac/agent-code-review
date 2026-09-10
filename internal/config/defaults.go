@@ -211,10 +211,10 @@ func (c Config) DashboardAddr() string {
 	return "127.0.0.1:8330"
 }
 
-// DiscoverInterval is the candidate-scraping cadence (default 10m; discovery
+// DiscoverInterval is the candidate-scraping cadence (default 5m; discovery
 // is cheap gh calls, so it can run more often than reviews).
 func (c Config) DiscoverInterval() time.Duration {
-	return durationOr(c.Discovery.Interval, 10*time.Minute)
+	return durationOr(c.Discovery.Interval, 5*time.Minute)
 }
 
 // WatchesRepo reports whether repo is on the watch list (case-insensitive,

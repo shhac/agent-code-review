@@ -116,7 +116,7 @@ type UsageFloorLimits struct {
 // scraping can run without reviews (or vice versa).
 type DiscoverySettings struct {
 	Enabled  *bool  `json:"enabled,omitempty"`
-	Interval string `json:"interval,omitempty"` // e.g. "10m"
+	Interval string `json:"interval,omitempty"` // e.g. "5m"
 }
 
 // CodexSettings configures the default review engine (codex exec).

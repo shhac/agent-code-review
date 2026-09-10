@@ -30,7 +30,7 @@
   },
   "discovery": {
     "enabled": true,
-    "interval": "10m"
+    "interval": "5m"
   },
   "review": {
     "//engine_note": "The DEFAULT agent CLI for reviews: \"codex\" or \"claude\". An author group can name its own engine/model/effort, which overrides this for that cohort's PRs, so one cycle can run both. Both report through the same verdict contract and write the same agent.log, so switching is a one-key change; only the matching engine block below applies, patched by whatever the resolved group asked for.",

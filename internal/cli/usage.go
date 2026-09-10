@@ -362,7 +362,7 @@ KEYS:
   schedule.interval                    idle poll, e.g. 30s (only when nothing is ready)
   schedule.dispatch_cooldown           pause between dispatches, e.g. 5s (0s disables)
   discovery.enabled                    true|false: daemon scrapes for candidates
-  discovery.interval                   scrape cadence, e.g. 10m (gh only, no LLM)
+  discovery.interval                   scrape cadence, e.g. 5m (gh only, no LLM)
   schedule.max_parallel                1..32 concurrent reviews
   schedule.usage_floor.5h_percent      pause reviews when the engine's 5h usage window
                                        has less than this % remaining (default 10, 0 off)

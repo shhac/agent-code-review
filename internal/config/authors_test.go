@@ -325,3 +325,51 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+// TestOverrideCanEscalateReviewLevel covers the single most consequential edge
+// in the cascade, and the one the main table skips: an override that raises
+// the REVIEW level. Every override in groupCfg sets only model/effort/prompt,
+// so setField was exercised on Review from the group layer alone.
+//
+// ValidateAuthors accepts a review level on an override, and an override with
+// no repos list applies everywhere, so `{handle, group: {review: approve}}`
+// grants approve on every repo — including one whose unlisted fallback is
+// ignore. Whether that is intended is a policy question; that it happens
+// should not be a surprise, which is what this pins.
+func TestOverrideCanEscalateReviewLevel(t *testing.T) {
+	cfg := groupCfg()
+	cfg.Authors.Overrides = append(cfg.Authors.Overrides, AuthorOverride{
+		Handle: "escalated",
+		Group:  Group{Review: ReviewApprove}, // no Repos: every repo
+	})
+
+	// Over a commenter membership, the override wins.
+	got := cfg.ResolvePolicy("acme/backend", "escalated", Membership{Group: "outsider", Repo: "acme/backend"})
+	if !got.MayApprove() {
+		t.Errorf("policy = %+v, want the override's approve level to win over the group's comment", got)
+	}
+
+	// And on a repo whose unlisted fallback is ignore, an unscoped override
+	// still reaches: the blast radius of omitting `repos`.
+	got = cfg.ResolvePolicy("acme/infra", "escalated", Membership{})
+	if !got.MayApprove() {
+		t.Errorf("policy = %+v, want an unscoped override to apply to every repo", got)
+	}
+}
+
+// TestUnlistedRepoKeyIsCaseInsensitive covers lookupRepo's sorted rescan, the
+// uncovered half of that function. It fails OPEN in the dangerous direction: a
+// case-mismatched key falls through to the "*" fallback, so a repo configured
+// to ignore strangers would start commenting on them, with no error anywhere.
+func TestUnlistedRepoKeyIsCaseInsensitive(t *testing.T) {
+	cfg := groupCfg()
+	cfg.Authors.Unlisted = map[string]string{"*": "outsider", "Acme/Infra": "nobody"}
+
+	got := cfg.ResolvePolicy("acme/infra", "stranger", Membership{})
+	if got.Group != "nobody" {
+		t.Errorf("group = %q, want the case-mismatched key matched rather than the wildcard", got.Group)
+	}
+	if got.Review != ReviewIgnore {
+		t.Errorf("review = %q: falling through to the wildcard is how a repo set to ignore starts reviewing", got.Review)
+	}
+}

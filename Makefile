@@ -17,9 +17,12 @@ test:
 	go test ./... -count=1
 
 # The dispatcher shares a lock-free dispatchState between its own goroutine and
-# N workers; the race detector is what holds that invariant honest.
+# N workers; the race detector is what holds that invariant honest. usage and
+# pricing are here for the same reason: both Caches document being read by the
+# dashboard while the daemon's refresh loop writes, and that claim went
+# unexercised while the target covered only these two packages.
 test-race:
-	go test ./internal/scheduler/ ./internal/cli/ -count=1 -race
+	go test ./internal/scheduler/ ./internal/cli/ ./internal/usage/ ./internal/pricing/ ./internal/dashboard/ -count=1 -race
 
 # Drives the real codex CLI (needs codex on PATH + auth; spends quota) and, if
 # AGENT_CODE_REVIEW_TEST_REPO is set, live gh discovery against that repo.

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -244,4 +245,37 @@ func TestOpenOnEmptyDirDegradesQuietly(t *testing.T) {
 	if !c.Stale(time.Now()) {
 		t.Error("a never-fetched cache must read as stale")
 	}
+}
+
+// TestCacheIsSafeForConcurrentUse covers this type's own claim, "safe for
+// concurrent use — the dashboard reads it while the daemon's refresh loop
+// writes", which had never been run under the race detector: the -race target
+// covered only scheduler and cli. Meaningful only under -race.
+func TestCacheIsSafeForConcurrentUse(t *testing.T) {
+	dir := t.TempDir()
+	// nil hits: serve's counter is unguarded, and concurrent refreshes would
+	// race on the TEST's bookkeeping rather than on anything in the Cache.
+	srv := serve(t, sampleTable, `"v1"`, nil)
+	c := Open(dir)
+	withSource(t, c, srv)
+
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = c.Refresh(context.Background(), time.Now())
+		}()
+	}
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 300 {
+				_, _ = c.Lookup("claude-opus-5")
+				_ = c.Status()
+			}
+		}()
+	}
+	wg.Wait()
 }

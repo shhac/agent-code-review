@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -55,4 +57,21 @@ func TestRunSummary(t *testing.T) {
 			t.Errorf("by_verdict marshalled to null, want an empty object: %s", b)
 		}
 	})
+}
+
+// TestRunUsageFnPolarity pins the money gate's direction. nil means "skip the
+// floor check", and scheduler.New fills a nil Usage with a fail-open stub, so
+// an inverted condition here would drain the queue against an account the
+// daemon had deliberately parked — with no error anywhere. usage/lazy_test.go
+// opens by calling this the money path and records that `run` used to skip the
+// floor entirely; it tests the Cache half, and nothing tested this half.
+func TestRunUsageFnPolarity(t *testing.T) {
+	cfg := config.Config{}
+
+	if fn := runUsageFn(context.Background(), cfg, false); fn == nil {
+		t.Error("without --ignore-usage-floor the floor must be checked, and nil means it is not")
+	}
+	if fn := runUsageFn(context.Background(), cfg, true); fn != nil {
+		t.Error("--ignore-usage-floor asks for exactly one thing, and this is it")
+	}
 }

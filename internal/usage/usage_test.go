@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -75,4 +76,36 @@ func TestCacheKeepsEnginesSeparate(t *testing.T) {
 	if all := cache.All(); len(all) != 2 {
 		t.Errorf("All() = %v, want both engines", all)
 	}
+}
+
+// TestCacheIsSafeForConcurrentUse exercises the invariant this type's own doc
+// comment claims — "the dashboard reads it while the daemon's refresh loop
+// writes" — which nothing had ever run under the race detector, because the
+// -race target covered only scheduler and cli. Meaningful only under -race;
+// harmless without it.
+func TestCacheIsSafeForConcurrentUse(t *testing.T) {
+	c := NewCache()
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+
+	// The daemon's refresh loop.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.Poll(ctx, time.Millisecond, Source{Engine: "codex", Bin: "definitely-not-a-real-binary"})
+	}()
+
+	// Concurrent dashboard requests, reading both shapes the handlers use.
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 300 {
+				_ = c.Get("codex")
+				_ = c.All()
+			}
+		}()
+	}
+	cancel()
+	wg.Wait()
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/scheduler"
 	"github.com/shhac/agent-code-review/internal/store"
 	"github.com/shhac/agent-code-review/internal/usage"
 )
@@ -42,10 +44,7 @@ func registerRun(root *cobra.Command) {
 			// deliberately parked at its floor.
 			warnf := func(notice, hint string) { output.WriteNotice(os.Stderr, notice, hint) }
 			reportConfigProblems(cfg, warnf)
-			usageFn := usage.NewCache().Lazy(fetchUsage(ctx, cfg))
-			if ignoreFloor {
-				usageFn = nil
-			}
+			usageFn := runUsageFn(ctx, cfg, ignoreFloor)
 			sched, err := buildScheduler(ctx, config.Read, s, stderrLogf, warnf, usageFn)
 			if err != nil {
 				return err
@@ -77,6 +76,18 @@ func registerRun(root *cobra.Command) {
 	cmd.Flags().BoolVar(&ignoreFloor, "ignore-usage-floor", false,
 		"Review even when an engine is below its usage floor (the daemon never does)")
 	root.AddCommand(cmd)
+}
+
+// runUsageFn is the money gate, and it is a function so its POLARITY can be
+// asserted. nil means "do not check the floor"; an inverted condition here
+// silently restores the bug the comment in registerRun memorialises, and
+// scheduler.New fills a nil Usage with a fail-open stub, so nothing
+// downstream would complain about it either.
+func runUsageFn(ctx context.Context, cfg config.Config, ignoreFloor bool) scheduler.UsageFn {
+	if ignoreFloor {
+		return nil
+	}
+	return usage.NewCache().Lazy(fetchUsage(ctx, cfg))
 }
 
 // runSummary is the trailing record `run` prints after the outcome rows: how

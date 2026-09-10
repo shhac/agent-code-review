@@ -1057,10 +1057,15 @@ func TestEstimateCostsFillsOnlyTheGaps(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	add(1, "priced-model", 0, 100_000, 10_000, 0, 200_000) // needs a valuation
-	add(2, "priced-model", 9.99, 100_000, 10_000, 0, 0)    // already valued
-	add(3, "unlisted-model", 0, 50_000, 5_000, 0, 0)       // no rates for it
-	add(4, "priced-model", 0, 0, 0, 0, 0)                  // no split to price
+	// Nonzero cache WRITES on purpose. Every row here used to have cw=0 and
+	// every rates map omitted CacheWrite, so the cache_write_tokens term of the
+	// SQL was multiplied by zero on both sides and deleting it left this test
+	// green — on the class the EffectiveCacheWrite comment says was already
+	// silently under-valued once, and the class that dominates token volume.
+	add(1, "priced-model", 0, 100_000, 10_000, 50_000, 200_000) // needs a valuation
+	add(2, "priced-model", 9.99, 100_000, 10_000, 0, 0)         // already valued
+	add(3, "unlisted-model", 0, 50_000, 5_000, 0, 0)            // no rates for it
+	add(4, "priced-model", 0, 0, 0, 0, 0)                       // no split to price
 
 	models, err := s.UnpricedModels(ctx)
 	if err != nil {
@@ -1073,7 +1078,7 @@ func TestEstimateCostsFillsOnlyTheGaps(t *testing.T) {
 	}
 
 	n, err := s.EstimateCosts(ctx, map[string]CostRates{
-		"priced-model": {Input: 2e-06, Output: 1e-05, CacheRead: 2e-07},
+		"priced-model": {Input: 2e-06, Output: 1e-05, CacheWrite: 4e-06, CacheRead: 2e-07},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1091,9 +1096,18 @@ func TestEstimateCostsFillsOnlyTheGaps(t *testing.T) {
 	for _, r := range all {
 		byNumber[r.Number] = r
 	}
-	// 100k*2e-6 + 10k*1e-5 + 200k*2e-7 = 0.2 + 0.1 + 0.04
-	if got := byNumber[1].EstCostUSD; math.Abs(got-0.34) > 1e-9 {
-		t.Errorf("gap row valued %v, want 0.34", got)
+	// 100k*2e-6 + 10k*1e-5 + 50k*4e-6 + 200k*2e-7 = 0.2 + 0.1 + 0.2 + 0.04
+	if got := byNumber[1].EstCostUSD; math.Abs(got-0.54) > 1e-9 {
+		t.Errorf("gap row valued %v, want 0.54", got)
+	}
+	// The same figure the Go pricing path would produce, compared through the
+	// real SQL rather than against a Go transcription of the same arithmetic:
+	// a test that re-implements the multiplication cannot notice the statement
+	// losing a term.
+	want := CostRates{Input: 2e-06, Output: 1e-05, CacheWrite: 4e-06, CacheRead: 2e-07}
+	expected := 100_000*want.Input + 10_000*want.Output + 50_000*want.CacheWrite + 200_000*want.CacheRead
+	if got := byNumber[1].EstCostUSD; math.Abs(got-expected) > 1e-9 {
+		t.Errorf("SQL valued %v, Go arithmetic says %v", got, expected)
 	}
 	if got := byNumber[2].EstCostUSD; got != 9.99 {
 		t.Errorf("already-valued row = %v, want its 9.99 kept", got)

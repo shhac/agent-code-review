@@ -48,6 +48,29 @@ test.describe('history accordion', () => {
     expect(button.x).toBeGreaterThan(box.x + box.width / 2);
   });
 
+  test('leaves a gutter between the content and the highlighted box', async ({ page }) => {
+    // An open row paints a background across its full width. Every child —
+    // the PR cell, the detail list, the actions — sat flush against that
+    // edge, so text and button touched the box they were in.
+    await page.goto('/history');
+    const wrap = page.locator('.review-row-wrap', { hasText: 'cache the tariff lookup' });
+    await wrap.locator('.review-row').click();
+
+    const outer = await wrap.boundingBox();
+    if (!outer) throw new Error('row not laid out');
+    const inset = async (sel: string) => {
+      const b = await wrap.locator(sel).first().boundingBox();
+      if (!b) throw new Error(`${sel} not laid out`);
+      return { left: b.x - outer.x, right: outer.x + outer.width - (b.x + b.width) };
+    };
+
+    for (const sel of ['.pr-cell', '.detail-actions']) {
+      const { left, right } = await inset(sel);
+      expect(left, `${sel} left gutter`).toBeGreaterThanOrEqual(8);
+      expect(right, `${sel} right gutter`).toBeGreaterThanOrEqual(8);
+    }
+  });
+
   test('offers to run the review again from the row', async ({ page }) => {
     await page.goto('/history');
     const row = page.locator('.review-row-wrap', { hasText: 'cache the tariff lookup' });

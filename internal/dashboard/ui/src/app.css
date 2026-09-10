@@ -244,11 +244,18 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
   margin: 0; display: grid; gap: 14px; align-items: center;
   grid-template-columns: minmax(220px, 1fr) 170px 110px 96px 92px 20px;
 }
+/* --row-gutter is shared by the header, the rows and the expanded detail, so
+   the three keep the same column origins: the header and rows are two grids
+   with one grid-template-columns between them, and insetting only one of them
+   is how a row stops lining up with the label above it. It exists because an
+   open row paints a background across the full width, and its content sat
+   flush against that edge with nothing between text and box. */
+.review-table { --row-gutter: 12px; }
 .review-head {
-  padding: 0 0 6px; font-size: 11px; font-weight: 750; letter-spacing: .05em;
+  padding: 0 var(--row-gutter) 6px; font-size: 11px; font-weight: 750; letter-spacing: .05em;
   text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line);
 }
-.review-row { padding: 9px 0; cursor: pointer; }
+.review-row { padding: 9px var(--row-gutter); cursor: pointer; }
 /* PrIdentity renders TWO elements (the #number link and the title/author
    block). Wrapping them keeps this table's column count independent of that:
    unwrapped they were two grid items, so every later column sat one place
@@ -267,7 +274,7 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .review-row > .num { color: var(--dim); text-align: right; white-space: nowrap; }
 .review-row > .num small { display: block; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
 .review-row > .chev { color: var(--faint); text-align: center; }
-.review-detail { padding: 4px 0 14px; display: grid; gap: 10px; }
+.review-detail { padding: 4px var(--row-gutter) 14px; display: grid; gap: 10px; }
 /* Wide enough for a 40-character SHA beside its label, so the value column is
    not forced to break a word to fit ("esti / mated"). */
 .review-detail dl { margin: 0; display: grid; gap: 8px 24px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }

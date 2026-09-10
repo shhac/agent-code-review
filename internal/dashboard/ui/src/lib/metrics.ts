@@ -119,3 +119,37 @@ export function trendPoints(activity: ActivityDay[], maxTokens: number): string 
     })
     .join(' ');
 }
+
+type Summary = MetricsResponse['summary'];
+
+// Share of a model's tokens that were context re-read rather than processed.
+// An engine that reports no cache reads gets a dash, not 0%: the two mean
+// different things, and 0% would read as "caches badly".
+export function cacheShare(row: { fresh_tokens: number; cache_read_tokens: number }): string {
+  const total = row.fresh_tokens + row.cache_read_tokens;
+  if (!row.cache_read_tokens || total === 0) return '–';
+  return `${Math.round((row.cache_read_tokens / total) * 100)}%`;
+}
+
+// Cost mixes two kinds of figure: what an engine reported, and what we valued
+// from its token classes. This says how much of the mix is ours, so an
+// inferred median is never read as a measured one.
+export function estimatedShare(s: Summary | undefined): string {
+  if (!s?.priced_reviews || !s.estimated_reviews) return '';
+  return `${Math.round((s.estimated_reviews / s.priced_reviews) * 100)}%`;
+}
+
+// The tooltip behind the cost tile, including the cross-check: where an engine
+// priced its own run and we priced it too, how far apart we are. Divergence
+// means our rates or our class mapping are off, which is the one signal that
+// catches a bad rate table before it quietly misvalues a month.
+export function costTitle(s: Summary | undefined): string {
+  if (!s?.priced_reviews) return 'No review in this range has a cost figure yet.';
+  const base = `API-rate valuation, not money charged. ${s.priced_reviews} of ${s.reviews} reviews priced`;
+  const est = s.estimated_reviews
+    ? `, ${s.estimated_reviews} of those valued from token classes because their engine reports no cost`
+    : '';
+  if (!s.check_reviews) return `${base}${est}.`;
+  const drift = Math.round(((s.check_estimated_usd - s.check_reported_usd) / s.check_reported_usd) * 100);
+  return `${base}${est}. Cross-check over ${s.check_reviews} review(s) the engine also priced: our estimate runs ${drift >= 0 ? '+' : ''}${drift}% against theirs.`;
+}

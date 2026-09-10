@@ -3,7 +3,7 @@
   import { getMetrics } from '../lib/api';
   import { withFeed } from '../lib/feed';
   import { durSecs, exact, maxOf, modelLabel, statusLabel, tokens, usd } from '../lib/format';
-  import { metricFacets, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing } from '../lib/metrics';
+  import { cacheShare, costTitle, estimatedShare, metricFacets, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing } from '../lib/metrics';
   import type { MetricsResponse } from '../lib/types';
 
   type ScatterPoint = MetricsResponse['scatter'][number];
@@ -17,36 +17,8 @@
 
   $: ({ models, efforts } = metricFacets(data));
   $: maxReviews = maxOf(data?.activity || [], (d) => d.reviews);
-  // Share of the model's tokens that were context re-read rather than
-  // processed. An engine that reports no cache reads gets a dash, not 0%:
-  // the two mean different things and 0% would read as "caches badly".
-  const cacheShare = (row: { fresh_tokens: number; cache_read_tokens: number }) => {
-    const total = row.fresh_tokens + row.cache_read_tokens;
-    if (!row.cache_read_tokens || total === 0) return '–';
-    return `${Math.round((row.cache_read_tokens / total) * 100)}%`;
-  };
-
-  // Cost mixes two kinds of figure: what an engine reported, and what we
-  // valued from its token classes. The tile says how much of the mix is ours,
-  // so an inferred median is never read as a measured one.
-  $: estimatedShare = (() => {
-    const s = data?.summary;
-    if (!s?.priced_reviews || !s.estimated_reviews) return '';
-    return `${Math.round((s.estimated_reviews / s.priced_reviews) * 100)}%`;
-  })();
-  $: costTitle = (() => {
-    const s = data?.summary;
-    if (!s?.priced_reviews) return 'No review in this range has a cost figure yet.';
-    const base = `API-rate valuation, not money charged. ${s.priced_reviews} of ${s.reviews} reviews priced`;
-    const est = s.estimated_reviews
-      ? `, ${s.estimated_reviews} of those valued from token classes because their engine reports no cost`
-      : '';
-    // The cross-check: where an engine priced its own run and we priced it
-    // too, how close we are. Divergence means our rates or mapping are off.
-    if (!s.check_reviews) return `${base}${est}.`;
-    const drift = Math.round(((s.check_estimated_usd - s.check_reported_usd) / s.check_reported_usd) * 100);
-    return `${base}${est}. Cross-check over ${s.check_reviews} review(s) the engine also priced: our estimate runs ${drift >= 0 ? '+' : ''}${drift}% against theirs.`;
-  })();
+  $: estShare = estimatedShare(data?.summary);
+  $: costTip = costTitle(data?.summary);
 
   $: maxTokens = maxOf(data?.activity || [], (d) => d.fresh_tokens);
   $: tokenPoints = trendPoints(data?.activity || [], maxTokens);
@@ -86,7 +58,7 @@
       <div title="Every recorded row, including precheck skips and errors. Reviews are the subset where the engine actually posted."><strong>{data.summary.outcomes}</strong><span>outcomes recorded</span></div>
       <div><strong>{tokens(data.summary.fresh_tokens) || '0'}</strong><span>tokens processed</span></div>
       <div><strong>{durSecs(data.summary.median_duration_secs) || '–'}</strong><span>median duration</span></div>
-      <div title={costTitle}><strong>{usd(data.summary.median_cost_usd) || '–'}</strong><span>median cost{#if data.summary.max_cost_usd > 0} · peak {usd(data.summary.max_cost_usd)}{/if}{#if estimatedShare} · {estimatedShare} est.{/if}</span></div>
+      <div title={costTip}><strong>{usd(data.summary.median_cost_usd) || '–'}</strong><span>median cost{#if data.summary.max_cost_usd > 0} · peak {usd(data.summary.max_cost_usd)}{/if}{#if estShare} · {estShare} est.{/if}</span></div>
     </section>
     <div class="metrics-grid">
       <section class="surface metric-panel activity-panel"><div class="section-head"><h2>Completed reviews + tokens processed</h2><span>daily</span></div><div class="activity-plot"><span class="activity-axis left title">reviews</span><span class="activity-axis left top">{maxReviews}</span><span class="activity-axis left bottom">0</span><span class="activity-axis right title">tokens</span><span class="activity-axis right top">{tokens(maxTokens) || '0'}</span><span class="activity-axis right bottom">0</span>{#each data.activity as day}<div class="activity-day" title={`${day.day}: ${day.reviews} reviews · ${day.fresh_tokens} tokens`}><i class="review-bar" style={`height:${Math.max(3, day.reviews / maxReviews * 100)}%`}></i></div>{/each}<svg class="token-trend" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Token spend trend"><polyline points={tokenPoints} /></svg></div><div class="legend"><span><i class="approved"></i>completed reviews</span><span><i class="commented"></i>tokens used</span></div></section>

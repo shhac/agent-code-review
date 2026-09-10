@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { metricFacets, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing } from './metrics';
+import { cacheShare, costTitle, estimatedShare, metricFacets, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing } from './metrics';
 
 const scatter = (...models: string[]) => models.map((model) => ({ model }) as any);
 
@@ -88,5 +88,51 @@ describe('trendPoints', () => {
   });
   it('spreads days across the viewBox with an inverted y axis', () => {
     expect(trendPoints([{ day: 'a', reviews: 0, fresh_tokens: 0 }, { day: 'b', reviews: 0, fresh_tokens: 100 }], 100)).toBe('0,100 100,0');
+  });
+});
+
+describe('cacheShare', () => {
+  it('distinguishes "no cache reads reported" from "caches badly"', () => {
+    // A dash, never 0%: one engine reports no cache reads at all, and 0%
+    // would read as a measured result rather than an absent one.
+    expect(cacheShare({ fresh_tokens: 100, cache_read_tokens: 0 })).toBe('–');
+    expect(cacheShare({ fresh_tokens: 0, cache_read_tokens: 0 })).toBe('–');
+    expect(cacheShare({ fresh_tokens: 25, cache_read_tokens: 75 })).toBe('75%');
+  });
+});
+
+describe('costTitle', () => {
+  const base = {
+    reviews: 10, outcomes: 12, fresh_tokens: 0, cache_read_tokens: 0,
+    median_duration_secs: 0, cost_usd: 0, median_cost_usd: 0, max_cost_usd: 0,
+    priced_reviews: 0, estimated_reviews: 0,
+    check_reported_usd: 0, check_estimated_usd: 0, check_reviews: 0,
+  };
+
+  it('says plainly when nothing is priced', () => {
+    expect(costTitle({ ...base })).toContain('No review in this range');
+    expect(costTitle(undefined)).toContain('No review in this range');
+  });
+
+  it('reports how much of the figure is our inference', () => {
+    const t = costTitle({ ...base, priced_reviews: 8, estimated_reviews: 3 });
+    expect(t).toContain('8 of 10 reviews priced');
+    expect(t).toContain('3 of those valued from token classes');
+  });
+
+  it('reports the cross-check drift with an explicit sign', () => {
+    // The signal that catches a bad rate table before it misvalues a month,
+    // so the direction of the drift has to be legible at a glance.
+    const over = costTitle({ ...base, priced_reviews: 8, check_reviews: 4, check_reported_usd: 1, check_estimated_usd: 1.1 });
+    expect(over).toContain('+10%');
+    const under = costTitle({ ...base, priced_reviews: 8, check_reviews: 4, check_reported_usd: 1, check_estimated_usd: 0.8 });
+    expect(under).toContain('-20%');
+  });
+});
+
+describe('estimatedShare', () => {
+  it('is empty when there is nothing inferred to disclose', () => {
+    expect(estimatedShare(undefined)).toBe('');
+    expect(estimatedShare({ ...({} as never), priced_reviews: 5, estimated_reviews: 0 } as never)).toBe('');
   });
 });

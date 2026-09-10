@@ -169,8 +169,12 @@ func (d *duckDB) Complete(ctx context.Context, r Review) error {
 // which retires the queue row with it, and AppendHistory, which does not.
 // Shared so a new column cannot be added to one path and missed by the other.
 func historyInsert(r Review) string {
-	return fmt.Sprintf(`INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, engine_version, reviewed_at, duration_secs, work_dir, tokens_used, cost_usd, est_cost_usd, fresh_tokens, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, reasoning_tokens, usage_raw) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d, %s, %s, %d, %d, %d, %d, %d, %d, %s);`,
-		nullText(r.Repo), r.Number, nullText(r.Title), nullText(r.Author), nullText(r.HeadSHA), nullText(r.Verdict), nullText(r.Engine), nullText(r.Model), nullText(r.Effort), nullText(r.EngineVersion), ts(r.ReviewedAt), r.DurationSecs, nullText(r.WorkDir), r.TokensUsed, num(r.CostUSD), num(r.EstCostUSD), r.FreshTokens, r.InputTokens, r.OutputTokens, r.CacheWriteTokens, r.CacheReadTokens, r.ReasoningTokens, nullText(r.UsageRaw))
+	msg, by, at := "NULL", "NULL", "NULL"
+	if r.Steering != nil && r.Steering.Message != "" {
+		msg, by, at = text(r.Steering.Message), nullText(r.Steering.SetBy), ts(r.Steering.SetAt)
+	}
+	return fmt.Sprintf(`INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, engine_version, reviewed_at, duration_secs, work_dir, tokens_used, cost_usd, est_cost_usd, fresh_tokens, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, reasoning_tokens, usage_raw, steering_message, steering_by, steering_at) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d, %s, %s, %d, %d, %d, %d, %d, %d, %s, %s, %s, %s);`,
+		nullText(r.Repo), r.Number, nullText(r.Title), nullText(r.Author), nullText(r.HeadSHA), nullText(r.Verdict), nullText(r.Engine), nullText(r.Model), nullText(r.Effort), nullText(r.EngineVersion), ts(r.ReviewedAt), r.DurationSecs, nullText(r.WorkDir), r.TokensUsed, num(r.CostUSD), num(r.EstCostUSD), r.FreshTokens, r.InputTokens, r.OutputTokens, r.CacheWriteTokens, r.CacheReadTokens, r.ReasoningTokens, nullText(r.UsageRaw), msg, by, at)
 }
 
 func (d *duckDB) Dequeue(ctx context.Context, repo string, number int) error {

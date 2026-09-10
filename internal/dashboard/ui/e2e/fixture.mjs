@@ -31,6 +31,17 @@ VALUES
  ('acme/widgets',22775,'fix(cx-widget): treat a default event as the subject','someone-else',
   'aeed56b594c59c73bb1a196e0026903d5e7a1d57','COMMENTED','codex','gpt-5.6-terra','medium',now(),240,1100000,0.4481,0);
 
+-- A finished review that WAS steered. Its instruction outlived the queue row
+-- it was written on, which is the only way the history page can answer what
+-- the agent was told.
+INSERT INTO history
+ (repo,number,title,author,head_sha,verdict,engine,model,effort,reviewed_at,duration_secs,tokens_used,cost_usd,est_cost_usd,
+  steering_message,steering_by,steering_at)
+VALUES
+ ('acme/widgets',22001,'perf(api): cache the tariff lookup','octocat',
+  repeat('e', 40),'REQUESTED_CHANGES','codex','gpt-5.6-terra','medium',now(),180,900000,0,0.31,
+  'The cache is behind a flag, so weigh the **stale read** risk','octocat',now());
+
 -- 600 rows, deliberately more than the 500 the page used to fetch. The search
 -- ran in the browser over that window, so a handle whose reviews had scrolled
 -- out of it returned nothing while looking like it had searched everywhere.

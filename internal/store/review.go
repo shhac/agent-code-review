@@ -77,6 +77,14 @@ type Review struct {
 	// modelled above. Keeping the raw payload means a later pricing or
 	// analytics question is a query rather than a migration and a data gap.
 	UsageRaw string `json:"usage_raw,omitempty"`
+	// Steering is the instruction that shaped this review, copied off the queue
+	// row as it was retired. Same shape as Candidate.Steering deliberately: it
+	// is the same fact, so the dashboard renders it one way.
+	//
+	// nil means NOT RECORDED rather than "not steered". Rows written before
+	// these columns existed cannot say which they were, and their messages went
+	// with the queue rows they lived on.
+	Steering *Steering `json:"steering,omitempty"`
 }
 
 // EffectiveCostUSD is the run's spend however it is best known: the engine's
@@ -120,6 +128,10 @@ func ReviewFrom(c Candidate, verdict, engine string, started time.Time) Review {
 		ReviewedAt:   time.Now(),
 		DurationSecs: duration,
 		WorkDir:      c.WorkDir,
+		// The steering goes into history because it is about to leave the
+		// queue: Complete retires the row and the instruction with it, so this
+		// is the last moment anything can record what the agent was told.
+		Steering: c.Steering,
 	}
 }
 

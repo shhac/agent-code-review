@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { getReviews } from '../lib/api';
+  import { getReviews, preflightPR } from '../lib/api';
   import { withFeed } from '../lib/feed';
-  import { ago, durSecs, tokens, when } from '../lib/format';
+  import { ago, durSecs, prHref, tokens, when } from '../lib/format';
   import { navigate } from '../lib/nav';
   import Pager from '../lib/Pager.svelte';
   import { poll } from '../lib/poll';
   import PrIdentity from '../lib/PrIdentity.svelte';
   import { reviewLogPathFromReview } from '../lib/reviewlog';
+  import SteerAndQueue from '../lib/SteerAndQueue.svelte';
+  import SteeringNote from '../lib/SteeringNote.svelte';
   import StatusBadge from '../lib/StatusBadge.svelte';
-  import type { Review } from '../lib/types';
+  import type { QueuePreflight, Review } from '../lib/types';
 
   let reviews: Review[] = [];
   let total = 0;
@@ -50,6 +52,33 @@
     const k = rowKey(r);
     expanded.has(k) ? expanded.delete(k) : expanded.add(k);
     expanded = expanded;
+  }
+
+  // Reviewing a PR again from here, rather than making somebody copy the link,
+  // navigate to the queue and retype what they already told it last time. The
+  // instruction from the previous review prefills the editor, because "run it
+  // again, but say this differently" is the whole reason to be on this row.
+  //
+  // history stores no url (the queue row that had one is long gone), so the
+  // reference is rebuilt from repo and number — the same form the add box
+  // accepts.
+  let requeue: { pr: QueuePreflight; url: string; initial: string } | null = null;
+  let requeueBusy = '';
+  let note = '';
+
+  async function openRequeue(r: Review) {
+    note = '';
+    requeueBusy = rowKey(r);
+    const url = prHref(r.repo, r.number);
+    try {
+      // Resolve first, so the modal can say whether this viewer may steer and
+      // refuse the instruction with a reason rather than silently dropping it.
+      requeue = { pr: await preflightPR(url), url, initial: r.steering?.message ?? '' };
+    } catch (e) {
+      note = e instanceof Error ? e.message : String(e);
+    } finally {
+      requeueBusy = '';
+    }
   }
 
   // The same fields the server matches on, so a provisional result is a subset
@@ -190,9 +219,23 @@
                     <div><dt>Cost</dt><dd>${r.cost_usd.toFixed(4)}{#if r.cost_estimated} <span class="tag-mute">estimated</span>{/if}</dd></div>
                   {/if}
                 </dl>
-                {#if reviewLogPathFromReview(r)}
-                  <a class="log-link" href={reviewLogPathFromReview(r)} on:click|preventDefault|stopPropagation={() => navigate(reviewLogPathFromReview(r))}>Open the review log →</a>
+                {#if r.steering}
+                  <div class="steering-past">
+                    <h3>Steering it was given</h3>
+                    <SteeringNote steering={r.steering} />
+                  </div>
                 {/if}
+                <div class="detail-actions">
+                  {#if reviewLogPathFromReview(r)}
+                    <a class="log-link" href={reviewLogPathFromReview(r)} on:click|preventDefault|stopPropagation={() => navigate(reviewLogPathFromReview(r))}>Open the review log →</a>
+                  {/if}
+                  <button
+                    class="go"
+                    disabled={requeueBusy === rowKey(r)}
+                    title="Queue this PR for another review, with the option to change its steering"
+                    on:click|stopPropagation={() => openRequeue(r)}
+                  >{requeueBusy === rowKey(r) ? 'checking…' : 'Review again'}</button>
+                </div>
               </div>
             {/if}
           </div>
@@ -207,3 +250,29 @@
     {/if}
   </section>
 </div>
+
+{#if note}<p class="status bad note"><i></i>{note}</p>{/if}
+
+{#if requeue}
+  <SteerAndQueue
+    pr={requeue.pr}
+    url={requeue.url}
+    title={`Review ${requeue.pr.repo}#${requeue.pr.number} again`}
+    initial={requeue.initial}
+    onclose={() => (requeue = null)}
+    ondone={(n) => (note = n)}
+  />
+{/if}
+
+<style>
+  .steering-past { margin-top: 14px; }
+  .steering-past h3 {
+    margin: 0 0 6px; font-size: 13px; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--dim);
+  }
+  .detail-actions {
+    display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; margin-top: 14px;
+  }
+  .note { margin: 12px 0 0; }
+</style>

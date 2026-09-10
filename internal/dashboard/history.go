@@ -46,6 +46,10 @@ type historyReview struct {
 	// page can say which it is showing instead of presenting an inference as
 	// a measurement. Same pair reviewlog.go sends.
 	CostEstimated bool `json:"cost_estimated,omitempty"`
+	// Steering is what the agent was told, kept with the outcome it shaped.
+	// Absent means NOT RECORDED, not "not steered": rows written before
+	// history kept a copy read absent whatever they were given.
+	Steering *store.Steering `json:"steering,omitempty"`
 }
 
 func historyReviewsOf(reviews []store.Review) []historyReview {
@@ -59,6 +63,7 @@ func historyReviewsOf(reviews []store.Review) []historyReview {
 			DurationSecs: r.DurationSecs, WorkDir: r.WorkDir,
 			TokensUsed: r.TokensUsed,
 			CostUSD:    r.EffectiveCostUSD(), CostEstimated: r.CostEstimated(),
+			Steering: r.Steering,
 		})
 	}
 	return out

@@ -1496,3 +1496,57 @@ func TestReviewCursorRejectsAForeignCursor(t *testing.T) {
 		t.Errorf("the empty cursor is the first page: %+v err=%v", c, err)
 	}
 }
+
+// TestCompleteRecordsSteering pins the one moment an instruction can be kept.
+// Steering lives on the queue row, Complete retires that row, so if the
+// outcome does not carry a copy the answer to "why did it say that" is gone
+// the instant a review finishes.
+func TestCompleteRecordsSteering(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	steered := Candidate{Repo: "o/r", Number: 71, Type: TypeNew, HeadSHA: "sha71", Title: "T", Author: "octocat",
+		Steering: &Steering{Message: "focus on the rollback path", SetBy: "octocat", SetAt: time.Now().UTC().Truncate(time.Second)}}
+	plain := Candidate{Repo: "o/r", Number: 72, Type: TypeNew, HeadSHA: "sha72", Title: "T", Author: "octocat"}
+	for _, c := range []Candidate{steered, plain} {
+		if err := s.Enqueue(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Complete(ctx, ReviewFrom(c, VerdictCommented, "codex", time.Now().Add(-time.Minute))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	page, err := s.SearchReviews(ctx, ReviewQuery{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byNumber := map[int]Review{}
+	for _, r := range page.Reviews {
+		byNumber[r.Number] = r
+	}
+
+	got := byNumber[71].Steering
+	if got == nil {
+		t.Fatalf("the instruction must outlive the queue row it was written on, got %+v", byNumber[71])
+	}
+	if got.Message != steered.Steering.Message || got.SetBy != "octocat" {
+		t.Errorf("steering = %+v, want the message and its author", got)
+	}
+	if !got.SetAt.Equal(steered.Steering.SetAt) {
+		t.Errorf("set_at = %v, want %v", got.SetAt, steered.Steering.SetAt)
+	}
+
+	// An unsteered review records no steering, so the two cases are
+	// distinguishable — for rows written from here on. A row predating the
+	// columns reads nil too, which is why nothing may render nil as proof that
+	// no instruction was given.
+	if byNumber[72].Steering != nil {
+		t.Errorf("an unsteered review must carry none, got %+v", byNumber[72].Steering)
+	}
+
+	// The queue is empty again: recording a copy must not keep the row alive.
+	if _, ok := getQueued(t, s, "o/r", 71); ok {
+		t.Error("Complete must still retire the row it copied from")
+	}
+}

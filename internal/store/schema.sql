@@ -69,7 +69,18 @@ CREATE TABLE IF NOT EXISTS history (
   -- invocation. Everything above is a projection of this; keeping the source
   -- means a pricing question about a field we never modelled (claude's 5m/1h
   -- cache tiers, its server tool calls) is a query, not a migration.
-  usage_raw          TEXT
+  usage_raw          TEXT,
+  -- What the agent was told, kept with the outcome it shaped. Steering lives on
+  -- the QUEUE row and is retired with it, so without a copy here "why did it
+  -- say that" becomes unanswerable the moment a review finishes.
+  --
+  -- NULL means NOT RECORDED, not "not steered": every row written before this
+  -- column existed reads NULL whatever it was told, and those messages are
+  -- unrecoverable. Nothing may render an absence here as an absence of
+  -- steering.
+  steering_message   TEXT,
+  steering_by        TEXT,
+  steering_at        TIMESTAMP
 );
 
 -- Idempotent migrations for stores created before these columns existed.
@@ -188,6 +199,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS allowed_authors_tailscale_login
 -- created before that change still carry the table and its rows; nothing
 -- reads or writes it, and it is left alone rather than dropped so that
 -- history survives.
+
+ALTER TABLE history ADD COLUMN IF NOT EXISTS steering_message TEXT;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS steering_by TEXT;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS steering_at TIMESTAMP;
 
 -- eligible_at + hold_reason -> holds: one hold per row became one hold per
 -- NAME per row, so that a discovery sweep can rewrite the two names it owns

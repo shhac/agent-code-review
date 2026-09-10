@@ -4,9 +4,8 @@
   import { withFeed } from '../lib/feed';
   import { rel, tokens, when, windowName } from '../lib/format';
   import { poll } from '../lib/poll';
-  import Modal from '../lib/Modal.svelte';
   import QueueBoard from '../lib/QueueBoard.svelte';
-  import SteeringEditor from '../lib/SteeringEditor.svelte';
+  import SteerAndQueue from '../lib/SteerAndQueue.svelte';
   import type { Bucket, Candidate, QueueCounts, QueuePreflight, Review, UsageResponse, UsageSnapshot } from '../lib/types';
 
   let queue: Candidate[] = [];
@@ -73,7 +72,6 @@
   // because there is no chance to steer afterwards: a manual add lands on an
   // empty queue and the dispatcher takes it within the idle poll.
   let steerModal: QueuePreflight | null = null;
-  let steerDraft = '';
   let steerBusy = false;
 
   async function openAddWithSteering() {
@@ -83,7 +81,6 @@
       // Resolve first so the box can say whose PR this is, and be disabled
       // with a reason when it is not yours. The add re-checks regardless.
       steerModal = await preflightPR(addInput.trim());
-      steerDraft = '';
     } catch (e: any) {
       addErr = e.message;
     } finally {
@@ -91,22 +88,10 @@
     }
   }
 
-  async function addWithSteering() {
-    steerBusy = true;
-    addErr = '';
-    try {
-      const res = await queuePR(addInput.trim(), steerModal?.may_steer ? steerDraft.trim() : '');
-      addInput = '';
-      steerModal = null;
-      // The PR was queued either way; say so if only half of what was asked
-      // for happened, rather than letting a refusal read as success.
-      if (res.steering_refused) addErr = `Queued, but not steered: ${res.steering_refused}`;
-      await withFeed(refresh)();
-    } catch (e: any) {
-      addErr = e.message;
-    } finally {
-      steerBusy = false;
-    }
+  async function steerQueued(note: string) {
+    addInput = '';
+    addErr = note;
+    await withFeed(refresh)();
   }
 
   poll(withFeed(refresh), 15000);
@@ -188,14 +173,11 @@
 </div>
 
 {#if steerModal}
-  <Modal title={`Queue ${steerModal.repo}#${steerModal.number} with steering`} onclose={() => (steerModal = null)}>
-    <p class="muted">{steerModal.title} · by @{steerModal.author}</p>
-    <SteeringEditor bind:value={steerDraft} refusal={steerModal.may_steer ? '' : (steerModal.refusal ?? '')} />
-    <svelte:fragment slot="actions">
-      <button class="go" on:click={addWithSteering} disabled={steerBusy}>
-        {steerBusy ? 'queueing…' : steerModal.may_steer ? 'Queue with steering' : 'Queue anyway'}
-      </button>
-      <button on:click={() => (steerModal = null)} disabled={steerBusy}>Cancel</button>
-    </svelte:fragment>
-  </Modal>
+  <SteerAndQueue
+    pr={steerModal}
+    url={addInput.trim()}
+    title={`Queue ${steerModal.repo}#${steerModal.number} with steering`}
+    onclose={() => (steerModal = null)}
+    ondone={steerQueued}
+  />
 {/if}

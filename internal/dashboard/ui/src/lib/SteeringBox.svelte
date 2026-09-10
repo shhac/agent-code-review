@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { ago, when } from './format';
   import { steeringSession } from './steering';
-  import { mdToHtml } from './markdown';
+  import SteeringNote from './SteeringNote.svelte';
   import Modal from './Modal.svelte';
   import SteeringEditor from './SteeringEditor.svelte';
   import type { Steering } from './types';
@@ -83,11 +82,7 @@
   </div>
 
   {#if steering}
-    <div class="md steering-body">{@html mdToHtml(steering.message)}</div>
-    <p class="muted">
-      set by @{steering.set_by}
-      <time title={when(steering.set_at)}>{ago(steering.set_at)}</time>
-    </p>
+    <SteeringNote {steering} />
   {:else if mayEdit && !reviewing}
     <p class="muted">Nothing set. An instruction here shapes the next review of this PR.</p>
   {:else if !mayEdit}
@@ -121,9 +116,5 @@
   .steering-head h3 {
     margin: 0 0 6px; font-size: 13px; text-transform: uppercase;
     letter-spacing: .04em; color: var(--dim);
-  }
-  .steering-body {
-    padding: 10px 14px; border-left: 3px solid var(--accent);
-    background: var(--surface-warm); border-radius: 0 8px 8px 0;
   }
 </style>

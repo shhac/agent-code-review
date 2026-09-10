@@ -95,7 +95,9 @@ test.describe('history table', () => {
   });
 
   test('the row expands and collapses', async ({ page }) => {
-    const row = page.locator('.review-row').first();
+    // By title, not by position: the fixture's newest row changes whenever a
+    // case is added, and this test is about the row it then asserts on.
+    const row = page.locator('.review-row', { hasText: 'generate entry QR codes' });
     await expect(page.locator('.review-detail')).toHaveCount(0);
     await row.click();
     await expect(row).toHaveAttribute('aria-expanded', 'true');

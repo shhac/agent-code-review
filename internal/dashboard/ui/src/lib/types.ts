@@ -72,6 +72,12 @@ export type Review = {
   cost_estimated?: boolean;
   work_dir?: string;
   tokens_used?: number;
+  // The instruction this review was given, copied off the queue row as it was
+  // retired. ABSENT MEANS NOT RECORDED, not "not steered": every row written
+  // before history kept a copy reads absent whatever it was told, and those
+  // messages are gone. Render it when present; never render its absence as
+  // evidence that no instruction was given.
+  steering?: Steering;
 };
 
 export type ReviewsResponse = {

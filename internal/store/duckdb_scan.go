@@ -212,6 +212,12 @@ func scanReview(m map[string]any) (Review, error) {
 		ReasoningTokens:  r.int("reasoning_tokens"),
 		UsageRaw:         r.str("usage_raw"),
 	}
+	// Present only when a message is, exactly as scanCandidate does: a row with
+	// no instruction must not carry an empty struct that reads as one, and a
+	// row predating the columns must not read as "not steered".
+	if msg := r.str("steering_message"); msg != "" {
+		review.Steering = &Steering{Message: msg, SetBy: r.str("steering_by"), SetAt: r.time("steering_at")}
+	}
 	review.LogKey = ReviewLogKey(review)
 	return review, r.err
 }

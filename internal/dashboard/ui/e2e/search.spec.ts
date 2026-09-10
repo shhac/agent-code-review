@@ -58,7 +58,7 @@ test.describe('history search', () => {
     await page.locator(search).fill('deepsearch-hank');
     await expect(page.locator(rows)).toHaveCount(3);
     await page.locator(search).fill('');
-    await expect(page.locator(count)).toContainText('605 reviews');
+    await expect(page.locator(count)).toContainText('606 reviews');
     await expect(page.locator(rows)).toHaveCount(25);
   });
 });

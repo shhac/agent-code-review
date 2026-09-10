@@ -242,13 +242,18 @@ internal/
 - **Queue row ⇔ pending work.** Completion moves a candidate into append-only
   history atomically (SHA-gated `Complete`); "reviewing" is derived from a
   claim lease (`ClaimActive`, window `LeaseWindow()`), never stored as a
-  status column. Likewise "held" is derived from the eligibility hold
-  (`Held`, `eligible_at`/`hold_reason`): discovered candidates wait out a
-  quiet period (PR updated too recently) and a re-review cooldown (we
-  reviewed it too recently) while sitting visibly in the queue. Holds only
-  ever extend on re-sweep; `Promote` (= review now) clears the hold, floats
+  status column. Likewise "held" is derived (`Held`) from the row's `holds`
+  map of name to expiry: the row is reviewable once every one is past
+  (`EffectiveReady` = MAX), so holds compose upward and none can undo
+  another's deferral. Discovery owns `cooldown` and `settling`; the dashboard
+  owns `editing` while an author has the steering editor open. Writes are per
+  NAME, which is what stops one writer disturbing another's hold: a sweep
+  rewrites its own two, and a manual add clears those same two rather than the
+  map. `Promote` (= review now) is the exception and clears everything, floats
   the row, and escalates to manual; drag-reorder never touches holds or
-  source. Queue order is FIFO by first discovery (`discovered_at` is
+  source. An always-past instant in the same map (`MarkEditingSince`) dates
+  the editing session without deferring anything, which is how renewal is
+  capped. Queue order is FIFO by first discovery (`discovered_at` is
   first-seen, never bumped). A pull that finds nothing ready records nothing
   and simply waits out `schedule.interval`.
 

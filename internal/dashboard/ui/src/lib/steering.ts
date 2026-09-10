@@ -26,7 +26,7 @@ export const MAX_STEERING = 2000;
 
 import { holdForSteering, releaseSteeringHold } from './api';
 
-export const RENEW_MS = 60_000;
+const RENEW_MS = 60_000;
 
 export type SteeringSession = {
   /** Take the hold and keep renewing it until told to stop. */

@@ -22,9 +22,12 @@ type Store interface {
 	// discovered metadata (type, title, author, url, head_sha, updated_at).
 	// discovered_at keeps its first-seen value, and it never touches
 	// claimed_at or queue_pos, so it cannot stomp an in-flight review or a
-	// manual reorder. The eligibility hold (eligible_at/hold_reason) only
-	// ever extends: a sweep can push eligibility later (the author is still
-	// active) but never earlier; a manual-source enqueue clears it.
+	// manual reorder. Holds merge PER NAME: a sweep rewrites the two names
+	// discovery owns and leaves every other one alone, and a manual-source
+	// enqueue clears those same two rather than the whole map, so neither can
+	// lift a hold somebody else imposed. A name cannot be retired by a sweep
+	// that no longer computes it, so a shortened config dial does not shorten
+	// a hold already granted.
 	Enqueue(ctx context.Context, c Candidate) error
 	// ListQueue returns the whole queue in scheduler order: queue_pos, then
 	// FIFO on first discovery (oldest discovered_at first; later sweeps

@@ -30,10 +30,13 @@ agent-code-review queue ls --repo owner/name
 ```
 
 The queue holds only pending work, FIFO by first discovery; a row with
-`claimed_at` set is being reviewed right now, and a row with `eligible_at` in
-the future is **on hold** (`hold_reason`: `settling` = the PR was pushed or
-edited within `candidates.quiet_period`; `cooldown` = we reviewed it within
-`candidates.rereview_cooldown`); it is not dispatched until then. Completed
+`claimed_at` set is being reviewed right now, and a row carries a `holds` map
+of name to expiry (`settling` = the PR was pushed or edited within
+`candidates.quiet_period`; `cooldown` = we reviewed it within
+`candidates.rereview_cooldown`; `editing` = its author has the dashboard's
+steering editor open, for `candidates.steering_hold`). It is dispatched once
+every one of them is past, keeping its queue position and being stepped over
+until then. Completed
 outcomes live in history (see the dashboard's History page).
 
 ## Manage candidates

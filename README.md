@@ -166,9 +166,10 @@ In both cases the PR must not be currently approved (it's already unblocked),
 and any recorded outcome (review, skip, or error) at the PR's current head
 SHA suppresses re-enqueueing until new commits change the SHA.
 
-Discovered candidates can carry an **eligibility hold**, computed at discovery
-time as the later of two bounds and stored on the queue row (`eligible_at` +
-`hold_reason`):
+A queued PR can carry any number of **named holds**, stored on the row as a
+`holds` map of name to expiry. It becomes reviewable once every one of them is
+past, so holds only ever compose upward: no hold can make a PR eligible sooner
+than another already made it. Discovery computes two of them:
 
 - **settling**: the PR was pushed to or edited within
   `candidates.quiet_period` (default 15m). Authors often mark a PR ready and
@@ -178,10 +179,20 @@ time as the later of two bounds and stored on the queue row (`eligible_at` +
   requests changes, author fixes finding 1 of 3 and pushes"; without the
   cooldown, that first push would immediately burn a re-review.
 
-Held rows stay visible in the queue (badged, with a countdown) but are not
-dispatched until `eligible_at`. Sweeps only ever *extend* a hold, never
-shrink one. Set either dial to `0s` to disable it. `queue promote` (or the
-dashboard's ▶) clears the hold, floats the PR to the top, and treats it as a
+A third, **editing**, is set by the dashboard while a PR's author has the
+steering editor open (`candidates.steering_hold`, default 5m), so a free
+dispatcher slot cannot claim the row out from under them mid-sentence. It is
+renewed while the editor is open and capped, so an editor left open cannot
+park a PR indefinitely.
+
+Held rows keep their queue position and stay visible (badged, with a
+countdown); the dispatcher steps over them rather than stopping at them, so a
+held PR never blocks the one behind it. Holds are rewritten per name by
+whoever owns them, so a sweep cannot disturb the editing hold and a manual add
+clears only discovery's two. A hold already granted is never shortened, so
+lowering a dial takes effect on the next hold rather than the standing one.
+Set either dial to `0s` to disable it. `queue promote` (or the
+dashboard's ▶) clears every hold, floats the PR to the top, and treats it as a
 manual add; plain drag-reorder changes only the position and never lifts a
 hold. `discovered_at` records the *first* sweep that saw the pending work and
 is never bumped by later sweeps.

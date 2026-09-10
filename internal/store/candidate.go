@@ -70,6 +70,11 @@ const (
 	HoldEditing  = "editing"  // an author has the steering editor open (candidates.steering_hold)
 )
 
+// DiscoveryHolds are the names a discovery sweep owns and may rewrite. Naming
+// the set once is what lets a manual enqueue clear discovery's holds without
+// reaching for holds it knows nothing about.
+var DiscoveryHolds = []string{HoldCooldown, HoldSettling}
+
 // Candidate sources. Manual adds bypass the pre-review candidacy check so
 // explicit re-review requests and draft reviews always go through.
 const (

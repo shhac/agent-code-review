@@ -45,13 +45,24 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	// the previous single-column form had to choose between the sweep's hold
 	// and the row's, so a sweep could clear a hold it knew nothing about.
 	//
-	// No "only ever extends" comparison any more. hold() derives its two names
-	// from updatedAt and lastReviewedAt, both of which only move forward, so
-	// recomputing them each sweep already extends; a config dial that shrinks
-	// SHOULD take effect on the next sweep, which the old form prevented.
-	const holdsMerge = `CASE
-	    WHEN excluded.source = 'manual' OR queue.source = 'manual' THEN NULL
-	    ELSE json_merge_patch(COALESCE(queue.holds, '{}'), excluded.holds) END`
+	// The manual arm is name-scoped for exactly that reason. "Manual means
+	// review this now" is a statement about the holds DISCOVERY imposed, not a
+	// licence to clear the row: `source` never de-escalates, so a dashboard add
+	// makes a row manual permanently, and nulling the column here meant every
+	// later sweep wiped whatever else was holding the row — an author's editing
+	// hold, on the commonest path there is. Promote still clears everything,
+	// because a person pressing "review now" IS overriding all of it.
+	//
+	// No "only ever extends" comparison any more: hold names are rewritten by
+	// their owner each sweep. Note this cannot RETIRE a name — an absent key
+	// means "leave alone" in merge-patch semantics, and holds() omits a name
+	// whose bound has passed — so a shortened config dial does not shorten a
+	// hold already granted, exactly as the old form behaved.
+	holdsMerge := fmt.Sprintf(`CASE
+	    WHEN excluded.source = 'manual' OR queue.source = 'manual'
+	      THEN json_merge_patch(COALESCE(queue.holds, '{}'), %s)
+	    ELSE json_merge_patch(COALESCE(queue.holds, '{}'), excluded.holds) END`,
+		clearHoldsJSON(DiscoveryHolds...))
 	// Steering rides along only when the caller supplies one. Discovery
 	// re-enqueues every sweep with no steering, so the conflict arms KEEP
 	// whatever is there rather than writing NULL: a sweep must never wipe an
@@ -198,7 +209,7 @@ func (d *duckDB) SetHold(ctx context.Context, repo string, number int, name stri
 // key, so a release can never expose a row that another hold still covers:
 // the failure the single eligible_at column made unavoidable.
 func (d *duckDB) ClearHold(ctx context.Context, repo string, number int, name string) error {
-	return d.exec(ctx, d.patchHolds(repo, number, text(fmt.Sprintf(`{"%s":null}`, name))))
+	return d.exec(ctx, d.patchHolds(repo, number, clearHoldsJSON(name)))
 }
 
 // patchHolds renders a per-name merge over the stored holds. Shared by both

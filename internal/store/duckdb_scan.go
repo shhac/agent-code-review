@@ -152,6 +152,17 @@ func (r *row) holds(key string) map[string]time.Time {
 	return out
 }
 
+// clearHoldsJSON renders a merge patch that removes exactly the named holds.
+// A JSON null is how merge-patch says "delete this key"; anything else it says
+// means set-or-leave, which is why retiring a hold needs its own renderer.
+func clearHoldsJSON(names ...string) string {
+	parts := make([]string, 0, len(names))
+	for _, name := range slices.Sorted(slices.Values(names)) {
+		parts = append(parts, fmt.Sprintf("%q:null", name))
+	}
+	return text("{" + strings.Join(parts, ",") + "}")
+}
+
 // holdsJSON renders a hold map as a JSON object literal for SQL. Zero
 // timestamps are dropped rather than written: they are not holds, and a zero
 // instant in the column would read back as one more expired entry to explain.

@@ -804,7 +804,27 @@ func TestEnqueueHoldSemantics(t *testing.T) {
 	if e, r := ready(); !e.Equal(at(90*time.Minute)) || r != HoldCooldown {
 		t.Fatalf("releasing editing must expose the cooldown, not clear it: ready=%v reason=%q", e, r)
 	}
-	// A manual enqueue clears every hold.
+	// The manual arm must be name-scoped too. A dashboard add makes the row
+	// manual FOREVER, so a wholesale clear here means every later sweep wipes
+	// whatever the author is holding — the same failure the per-name merge
+	// exists to prevent, on the commonest path there is.
+	if err := s.SetHold(ctx, "o/r", 21, HoldEditing, at(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	enq(nil, SourceManual)
+	if got := row().Holds[HoldEditing]; !got.Equal(at(3 * time.Hour)) {
+		t.Fatalf("a manual add must not clear a hold it does not own: editing=%v, holds=%v", got, row().Holds)
+	}
+	// ...and a later sweep over that now-manual row must not either.
+	enq(map[string]time.Time{HoldSettling: at(20 * time.Minute)}, SourceDiscovered)
+	if got := row().Holds[HoldEditing]; !got.Equal(at(3 * time.Hour)) {
+		t.Fatalf("a sweep over a manual row must not clear a foreign hold: editing=%v, holds=%v", got, row().Holds)
+	}
+	if err := s.ClearHold(ctx, "o/r", 21, HoldEditing); err != nil {
+		t.Fatal(err)
+	}
+
+	// A manual enqueue clears the holds it DOES own.
 	enq(nil, SourceManual)
 	if e, r := ready(); !e.IsZero() || r != "" {
 		t.Fatalf("manual enqueue must clear every hold: ready=%v reason=%q", e, r)

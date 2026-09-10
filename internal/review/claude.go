@@ -2,6 +2,7 @@ package review
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"io"
@@ -96,27 +97,40 @@ const defaultEffort = "medium"
 // correct default.
 var fallbackAllowedTools = []string{"Bash(gh *)", "Read", "Glob", "Grep"}
 
+// resolvedClaude applies every claude default in one place, so the engine that
+// RUNS and the preflight that JUDGES agree about what will run.
+//
+// They did not. Preflight defaulted the permission mode itself and then handed
+// the RAW model to claudeAutoModeSupports, which defaulted the model a layer
+// down — so the check most worth trusting, the auto-mode/model pairing that
+// makes every review fail, was reasoning about a configuration one step
+// removed from the one newClaude would build.
+type resolvedClaude struct {
+	bin, model, effort, permissionMode string
+	allowedTools                       []string
+}
+
+func resolveClaude(c config.ClaudeSettings) resolvedClaude {
+	r := resolvedClaude{
+		bin:            config.DefaultBin("claude", c.Bin),
+		model:          cmp.Or(c.Model, defaultModel),
+		effort:         cmp.Or(c.Effort, defaultEffort),
+		permissionMode: cmp.Or(c.PermissionMode, defaultPermissionMode),
+		allowedTools:   c.AllowedTools,
+	}
+	// Auto mode routes every action through the classifier, so a fallback list
+	// would narrow what it may do rather than widen it.
+	if len(r.allowedTools) == 0 && r.permissionMode != autoPermissionMode {
+		r.allowedTools = fallbackAllowedTools
+	}
+	return r
+}
+
 func newClaude(c config.ClaudeSettings, resumePrompt string) *claudeEngine {
-	bin := config.DefaultBin("claude", c.Bin)
-	mode := c.PermissionMode
-	if mode == "" {
-		mode = defaultPermissionMode
-	}
-	model := c.Model
-	if model == "" {
-		model = defaultModel
-	}
-	effort := c.Effort
-	if effort == "" {
-		effort = defaultEffort
-	}
-	tools := c.AllowedTools
-	if len(tools) == 0 && mode != autoPermissionMode {
-		tools = fallbackAllowedTools
-	}
+	r := resolveClaude(c)
 	e := &claudeEngine{
-		bin: bin, model: model, effort: effort, permissionMode: mode,
-		allowedTools: tools, maxBudgetUSD: c.MaxBudgetUSD, args: c.Args,
+		bin: r.bin, model: r.model, effort: r.effort, permissionMode: r.permissionMode,
+		allowedTools: r.allowedTools, maxBudgetUSD: c.MaxBudgetUSD, args: c.Args,
 		maxResumes: resolveMaxResumes(c.MaxResumes), resumePrompt: resumePrompt,
 	}
 	e.runCmd = e.execClaude

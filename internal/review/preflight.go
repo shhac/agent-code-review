@@ -25,11 +25,9 @@ var autoModeUnsupportedModels = []string{
 }
 
 // claudeAutoModeSupports reports whether auto mode can run against model.
-// An empty model means the engine default, which is pinned to a supported one.
+// Takes an already-resolved model: defaulting here as well as in the engine is
+// how the two came to disagree.
 func claudeAutoModeSupports(model string) bool {
-	if model == "" {
-		model = defaultModel
-	}
 	for _, bad := range autoModeUnsupportedModels {
 		if strings.Contains(model, bad) {
 			return false
@@ -42,20 +40,15 @@ func claudeAutoModeSupports(model string) bool {
 // found without running one. Empty means nothing statically detectable is
 // wrong; it cannot vouch for anything that only shows up at run time.
 func Preflight(cfg config.ReviewSettings) []string {
-	engine := cfg.Engine
-	if engine == "" {
-		engine = Engines[0]
-	}
-	if engine != "claude" {
+	if cfg.ResolvedEngine() != "claude" {
 		return nil
 	}
 
 	var problems []string
-	mode := cfg.Claude.PermissionMode
-	if mode == "" {
-		mode = defaultPermissionMode
-	}
-	model := cfg.Claude.Model
+	// The same resolution newClaude runs, so this judges the configuration
+	// that will actually be built rather than an approximation of it.
+	r := resolveClaude(cfg.Claude)
+	mode, model := r.permissionMode, r.model
 	if mode == autoPermissionMode && !claudeAutoModeSupports(model) {
 		problems = append(problems, fmt.Sprintf(
 			"claude.model %q is not supported in %q permission mode (needs Opus 4.6+, Sonnet 4.6+, or Fable 5), so every review would fail; pin a supported model or switch claude.permission_mode to a static one",

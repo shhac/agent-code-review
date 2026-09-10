@@ -62,3 +62,39 @@ func TestDefaultModelPassesAutoMode(t *testing.T) {
 		t.Errorf("the %q default is rejected by auto mode", defaultModel)
 	}
 }
+
+// TestPreflightJudgesWhatWillActuallyRun is the property the shared resolution
+// exists for. Preflight used to default the permission mode itself and hand
+// the RAW model to the auto-mode check, which defaulted the model a layer
+// down — so it reasoned about a configuration one step removed from the one
+// newClaude builds, on the check that matters most.
+func TestPreflightJudgesWhatWillActuallyRun(t *testing.T) {
+	cases := map[string]config.ClaudeSettings{
+		"model and mode both left to their defaults": {},
+		"mode defaulted, model pinned to a good one": {EngineCommon: config.EngineCommon{Model: "claude-opus-5"}},
+		"mode pinned to auto, model defaulted":       {PermissionMode: "auto"},
+	}
+	for name, cs := range cases {
+		cfg := config.ReviewSettings{Engine: "claude", Claude: cs}
+		got := Preflight(cfg)
+		e := newClaude(cs, "")
+		// Whatever preflight concluded, it must have concluded it about the
+		// engine's own resolved values.
+		r := resolveClaude(cs)
+		if r.model != e.model || r.permissionMode != e.permissionMode {
+			t.Errorf("%s: preflight resolved %q/%q, engine built %q/%q",
+				name, r.model, r.permissionMode, e.model, e.permissionMode)
+		}
+		if len(got) != 0 {
+			t.Errorf("%s: a supported default pairing must raise nothing, got %v", name, got)
+		}
+	}
+
+	// And the trap it is for still fires, on the resolved pair.
+	bad := config.ReviewSettings{Engine: "claude", Claude: config.ClaudeSettings{
+		EngineCommon: config.EngineCommon{Model: "haiku"}, PermissionMode: "auto",
+	}}
+	if len(Preflight(bad)) == 0 {
+		t.Error("auto mode against a model that cannot run it must still be caught")
+	}
+}

@@ -350,6 +350,33 @@ func TestAddWithSteering(t *testing.T) {
 		}
 	})
 
+	t.Run("preflight answers the same ladder the add will run", func(t *testing.T) {
+		// It is advisory, but advice that contradicts the endpoint it previews
+		// is worse than none: the editor opens, offers to steer, and the add
+		// then refuses. Preflight used to ask only "may this viewer steer",
+		// skipping the rung about whether a review is already running.
+		fs := queuedPR()
+		now := time.Now()
+		fs.queue = []store.Candidate{{Repo: "o/r", Number: 9, Author: "octocat", HeadSHA: "s9", ClaimedAt: &now}}
+
+		r := httptest.NewRequest(http.MethodPost, "/api/queue/preflight", strings.NewReader(`{`+url+`}`))
+		r.RemoteAddr = "127.0.0.1:1"
+		r.Header.Set(tailscaleLoginHeader, "octo@example.com")
+		w := httptest.NewRecorder()
+		server(fs).handleQueuePreflight(w, r)
+
+		var got queuePreflightResp
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.MaySteer {
+			t.Error("the author may steer this PR in principle, but not while a review of it is running")
+		}
+		if !strings.Contains(got.Refusal, "once this review finishes") {
+			t.Errorf("refusal = %q, want the in-flight wording the add would give", got.Refusal)
+		}
+	})
+
 	t.Run("preflight reports the author and the answer", func(t *testing.T) {
 		fs := queuedPR()
 		probe := func(login string) queuePreflightResp {

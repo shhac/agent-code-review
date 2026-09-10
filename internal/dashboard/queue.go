@@ -81,12 +81,26 @@ func (s *Server) handleQueuePreflight(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	// Through steeringRefusal, the same ladder the add itself will run. Asking
+	// only maySteer here meant preflight answered a narrower question than the
+	// endpoint it previews: a PR already under review passed the permission
+	// rung, so the editor opened and offered to steer, and the add then
+	// refused with "a review of this PR is running". Advisory is not licence to
+	// promise something the next call will decline.
+	//
+	// The message is empty at this point, so the length rung cannot fire; that
+	// is the one rung preflight genuinely cannot answer in advance.
+	claimed, err := s.claimedNow(ctx, ref.Repo, ref.Number)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	resp := queuePreflightResp{
 		Repo: c.Repo, Number: c.Number, Title: c.Title, Author: c.Author,
-		MaySteer: v.maySteer(c.Author),
+		MaySteer: true,
 	}
-	if !resp.MaySteer {
-		resp.Refusal = cannotSteer(c.Author)
+	if bad := steeringRefusal(v, c.Author, "", claimed); bad != nil {
+		resp.MaySteer, resp.Refusal = false, bad.msg
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

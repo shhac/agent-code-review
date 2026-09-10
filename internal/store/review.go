@@ -85,6 +85,13 @@ type Review struct {
 	// these columns existed cannot say which they were, and their messages went
 	// with the queue rows they lived on.
 	Steering *Steering `json:"steering,omitempty"`
+	// PolicyViolation marks an outcome the agent was not permitted to reach:
+	// APPROVED for an author whose resolved policy forbids approving. The
+	// approval permission reaches the agent only as prompt text and the agent
+	// posts to GitHub itself, so this is the record that the instruction was
+	// not followed — detection, not prevention. Verdict still says what
+	// actually happened; this says what we asked for.
+	PolicyViolation bool `json:"policy_violation,omitempty"`
 }
 
 // EffectiveCostUSD is the run's spend however it is best known: the engine's

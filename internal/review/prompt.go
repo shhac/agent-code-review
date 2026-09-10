@@ -161,7 +161,7 @@ func outcomeInstructions(r config.ReviewSettings, c store.Candidate, f Facts) st
 		// Skip the approve section when approval is impossible (author not on the
 		// allow-list, or self-authored): it would be an unreachable, contradictory
 		// instruction next to the "DO NOT approve" directive.
-		if o.key == "approve" && !canApprove(f) {
+		if o.key == "approve" && !CanApprove(f) {
 			continue
 		}
 		var parts []string
@@ -226,21 +226,21 @@ func ResumePrompt(r config.ReviewSettings) string {
 // leak the current gh user's identity, which the spec forbids. Only the single
 // author↔allowed pair for this PR is ever exposed, never the whole list.
 func approvalDirective(c store.Candidate, f Facts) string {
-	if canApprove(f) {
+	if CanApprove(f) {
 		return "Approval policy: you MAY approve this PR if the review warrants it, " +
 			"or leave comments. @" + c.Author + " is an approvable author for " + c.Repo + "."
 	}
 	return "Approval policy: DO NOT approve this PR under any circumstances; only leave comments."
 }
 
-// canApprove reports whether an APPROVE is possible for this candidate: only
+// CanApprove reports whether an APPROVE is possible for this candidate: only
 // when the author's resolved policy permits approval AND it isn't a
 // self-authored PR (you can't approve your own). The self-review veto sits
 // ABOVE the policy cascade deliberately: no group, and no per-author override,
 // may grant approving your own PR. It gates both the approval directive and
 // whether the "If you APPROVED" outcome section is emitted at all: there's no
 // point instructing the agent on an outcome it is forbidden from reaching.
-func canApprove(f Facts) bool { return f.Policy.MayApprove() && !f.AuthorIsGHUser }
+func CanApprove(f Facts) bool { return f.Policy.MayApprove() && !f.AuthorIsGHUser }
 
 func candidateContext(c store.Candidate) string {
 	var b strings.Builder

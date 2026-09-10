@@ -183,6 +183,24 @@ func holdsJSON(holds map[string]time.Time) string {
 	return text("{" + strings.Join(parts, ",") + "}")
 }
 
+// bool reads a BOOLEAN column. Absent or NULL is false, which is the right
+// reading for every row written before a flag column existed.
+func (r *row) bool(key string) bool {
+	v, ok := r.present(key)
+	if !ok {
+		return false
+	}
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		return b == "true"
+	default:
+		r.fail(key, v, errUnexpectedType)
+		return false
+	}
+}
+
 var errUnexpectedType = errors.New("unexpected type")
 
 func scanReview(m map[string]any) (Review, error) {
@@ -211,6 +229,7 @@ func scanReview(m map[string]any) (Review, error) {
 		CacheReadTokens:  r.int("cache_read_tokens"),
 		ReasoningTokens:  r.int("reasoning_tokens"),
 		UsageRaw:         r.str("usage_raw"),
+		PolicyViolation:  r.bool("policy_violation"),
 	}
 	// Present only when a message is, exactly as scanCandidate does: a row with
 	// no instruction must not carry an empty struct that reads as one, and a

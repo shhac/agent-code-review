@@ -80,7 +80,12 @@ CREATE TABLE IF NOT EXISTS history (
   -- steering.
   steering_message   TEXT,
   steering_by        TEXT,
-  steering_at        TIMESTAMP
+  steering_at        TIMESTAMP,
+  -- The agent returned APPROVED for a PR its author's policy forbids
+  -- approving. The verdict column still says APPROVED, because that is what
+  -- happened on GitHub; this says we asked for something else and did not get
+  -- it. NULL/false on every row written before the check existed.
+  policy_violation   BOOLEAN
 );
 
 -- Idempotent migrations for stores created before these columns existed.
@@ -203,6 +208,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS allowed_authors_tailscale_login
 ALTER TABLE history ADD COLUMN IF NOT EXISTS steering_message TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS steering_by TEXT;
 ALTER TABLE history ADD COLUMN IF NOT EXISTS steering_at TIMESTAMP;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS policy_violation BOOLEAN;
 
 -- eligible_at + hold_reason -> holds: one hold per row became one hold per
 -- NAME per row, so that a discovery sweep can rewrite the two names it owns

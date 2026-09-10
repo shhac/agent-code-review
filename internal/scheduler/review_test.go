@@ -628,3 +628,78 @@ func TestReviewOneAppliesSteering(t *testing.T) {
 		}
 	})
 }
+
+// TestApprovalAgainstPolicyIsRecorded covers the one thing nothing was
+// checking: the approval permission reaches the agent only as prompt text, and
+// the agent posts to GitHub itself, so an APPROVED for an author we told it
+// not to approve was previously indistinguishable from a legitimate approval.
+// This test could not be written before, because there was no code path to
+// assert against.
+func TestApprovalAgainstPolicyIsRecorded(t *testing.T) {
+	approved := func() *fakeEngine {
+		return &fakeEngine{verdict: review.Verdict{Decision: review.DecisionApproved}}
+	}
+
+	t.Run("an approval the policy forbids is flagged, not rewritten", func(t *testing.T) {
+		fs := &fakeSchedStore{group: config.GroupCommenter}
+		fe := approved()
+		s := newTestScheduler(fs, fe)
+
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1", Author: "octocat"}); err != nil {
+			t.Fatal(err)
+		}
+		if len(fs.completed) != 1 {
+			t.Fatalf("the outcome must still be recorded, got %+v", fs.completed)
+		}
+		got := fs.completed[0]
+		if !got.PolicyViolation {
+			t.Error("an APPROVED from a comment-only author's policy must be flagged")
+		}
+		// The verdict is what happened on GitHub. Rewriting it would destroy
+		// the only record that the review is sitting there as an approval.
+		if got.Verdict != review.DecisionApproved {
+			t.Errorf("verdict = %q, want APPROVED preserved: the review really is on GitHub", got.Verdict)
+		}
+	})
+
+	t.Run("an approval the policy permits is not flagged", func(t *testing.T) {
+		fs := &fakeSchedStore{group: config.GroupApprover}
+		fe := approved()
+		s := newTestScheduler(fs, fe)
+
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1", Author: "octocat"}); err != nil {
+			t.Fatal(err)
+		}
+		if fs.completed[0].PolicyViolation {
+			t.Error("an approver's approval is exactly what was asked for")
+		}
+	})
+
+	t.Run("a self-authored PR cannot be approved even by an approver", func(t *testing.T) {
+		// CanApprove is policy AND not-self-authored; the veto is the half a
+		// duplicated check in the scheduler would most easily have missed.
+		fs := &fakeSchedStore{group: config.GroupApprover}
+		fe := approved()
+		s := newReviewScheduler(fs, fe, Deps{GHUser: "octocat"})
+
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1", Author: "octocat"}); err != nil {
+			t.Fatal(err)
+		}
+		if !fs.completed[0].PolicyViolation {
+			t.Error("approving our own PR must be flagged whatever the group says")
+		}
+	})
+
+	t.Run("a comment is never a violation", func(t *testing.T) {
+		fs := &fakeSchedStore{group: config.GroupCommenter}
+		fe := commented()
+		s := newTestScheduler(fs, fe)
+
+		if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1", Author: "octocat"}); err != nil {
+			t.Fatal(err)
+		}
+		if fs.completed[0].PolicyViolation {
+			t.Error("commenting is what a commenter policy asks for")
+		}
+	})
+}

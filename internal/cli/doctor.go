@@ -20,10 +20,8 @@ func registerDoctor(root *cobra.Command) {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			checks := doctor.Run(cmd.Context(), config.Read())
-			for _, c := range checks {
-				if err := emit(c); err != nil {
-					return err
-				}
+			if err := emitEach(checks, nil); err != nil {
+				return err
 			}
 			failed := doctor.Blocking(checks)
 			if len(failed) == 0 {

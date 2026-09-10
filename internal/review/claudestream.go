@@ -311,23 +311,6 @@ func (t *streamTranscoder) verdict() (Verdict, error) {
 	return parseVerdict(t.report)
 }
 
-// emit writes one marker block. An empty marker writes banner text, which the
-// parser attributes to the pre-marker meta section.
-//
-// Write errors are deliberately dropped here and in the other renderers: the
-// sink is a best-effort log tee that already degrades to buffer-only when the
-// workspace cannot hold a file (see newAgentSink), and failing a review
-// because its transcript could not be written would trade a cosmetic loss for
-// a real one.
-func (t *streamTranscoder) emit(marker, body string) {
-	body = strings.TrimRight(body, "\n")
-	if marker == "" {
-		_, _ = fmt.Fprintf(t.out, "%s\n", body)
-		return
-	}
-	_, _ = fmt.Fprintf(t.out, "%s\n%s\n", marker, body)
-}
-
 // decodeContent reads a message's content, which is an array of blocks for
 // assistant messages and either an array or a bare string for user messages.
 func decodeContent(raw json.RawMessage) []contentBlock {

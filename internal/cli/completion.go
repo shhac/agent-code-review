@@ -165,10 +165,6 @@ func completeGroup(_ *cobra.Command, _ []string, toComplete string) ([]string, c
 	return noFile(completePrefix(config.Read().GroupNames(), toComplete))
 }
 
-func completeGroupArg(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return completeGroup(cmd, nil, toComplete)
-}
-
 // rosterField pulls one field off every roster row, optionally narrowed to a
 // repo: the shared body behind the author completions.
 func rosterField(cmd *cobra.Command, repo string, field func(store.Author) string) []string {

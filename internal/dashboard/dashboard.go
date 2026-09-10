@@ -35,71 +35,51 @@ type Running struct {
 	Review    bool
 }
 
-// The dashboard's view of persistence, split by the surface that uses it
-// rather than declared as one list. The repo's own convention: scheduler.
-// SchedulerStore is three methods and discover.candidateStore is four,
-// because "an interface names what its consumer actually uses" is what makes
-// a fake in a queue test stop having to satisfy authors and runs methods it
-// never calls. This was the one place declaring thirteen at once.
+// dashboardStore is the dashboard's view of persistence: exactly the methods
+// the web server calls, so a fake in one handler's test does not have to
+// satisfy the scheduler's claims or the author mutations this package never
+// performs.
 //
-// A segment is defined by the surface that asks it, not by the table it hits:
-// steering and identity got their own rather than being appended to the
-// roster's, which is where they first landed and where they forced every
-// roster and queue test to fake methods it never called.
-//
-// dashboardStore composes them, so wiring a real store is still one
-// assignment; handlers take the narrow piece they need.
-type queueStore interface {
+// One interface, grouped by surface in comments rather than split into five
+// named sub-interfaces. Those existed for a while, by analogy with
+// scheduler.SchedulerStore and discover.candidateStore, where the narrowing is
+// real: those packages TAKE the narrow interface as a constructor parameter,
+// so the compiler enforces it. Here every handler is a method on *Server
+// reaching s.store, so not one of the five was ever used as a parameter, a
+// field, or a constraint — the segmentation read as an enforced boundary that
+// nothing checked. The property it promised (a queue test need not fake
+// roster methods) is delivered instead by fakes_test.go embedding this
+// interface, so an unimplemented call panics rather than compiles.
+type dashboardStore interface {
+	// Queue.
 	ListQueue(context.Context, string) ([]store.Candidate, error)
 	Enqueue(context.Context, store.Candidate) error
 	Dequeue(context.Context, string, int) error
 	Promote(context.Context, string, int) error
 	Reorder(context.Context, []store.QueuePosition) error
 	LastOutcome(context.Context, string, int) (store.Review, bool, error)
-}
 
-type historyStore interface {
+	// History.
 	ReviewByLogKey(context.Context, string, int, string) (store.Review, bool, error)
 	SearchReviews(context.Context, store.ReviewQuery) (store.ReviewPage, error)
 	ListReviewsSince(context.Context, time.Time) ([]store.Review, error)
 	FreshTokens(context.Context, time.Time) (int64, error)
-}
 
-type rosterStore interface {
+	// Author roster, and the one identity question the tailnet layer asks:
+	// which GitHub handle is this login.
 	ListAuthors(ctx context.Context, repo, group string) ([]store.Author, error)
 	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
-}
-
-// identityStore answers "which GitHub handle is this tailnet login", the one
-// question the identity layer asks. Separate from rosterStore because the
-// roster PAGE never asks it and should not have to fake it.
-type identityStore interface {
 	AuthorByTailscaleLogin(ctx context.Context, login string) (store.Author, bool, error)
-}
 
-// steeringStore is the steering write surface plus the single-row read the
-// authorisation check needs. Reading steering back needs nothing: it rides on
-// the candidate, so queueStore.ListQueue already carries it.
-type steeringStore interface {
+	// Steering: the write surface, the single-row read its authorisation check
+	// needs, and the editing hold plus the mark dating its session. Reading
+	// steering back needs nothing — it rides on the candidate, so ListQueue
+	// already carries it.
 	QueuedPR(ctx context.Context, repo string, number int) (store.Candidate, bool, error)
 	SetSteering(ctx context.Context, repo string, number int, st store.Steering) error
 	ClearSteering(ctx context.Context, repo string, number int) error
-	// The editing hold and the mark dating its session: set while an author has
-	// the steering editor open, so the dispatcher cannot claim the row out from
-	// under them mid-sentence.
 	SetHolds(ctx context.Context, repo string, number int, holds map[string]time.Time) error
 	ClearHolds(ctx context.Context, repo string, number int, names ...string) error
-}
-
-// dashboardStore is the whole surface the web server uses. It deliberately
-// does not know about scheduler claims or author mutations it
-// never performs.
-type dashboardStore interface {
-	queueStore
-	historyStore
-	rosterStore
-	identityStore
-	steeringStore
 }
 
 // Server renders the queue, config, and prompt views. Config comes through a

@@ -115,7 +115,7 @@ func authorsSetCmd() *cobra.Command {
 	f.StringVar(&slackID, "slack-id", "", "Slack user ID")
 	f.StringVar(&tailscaleLogin, "tailscale-login", "",
 		"Tailscale identity (the Tailscale-User-Login header), e.g. alice@example.com. Lets this person steer their own reviews from the dashboard.")
-	cmd.ValidArgsFunction = completePositional(completeAuthorRepo, completeAuthorHandle, completeGroupArg)
+	cmd.ValidArgsFunction = completePositional(completeAuthorRepo, completeAuthorHandle, completeGroup)
 	return cmd
 }
 

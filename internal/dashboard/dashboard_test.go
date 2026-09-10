@@ -48,6 +48,8 @@ func TestValidateReorder(t *testing.T) {
 		})
 	}
 }
+func ptr[T any](v T) *T { return &v }
+
 func TestViewQueue(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	staleAfter := 2 * time.Hour
@@ -63,15 +65,50 @@ func TestViewQueue(t *testing.T) {
 		{Number: 4, ClaimedAt: &boundary}, // boundary: must agree with the scheduler
 		{Number: 5, Holds: map[string]time.Time{store.HoldCooldown: holdUntil}}, // eligibility hold: visible but skipped
 		{Number: 6, Holds: map[string]time.Time{store.HoldCooldown: holdOver}},  // expired hold: plain queued again
+		// Two live holds: the later one decides what the row reports, which is
+		// the whole contract the frontend renders.
+		{Number: 7, Holds: map[string]time.Time{
+			store.HoldCooldown: holdUntil, store.HoldEditing: holdUntil.Add(time.Hour),
+		}},
+		// A mark alongside an expired hold: neither defers, so the row is
+		// plainly queued and must project no hold at all.
+		{Number: 8, Holds: map[string]time.Time{
+			store.HoldCooldown: holdOver, store.MarkEditingSince: now.Add(-time.Hour),
+		}},
 	}
 	got := viewQueue(in, now, staleAfter, viewer{})
-	want := []string{"queued", "reviewing", "queued", "reviewing", "held", "queued"}
+	want := []struct {
+		status     string
+		eligibleAt *time.Time
+		reason     string
+	}{
+		{status: "queued"},
+		{status: "reviewing"},
+		{status: "queued"},
+		{status: "reviewing"},
+		{status: "held", eligibleAt: &holdUntil, reason: store.HoldCooldown},
+		// An expired hold must not render as a live one: the projection is
+		// derived only while the row is actually held.
+		{status: "queued"},
+		{status: "held", eligibleAt: ptr(holdUntil.Add(time.Hour)), reason: store.HoldEditing},
+		{status: "queued"},
+	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d rows, want %d", len(got), len(want))
 	}
-	for i, status := range want {
-		if got[i].Status != status {
-			t.Errorf("row %d (#%d) status = %q, want %q", i, got[i].Number, got[i].Status, status)
+	for i, w := range want {
+		g := got[i]
+		if g.Status != w.status {
+			t.Errorf("row %d (#%d) status = %q, want %q", i, g.Number, g.Status, w.status)
+		}
+		if g.HoldReason != w.reason {
+			t.Errorf("row %d (#%d) hold_reason = %q, want %q", i, g.Number, g.HoldReason, w.reason)
+		}
+		switch {
+		case w.eligibleAt == nil && g.EligibleAt != nil:
+			t.Errorf("row %d (#%d) eligible_at = %v, want none", i, g.Number, g.EligibleAt)
+		case w.eligibleAt != nil && (g.EligibleAt == nil || !g.EligibleAt.Equal(*w.eligibleAt)):
+			t.Errorf("row %d (#%d) eligible_at = %v, want %v", i, g.Number, g.EligibleAt, *w.eligibleAt)
 		}
 	}
 	if empty := viewQueue(nil, now, staleAfter, viewer{}); empty == nil || len(empty) != 0 {

@@ -49,19 +49,19 @@ func mustClaim(t *testing.T, s Store, repo string, number int, at time.Time, wor
 	}
 }
 
-// getQueued finds one queue row; the Store contract has no single-row getter.
+// getQueued finds one queue row through QueuedPR, deliberately: that is the
+// statement the steering authorisation ladder reads through (both its
+// existence rung and its claim rung), and routing every caller here covers it
+// across the whole suite. Reading through ListQueue instead left the
+// single-row SQL untested, where a narrowed select could have dropped
+// claimed_at and silently deleted the claim rung.
 func getQueued(t *testing.T, s Store, repo string, number int) (Candidate, bool) {
 	t.Helper()
-	cands, err := s.ListQueue(context.Background(), repo)
+	c, ok, err := s.QueuedPR(context.Background(), repo, number)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range cands {
-		if c.Number == number {
-			return c, true
-		}
-	}
-	return Candidate{}, false
+	return c, ok
 }
 
 // TestReadOnlyStoreReadsButRefusesWrites covers the inspect-only store used by

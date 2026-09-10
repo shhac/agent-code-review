@@ -297,3 +297,67 @@ func TestRealVerdictMapping(t *testing.T) {
 		}
 	}
 }
+
+// TestHoldsScannerRejectsUnreadableEntries covers the direction this scanner
+// must never fail in. A hold that read as the zero time would make a held row
+// look reviewable, so an entry it cannot interpret has to be reported as drift
+// rather than dropped silently.
+func TestHoldsScannerRejectsUnreadableEntries(t *testing.T) {
+	for name, holds := range map[string]any{
+		"a string where an object belongs": "{}",
+		"an entry that is not a string":    map[string]any{HoldCooldown: 5},
+		"an unparseable instant":           map[string]any{HoldCooldown: "the day before yesterday"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, err := scanCandidate(map[string]any{"repo": "o/r", "number": float64(1), "holds": holds})
+			if err == nil {
+				t.Fatalf("an uninterpretable holds column must be reported, got %+v", c.Holds)
+			}
+			// Stated explicitly because it is the reason the error matters:
+			// the candidate that comes back alongside it looks reviewable.
+			if c.Held(time.Now()) {
+				t.Error("precondition: the dropped entry leaves the row looking unheld")
+			}
+		})
+	}
+
+	t.Run("an absent holds column is not drift", func(t *testing.T) {
+		if _, err := scanCandidate(map[string]any{"repo": "o/r", "number": float64(1)}); err != nil {
+			t.Errorf("absent means not selected, not broken: %v", err)
+		}
+	})
+}
+
+// TestEffectiveReadyIsStable pins the tie rule. Go randomises map iteration and
+// the winning name is rendered in the dashboard, so without a rule two holds at
+// the same instant would flicker between renders rather than fail a test.
+func TestEffectiveReadyIsStable(t *testing.T) {
+	at := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	c := Candidate{Holds: map[string]time.Time{
+		HoldCooldown: at, HoldEditing: at, HoldSettling: at,
+	}}
+	for i := 0; i < 50; i++ {
+		until, name := c.EffectiveReady()
+		if !until.Equal(at) || name != HoldCooldown {
+			t.Fatalf("run %d: ready=%v name=%q, want %v cooldown (first name in order)", i, until, name, at)
+		}
+	}
+}
+
+// TestEffectiveReadyIgnoresMarks covers why a session mark can live in the same
+// map as the holds: its instant is always past, so it can never win the MAX and
+// can never defer the row.
+func TestEffectiveReadyIgnoresMarks(t *testing.T) {
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	c := Candidate{Holds: map[string]time.Time{
+		MarkEditingSince: now.Add(-time.Hour),
+		HoldCooldown:     now.Add(time.Hour),
+	}}
+	if until, name := c.EffectiveReady(); name != HoldCooldown || !until.Equal(now.Add(time.Hour)) {
+		t.Errorf("ready=%v name=%q, want the cooldown to decide", until, name)
+	}
+	// And alone, a mark holds nothing.
+	if (Candidate{Holds: map[string]time.Time{MarkEditingSince: now.Add(-time.Hour)}}).Held(now) {
+		t.Error("a mark must never defer the row")
+	}
+}

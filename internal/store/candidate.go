@@ -1,6 +1,10 @@
 package store
 
-import "time"
+import (
+	"maps"
+	"slices"
+	"time"
+)
 
 // Candidate is a PR in the review queue. A candidate exists exactly while
 // review work is pending; completion moves it into history.
@@ -123,14 +127,18 @@ func (c Candidate) Held(now time.Time) bool {
 // hold that decides it. The zero time and "" when nothing holds the row.
 //
 // MAX rather than any other combination: a hold defers, and one hold must not
-// be able to undo another's deferral. Ties break on the name so the reported
-// reason is stable across calls, since Go randomises map iteration and this
-// value is rendered in the dashboard.
+// be able to undo another's deferral.
+//
+// Sorted iteration with a strict After, so a tie goes to the first name in
+// order. Go randomises map iteration and this name is rendered in the
+// dashboard, so without a rule two equal holds would flicker between renders;
+// making it a property of the walk beats a comparison that has to be reasoned
+// about to be believed.
 func (c Candidate) EffectiveReady() (time.Time, string) {
 	var until time.Time
 	var name string
-	for n, t := range c.Holds {
-		if t.After(until) || (t.Equal(until) && !t.IsZero() && n < name) {
+	for _, n := range slices.Sorted(maps.Keys(c.Holds)) {
+		if t := c.Holds[n]; t.After(until) {
 			until, name = t, n
 		}
 	}

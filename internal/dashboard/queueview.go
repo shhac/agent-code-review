@@ -28,6 +28,12 @@ type queueView struct {
 	// left on the row cannot render as a live one.
 	EligibleAt *time.Time `json:"eligible_at,omitempty"`
 	HoldReason string     `json:"hold_reason,omitempty"`
+	// Holds shadows the embedded candidate's map to keep it OFF the wire. The
+	// projection above is the dashboard's contract; shipping the raw map beside
+	// it would invite a future client to read the unprojected form and disagree
+	// with EffectiveReady about which hold is the operative one. `queue ls`
+	// still emits the map, because the CLI prints the row, not a view of it.
+	Holds map[string]time.Time `json:"-"`
 	// MaySteer is whether the CURRENT viewer may steer this PR, decided by the
 	// same viewer.maySteer the write path enforces. Sent per row so the UI can
 	// offer the control exactly where it would be accepted, without

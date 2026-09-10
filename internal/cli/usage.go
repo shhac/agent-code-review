@@ -134,10 +134,11 @@ COMMANDS:
     List pending candidates in review order: explicit queue positions first,
     then FIFO by first discovery (New before Refreshed, then lowest PR number
     as same-sweep tiebreaks). One NDJSON record per candidate. A row with
-    claimed_at set is being reviewed right now; a row with eligible_at in the
-    future is on hold (hold_reason: cooldown = we reviewed it recently,
-    settling = the PR was pushed/edited too recently) and is not dispatched
-    until then.
+    claimed_at set is being reviewed right now. A row carries a holds map of
+    name to expiry (cooldown = we reviewed it recently, settling = the PR was
+    pushed/edited too recently, editing = its author has the dashboard's
+    steering editor open); it is dispatched once every one of them is past,
+    keeping its queue position and being stepped over until then.
 
   queue add <owner/repo> <number>
     Add a PR by hand: live metadata (title/author/SHA) is fetched via gh, and

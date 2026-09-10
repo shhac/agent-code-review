@@ -59,6 +59,10 @@ test.describe('through the tailscale proxy', () => {
 
     const modal = page.locator('.modal');
     await expect(modal).toBeVisible();
+    // Opening the editor parks the PR, and the footer says so when it could
+    // not. One assertion, but it drives QueuedPR, the authorisation ladder and
+    // the hold write through real SQL, none of which the Go fakes exercise.
+    await expect(modal).not.toContainText('not held');
     await modal.locator('textarea').fill('## Heading\n\n- one\n- two');
     await modal.locator('.pill-toggle button', { hasText: /preview/i }).click();
     await expect(modal.locator('.steer-preview h2')).toHaveText('Heading');

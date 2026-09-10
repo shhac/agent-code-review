@@ -223,5 +223,10 @@
     display: flex; gap: 12px; align-items: center;
     flex-wrap: wrap; margin-top: 14px;
   }
+  /* The action sits at the far edge, away from the link it is not a sibling
+     of in intent: one navigates, the other spends money. margin-left rather
+     than space-between, because the log link is conditional and a lone button
+     must still end up on the right. */
+  .detail-actions .go { margin-left: auto; }
   .note { margin: 12px 0 0; }
 </style>

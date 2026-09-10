@@ -29,6 +29,25 @@ test.describe('history accordion', () => {
     await expect(row).not.toContainText('No steering');
   });
 
+  test('puts the review-again action at the far edge, not beside the log link', async ({ page }) => {
+    // Geometry, because "right-aligned" is not visible in the markup: the
+    // button and the log link are siblings in one flex row, and only the
+    // computed layout says which end each landed on.
+    await page.goto('/history');
+    const row = page.locator('.review-row-wrap', { hasText: 'cache the tariff lookup' });
+    await row.locator('.review-row').click();
+
+    const actions = row.locator('.detail-actions');
+    const box = await actions.boundingBox();
+    const button = await row.getByRole('button', { name: 'Review again' }).boundingBox();
+    if (!box || !button) throw new Error('actions row or button not laid out');
+
+    // Its right edge tracks the container's, whatever the row is wide.
+    expect(Math.abs(box.x + box.width - (button.x + button.width))).toBeLessThan(2);
+    // And it is genuinely at the far end rather than merely last in a huddle.
+    expect(button.x).toBeGreaterThan(box.x + box.width / 2);
+  });
+
   test('offers to run the review again from the row', async ({ page }) => {
     await page.goto('/history');
     const row = page.locator('.review-row-wrap', { hasText: 'cache the tariff lookup' });

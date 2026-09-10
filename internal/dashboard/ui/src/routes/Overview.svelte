@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errText } from '../lib/errors';
   import ActivityChart from '../lib/ActivityChart.svelte';
   import { getQueue, getReviews, getStats, getUsage, preflightPR, queuePR } from '../lib/api';
   import { withFeed } from '../lib/feed';
@@ -66,8 +67,8 @@
       await queuePR(addInput.trim());
       addInput = '';
       await withFeed(refresh)();
-    } catch (e: any) {
-      addErr = e.message;
+    } catch (e) {
+      addErr = errText(e);
     }
   }
 
@@ -84,8 +85,8 @@
       // Resolve first so the box can say whose PR this is, and be disabled
       // with a reason when it is not yours. The add re-checks regardless.
       steerModal = await preflightPR(addInput.trim());
-    } catch (e: any) {
-      addErr = e.message;
+    } catch (e) {
+      addErr = errText(e);
     } finally {
       steerBusy = false;
     }

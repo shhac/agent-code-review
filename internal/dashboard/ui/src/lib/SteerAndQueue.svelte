@@ -8,6 +8,7 @@
   // dispatcher may drain within one idle poll, so the instruction has to ride
   // on the same write, and the refusal it can come back with has to be
   // reported rather than swallowed.
+  import { errText } from './errors';
   import Modal from './Modal.svelte';
   import SteeringEditor from './SteeringEditor.svelte';
   import { queuePR } from './api';
@@ -38,7 +39,7 @@
       // raised: half of what was asked for happened.
       ondone(res.steering_refused ? `Queued, but not steered: ${res.steering_refused}` : '');
     } catch (e) {
-      err = e instanceof Error ? e.message : String(e);
+      err = errText(e);
     } finally {
       busy = false;
     }

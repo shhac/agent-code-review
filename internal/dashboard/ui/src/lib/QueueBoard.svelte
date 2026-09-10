@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errText } from './errors';
   import { flip } from 'svelte/animate';
   import { promoteQueuedPR, removeQueuedPR, reorderQueue, setSteering } from './api';
   import { keyOf } from './format';
@@ -46,8 +47,8 @@
     try {
       await op();
       await onchanged();
-    } catch (e: any) {
-      onerror(e.message);
+    } catch (e) {
+      onerror(errText(e));
     }
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errText } from '../lib/errors';
   import { getReviews, preflightPR } from '../lib/api';
   import { withFeed } from '../lib/feed';
   import { ago, durSecs, prHref, tokens, when } from '../lib/format';
@@ -75,7 +76,7 @@
       // refuse the instruction with a reason rather than silently dropping it.
       requeue = { pr: await preflightPR(url), url, initial: r.steering?.message ?? '' };
     } catch (e) {
-      note = e instanceof Error ? e.message : String(e);
+      note = errText(e);
     } finally {
       requeueBusy = '';
     }

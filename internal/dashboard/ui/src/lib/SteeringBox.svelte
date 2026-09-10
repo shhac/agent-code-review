@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errText } from './errors';
   import { onDestroy } from 'svelte';
   import { steeringSession } from './steering';
   import SteeringNote from './SteeringNote.svelte';
@@ -66,7 +67,7 @@
       // again is a no-op there and cheaper than reasoning about whether it did.
       close();
     } catch (e) {
-      err = e instanceof Error ? e.message : String(e);
+      err = errText(e);
     } finally {
       saving = false;
     }

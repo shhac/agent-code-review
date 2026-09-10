@@ -176,7 +176,6 @@ button:disabled, button:disabled:hover {
   100% { background: transparent; }
 }
 .ticket-main:hover { transform: none; background: #31372f; }
-.chev { color: var(--faint); font-size: 24px; line-height: 1; }
 .ticket-pr { min-width: 64px; font-weight: 850; font-size: 18px; color: var(--accent); white-space: nowrap; }
 a.ticket-pr:hover { text-decoration: underline; }
 .ticket-copy { min-width: 0; }
@@ -324,6 +323,11 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 .author-row { cursor: pointer; }
 .author-row:hover, .author-row:focus-visible { background: var(--surface-warm); }
 .author-row.open { background: var(--surface-warm); }
+/* The one .chev rule. A second bare .chev sat in the queue-ticket block above
+   asking for font-size: 24px; at equal specificity the later rule won, so all
+   three chevrons (queue ticket, history row, roster row) have always rendered
+   from this one and that declaration never applied. Deleted rather than
+   scoped: making it apply would be a visual change, not a fix. */
 .chev { display: inline-block; width: 12px; color: var(--faint); font-size: 11px; }
 .author-detail { padding: 2px 20px 18px 32px; background: var(--surface-warm); }
 .author-detail dl {

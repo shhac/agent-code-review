@@ -72,11 +72,13 @@ CANDIDATES (discovery is deterministic: gh + rules, never the LLM):
   An author whose resolved group has review level "ignore" is never discovered
   at all; a manual add still reviews them. Manual adds (queue add / dashboard)
   fetch live metadata via gh and reject closed/merged PRs.
-  Discovered candidates can carry an eligibility hold: settling (PR updated
-  within candidates.quiet_period) or cooldown (we reviewed it within
-  candidates.rereview_cooldown). Held rows sit visibly in the queue but are
-  not dispatched until eligible_at; queue promote or a manual add
-  bypasses holds.
+  A queued PR can carry any number of NAMED holds, and is dispatched once
+  every one of them has expired: settling (PR updated within
+  candidates.quiet_period), cooldown (we reviewed it within
+  candidates.rereview_cooldown) and editing (its author has the dashboard's
+  steering editor open, for candidates.steering_hold). Held rows keep their
+  queue position and are stepped over rather than blocking the row behind
+  them; queue promote or a manual add lifts every hold.
 
 AUTHOR GROUPS: an author belongs to ONE group per repo, and the group IS the
   policy. Review level is an ordered ladder:
@@ -374,6 +376,8 @@ KEYS:
                                        (default 90m, 0s disables)
   candidates.quiet_period              PR must go untouched this long before discovery
                                        accepts it (default 15m, 0s disables)
+  candidates.steering_hold             defer a PR while its author has the steering
+                                       editor open (default 5m, 0s disables)
   review.engine                        codex (default) | claude
   codex.bin | codex.model | codex.effort | codex.sandbox
   claude.bin | claude.model | claude.effort | claude.permission_mode

@@ -90,7 +90,15 @@
       {/if}
       <div><dt>Queue position</dt><dd>{c.queue_pos}</dd></div>
     </dl>
-    <SteeringBox steering={c.steering ?? null} mayEdit={c.may_steer} author={c.author} onsave={onsteer} />
+    <SteeringBox
+      steering={c.steering ?? null}
+      mayEdit={c.may_steer}
+      author={c.author}
+      repo={c.repo}
+      number={c.number}
+      reviewing={c.status === 'reviewing'}
+      onsave={onsteer}
+    />
     <div class="review-history">
       <h3>Reviews of this PR</h3>
       {#if history.length}

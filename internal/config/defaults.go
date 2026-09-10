@@ -41,6 +41,25 @@ func (c Config) QuietPeriod() time.Duration {
 	return durationOrZero(c.Candidates.QuietPeriod, 15*time.Minute)
 }
 
+// SteeringHold is how long an open steering editor defers the PR being edited
+// (default 5m; an explicit "0s" disables it), so the dispatcher cannot claim a
+// row out from under somebody mid-sentence.
+//
+// Short on purpose, and renewed by the editor rather than set once: the hold
+// has to expire on its own when a laptop sleeps or a tab closes, because
+// nothing else will ever come along to release it.
+func (c Config) SteeringHold() time.Duration {
+	return durationOrZero(c.Candidates.SteeringHold, 5*time.Minute)
+}
+
+// SteeringHoldCap bounds how long renewal can keep a PR parked, however long
+// the editor stays open. Without it a modal left open over lunch would defer a
+// PR all afternoon: the expiry protects against a client that stops talking,
+// and this protects against one that never stops.
+func (c Config) SteeringHoldCap() time.Duration {
+	return 4 * c.SteeringHold()
+}
+
 // MaxParallel is the concurrency cap: how many reviews run at once (default
 // 4). Read per dispatch, so a raise takes effect without a restart.
 func (c Config) MaxParallel() int {

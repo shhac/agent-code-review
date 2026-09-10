@@ -209,6 +209,15 @@ func (d *duckDB) patchHolds(repo string, number int, patch string) string {
 		patch, prWhere(repo, number))
 }
 
+// SetEditingSince stamps (or with nil clears) the renewal anchor for the
+// steering editor. Separate from SetHold because it is not a hold: the hold
+// says "not yet", this says "since when has somebody been saying that", and
+// only the second is allowed to stop the first from being renewed.
+func (d *duckDB) SetEditingSince(ctx context.Context, repo string, number int, since *time.Time) error {
+	return d.exec(ctx, fmt.Sprintf("UPDATE queue SET steering_editing_since = %s WHERE %s",
+		tsp(since), prWhere(repo, number)))
+}
+
 // Promote floats the row to the top (negative queue_pos sorts ahead of the
 // default 0), clears EVERY hold, and escalates source to manual so the
 // pre-review candidacy check is bypassed: one write, same semantics as
@@ -218,6 +227,6 @@ func (d *duckDB) patchHolds(repo string, number int, patch string) string {
 // left some holds standing would be a button that sometimes does nothing.
 func (d *duckDB) Promote(ctx context.Context, repo string, number int) error {
 	return d.exec(ctx, fmt.Sprintf(
-		"UPDATE queue SET queue_pos = -1, holds = NULL, source = 'manual' WHERE %s",
+		"UPDATE queue SET queue_pos = -1, holds = NULL, steering_editing_since = NULL, source = 'manual' WHERE %s",
 		prWhere(repo, number)))
 }

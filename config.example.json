@@ -9,12 +9,13 @@
     "groups": {},
     "overrides": []
   },
-  "//candidates_note": "rereview_cooldown holds a PR after one of our own reviews before it can be re-discovered; quiet_period holds a PR until it has gone untouched that long (no pushes or edits). Held PRs sit in the queue as not-yet-eligible; promotion or a manual add bypasses both. '0s' disables a hold.",
+  "//candidates_note": "rereview_cooldown holds a PR after one of our own reviews before it can be re-discovered; quiet_period holds a PR until it has gone untouched that long (no pushes or edits); steering_hold defers a PR while its author has the steering editor open, renewed while they type and capped so an editor left open cannot park it indefinitely. Holds are named and independent: a PR is eligible once every hold on it has expired, it keeps its queue position while held, and promotion or a manual add lifts them all. '0s' disables a hold.",
   "candidates": {
     "new_max_age_days": 14,
     "refreshed_max_age_days": 21,
     "rereview_cooldown": "90m",
-    "quiet_period": "15m"
+    "quiet_period": "15m",
+    "steering_hold": "5m"
   },
   "//schedule_note": "Two independent loops, each with its own switch: discovery scrapes repos for candidates on its own poll (deterministic gh calls, no LLM); schedule consumes the queue (engine invocations, hence max_parallel). Reviews are dispatched one at a time as slots free, waiting dispatch_cooldown between hand-offs; interval is only the idle poll for when nothing is ready, and bounds how long a `queue add` from another process waits to be noticed.",
   "schedule": {

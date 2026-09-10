@@ -42,6 +42,9 @@ type fakeStore struct {
 	positions []store.QueuePosition
 	steered   []steerCall
 	cleared   []prref.Ref
+	holdsSet  []holdCall
+	holdsGone []holdCall
+	sinceSet  []*time.Time
 
 	// Injected failures.
 	reorderErr error
@@ -60,6 +63,16 @@ type steerCall struct {
 	store.Steering
 	repo   string
 	number int
+}
+
+// holdCall records one hold write. The NAME is recorded because that is the
+// property worth asserting: a release must lift exactly the hold it meant to
+// and leave every other one standing.
+type holdCall struct {
+	repo   string
+	number int
+	name   string
+	until  time.Time
 }
 
 func (f *fakeStore) ListQueue(context.Context, string) ([]store.Candidate, error) {
@@ -195,6 +208,21 @@ func (f *fakeStore) SetSteering(_ context.Context, repo string, number int, st s
 
 func (f *fakeStore) ClearSteering(_ context.Context, repo string, number int) error {
 	f.cleared = append(f.cleared, prref.Ref{Repo: repo, Number: number})
+	return nil
+}
+
+func (f *fakeStore) SetHold(_ context.Context, repo string, number int, name string, until time.Time) error {
+	f.holdsSet = append(f.holdsSet, holdCall{repo: repo, number: number, name: name, until: until})
+	return nil
+}
+
+func (f *fakeStore) ClearHold(_ context.Context, repo string, number int, name string) error {
+	f.holdsGone = append(f.holdsGone, holdCall{repo: repo, number: number, name: name})
+	return nil
+}
+
+func (f *fakeStore) SetEditingSince(_ context.Context, _ string, _ int, since *time.Time) error {
+	f.sinceSet = append(f.sinceSet, since)
 	return nil
 }
 

@@ -105,6 +105,10 @@ type Store interface {
 	// holds ride on the Candidate, so ListQueue already carries them.
 	SetHold(ctx context.Context, repo string, number int, name string, until time.Time) error
 	ClearHold(ctx context.Context, repo string, number int, name string) error
+	// SetEditingSince stamps the steering editor's renewal anchor; nil clears
+	// it. It holds nothing on its own: it is what bounds how long renewing
+	// HoldEditing may keep a PR parked.
+	SetEditingSince(ctx context.Context, repo string, number int, since *time.Time) error
 	// QueuedPR returns one queued candidate, or ok=false when that PR is not
 	// queued.
 	QueuedPR(ctx context.Context, repo string, number int) (Candidate, bool, error)

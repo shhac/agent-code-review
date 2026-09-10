@@ -21,8 +21,11 @@ test.describe('through the tailscale proxy', () => {
     // Anchor each ticket by its AUTHOR, never by the refusal wording: filtering
     // on the refusal makes the negative assertion vacuous, because broken
     // authorisation removes the refusal and the filter then matches nothing.
-    const mine = page.locator('.ticket').filter({ hasText: '@octocat' });
+    // The queued one specifically: octocat also owns a row under review, whose
+    // editor is closed for a reason that has nothing to do with authorship.
+    const mine = page.locator('.ticket').filter({ hasText: 'Add retry to the HTTP client' });
     const theirs = page.locator('.ticket').filter({ hasText: '@someone-else' });
+    await expect(mine).toContainText('@octocat');
     await expect(mine).toHaveCount(1);
     await expect(theirs).toHaveCount(1);
 
@@ -35,8 +38,11 @@ test.describe('through the tailscale proxy', () => {
 
   test('steering renders as markdown, not as raw syntax', async ({ page }) => {
     await page.goto('/');
-    await page.locator('.ticket-main').first().click();
-    const body = page.locator('.steering-body').first();
+    // By title, not by position: a reviewing row is pinned to the top of the
+    // board, so "first" is not the row this test is about.
+    const ticket = page.locator('.ticket', { hasText: 'Add retry to the HTTP client' });
+    await ticket.locator('.ticket-main').click();
+    const body = ticket.locator('.steering-body');
     // The engine gets the message verbatim, so the dashboard has to show what
     // that will look like rather than the asterisks.
     await expect(body.locator('strong')).toHaveText('rollback');
@@ -47,8 +53,9 @@ test.describe('through the tailscale proxy', () => {
 
   test('the editor previews markdown before saving', async ({ page }) => {
     await page.goto('/');
-    await page.locator('.ticket-main').first().click();
-    await page.locator('.steering button', { hasText: /edit/i }).first().click();
+    const ticket = page.locator('.ticket', { hasText: 'Add retry to the HTTP client' });
+    await ticket.locator('.ticket-main').click();
+    await ticket.locator('.steering button', { hasText: /edit/i }).click();
 
     const modal = page.locator('.modal');
     await expect(modal).toBeVisible();
@@ -79,3 +86,26 @@ test.describe('the proxy is the source of identity', () => {
 // where the peer address can be set directly: this harness connects from
 // localhost, which IS a loopback peer, so it cannot express a tailnet or
 // public client. The daemon binds loopback precisely so those cannot reach it.
+
+// A review in flight fixed its instructions when it was dispatched and never
+// re-reads the row, so the editor must not offer an edit that would reach
+// nothing. The server refuses the write too; this is that same rule, shown.
+test.describe('a PR under review', () => {
+  test('offers no way to edit the steering that is already running', async ({ page }) => {
+    await page.goto('/');
+    const ticket = page.locator('.ticket', { hasText: 'Rework the cache layer' });
+    await ticket.locator('.ticket-main').click();
+
+    const steering = ticket.locator('.steering');
+    await expect(steering).toContainText('Check the eviction policy');
+    await expect(steering.getByRole('button', { name: 'edit' })).toHaveCount(0);
+    await expect(steering).toContainText('shaping the review running now');
+  });
+
+  test('a queued PR still offers the editor', async ({ page }) => {
+    await page.goto('/');
+    const ticket = page.locator('.ticket', { hasText: 'Add retry to the HTTP client' });
+    await ticket.locator('.ticket-main').click();
+    await expect(ticket.locator('.steering').getByRole('button', { name: 'edit' })).toBeVisible();
+  });
+});

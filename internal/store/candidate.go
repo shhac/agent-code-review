@@ -32,6 +32,11 @@ type Candidate struct {
 	// not holds, and the alternative is every writer having to know which
 	// names it is allowed to retire.
 	Holds map[string]time.Time `json:"holds,omitempty"`
+	// EditingSince is when the current steering-editor session began, or nil
+	// when nobody has it open. Deliberately NOT a hold: it defers nothing by
+	// itself, it is only the anchor the renewal cap measures from, so that an
+	// editor left open cannot keep re-imposing HoldEditing forever.
+	EditingSince *time.Time `json:"editing_since,omitempty"`
 	// Steering is the instruction shaping this PR's next review, if one is
 	// set. A field on the row rather than a joined entity: it shares the row's
 	// key and lifetime exactly, so it goes when the row goes.

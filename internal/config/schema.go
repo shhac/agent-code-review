@@ -75,16 +75,19 @@ type AuthorSettings struct {
 	Overrides []AuthorOverride `json:"overrides,omitempty"`
 }
 
-// CandidateSettings holds the age windows from the schedule spec plus the two
+// CandidateSettings holds the age windows from the schedule spec plus the
 // eligibility holds: how long after our own review a PR stays on hold
-// (rereview_cooldown) and how long a PR must sit untouched before we accept it
-// (quiet_period). Holds defer discovered candidates; manual adds bypass both.
+// (rereview_cooldown), how long a PR must sit untouched before we accept it
+// (quiet_period), and how long an open steering editor defers it
+// (steering_hold). The first two defer discovered candidates and manual adds
+// bypass them; the third is asked for explicitly by an author.
 type CandidateSettings struct {
 	NewMaxAgeDays        int    `json:"new_max_age_days,omitempty"`        // default 14
 	RefreshedMaxAgeDays  int    `json:"refreshed_max_age_days,omitempty"`  // default 21
 	DiscussionMaxAgeDays int    `json:"discussion_max_age_days,omitempty"` // default 14
 	RereviewCooldown     string `json:"rereview_cooldown,omitempty"`       // Go duration, default "90m"; "0s" disables
 	QuietPeriod          string `json:"quiet_period,omitempty"`            // Go duration, default "15m"; "0s" disables
+	SteeringHold         string `json:"steering_hold,omitempty"`           // Go duration, default "5m"; "0s" disables
 }
 
 // ScheduleSettings drives the review dispatcher: LLM invocations, so it

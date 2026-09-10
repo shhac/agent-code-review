@@ -117,6 +117,8 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *string { return &c.Candidates.RereviewCooldown }, validateHoldDuration)),
 		plain(stringKey("candidates.quiet_period", "How long a PR must go untouched before discovery accepts it, as a Go duration (default 15m, 0s disables)",
 			func(c *config.Config) *string { return &c.Candidates.QuietPeriod }, validateHoldDuration)),
+		plain(stringKey("candidates.steering_hold", "How long an open steering editor defers the PR being edited, as a Go duration (default 5m, 0s disables)",
+			func(c *config.Config) *string { return &c.Candidates.SteeringHold }, validateHoldDuration)),
 		static(stringKey("review.engine", "Review engine (default codex)",
 			func(c *config.Config) *string { return &c.Review.Engine }, validateOneOf("engine", engineValues)), engineValues),
 		plain(stringKey("codex.bin", "Codex binary (default codex)",

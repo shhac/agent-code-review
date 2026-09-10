@@ -297,6 +297,14 @@ export type Steering = {
   set_at: string;
 };
 
+// SteeringHold is the editing hold's answer. `until` is when the PR is parked
+// to; `capped` says renewal has stopped, so the editor must stop claiming the
+// PR is protected even though it is still open.
+export type SteeringHold = {
+  until?: string;
+  capped?: boolean;
+};
+
 // QueueAdd is the add's answer. steering_refused says why an accompanying
 // message was not applied: the add still happened, so the caller has to be
 // told which half of what they asked for they got.

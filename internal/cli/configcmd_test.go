@@ -71,6 +71,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"candidates.discussion_max_age_days":  "7",
 		"candidates.rereview_cooldown":        "2h",
 		"candidates.quiet_period":             "0s",
+		"candidates.steering_hold":            "3m",
 		"review.engine":                       "codex",
 		"codex.bin":                           "codex",
 		"codex.model":                         "some-model",

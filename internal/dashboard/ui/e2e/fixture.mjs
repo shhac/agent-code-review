@@ -64,6 +64,16 @@ VALUES
 - the \`down\` migration','octocat',now()),
  ('acme/widgets',102,'New','Bump dependencies','someone-else','https://example.invalid/102','h2',
   now(),now(),now(),'manual',NULL,NULL,NULL);
+
+-- A row under review: claimed within the lease window, with steering already
+-- on it. The steering editor must be closed for this row, because the review
+-- running now fixed its instructions when it was dispatched.
+INSERT INTO queue
+ (repo,number,type,title,author,url,head_sha,created_at,updated_at,discovered_at,source,claimed_at,claim_host,claim_pid,steering_message,steering_by,steering_at)
+VALUES
+ ('acme/widgets',103,'New','Rework the cache layer','octocat','https://example.invalid/103','h3',
+  now(),now(),now(),'manual',now(),'testhost',1234,
+  'Check the eviction policy','octocat',now());
 `;
 
 export function seed(bin) {

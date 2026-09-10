@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
@@ -319,6 +320,165 @@ func TestAddWithSteering(t *testing.T) {
 		// Preflight must not queue anything.
 		if len(fs.enqueued) != 0 {
 			t.Errorf("preflight must not mutate, got %+v", fs.enqueued)
+		}
+	})
+}
+
+// hold drives the editing-hold endpoint the way post drives the steering one.
+func hold(t *testing.T, s *Server, method, login, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(method, "/api/steering/hold", strings.NewReader(body))
+	r.RemoteAddr = "127.0.0.1:5000"
+	if login != "" {
+		r.Header.Set(tailscaleLoginHeader, login)
+	}
+	w := httptest.NewRecorder()
+	s.handleSteeringHold(w, r)
+	return w
+}
+
+const octoRef = `{"repo":"o/r","number":1}`
+
+// TestSteeringRefusedWhileReviewing is the timing rung of the authorisation
+// ladder. A running review built its prompt from the candidate the dispatcher
+// pulled and never re-reads the row, and completion retires the row along with
+// any message on it, so a write accepted now would return 200 for an
+// instruction that reaches nothing.
+func TestSteeringRefusedWhileReviewing(t *testing.T) {
+	claimed := func() *fakeStore {
+		fs := queuedPR()
+		now := time.Now()
+		fs.queue[0].ClaimedAt = &now
+		return fs
+	}
+
+	t.Run("the author's own steering is refused with 409", func(t *testing.T) {
+		fs := claimed()
+		w := post(t, steerServer(fs, true), "127.0.0.1:5000", "octo@example.com", octoPR)
+		if w.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409", w.Code)
+		}
+		if len(fs.steered) != 0 {
+			t.Errorf("nothing may be written for a refused steer, got %+v", fs.steered)
+		}
+		if !strings.Contains(w.Body.String(), "once this review finishes") {
+			t.Errorf("the refusal must say what to do instead, got %q", w.Body.String())
+		}
+	})
+
+	t.Run("an editing hold is refused too: there is nothing left to defer", func(t *testing.T) {
+		fs := claimed()
+		w := hold(t, steerServer(fs, true), http.MethodPost, "octo@example.com", octoRef)
+		if w.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409", w.Code)
+		}
+		if len(fs.holdsSet) != 0 {
+			t.Errorf("a claimed row must not be held, got %+v", fs.holdsSet)
+		}
+	})
+
+	t.Run("a stale claim is not a running review", func(t *testing.T) {
+		// Past the lease window: a crashed daemon's leftovers, which the
+		// dispatcher will reclaim. The author is not competing with anything.
+		fs := queuedPR()
+		old := time.Now().Add(-3 * time.Hour)
+		fs.queue[0].ClaimedAt = &old
+		w := post(t, steerServer(fs, true), "127.0.0.1:5000", "octo@example.com", octoPR)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+// TestSteeringHoldBounds pins the two independent bounds that keep "parked
+// briefly" honest: the hold expires on its own, and renewal stops at the cap.
+func TestSteeringHoldBounds(t *testing.T) {
+	t.Run("a first hold stamps the anchor and parks the row", func(t *testing.T) {
+		fs := queuedPR()
+		w := hold(t, steerServer(fs, true), http.MethodPost, "octo@example.com", octoRef)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+		}
+		if len(fs.holdsSet) != 1 || fs.holdsSet[0].name != store.HoldEditing {
+			t.Fatalf("want one editing hold, got %+v", fs.holdsSet)
+		}
+		// The server picks the window; the client never said one.
+		if got := time.Until(fs.holdsSet[0].until); got < 4*time.Minute || got > 5*time.Minute {
+			t.Errorf("hold window = %v, want the configured 5m", got)
+		}
+		if len(fs.sinceSet) != 1 || fs.sinceSet[0] == nil {
+			t.Errorf("the first hold must stamp the renewal anchor, got %+v", fs.sinceSet)
+		}
+	})
+
+	t.Run("renewal keeps the original anchor", func(t *testing.T) {
+		fs := queuedPR()
+		since := time.Now().Add(-time.Minute)
+		fs.queue[0].EditingSince = &since
+		if w := hold(t, steerServer(fs, true), http.MethodPost, "octo@example.com", octoRef); w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", w.Code)
+		}
+		if len(fs.holdsSet) != 1 {
+			t.Errorf("renewal must re-impose the hold, got %+v", fs.holdsSet)
+		}
+		if len(fs.sinceSet) != 0 {
+			t.Errorf("renewal must not restamp the anchor, or the cap could never be reached: %+v", fs.sinceSet)
+		}
+	})
+
+	t.Run("past the cap, renewal stops", func(t *testing.T) {
+		// The editor left open: the client is still talking, so the expiry
+		// alone would keep re-parking the PR indefinitely.
+		fs := queuedPR()
+		since := time.Now().Add(-time.Hour)
+		fs.queue[0].EditingSince = &since
+		w := hold(t, steerServer(fs, true), http.MethodPost, "octo@example.com", octoRef)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", w.Code)
+		}
+		if len(fs.holdsSet) != 0 {
+			t.Errorf("a capped session must not renew, got %+v", fs.holdsSet)
+		}
+		var got steeringHoldResp
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if !got.Capped {
+			t.Error("the client must be told renewal stopped, or it will believe the PR is still parked")
+		}
+	})
+
+	t.Run("release lifts exactly the editing hold", func(t *testing.T) {
+		fs := queuedPR()
+		if w := hold(t, steerServer(fs, true), http.MethodDelete, "octo@example.com", octoRef); w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", w.Code)
+		}
+		if len(fs.holdsGone) != 1 || fs.holdsGone[0].name != store.HoldEditing {
+			t.Fatalf("want exactly the editing hold released, got %+v", fs.holdsGone)
+		}
+		if len(fs.sinceSet) != 1 || fs.sinceSet[0] != nil {
+			t.Errorf("release must forget the session, got %+v", fs.sinceSet)
+		}
+	})
+
+	t.Run("saving steering releases the hold", func(t *testing.T) {
+		fs := queuedPR()
+		if w := post(t, steerServer(fs, true), "127.0.0.1:5000", "octo@example.com", octoPR); w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+		}
+		if len(fs.holdsGone) != 1 || fs.holdsGone[0].name != store.HoldEditing {
+			t.Errorf("a save is the end of editing, so the hold goes with it: %+v", fs.holdsGone)
+		}
+	})
+
+	t.Run("someone else's PR cannot be parked", func(t *testing.T) {
+		fs := queuedPR()
+		w := hold(t, steerServer(fs, true), http.MethodPost, "mallory@example.com", octoRef)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403", w.Code)
+		}
+		if len(fs.holdsSet) != 0 {
+			t.Errorf("no hold may be written for a refused caller, got %+v", fs.holdsSet)
 		}
 	})
 }

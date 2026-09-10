@@ -16,6 +16,7 @@ import type {
   QueuePreflight,
   UsageResponse,
   ReviewLogRef,
+  SteeringHold,
 } from './types';
 
 // errorFrom unwraps the API's {error} envelope from a failed response. The
@@ -128,3 +129,19 @@ export const getViewer = () => fetchJSON<Viewer>('/api/viewer');
 // from the queue, never from this request, so a rejection here is the answer.
 export const setSteering = (repo: string, number: number, message: string) =>
   post('/api/steering', { repo, number, message });
+
+// holdForSteering parks a PR while its author writes an instruction, so a free
+// dispatcher slot cannot claim it mid-sentence. The client never says for how
+// long: the server takes that from config, because a caller that could name
+// the duration could park its own PR indefinitely.
+//
+// `capped` means renewal has stopped and the standing hold is being left to
+// expire. It is a normal 200: the editor stays open, the PR just stops being
+// protected. Believing otherwise is the one thing the caller must not do.
+export const holdForSteering = (repo: string, number: number) =>
+  postJSON<SteeringHold>('/api/steering/hold', { repo, number });
+
+// releaseSteeringHold is best effort by design. The hold expires on its own,
+// so a close that never reaches the server costs at most one window.
+export const releaseSteeringHold = (repo: string, number: number) =>
+  del('/api/steering/hold', { repo, number });

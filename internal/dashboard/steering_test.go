@@ -310,6 +310,38 @@ func TestAddWithSteering(t *testing.T) {
 		}
 	})
 
+	t.Run("an over-long message is refused, not a 400", func(t *testing.T) {
+		// The two paths share the rungs but not the consequence: /api/steering
+		// returns 400 for this, the add returns 200 and still queues the PR.
+		// Pinned because a future "share one validator" reading could quietly
+		// turn an add into a failed request.
+		fs := queuedPR()
+		long := strings.Repeat("x", store.SteeringMaxLen+1)
+		code, resp := add(t, server(fs), "octo@example.com", `{`+url+`,"steering":"`+long+`"}`)
+		if code != http.StatusOK || !resp.Queued {
+			t.Fatalf("the add must still succeed: code=%d resp=%+v", code, resp)
+		}
+		if resp.Steered || !strings.Contains(resp.SteeringRefused, "longer than") {
+			t.Errorf("resp = %+v, want the message refused for length", resp)
+		}
+		if fs.enqueued[0].Steering != nil {
+			t.Errorf("no steering may ride along, got %+v", fs.enqueued[0].Steering)
+		}
+	})
+
+	t.Run("permission outranks the claim on the add path too", func(t *testing.T) {
+		// The same precedence steerableRow uses. Both paths run one ladder now,
+		// so a stranger is told they may not steer rather than that a review is
+		// running on somebody else's PR.
+		fs := queuedPR()
+		now := time.Now()
+		fs.queue = []store.Candidate{{Repo: "o/r", Number: 9, Author: "octocat", HeadSHA: "s9", ClaimedAt: &now}}
+		_, resp := add(t, server(fs), "mallory@example.com", `{`+url+`,"steering":"x"}`)
+		if !strings.Contains(resp.SteeringRefused, "octocat") {
+			t.Errorf("refusal = %q, want the permission answer, not the in-flight one", resp.SteeringRefused)
+		}
+	})
+
 	t.Run("an anonymous caller may add but not steer", func(t *testing.T) {
 		fs := queuedPR()
 		code, resp := add(t, server(fs), "", `{`+url+`,"steering":"x"}`)
@@ -429,6 +461,59 @@ func TestSteeringRefusedWhileReviewing(t *testing.T) {
 			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 		}
 	})
+}
+
+// TestSteeringLadderOrder pins the ORDER of the authorisation ladder, which is
+// the security property steerableRow's comment names. Outcome-only tests miss
+// this entirely: each rung was previously asserted with the others held
+// non-competing, so hoisting one above another kept every test green while
+// changing what the endpoint discloses to whom.
+//
+// Each case makes two rungs disagree and states which must answer.
+func TestSteeringLadderOrder(t *testing.T) {
+	claimed := func(fs *fakeStore) *fakeStore {
+		now := time.Now()
+		fs.queue[0].ClaimedAt = &now
+		return fs
+	}
+	unqueued := `{"repo":"o/r","number":404,"message":"x"}`
+
+	cases := []struct {
+		name  string
+		fs    *fakeStore
+		login string
+		body  string
+		want  int
+		why   string
+	}{
+		{
+			name: "identity before existence", fs: queuedPR(), login: "", body: unqueued,
+			want: http.StatusUnauthorized,
+			why:  "an anonymous caller must not learn which PRs are queued",
+		},
+		{
+			name: "existence before permission", fs: queuedPR(), login: "mallory@example.com", body: unqueued,
+			want: http.StatusNotFound,
+			why:  "a 403 would confirm the PR exists to somebody who may not steer it",
+		},
+		{
+			name: "permission before claim", fs: claimed(queuedPR()), login: "mallory@example.com", body: octoPR,
+			want: http.StatusForbidden,
+			why:  "a 409 would tell a stranger a review is running on this PR",
+		},
+		{
+			name: "claim answers once the caller is entitled to an answer",
+			fs:   claimed(queuedPR()), login: "octo@example.com", body: octoPR,
+			want: http.StatusConflict,
+			why:  "the author may know, and needs to",
+		},
+	}
+	for _, tc := range cases {
+		w := post(t, steerServer(tc.fs, true), "127.0.0.1:5000", tc.login, tc.body)
+		if w.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d (%s): %s", tc.name, w.Code, tc.want, tc.why, w.Body.String())
+		}
+	}
 }
 
 // TestEditingSession pins the pure cap decision, including the self-healing

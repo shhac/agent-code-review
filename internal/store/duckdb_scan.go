@@ -294,7 +294,6 @@ func ts(t time.Time) string {
 	return "'" + t.UTC().Format("2006-01-02 15:04:05") + "'"
 }
 
-
 // storedTimeLayouts are the shapes DuckDB's JSON output uses for a TIMESTAMP,
 // most specific first.
 var storedTimeLayouts = []string{"2006-01-02 15:04:05.999", "2006-01-02 15:04:05", time.RFC3339Nano, time.RFC3339}

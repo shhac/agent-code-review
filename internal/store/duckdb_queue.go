@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// prWhere is the identity predicate for a queue row. Six mutations select the
+// row this way; naming it once means a change to how a PR is identified (repo
+// casing, say) cannot land in five of them.
+func prWhere(repo string, number int) string {
+	return fmt.Sprintf("repo = %s AND number = %d", text(repo), number)
+}
+
 // Enqueue inserts or refreshes a queue row. On conflict:
 //   - discovered_at keeps its first-seen value; a sweep re-seeing pending
 //     work is not a new discovery, and bumping it would hide how long the PR
@@ -26,13 +33,6 @@ import (
 // it, so editing the config dials never shrinks holds already granted, and a
 // trigger with no derivable rule (an author opening the steering editor) can
 // impose one at all.
-// prWhere is the identity predicate for a queue row. Six mutations select the
-// row this way; naming it once means a change to how a PR is identified (repo
-// casing, say) cannot land in five of them.
-func prWhere(repo string, number int) string {
-	return fmt.Sprintf("repo = %s AND number = %d", text(repo), number)
-}
-
 func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	// An empty SHA would render as NULL: history.head_sha is NOT NULL, so
 	// such a row could never Complete — it would error every cycle until
@@ -230,7 +230,6 @@ func (d *duckDB) patchHolds(repo string, number int, patch string) string {
 	return fmt.Sprintf("UPDATE queue SET holds = json_merge_patch(COALESCE(holds, '{}'), %s) WHERE %s",
 		patch, prWhere(repo, number))
 }
-
 
 // Promote floats the row to the top (negative queue_pos sorts ahead of the
 // default 0), clears EVERY hold, and escalates source to manual so the

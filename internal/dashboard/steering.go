@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -108,6 +107,11 @@ func (e *apiErr) Error() string { return e.msg }
 // which is why they live together in one function with this comment rather
 // than spread through a handler.
 //
+// The remaining rungs (permission, then the claim) are steeringRefusal's, so
+// that the queue-add path answers them identically. Permission before claim, so
+// a 403 is returned to a stranger rather than "a review is running on this PR",
+// which they have no business learning.
+//
 // The claim rung comes last because it is the only one that is about TIMING
 // rather than about the caller. A review in flight built its prompt from the
 // candidate the dispatcher pulled and never re-reads the row, so an edit
@@ -117,7 +121,7 @@ func (e *apiErr) Error() string { return e.msg }
 //
 // The author comes from the STORE. Nothing the request says about who wrote
 // the PR is consulted.
-func (s *Server) steerableRow(ctx context.Context, r *http.Request, repo string, number int, cfg config.Config) (store.Candidate, viewer, *apiErr) {
+func (s *Server) steerableRow(ctx context.Context, r *http.Request, repo string, number int, msg string) (store.Candidate, viewer, *apiErr) {
 	v, err := s.identify(ctx, r)
 	if err != nil {
 		return store.Candidate{}, viewer{}, &apiErr{http.StatusInternalServerError, err.Error()}
@@ -133,35 +137,63 @@ func (s *Server) steerableRow(ctx context.Context, r *http.Request, repo string,
 	if !ok {
 		return store.Candidate{}, viewer{}, &apiErr{http.StatusNotFound, "that PR is not queued"}
 	}
-	if !v.maySteer(c.Author) {
-		// 403 rather than 404: the caller is identified and the PR exists, and
-		// saying so plainly beats pretending it is missing.
-		return store.Candidate{}, viewer{}, &apiErr{http.StatusForbidden, cannotSteer(c.Author)}
-	}
-	if c.ClaimActive(time.Now(), cfg.LeaseWindow()) {
-		return store.Candidate{}, viewer{}, &apiErr{http.StatusConflict, reviewInFlight}
+	if bad := steeringRefusal(v, c.Author, msg, s.claimIsLive(c)); bad != nil {
+		return store.Candidate{}, viewer{}, bad
 	}
 	return c, v, nil
 }
 
-// reviewInFlight is the refusal a running review earns, worded for the author
-// reading it: what is happening, and what to do instead.
-const reviewInFlight = "a review of this PR is running; its instructions are already fixed. " +
+// claimIsLive reports whether a row is under a live lease right now. One
+// place reads the clock and the lease window for the steering paths, so the
+// two cannot end up asking the question with different arguments.
+func (s *Server) claimIsLive(c store.Candidate) bool {
+	return c.ClaimActive(time.Now(), s.config().LeaseWindow())
+}
+
+// reviewInFlightMsg is the refusal a running review earns, worded for the
+// author reading it: what is happening, and what to do instead. Named for the
+// sentence it is, so that it cannot be confused with the predicate that decides
+// when to use it.
+const reviewInFlightMsg = "a review of this PR is running; its instructions are already fixed. " +
 	"Steer it again once this review finishes."
 
-// parseSteeringReq decodes and validates the body. Pure over the reader, so
-// the wire contract is table-testable without a Server.
+// parseSteeringReq decodes the body: which PR, and the message if there is
+// one. Pure over the reader, so the wire contract is table-testable without a
+// Server. It does not judge the message — the hold endpoint shares this parser
+// and has no message to judge, and message rules belong with the other rungs
+// in steeringRefusal rather than split across two places.
 func parseSteeringReq(r *http.Request) (steeringReq, string, *apiErr) {
 	var req steeringReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Repo == "" || req.Number <= 0 {
 		return req, "", &apiErr{http.StatusBadRequest,
 			`need {"repo": "owner/name", "number": N, "message": "..."}`}
 	}
-	msg := strings.TrimSpace(req.Message)
-	if len(msg) > store.SteeringMaxLen {
-		return req, "", &apiErr{http.StatusBadRequest, "message is longer than the steering limit"}
+	return req, strings.TrimSpace(req.Message), nil
+}
+
+// steeringRefusal is the half of the ladder that both write paths share: the
+// rungs about the MESSAGE and the ROW, given a caller already identified and a
+// row already found. Returns nil when the message may be applied.
+//
+// It exists because there are two ways to steer a PR — /api/steering, and a
+// queue add carrying a message — and they have to answer identically. They did
+// not: the add path was missing the claim rung entirely, which is the hole
+// 159548d closed by hand. Copying a rung across is what this replaces.
+//
+// The caller decides what to DO with a refusal, which is the one thing the two
+// paths genuinely differ on. /api/steering returns the status; the add path
+// renders only the sentence and still performs the add, because a caller who
+// asked for two things is entitled to the one they may have.
+func steeringRefusal(v viewer, author, msg string, claimed bool) *apiErr {
+	switch {
+	case len(msg) > store.SteeringMaxLen:
+		return &apiErr{http.StatusBadRequest, "message is longer than the steering limit"}
+	case !v.maySteer(author):
+		return &apiErr{http.StatusForbidden, cannotSteer(author)}
+	case claimed:
+		return &apiErr{http.StatusConflict, reviewInFlightMsg}
 	}
-	return req, msg, nil
+	return nil
 }
 
 // steeringHoldResp tells the editor what the server did, as one named state
@@ -212,7 +244,7 @@ func (s *Server) handleSteeringHold(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	cfg := s.config()
-	c, _, bad := s.steerableRow(ctx, r, req.Repo, req.Number, cfg)
+	c, _, bad := s.steerableRow(ctx, r, req.Repo, req.Number, "")
 	if bad != nil {
 		httpError(w, bad.code, bad.msg)
 		return
@@ -299,7 +331,7 @@ func (s *Server) handleSteering(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r, 10*time.Second)
 	defer cancel()
 
-	_, v, bad := s.steerableRow(ctx, r, req.Repo, req.Number, s.config())
+	_, v, bad := s.steerableRow(ctx, r, req.Repo, req.Number, msg)
 	if bad != nil {
 		httpError(w, bad.code, bad.msg)
 		return

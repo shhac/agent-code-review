@@ -6,6 +6,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/shhac/agent-code-review/internal/score"
 )
 
 func ptr(i int) *int { return &i }
@@ -415,5 +417,63 @@ func TestLeaderboardPaysForEachRevision(t *testing.T) {
 	}
 	if len(board) != 1 || board[0].Total != 115 {
 		t.Errorf("board = %+v, want 115 across two revisions", board)
+	}
+}
+
+// The measurement is stored with the row so an exclusion policy can be
+// re-applied later without asking GitHub again.
+func TestMeasuredFilesRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	at := time.Now().Add(-time.Hour).Truncate(time.Second)
+
+	files := []score.FileStat{
+		{Path: "main.go", Additions: 40, Deletions: 10},
+		{Path: "package-lock.json", Additions: 8000, Deletions: 2000, Generated: true},
+	}
+	r := Review{
+		Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "sha", Verdict: VerdictApproved,
+		Engine: "codex", ReviewedAt: at, DiffFiles: files,
+		Diff: DiffStats{ScoredAdditions: 40, ScoredDeletions: 10, ExcludedFiles: 1, DiffSHA: "sha"},
+	}
+	if err := s.Enqueue(ctx, Candidate{Repo: "o/r", Number: 1, Type: TypeNew, HeadSHA: "sha", DiscoveredAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Complete(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ReviewFiles(ctx, r.Ref())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d files, want 2", len(got))
+	}
+	if got[1].Path != "package-lock.json" || !got[1].Generated {
+		t.Errorf("the repo's verdict must survive the round trip, got %+v", got[1])
+	}
+
+	// And the policy can be re-applied offline, with no network.
+	rules := score.DefaultRules()
+	rules.UseGitattributes = false
+	if totals := score.Recount(got, rules); totals.Additions != 8040 {
+		t.Errorf("recount ignoring gitattributes = %+v, want everything counted", totals)
+	}
+}
+
+// A row with no stored measurement reads back as nil rather than erroring, so
+// recompute can tell "nothing to re-apply policy to" from a failure.
+func TestReviewFilesAbsentReadsAsNil(t *testing.T) {
+	s := newTestStore(t)
+	at := time.Now().Add(-time.Hour).Truncate(time.Second)
+	completeScored(t, s, "o/r", 2, "bob", VerdictApproved, at, ScoreRecord{}, DiffStats{DiffSHA: "sha"})
+
+	got, err := s.ReviewFiles(context.Background(), ReviewRef{Repo: "o/r", Number: 2, ReviewedAt: at})
+	if err != nil {
+		t.Fatalf("an absent measurement must not error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("got %+v, want nil", got)
 	}
 }

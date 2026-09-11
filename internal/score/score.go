@@ -51,6 +51,18 @@ type Rules struct {
 	RequestedChanges float64  `json:"requested_changes"`
 	ShrinkBonus      float64  `json:"shrink_bonus"`
 	AttemptDecay     float64  `json:"attempt_decay"`
+	// ExcludePaths and UseGitattributes decide which lines are counted rather
+	// than what a counted line is worth, and they are part of the ruleset for
+	// exactly one reason: they are HASHED, so changing them marks affected
+	// rows stale like any other tuning.
+	//
+	// They were deliberately left out while a recompute could not honour them:
+	// flagging rows that nothing could repair would have been worse than not
+	// flagging them. Storing the per-file measurement changed that, so they
+	// belong in the hash now. ExcludePaths is sorted on the way in, so
+	// reordering a list does not fake a policy change.
+	ExcludePaths     []string `json:"exclude_paths,omitempty"`
+	UseGitattributes bool     `json:"use_gitattributes"`
 }
 
 // DefaultRules is the shipped policy.
@@ -77,6 +89,7 @@ func DefaultRules() Rules {
 		RequestedChanges: -0.25,
 		ShrinkBonus:      1.2,
 		AttemptDecay:     0.6,
+		UseGitattributes: true,
 	}
 }
 

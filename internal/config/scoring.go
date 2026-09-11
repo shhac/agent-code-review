@@ -12,6 +12,7 @@ package config
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/shhac/agent-code-review/internal/score"
 )
@@ -166,6 +167,14 @@ func applyScoring(r score.Rules, s ScoringSettings) score.Rules {
 	if len(s.Buckets) > 0 {
 		r.Buckets = s.Buckets
 	}
+	if s.UseGitattributes != nil {
+		r.UseGitattributes = *s.UseGitattributes
+	}
+	// Sorted, so reordering the list in config.json does not change the hash
+	// and fake a policy change nobody made. Copied rather than aliased for the
+	// same reason Buckets is not: Rules is treated as immutable.
+	r.ExcludePaths = append([]string(nil), s.ExcludePaths...)
+	sort.Strings(r.ExcludePaths)
 	return r
 }
 

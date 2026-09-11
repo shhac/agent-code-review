@@ -104,9 +104,28 @@ func runGH(ctx context.Context, args ...string) ([]byte, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return nil, fmt.Errorf("gh %s: %s", strings.Join(args, " "), msg)
+		return nil, fmt.Errorf("gh %s: %s", strings.Join(elideQuery(args), " "), msg)
 	}
 	return out, nil
+}
+
+// elideQuery replaces a GraphQL document in an error's echoed argv with a
+// placeholder.
+//
+// The document is a static multi-line constant, so reproducing it verbatim
+// buries the one line that says what went wrong under a dozen that do not. The
+// rest of the argv (owner, repo, number) is what a reader needs to reproduce
+// the call, and it stays.
+func elideQuery(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		if strings.HasPrefix(a, "query=") {
+			out[i] = "query=<graphql>"
+			continue
+		}
+		out[i] = a
+	}
+	return out
 }
 
 // CurrentUser returns the authenticated gh login (`gh api user`).

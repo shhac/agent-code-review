@@ -110,8 +110,8 @@ type Scheduler struct {
 	// diffFn and attrsFn read a PR's size and the repo's generated-file
 	// declarations, at CLAIM time (see scoring.go for why not after the
 	// verdict).
-	diffFn  DiffFn
-	attrsFn AttrsFn
+	diffFn  discover.DiffFn
+	attrsFn discover.AttrsFn
 }
 
 // PriceFn values one review's token classes in USD. The second result is
@@ -164,8 +164,8 @@ type Deps struct {
 	Now            func() time.Time
 	// Diff and Attrs supply author scoring's inputs. Seams for the same
 	// reason as the rest: the scheduler's tests must never shell out to gh.
-	Diff  DiffFn
-	Attrs AttrsFn
+	Diff  discover.DiffFn
+	Attrs discover.AttrsFn
 }
 
 // New builds a Scheduler from d, filling every unset optional field with its

@@ -31,87 +31,50 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
-// DiffFn fetches a PR's per-file line counts. A seam so the scheduler's tests
-// never shell out to gh.
-type DiffFn func(ctx context.Context, repo string, number int) (discover.PRDiff, error)
+// measured is what the claim-time measurement hands to the post-verdict
+// scorer: nil when there is nothing to score from.
+type measured struct {
+	stats store.DiffStats
+	files []score.FileStat
+}
 
-// AttrsFn fetches the repo's .gitattributes declarations covering these files.
-type AttrsFn func(ctx context.Context, repo, ref string, files []score.FileStat) (map[string]string, error)
-
-// fetchDiff reads the PR's size and works out how much of it counts, at claim
-// time. Never returns an error: scoring is an enrichment, exactly as pricing
-// is, and a rate limit or a network blip must cost a score rather than a
-// review.
+// fetchDiff measures the PR at claim time, before the engine runs.
 //
-// A failure here leaves the row unscored AND with no diff recorded, which
-// `score recompute` cannot repair: it derives from the stored counts and never
-// re-fetches, and DeriveScore rightly refuses a row whose size was never
-// measured rather than reading its zeroes as a real zero. So the row stays
-// NULL until something re-fetches the diff, which nothing does yet. It is
-// visible (`score ls --missing`) rather than silently wrong, but it is not
-// self-healing, and the comment here used to claim otherwise.
-// fetchDiff returns nil when there is nothing to score from, which is the
-// whole of "scoring is off, or the fetch failed" in one value. It used to be a
-// struct pairing the stats with an ok bool, which said the same thing in a
-// type that had to be declared, and left the enabled-check stated twice.
-func (s *Scheduler) fetchDiff(ctx context.Context, cfg config.Config, c store.Candidate) *store.DiffStats {
+// Never returns an error: scoring is an enrichment, exactly as pricing is, and
+// a rate limit or a network blip must cost a score rather than a review.
+//
+// A failure here leaves the row unscored AND with no measurement recorded,
+// which `score recompute` cannot repair, because it re-applies policy to a
+// stored measurement rather than taking a new one. `score refetch` is the
+// repair for that, and it can only work while the PR is still at the head we
+// reviewed.
+func (s *Scheduler) fetchDiff(ctx context.Context, cfg config.Config, c store.Candidate) *measured {
 	if !cfg.ScoringEnabled(c.Repo) {
 		return nil
 	}
-	diff, err := s.diffFn(ctx, c.Repo, c.Number)
+	m, err := discover.Measurer{Diff: s.diffFn, Attrs: s.attrsFn}.Measure(ctx, cfg, c.Repo, c.Number)
 	if err != nil {
 		s.logf("review %s#%d: diff stats unavailable, leaving it unscored: %v", c.Repo, c.Number, err)
 		return nil
 	}
-
-	stats := store.DiffStats{
-		Additions:    diff.Additions,
-		Deletions:    diff.Deletions,
-		ChangedFiles: diff.ChangedFiles,
-		DiffSHA:      diff.HeadSHA,
+	for _, note := range m.Notes {
+		s.logf("review %s#%d: %s", c.Repo, c.Number, note)
 	}
-
-	// A truncated file list cannot support exclusion: we would be scoring the
-	// first 3000 files and silently calling the rest zero. Fall back to the
-	// raw totals, which are complete whatever the listing did.
-	if diff.Truncated {
-		s.logf("review %s#%d: GitHub truncated the file list at %d files; scoring the raw totals with no exclusions",
-			c.Repo, c.Number, len(diff.Files))
-		stats.ScoredAdditions, stats.ScoredDeletions = diff.Additions, diff.Deletions
-		return &stats
-	}
-
-	var attrs score.Attrs
-	if cfg.UseGitattributes(c.Repo) {
-		byDir, err := s.attrsFn(ctx, c.Repo, "HEAD", diff.Files)
-		if err != nil {
-			// The repo's declarations are an enrichment on an enrichment. Not
-			// reading them means counting generated lines, which is a worse
-			// score rather than no score.
-			s.logf("review %s#%d: could not read .gitattributes, counting every file: %v", c.Repo, c.Number, err)
-		} else {
-			attrs = score.ParseAttrs(byDir)
-		}
-	}
-
-	totals := score.NewExclusions(attrs, cfg.ExcludePaths(c.Repo)).Apply(diff.Files)
-	stats.ScoredAdditions = totals.Additions
-	stats.ScoredDeletions = totals.Deletions
-	stats.ExcludedFiles = totals.ExcludedFiles
-	return &stats
+	return &measured{stats: m.Stats, files: m.Files}
 }
 
 // applyScore attaches the diff and the points to a history record, after the
 // verdict is known. Pure arithmetic plus one cheap store read: no network, so
 // nothing here can widen the window before Complete.
-func (s *Scheduler) applyScore(ctx context.Context, cfg config.Config, rec *store.Review, diff *store.DiffStats) {
+func (s *Scheduler) applyScore(ctx context.Context, cfg config.Config, rec *store.Review, diff *measured) {
 	// nil covers both "scoring is off" and "the fetch failed". The enabled
 	// check lives in fetchDiff alone: re-asking here read as a second gate but
 	// could never fire, since reviewOne passes ONE cfg snapshot to both calls.
 	if diff == nil {
 		return
 	}
-	rec.Diff = *diff
+	rec.Diff = diff.stats
+	rec.DiffFiles = diff.files
 
 	// SKIPPED and ERROR are outcomes of our own machinery, not feedback to an
 	// author, and DeriveScore refuses them too. Returning early here keeps

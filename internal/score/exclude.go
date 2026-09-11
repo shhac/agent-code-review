@@ -2,11 +2,21 @@ package score
 
 import "regexp"
 
-// FileStat is one changed file's line counts, as GitHub reports them.
+// FileStat is one changed file's line counts, as GitHub reports them, plus
+// what the repo said about it.
+//
+// Generated is not fetched: it is RESOLVED from the repo's .gitattributes at
+// measurement time and then travels with the file. Storing the resolved fact
+// rather than the declarations that produced it is what lets an exclusion
+// policy be re-applied later with no network at all: the operator's globs are
+// ours to re-run offline, and whether the REPO called a file generated is the
+// one input we could not otherwise recover without re-reading its
+// .gitattributes at the revision we reviewed.
 type FileStat struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
+	Generated bool   `json:"generated,omitempty"`
 }
 
 // Totals is a PR's line counts after exclusion, with enough detail for a
@@ -40,9 +50,11 @@ func NewExclusions(a Attrs, globs []string) Exclusions {
 
 // Excludes reports whether path is left out of the scored line counts.
 func (e Exclusions) Excludes(path string) bool {
-	if e.Attrs.IsExcluded(path) {
-		return true
-	}
+	return e.Attrs.IsExcluded(path) || e.matchesGlob(path)
+}
+
+// matchesGlob reports whether any of the operator's own globs covers path.
+func (e Exclusions) matchesGlob(path string) bool {
 	for _, re := range e.globs {
 		if re.MatchString(path) {
 			return true
@@ -51,13 +63,43 @@ func (e Exclusions) Excludes(path string) bool {
 	return false
 }
 
-// Apply sums the files that count. The excluded ones are counted but not
-// summed, so the history row can say "3 files were left out" rather than
-// silently reporting a smaller diff than GitHub does.
+// Apply sums the files that count, and records on each one whether the REPO's
+// own declarations covered it. The excluded files are counted but not summed,
+// so the history row can say "3 files were left out" rather than silently
+// reporting a smaller diff than GitHub does.
+//
+// It writes Generated back into files so the caller can persist the resolved
+// fact. Marking here rather than in a separate pass keeps the two from
+// disagreeing about what the declarations said.
 func (e Exclusions) Apply(files []FileStat) Totals {
 	var t Totals
+	for i := range files {
+		files[i].Generated = e.Attrs.IsExcluded(files[i].Path)
+		if files[i].Generated || e.matchesGlob(files[i].Path) {
+			t.ExcludedFiles++
+			continue
+		}
+		t.Additions += files[i].Additions
+		t.Deletions += files[i].Deletions
+	}
+	return t
+}
+
+// Recount re-applies an exclusion policy to files measured earlier, with no
+// network access.
+//
+// This is what makes a change to exclude_paths or use_gitattributes a
+// recompute rather than a re-fetch: the operator's globs are ours to re-run,
+// and the repo's verdict on each file was resolved at measurement time and
+// stored. A change to the REPO's own .gitattributes is deliberately NOT
+// covered, because that is the repo changing its mind rather than us changing
+// our policy, and honouring it means re-reading the declarations at the
+// revision we reviewed.
+func Recount(files []FileStat, r Rules) Totals {
+	e := NewExclusions(Attrs{}, r.ExcludePaths)
+	var t Totals
 	for _, f := range files {
-		if e.Excludes(f.Path) {
+		if (r.UseGitattributes && f.Generated) || e.matchesGlob(f.Path) {
 			t.ExcludedFiles++
 			continue
 		}

@@ -340,3 +340,19 @@ ALTER TABLE history ADD COLUMN IF NOT EXISTS diff_sha TEXT;
 -- scored under a ruleset whose tiers have since moved, and a bucket recomputed
 -- under today's rules would explain a number today's rules did not produce.
 ALTER TABLE history ADD COLUMN IF NOT EXISTS score_bucket TEXT;
+
+-- The per-file detail a score was measured from: path, counts, and whether the
+-- repo's own .gitattributes covered the file, as resolved at review time.
+--
+-- Metadata only, never patch text. It exists so that a change to OUR exclusion
+-- policy (exclude_paths, use_gitattributes) is a recompute rather than a
+-- re-fetch: the operator's globs are ours to re-run offline, and the repo's
+-- verdict on each file is the one input that could not otherwise be recovered
+-- without re-reading its declarations at the revision we reviewed. The same
+-- escape-hatch reasoning as usage_raw: keeping the source means a later
+-- question about it is a query rather than a migration and a data gap.
+--
+-- NULL means not recorded: a row from before this column, or one whose file
+-- list GitHub truncated (a partial list must not be stored as though it were
+-- complete). Such a row can only be repaired by `score refetch`.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS diff_files JSON;

@@ -2,10 +2,13 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/shhac/agent-code-review/internal/score"
 )
 
 // ScoreContext is what a scorer needs to know about a PR's history before it
@@ -49,16 +52,15 @@ func (d *duckDB) ScoreContext(ctx context.Context, repo string, number int, head
 	return got, nil
 }
 
-// SetReviewScore freezes a score onto one history row.
+// refersToOneRow checks the natural key identifies exactly one history row.
 //
-// The row is addressed by (repo, number, reviewed_at) because history has no
+// Rows are addressed by (repo, number, reviewed_at) because history has no
 // primary key and ReviewLogKey is a Go-side digest with no SQL form. That
 // tuple is unique in practice (ReviewedAt is stamped per row) but nothing
-// enforces it, so the write counts what it matched and refuses rather than
-// scoring two rows on a coincidence.
-func (d *duckDB) SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecord) error {
+// enforces it, so every write through it counts what it matched and refuses
+// rather than scoring two rows on a coincidence.
+func (d *duckDB) refersToOneRow(ctx context.Context, ref ReviewRef) error {
 	where := fmt.Sprintf("%s AND reviewed_at = %s", prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt))
-
 	n, _, err := queryOne(ctx, d, "SELECT count(*) AS n FROM history WHERE "+where, scanCount)
 	if err != nil {
 		return err
@@ -71,6 +73,16 @@ func (d *duckDB) SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecor
 		return fmt.Errorf("score %s#%d: %d history rows share the instant %s; refusing to score them all",
 			ref.Repo, ref.Number, n, ref.ReviewedAt.UTC().Format(time.RFC3339))
 	}
+	return nil
+}
+
+// SetReviewScore freezes a score onto one history row, leaving its measured
+// counts alone.
+func (d *duckDB) SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecord) error {
+	where := fmt.Sprintf("%s AND reviewed_at = %s", prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt))
+	if err := d.refersToOneRow(ctx, ref); err != nil {
+		return err
+	}
 
 	at := s.At
 	if at.IsZero() {
@@ -79,6 +91,27 @@ func (d *duckDB) SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecor
 	return d.exec(ctx, fmt.Sprintf(
 		"UPDATE history SET score = %s, score_source = %s, score_rules = %s, score_bucket = %s, score_note = %s, score_attempt = %s, scored_at = %s WHERE %s",
 		intOrNull(s.Score), nullText(s.Source), nullText(s.Rules), nullText(s.Bucket), nullText(s.Note), intOrNull(s.Attempt), ts(at), where))
+}
+
+// SetReviewScoring writes a re-measured diff and its score together.
+//
+// One statement, not two, because the pair must not come apart: a row left
+// carrying new counts under an old score, or the reverse, would misreport what
+// it was measured from and no later sweep could tell it had happened.
+func (d *duckDB) SetReviewScoring(ctx context.Context, ref ReviewRef, diff DiffStats, s ScoreRecord) error {
+	if err := d.refersToOneRow(ctx, ref); err != nil {
+		return err
+	}
+	at := s.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	return d.exec(ctx, fmt.Sprintf(
+		"UPDATE history SET additions = %d, deletions = %d, changed_files = %d, scored_additions = %d, scored_deletions = %d, excluded_files = %d, diff_sha = %s, "+
+			"score = %s, score_source = %s, score_rules = %s, score_bucket = %s, score_note = %s, score_attempt = %s, scored_at = %s WHERE %s AND reviewed_at = %s",
+		diff.Additions, diff.Deletions, diff.ChangedFiles, diff.ScoredAdditions, diff.ScoredDeletions, diff.ExcludedFiles, nullText(diff.DiffSHA),
+		intOrNull(s.Score), nullText(s.Source), nullText(s.Rules), nullText(s.Bucket), nullText(s.Note), intOrNull(s.Attempt), ts(at),
+		prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt)))
 }
 
 // ReviewsToScore selects history rows a scoring sweep should visit, oldest
@@ -214,4 +247,56 @@ func scanAuthorScore(m map[string]any) (AuthorScore, error) {
 		Deletions: r.int("deletions"),
 	}
 	return a, r.err
+}
+
+// marshalFiles renders the measured per-file detail for storage, capped.
+//
+// The cap mirrors the truncation path rather than inventing a second rule: a
+// listing GitHub cut short is already stored as counts-only, because a partial
+// list must not be read later as though it were complete. A list too large to
+// be worth keeping is the same situation arrived at differently, so it degrades
+// the same way, and `score refetch` is the repair for both.
+func marshalFiles(files []score.FileStat) string {
+	if len(files) == 0 || len(files) > maxStoredFiles {
+		return ""
+	}
+	b, err := json.Marshal(files)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// maxStoredFiles bounds one row's stored detail. At roughly 85 bytes a file
+// this caps it near 40KB, which is small beside the token payloads history
+// already carries and large enough for all but a vendored-dependency bump.
+const maxStoredFiles = 500
+
+// ReviewFiles reads back the per-file detail one review was measured from.
+//
+// A deliberate second query rather than a field every scan fills in: the
+// dashboard lists fifty history rows at a time and has no use for this, so
+// loading it on every scan would cost megabytes per page view. The scoring
+// commands that DO need it ask for it, one row at a time, in a path nobody is
+// waiting on.
+func (d *duckDB) ReviewFiles(ctx context.Context, ref ReviewRef) ([]score.FileStat, error) {
+	// Cast to VARCHAR explicitly: a JSON column comes back through the driver
+	// as an already-parsed value, which stringifies as Go map syntax rather
+	// than as JSON and then fails to decode. Asking for text keeps the
+	// round trip honest.
+	raw, ok, err := queryOne(ctx, d, fmt.Sprintf(
+		"SELECT CAST(diff_files AS VARCHAR) AS f FROM history WHERE %s AND reviewed_at = %s",
+		prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt)),
+		func(m map[string]any) (string, error) {
+			r := &row{values: m}
+			return r.str("f"), r.err
+		})
+	if err != nil || !ok || raw == "" {
+		return nil, err
+	}
+	var files []score.FileStat
+	if err := json.Unmarshal([]byte(raw), &files); err != nil {
+		return nil, fmt.Errorf("decode stored file list for %s#%d: %w", ref.Repo, ref.Number, err)
+	}
+	return files, nil
 }

@@ -119,3 +119,21 @@ func TestSplitRepo(t *testing.T) {
 		}
 	}
 }
+
+// A gh error should name the call, not reproduce the whole GraphQL document:
+// the static query buries the one line that says what actually went wrong.
+func TestElideQueryKeepsTheUsefulArgv(t *testing.T) {
+	got := elideQuery([]string{"api", "graphql", "-f", "owner=cli", "-F", "number=1", "-f", "query=query($x:String!){\n  repository\n}"})
+	joined := ""
+	for _, a := range got {
+		joined += a + " "
+	}
+	for _, want := range []string{"owner=cli", "number=1", "query=<graphql>"} {
+		if !contains(joined, want) {
+			t.Errorf("argv = %q, want it to contain %q", joined, want)
+		}
+	}
+	if contains(joined, "repository") {
+		t.Errorf("argv = %q, want the document elided", joined)
+	}
+}

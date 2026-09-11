@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/shhac/agent-code-review/internal/score"
 )
 
 // Synthetic engine markers: history rows produced without invoking a review
@@ -102,6 +104,14 @@ type Review struct {
 	// hash that produced it. Its Score field is nil when the row was never
 	// scored, which is NOT the same as a score of zero.
 	Score ScoreRecord `json:"score"`
+	// DiffFiles is the per-file detail the score was measured from, so an
+	// exclusion policy can be re-applied without asking GitHub again.
+	//
+	// json:"-" on purpose. It is written with the row and read back only by
+	// the scoring commands that need it; putting it on the wire would add
+	// megabytes to a history page for data no reader of that page wants. Read
+	// it deliberately via ReviewFiles rather than expecting it on every scan.
+	DiffFiles []score.FileStat `json:"-"`
 }
 
 // EffectiveCostUSD is the run's spend however it is best known: the engine's

@@ -104,3 +104,70 @@ func TestFullyGeneratedPRScoresNothing(t *testing.T) {
 		t.Errorf("a fully-generated PR (%d) must not beat a real one (%d)", res.Score, real.Score)
 	}
 }
+
+// Apply records the repo's verdict on each file, which is what lets the policy
+// be re-applied later with no network.
+func TestApplyMarksGenerated(t *testing.T) {
+	files := append([]FileStat(nil), prFiles...)
+	a := ParseAttrs(map[string]string{"": "package-lock.json linguist-generated\n"})
+	NewExclusions(a, nil).Apply(files)
+
+	for _, f := range files {
+		want := f.Path == "package-lock.json"
+		if f.Generated != want {
+			t.Errorf("%s: Generated = %v, want %v", f.Path, f.Generated, want)
+		}
+	}
+}
+
+// Changing exclude_paths or use_gitattributes must be re-appliable offline,
+// which is the whole reason the resolved flag is stored.
+func TestRecountReappliesPolicyOffline(t *testing.T) {
+	// As measured at review time: the lockfile was marked by the repo.
+	measured := []FileStat{
+		{Path: "main.go", Additions: 40, Deletions: 10},
+		{Path: "package-lock.json", Additions: 8000, Deletions: 2000, Generated: true},
+		{Path: "docs/guide.md", Additions: 100, Deletions: 5},
+	}
+
+	policy := func(globs []string, useAttrs bool) Rules {
+		r := DefaultRules()
+		r.ExcludePaths, r.UseGitattributes = globs, useAttrs
+		return r
+	}
+
+	base := Recount(measured, policy(nil, true))
+	if base.Additions != 140 || base.ExcludedFiles != 1 {
+		t.Errorf("base recount = %+v, want the lockfile excluded", base)
+	}
+
+	// The operator adds a glob: no network, and docs drop out too.
+	withGlob := Recount(measured, policy([]string{"docs/**"}, true))
+	if withGlob.Additions != 40 || withGlob.ExcludedFiles != 2 {
+		t.Errorf("with docs/** = %+v, want only main.go counted", withGlob)
+	}
+
+	// use_gitattributes turned off: the repo's verdict is ignored, and the
+	// lockfile counts again.
+	ignoring := Recount(measured, policy(nil, false))
+	if ignoring.Additions != 8140 || ignoring.ExcludedFiles != 0 {
+		t.Errorf("ignoring gitattributes = %+v, want everything counted", ignoring)
+	}
+}
+
+// Recount and Apply must agree when the policy has not changed, or a recompute
+// would silently move scores that should have stayed put.
+func TestRecountAgreesWithApplyUnderTheSamePolicy(t *testing.T) {
+	files := append([]FileStat(nil), prFiles...)
+	a := ParseAttrs(map[string]string{"": "package-lock.json linguist-generated\ninternal/dashboard/assets/** linguist-generated\n"})
+	globs := []string{"README.md"}
+
+	applied := NewExclusions(a, globs).Apply(files) // also marks Generated
+	r := DefaultRules()
+	r.ExcludePaths, r.UseGitattributes = globs, true
+	recounted := Recount(files, r)
+
+	if applied != recounted {
+		t.Errorf("Apply = %+v but Recount = %+v; they must agree under one policy", applied, recounted)
+	}
+}

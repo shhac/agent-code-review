@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/score"
 )
 
 // Store is the persistence contract.
@@ -109,7 +110,15 @@ type Store interface {
 	// yet; adding the setter ahead of that caller left it orphaned.
 	ScoreContext(ctx context.Context, repo string, number int, headSHA string, before time.Time) (ScoreContext, error)
 	SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecord) error
+	// SetReviewScoring writes a re-measured diff and its score in one
+	// statement, so the pair cannot come apart.
+	SetReviewScoring(ctx context.Context, ref ReviewRef, diff DiffStats, s ScoreRecord) error
 	ReviewsToScore(ctx context.Context, q ScoreQuery) ([]Review, error)
+	// ReviewFiles reads the per-file detail a review was measured from, so an
+	// exclusion policy can be re-applied offline. Nil means not recorded (a
+	// row predating the column, or one whose listing was truncated or too
+	// large to keep), which only `score refetch` can repair.
+	ReviewFiles(ctx context.Context, ref ReviewRef) ([]score.FileStat, error)
 	Leaderboard(ctx context.Context, q LeaderboardQuery) ([]AuthorScore, error)
 
 	// Author roster (per repo, "*" = all repos): which group an author is in.

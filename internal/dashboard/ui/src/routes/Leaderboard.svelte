@@ -29,7 +29,7 @@
   <div>
     <p class="eyebrow">Author standings</p>
     <h1>Leaderboard</h1>
-    <p>Points earned per reviewed PR: smaller diffs, fewer rounds, and removing code all score higher.</p>
+    <p>Points scale with how much was reviewed. Well-sized PRs, fewer review rounds, and removing code all pay a better rate.</p>
   </div>
   <div class="metrics-filters">
     <label>Range

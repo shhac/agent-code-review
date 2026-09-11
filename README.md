@@ -148,6 +148,13 @@ authors rm     <owner/repo|*> <handle>
 authors groups
 authors who    <handle> --repo <owner/repo>
 
+score leaderboard [--repo R] [--days N] [--limit N]
+score show        <owner/repo> <number>
+score ls          [--repo R] [--author H] [--days N] [--missing] [--stale]
+score recompute   [--repo R] [--stale] [--missing] [--dry-run] [--include-manual] [--all]
+score refetch     [--repo R] [--missing] [--dry-run] [--limit N] [--all]
+score set         <owner/repo> <number> <score> --note "why"
+
 usage
 ```
 
@@ -278,6 +285,48 @@ Configs written before groups keep working untouched: existing allow-list rows
 resolve to the built-in `approver` group, and `allowed_authors_only_repos`
 still means what it meant.
 
+## Author scores
+
+Every completed review earns the PR's **author** points:
+
+```
+score  = base x (churn / churn_unit) x size x verdict x shrink x decay^(revision-1)
+churn  = additions + (deletions x deletion_weight), generated files excluded
+```
+
+Points scale with how much was reviewed, so the size multipliers set a *rate*
+rather than a flat fee per PR. That matters: with a flat fee, points track how
+many PRs you opened rather than how much was reviewed, and splitting a change
+into ever-smaller pieces multiplies the payout without limit. Scaling caps what
+any decomposition can gain at the spread between the best and worst rates (7.5x
+at the defaults). Splitting a large change into well-sized pieces still earns
+more than shipping it whole, which is the point; fragmenting it further earns
+less than either.
+
+Removing code beats adding it, and a first-pass approval beats the same
+approval after rounds of comments, because each revision decays. A second
+review at the same commit scores 0: it is discussion, not new work.
+
+Which lines count is the repo's own business. Files its `.gitattributes` marks
+`linguist-generated` or `linguist-vendored` are left out, honouring git's
+rules; `scoring.exclude_paths` is the operator's escape hatch for a repo that
+has not marked its own.
+
+**Scores are frozen** when a review completes, stored with a hash of the rules
+that produced them. Retuning `scoring.*` therefore changes what future reviews
+earn and leaves existing points alone. `score recompute` is the deliberate act
+of re-applying today's rules to past reviews; it is offline, re-deriving from
+each row's stored measurement, so changing exclusions costs no API calls.
+`score refetch` asks GitHub again and is the only repair for a row whose size
+was never measured, which needs the PR to still be at the head that was
+reviewed. Both refuse to touch all of history without `--all`, both take
+`--dry-run`, and a score set by hand survives them unless `--include-manual`.
+
+Turn it off with `scoring.mode`: `enabled`, `leaderboard-only` (stop measuring,
+removing the per-review GitHub call, while still showing the points already
+earned), or `disabled` (also hides the leaderboard). Per repo under
+`scoring.repos`.
+
 ## How review works
 
 For each candidate the CLI assembles a prompt (your `review.main_prompt`, a
@@ -386,6 +435,10 @@ deliberately.
   recent runs. Auto-refreshes.
 - **History**: every recorded outcome (approvals, comments, change requests,
   skips, errors) with duration, token spend, and a link to each review's log.
+- **Leaderboard**: authors ranked by the points their reviewed PRs have
+  earned, with the window narrowable. Hidden entirely when `scoring.mode` is
+  `disabled`; under `leaderboard-only` it says the standings are paused rather
+  than silently ceasing to update.
 - **Review log** (`/review/<owner>/<repo>/<n>`): the agent's output as one
   bubble per event (prompt, agent messages, commands with status and
   duration) tailing live while the review runs, with a raw view toggle.

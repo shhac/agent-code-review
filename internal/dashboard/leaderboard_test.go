@@ -135,3 +135,37 @@ type rosterFailStore struct{ leaderboardStore }
 func (f *rosterFailStore) ListAuthors(context.Context, string, string) ([]store.Author, error) {
 	return nil, context.DeadlineExceeded
 }
+
+// A hidden board serves no standings. Returning them alongside enabled=false
+// said two things at once, and left a client that ignored the flag rendering a
+// page the operator had switched off.
+func TestDisabledLeaderboardServesNoEntries(t *testing.T) {
+	fs := &leaderboardStore{board: []store.AuthorScore{{Author: "alice", Total: 135}}}
+	cfg := config.Config{Scoring: config.ScoringSettings{Mode: config.ScoringDisabled}}
+
+	got := getLeaderboard(t, fs, cfg, "/api/leaderboard")
+	if got.Enabled {
+		t.Error("Enabled should be false when scoring is disabled")
+	}
+	if len(got.Entries) != 0 {
+		t.Errorf("entries = %+v, want none for a hidden board", got.Entries)
+	}
+}
+
+// leaderboard-only keeps the standings: stopping the measuring is not a reason
+// to hide the points already earned.
+func TestLeaderboardOnlyStillServesStandings(t *testing.T) {
+	fs := &leaderboardStore{board: []store.AuthorScore{{Author: "alice", Total: 135}}}
+	cfg := config.Config{Scoring: config.ScoringSettings{Mode: config.ScoringLeaderboardOnly}}
+
+	got := getLeaderboard(t, fs, cfg, "/api/leaderboard")
+	if !got.Enabled {
+		t.Error("leaderboard-only must keep the board visible")
+	}
+	if got.Mode != config.ScoringLeaderboardOnly {
+		t.Errorf("mode = %q, want it reported so the page can say the board is paused", got.Mode)
+	}
+	if len(got.Entries) != 1 {
+		t.Errorf("entries = %+v, want the existing standings", got.Entries)
+	}
+}

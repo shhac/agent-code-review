@@ -58,6 +58,20 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 		repo := q.Get("repo")
 		days, _ := strconv.Atoi(q.Get("days"))
 
+		resp := leaderboardResp{
+			Enabled: s.config().LeaderboardVisible(repo),
+			Mode:    s.config().ScoringMode(repo),
+			Days:    days,
+			Repo:    repo,
+		}
+		// Nothing to serve for a board that is switched off. Returning
+		// standings alongside enabled=false said two things at once and left a
+		// client that ignored the flag rendering a page the operator hid.
+		if !resp.Enabled {
+			resp.Entries = []leaderboardEntry{}
+			return resp, nil
+		}
+
 		lq := store.LeaderboardQuery{Repo: repo, Limit: 100}
 		if days > 0 {
 			lq.Since = time.Now().AddDate(0, 0, -days)
@@ -66,13 +80,8 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return leaderboardResp{}, err
 		}
-		return leaderboardResp{
-			Enabled: s.config().LeaderboardVisible(repo),
-			Mode:    s.config().ScoringMode(repo),
-			Days:    days,
-			Repo:    repo,
-			Entries: s.rankEntries(ctx, board),
-		}, nil
+		resp.Entries = s.rankEntries(ctx, board)
+		return resp, nil
 	})
 }
 

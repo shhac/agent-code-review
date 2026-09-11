@@ -445,14 +445,24 @@ Every completed review earns the PR's AUTHOR points. The score comes from
 four things: how big the diff is, what the review concluded, whether the
 codebase grew or shrank, and how many revisions it took to get there.
 
-  score       = base x size x verdict x shrink x decay^(revision-1)
-  size bucket = additions + (deletions x deletion_weight), generated and
-                vendored files excluded
+  score = base x (churn / churn_unit) x size x verdict x shrink
+                x decay^(revision-1)
+  churn = additions + (deletions x deletion_weight), generated and
+          vendored files excluded
 
-Smaller is worth more, but the peak is at "small" rather than "tiny": if the
-smallest tier paid best, thirty one-line PRs would beat one coherent change.
-Removing code beats adding it. A first-pass approval beats the same approval
-after two rounds of comments, because each revision decays.
+Points scale with how much was reviewed, so the size multipliers set a RATE
+rather than a flat fee per PR. That is what bounds farming: with a flat fee,
+points track how many PRs you opened rather than how much was reviewed, and
+splitting a change into ever-smaller pieces multiplies the payout without
+limit. Scaling caps what any decomposition can gain at the spread between the
+best and worst rates, 7.5x at the defaults, and you get it by landing in
+"small".
+
+So a bigger PR earns more in total (it is more work) but at a worse rate per
+line. Splitting a large change into well-sized pieces earns more than shipping
+it whole; fragmenting it further earns less than either. Removing code beats
+adding it. A first-pass approval beats the same approval after two rounds of
+comments, because each revision decays.
 
   agent-code-review score leaderboard                  # who is winning
   agent-code-review score leaderboard --days 30        # this month

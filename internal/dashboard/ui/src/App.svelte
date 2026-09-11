@@ -37,10 +37,9 @@
     { route: 'logs', label: 'Logs', path: '/logs' },
   ];
 
-  // Routing matches against EVERY entry, not the visible ones: a hidden page
-  // reached by its URL should still render and explain itself, rather than
-  // silently redirecting somewhere the reader did not ask for.
-  const nav = allNav;
+  // Routing and the page title match against EVERY entry, not the visible
+  // ones: a hidden page reached by its URL should still render and explain
+  // itself rather than silently redirecting somewhere nobody asked for.
   $: visibleNav = allNav.filter((n) => n.route !== 'leaderboard' || leaderboardVisible);
 
   // Route matching derives from the nav table above (with a uniform ".html"
@@ -49,7 +48,7 @@
   function routeFromPath(path: string): { route: Route; reviewRef?: ReviewLogRef } {
     const ref = parseReviewLogPath(path);
     if (ref) return { route: 'review', reviewRef: ref };
-    const hit = nav.find((n) => path === n.path || path === n.path + '.html');
+    const hit = allNav.find((n) => path === n.path || path === n.path + '.html');
     return { route: hit?.route ?? 'overview' };
   }
 
@@ -85,7 +84,7 @@
 </script>
 
 <svelte:head>
-  <title>agent-code-review · {route === 'review' ? `review #${reviewRef.number}` : nav.find((n) => n.route === route)?.label}</title>
+  <title>agent-code-review · {route === 'review' ? `review #${reviewRef.number}` : allNav.find((n) => n.route === route)?.label}</title>
 </svelte:head>
 
 <div class="shell">

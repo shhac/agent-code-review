@@ -6,6 +6,7 @@ import type {
   QueueResponse,
   ReviewLogResponse,
   ReviewsResponse,
+  LeaderboardResponse,
   LogsResponse,
   MetricsResponse,
   PromptResponse,
@@ -79,6 +80,13 @@ export const getMetrics = (range: string, model: string, effort: string) => {
   if (model) params.set('model', model);
   if (effort) params.set('effort', effort);
   return fetchJSON<MetricsResponse>(`/api/metrics?${params}`);
+};
+export const getLeaderboard = (days: number, repo: string) => {
+  const params = new URLSearchParams();
+  if (days > 0) params.set('days', String(days));
+  if (repo) params.set('repo', repo);
+  const qs = params.toString();
+  return fetchJSON<LeaderboardResponse>(`/api/leaderboard${qs ? `?${qs}` : ''}`);
 };
 export const getConfig = () => fetchJSON<ConfigResponse>('/api/config');
 export const getAuthors = () => fetchJSON<AuthorsResponse>('/api/authors');

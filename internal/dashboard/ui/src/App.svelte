@@ -8,13 +8,14 @@
   import type { ReviewLogRef } from './lib/types';
   import Config from './routes/Config.svelte';
   import History from './routes/History.svelte';
+  import Leaderboard from './routes/Leaderboard.svelte';
   import Logs from './routes/Logs.svelte';
   import Metrics from './routes/Metrics.svelte';
   import Overview from './routes/Overview.svelte';
   import Prompt from './routes/Prompt.svelte';
   import ReviewLog from './routes/ReviewLog.svelte';
 
-  type Route = 'overview' | 'history' | 'metrics' | 'config' | 'prompt' | 'logs' | 'review';
+  type Route = 'overview' | 'history' | 'metrics' | 'leaderboard' | 'config' | 'prompt' | 'logs' | 'review';
 
   let reviewRef: ReviewLogRef = { repo: '', number: 0 };
 
@@ -22,6 +23,7 @@
     { route: 'overview', label: 'Queue', path: '/' },
     { route: 'history', label: 'History', path: '/history' },
     { route: 'metrics', label: 'Metrics', path: '/metrics' },
+    { route: 'leaderboard', label: 'Leaderboard', path: '/leaderboard' },
     { route: 'config', label: 'Config', path: '/config' },
     { route: 'prompt', label: 'Prompt', path: '/prompt' },
     { route: 'logs', label: 'Logs', path: '/logs' },
@@ -88,6 +90,8 @@
       <History />
     {:else if route === 'metrics'}
       <Metrics />
+    {:else if route === 'leaderboard'}
+      <Leaderboard />
     {:else if route === 'config'}
       <Config />
     {:else if route === 'prompt'}

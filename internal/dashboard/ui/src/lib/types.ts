@@ -107,6 +107,24 @@ export type MetricsResponse = {
   scatter: { model: string; effort: string; verdict: string; fresh_tokens: number; duration_secs: number }[];
 };
 
+export type LeaderboardEntry = {
+  rank: number;
+  author: string;
+  name?: string;
+  total: number;
+  reviews: number;
+  approvals: number;
+  additions: number;
+  deletions: number;
+};
+
+export type LeaderboardResponse = {
+  enabled: boolean;
+  days: number;
+  repo?: string;
+  entries: LeaderboardEntry[];
+};
+
 export type UsageWindow = {
   window_mins: number;
   used_percent: number;

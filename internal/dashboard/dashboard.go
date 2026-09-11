@@ -64,6 +64,8 @@ type dashboardStore interface {
 	SearchReviews(context.Context, store.ReviewQuery) (store.ReviewPage, error)
 	ListReviewsSince(context.Context, time.Time) ([]store.Review, error)
 	FreshTokens(context.Context, time.Time) (int64, error)
+	// Scoring: the leaderboard aggregate.
+	Leaderboard(context.Context, store.LeaderboardQuery) ([]store.AuthorScore, error)
 
 	// Author roster, and the one identity question the tailnet layer asks:
 	// which GitHub handle is this login.
@@ -187,6 +189,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/usage", s.handleUsage)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/metrics", s.handleMetrics)
+	mux.HandleFunc("/api/leaderboard", s.handleLeaderboard)
 	mux.HandleFunc("/api/authors", s.handleAuthors)
 	mux.HandleFunc("/api/prompt", s.handlePrompt)
 	mux.HandleFunc("/api/prompt/preview", s.handlePromptPreview)

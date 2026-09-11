@@ -49,6 +49,7 @@ COMMANDS:
   score show <owner/repo> <number>                  Every scored review of one PR
   score ls [--missing] [--stale]                    Scored reviews, narrowed
   score recompute [--stale] [--dry-run]             Re-derive under today's rules (moves real points)
+  score refetch [--missing] [--dry-run]             Re-measure from GitHub, then rescore
   score set <owner/repo> <number> <n> --note "..."  Correct one score by hand
 
   config init | path | show                         Starter config / file location / full dump
@@ -458,10 +459,19 @@ after two rounds of comments, because each revision decays.
   agent-code-review score show owner/repo 123          # one PR's history
   agent-code-review score ls --missing                 # rows never scored
 
-A row listed by --missing whose diff was never fetched (a rate limit at review
-time) cannot be repaired by recompute: the size was never measured, and
-recompute derives from stored counts rather than re-fetching. Such a row stays
-unscored rather than being credited a misleading zero.
+  agent-code-review score refetch --missing --dry-run  # what could be repaired
+  agent-code-review score refetch --missing            # re-measure and rescore
+
+recompute and refetch differ in where the numbers come from. recompute is
+arithmetic plus a re-application of the exclusion policy to the measurement
+already stored with each row, so it is offline and cheap. refetch asks GitHub
+for the PR again, and is the only repair for a row whose size was never
+measured (a rate limit at review time, or a file list GitHub truncated).
+
+refetch needs the PR to still be at the head we reviewed. GitHub serves a pull
+request's file list only at its CURRENT head, so once the head moves there is
+no cheap way to measure what the review actually saw, and crediting the newer
+diff would invent a number. Those rows are reported and left alone.
 
 FROZEN, NOT DERIVED. A score is computed once, when the review completes,
 and stored with a hash of the rules that produced it. Retuning the

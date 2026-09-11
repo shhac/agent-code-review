@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/score"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -42,10 +43,12 @@ func TestParseScoreAcceptsWholeNumbers(t *testing.T) {
 // panic, so an unexpected dependency shows up loudly.
 type fakeScoreStore struct {
 	store.Store
-	rows    []store.Review
-	sc      map[int]store.ScoreContext
-	written map[int]store.ScoreRecord
-	failOn  int // SetReviewScore returns an error for this PR number
+	rows     []store.Review
+	sc       map[int]store.ScoreContext
+	written  map[int]store.ScoreRecord
+	files    map[int][]score.FileStat // per-row stored measurement, for recount
+	measured map[int]store.DiffStats  // what a re-measure wrote back
+	failOn   int                      // SetReviewScore returns an error for this PR number
 }
 
 func (f *fakeScoreStore) ReviewsToScore(context.Context, store.ScoreQuery) ([]store.Review, error) {
@@ -57,6 +60,18 @@ func (f *fakeScoreStore) ScoreContext(_ context.Context, _ string, number int, _
 		return sc, nil
 	}
 	return store.ScoreContext{Attempt: 1}, nil
+}
+
+func (f *fakeScoreStore) ReviewFiles(_ context.Context, ref store.ReviewRef) ([]score.FileStat, error) {
+	return f.files[ref.Number], nil
+}
+
+func (f *fakeScoreStore) SetReviewScoring(_ context.Context, ref store.ReviewRef, diff store.DiffStats, rec store.ScoreRecord) error {
+	if f.measured == nil {
+		f.measured = map[int]store.DiffStats{}
+	}
+	f.measured[ref.Number] = diff
+	return f.SetReviewScore(context.Background(), ref, rec)
 }
 
 func (f *fakeScoreStore) SetReviewScore(_ context.Context, ref store.ReviewRef, rec store.ScoreRecord) error {
@@ -170,5 +185,49 @@ func TestRecomputeRefusesAnUnnarrowedSweep(t *testing.T) {
 	cmd.SetArgs(nil)
 	if err := cmd.Execute(); err == nil {
 		t.Error("recompute with no filter and no --all must refuse")
+	}
+}
+
+// Changing the exclusion policy must be re-appliable from the stored
+// measurement, with no network: that is the whole reason the per-file detail
+// is kept.
+func TestRecomputeReappliesExclusionsOffline(t *testing.T) {
+	fs := &fakeScoreStore{
+		rows: []store.Review{scoredReview(1, store.VerdictApproved, 8040, 2010, "sha", "sha")},
+		files: map[int][]score.FileStat{1: {
+			{Path: "main.go", Additions: 40, Deletions: 10},
+			{Path: "package-lock.json", Additions: 8000, Deletions: 2000, Generated: true},
+		}},
+	}
+	// Default policy honours the repo's declaration, so the lockfile drops out.
+	runRecompute(t, fs, false)
+
+	got := fs.measured[1]
+	if got.ScoredAdditions != 40 || got.ScoredDeletions != 10 {
+		t.Errorf("re-measured counts = +%d/-%d, want +40/-10", got.ScoredAdditions, got.ScoredDeletions)
+	}
+	if got.ExcludedFiles != 1 {
+		t.Errorf("excluded = %d, want 1", got.ExcludedFiles)
+	}
+	// small bucket, not huge: the raw 8040 never reaches the score.
+	if fs.written[1].Bucket != "small" {
+		t.Errorf("bucket = %q, want small", fs.written[1].Bucket)
+	}
+}
+
+// A row with no stored measurement is rescored from the counts it already has,
+// and says so, because nothing here can tell an arithmetic tweak from an
+// exclusion change and silently assuming either would be wrong.
+func TestRecomputeReportsWhenItCouldNotRemeasure(t *testing.T) {
+	fs := &fakeScoreStore{rows: []store.Review{
+		scoredReview(1, store.VerdictApproved, 40, 10, "sha", "sha"),
+	}}
+	runRecompute(t, fs, false)
+
+	if _, wrote := fs.written[1]; !wrote {
+		t.Fatal("the row should still be rescored from its stored counts")
+	}
+	if got := fs.measured[1]; got.ScoredAdditions != 40 {
+		t.Errorf("stored counts should be kept as-is, got %+v", got)
 	}
 }

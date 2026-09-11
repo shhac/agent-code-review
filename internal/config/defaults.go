@@ -313,6 +313,32 @@ func PricingCacheDir() string {
 	return xdg.CacheDir(appName)
 }
 
+// ReviewWorkspaceDir is where a review's scratch workspace, and so its agent
+// transcript, is created.
+//
+// STATE, not the system temp dir it used to be. os.MkdirTemp("") put these
+// under /var/folders on macOS, which the OS periodically sweeps: measured on a
+// two-month-old install, 92% of the transcripts history still pointed at were
+// already gone, so `queue log` and the dashboard's postmortem view were empty
+// for almost everything. XDG calls this state precisely because it persists
+// but is not precious: logs and history are its canonical examples. Cache
+// would be wrong (nothing can re-fetch an agent transcript) and data would
+// overstate it (losing one costs a postmortem, not a record).
+func (c Config) ReviewWorkspaceDir() string {
+	return filepath.Join(xdg.StateDir(appName), "reviews")
+}
+
+// WorkspaceRetention is how long a review's workspace is kept before the boot
+// sweep removes it (default 30 days; "0s" keeps them forever).
+//
+// A retention policy is not optional here: nothing ever removed these, and the
+// same install had 8,168 directories with no history row at all, from attempts
+// that never completed. They only stopped growing because the OS was deleting
+// them, which is exactly the behaviour being fixed.
+func (c Config) WorkspaceRetention() time.Duration {
+	return durationOrZero(c.Review.WorkspaceRetention, 30*24*time.Hour)
+}
+
 // durationOr parses s as a positive Go duration, else returns def: the one
 // parse-or-default rule for every interval dial.
 func durationOr(s string, def time.Duration) time.Duration {

@@ -543,8 +543,14 @@ func TestTail(t *testing.T) {
 // dispatcher has to back the candidate off: without that it would be re-offered
 // at the head forever. The claim-error path has its own test; this one did not.
 func TestRunOneWorkdirFailureLeavesTheRowUntouched(t *testing.T) {
-	// A TMPDIR that does not exist makes os.MkdirTemp fail.
-	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "does-not-exist"))
+	// Workspaces live under the app's state dir now, so pointing that at a
+	// FILE is what makes creating one fail: MkdirAll cannot make a directory
+	// beneath something that is not one.
+	notADir := filepath.Join(t.TempDir(), "a-file")
+	if err := os.WriteFile(notADir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", notADir)
 
 	fs := &fakeSchedStore{}
 	fe := commented()

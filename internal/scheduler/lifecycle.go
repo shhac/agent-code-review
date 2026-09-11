@@ -38,6 +38,15 @@ func (s *Scheduler) StartGraceful(stop Stop, discovery, review bool) error {
 	if err := s.Reconcile(stop.Force); err != nil {
 		s.logf("reconcile: %v", err)
 	}
+	// Workspaces outlive the reviews that made them, so somebody has to retire
+	// them. At boot rather than on a timer: it is the one moment nothing is
+	// mid-review, and a daemon that never restarts is not accumulating faster
+	// than one that does.
+	if n, err := s.SweepWorkspaces(); err != nil {
+		s.logf("workspace sweep: %v", err)
+	} else if n > 0 {
+		s.logf("scheduler: retired %d review workspace(s) past retention", n)
+	}
 	boot := s.cfg()
 	var wg sync.WaitGroup
 	if discovery {

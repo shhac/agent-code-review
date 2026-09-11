@@ -105,7 +105,17 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 
 	// The workdir exists before the claim so the claim can record it: from
 	// that moment <work_dir>/agent.log is the candidate's live review log.
-	workDir, err := os.MkdirTemp("", fmt.Sprintf("agent-code-review-%d-", c.Number))
+	//
+	// Under the app's STATE dir rather than the system temp dir. MkdirTemp("")
+	// put these where macOS sweeps them, so the transcript a history row
+	// points at was usually gone by the time anyone looked: the log is the
+	// only record of what the agent actually did, and it was being kept
+	// somewhere designed to lose it.
+	base := cfg.ReviewWorkspaceDir()
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return err
+	}
+	workDir, err := os.MkdirTemp(base, fmt.Sprintf("%d-", c.Number))
 	if err != nil {
 		return err
 	}

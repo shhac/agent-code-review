@@ -174,16 +174,20 @@ type ClaudeSettings struct {
 // emoji conventions, extra CLIs) belongs HERE, in the user's config, never in
 // the tool or its shipped defaults. The tool itself assumes only gh and codex.
 type ReviewSettings struct {
-	Engine         string         `json:"engine,omitempty"`           // "codex" (default) | "claude"
-	MainPrompt     string         `json:"main_prompt,omitempty"`      // inline main review prompt
-	MainPromptPath string         `json:"main_prompt_path,omitempty"` // or load it from a file
-	OnApprove      string         `json:"on_approve,omitempty"`
-	OnComment      string         `json:"on_comment,omitempty"`
-	OnReject       string         `json:"on_reject,omitempty"`     // reject = requested changes
-	ResumePrompt   string         `json:"resume_prompt,omitempty"` // nudge when resuming a run that ended on WORKING; empty = built-in default
-	Rules          []Rule         `json:"rules,omitempty"`
-	Codex          CodexSettings  `json:"codex,omitempty"`
-	Claude         ClaudeSettings `json:"claude,omitempty"`
+	Engine         string `json:"engine,omitempty"`           // "codex" (default) | "claude"
+	MainPrompt     string `json:"main_prompt,omitempty"`      // inline main review prompt
+	MainPromptPath string `json:"main_prompt_path,omitempty"` // or load it from a file
+	OnApprove      string `json:"on_approve,omitempty"`
+	OnComment      string `json:"on_comment,omitempty"`
+	OnReject       string `json:"on_reject,omitempty"`     // reject = requested changes
+	ResumePrompt   string `json:"resume_prompt,omitempty"` // nudge when resuming a run that ended on WORKING; empty = built-in default
+	Rules          []Rule `json:"rules,omitempty"`
+	// WorkspaceRetention is how long a finished review's scratch workspace
+	// (and so its agent transcript) is kept. Go duration, default "720h";
+	// "0s" keeps them forever.
+	WorkspaceRetention string         `json:"workspace_retention,omitempty"`
+	Codex              CodexSettings  `json:"codex,omitempty"`
+	Claude             ClaudeSettings `json:"claude,omitempty"`
 }
 
 // StoreSettings locates the persistent DuckDB file.

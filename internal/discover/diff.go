@@ -20,12 +20,10 @@ import (
 	"github.com/shhac/agent-code-review/internal/score"
 )
 
-// filesPerPage is GitHub's maximum for this connection.
-const filesPerPage = 100
-
-// maxFilePages bounds the walk. GitHub itself stops reporting files at 3000,
-// so 30 pages is its ceiling rather than ours; past it we record the raw
-// totals and exclude nothing rather than paging forever.
+// maxFilePages bounds the walk. The query asks for GitHub's maximum of 100
+// files a page, and GitHub itself stops reporting past 3000, so 30 pages is
+// its ceiling rather than ours; beyond it we record the raw totals and exclude
+// nothing rather than paging forever.
 const maxFilePages = 30
 
 const prFilesQuery = `query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {

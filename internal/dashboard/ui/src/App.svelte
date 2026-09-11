@@ -1,5 +1,7 @@
 <script lang="ts">
   import { feed } from './lib/feed';
+  import { onMount } from 'svelte';
+  import { getConfig } from './lib/api';
   import { poll } from './lib/poll';
   import { refreshViewer, viewer } from './lib/viewer';
   import ViewerChip from './lib/ViewerChip.svelte';
@@ -19,7 +21,13 @@
 
   let reviewRef: ReviewLogRef = { repo: '', number: 0 };
 
-  const nav: { route: Route; label: string; path: string }[] = [
+  // Leaderboard is conditional: scoring fully disabled hides it rather than
+  // offering a page that can only say it is switched off. Optimistic until the
+  // config arrives, so the entry does not visibly appear a moment after load
+  // on the overwhelmingly common path where it is on.
+  let leaderboardVisible = true;
+
+  const allNav: { route: Route; label: string; path: string }[] = [
     { route: 'overview', label: 'Queue', path: '/' },
     { route: 'history', label: 'History', path: '/history' },
     { route: 'metrics', label: 'Metrics', path: '/metrics' },
@@ -28,6 +36,12 @@
     { route: 'prompt', label: 'Prompt', path: '/prompt' },
     { route: 'logs', label: 'Logs', path: '/logs' },
   ];
+
+  // Routing matches against EVERY entry, not the visible ones: a hidden page
+  // reached by its URL should still render and explain itself, rather than
+  // silently redirecting somewhere the reader did not ask for.
+  const nav = allNav;
+  $: visibleNav = allNav.filter((n) => n.route !== 'leaderboard' || leaderboardVisible);
 
   // Route matching derives from the nav table above (with a uniform ".html"
   // alias for every entry) so adding a route is one table row, not a second
@@ -55,6 +69,19 @@
   // Identity is polled, not fetched once: adding someone's tailscale_login to
   // the roster should reach them while they are looking at the page.
   poll(refreshViewer, 30000);
+
+  // One fetch, not a poll: whether scoring is switched off changes when
+  // somebody edits config.json, which is not something a rail needs to notice
+  // mid-session.
+  onMount(async () => {
+    try {
+      leaderboardVisible = (await getConfig()).scoring.leaderboard_visible;
+    } catch {
+      // An unreachable API is the feed indicator's job to report. Leaving the
+      // entry visible is the better failure: a page that says scoring is off
+      // beats a rail that silently lost an entry.
+    }
+  });
 </script>
 
 <svelte:head>
@@ -71,7 +98,7 @@
       </span>
     </button>
     <nav aria-label="Dashboard">
-      {#each nav as item}
+      {#each visibleNav as item}
         <a href={item.path} class:active={route === item.route} on:click|preventDefault={() => navigate(item.path)}>{item.label}</a>
       {/each}
     </nav>

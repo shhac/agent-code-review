@@ -87,6 +87,27 @@ internal/
   the verdict is therefore pure arithmetic that rides into the same atomic
   history insert.
 
+- **Scoring has three modes, because stopping the work and hiding the results
+  are different decisions.** Its only ongoing cost is one GitHub call per
+  review to measure the diff, so `leaderboard-only` switches that off while
+  still showing the points already earned; `disabled` also hides the page, and
+  the nav entry with it. An unrecognised mode reads as ENABLED and is reported
+  through doctor rather than silently switching scoring off, which is the
+  failure nobody would notice. Routing still matches a hidden page, so
+  reaching it by URL explains itself instead of silently redirecting.
+
+- **Review workspaces live in the STATE dir, and are swept.** They used to be
+  `os.MkdirTemp("")`, which on macOS is `/var/folders` and gets cleaned by the
+  OS: measured on a two-month-old install, 92% of the transcripts history
+  pointed at were already gone, so `queue log` and the dashboard's postmortem
+  view were empty for almost everything. They are now under
+  `xdg.StateDir` (state, not cache: nothing can re-fetch an agent transcript;
+  not data: losing one costs a postmortem, not a record), swept at boot against
+  `review.workspace_retention`. Owning the location means owning the lifetime,
+  and nothing had: the same install held 8,168 directories with no history row
+  at all. Rows written before the move keep their dead `/tmp` paths and degrade
+  exactly as they already did.
+
 - **Score is proportional to churn, because a flat fee per PR is farmable
   without bound.** The multipliers are a RATE per `churn_unit` lines, not a
   payment for existing. With a flat fee, points tracked how many PRs you opened

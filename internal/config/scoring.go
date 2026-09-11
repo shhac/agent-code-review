@@ -12,7 +12,9 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/shhac/agent-code-review/internal/score"
 )
@@ -31,6 +33,12 @@ type VerdictMultipliers struct {
 // nested repos inside one is a configuration error rather than a silent
 // no-op.
 type ScoringSettings struct {
+	// Mode is the global switch: ScoringEnabled, ScoringLeaderboardOnly, or
+	// ScoringDisabled. Empty means enabled.
+	Mode string `json:"mode,omitempty"`
+	// Enabled is the pre-Mode switch, still honoured so a config written
+	// against it keeps its meaning: false reads as ScoringDisabled. Mode wins
+	// when both are set. New configs should use mode.
 	Enabled *bool    `json:"enabled,omitempty"`
 	Base    *float64 `json:"base,omitempty"`
 	// ChurnUnit is how many lines Base pays for; score scales with churn in
@@ -51,10 +59,58 @@ type ScoringSettings struct {
 	Repos map[string]ScoringSettings `json:"repos,omitempty"`
 }
 
-// ScoringEnabled reports whether completed reviews are scored at all.
-func (c Config) ScoringEnabled(repo string) bool {
+// Scoring modes.
+//
+// The middle one exists because scoring's only ongoing cost is a per-review
+// GitHub call to measure the diff. Turning that off should not also hide the
+// points people have already earned, so stopping the work and hiding the
+// results are deliberately separate switches.
+const (
+	ScoringEnabled         = "enabled"          // measure and score new reviews, show the leaderboard
+	ScoringLeaderboardOnly = "leaderboard-only" // stop measuring; keep showing what is already scored
+	ScoringDisabled        = "disabled"         // no scoring, and the leaderboard is hidden
+)
+
+// ScoringModes are the valid values of scoring.mode.
+var ScoringModes = []string{ScoringEnabled, ScoringLeaderboardOnly, ScoringDisabled}
+
+// ValidScoringMode reports whether s names a scoring mode.
+func ValidScoringMode(s string) bool { return slices.Contains(ScoringModes, s) }
+
+// ScoringMode is the effective mode for one repo.
+//
+// An unrecognised value reads as enabled rather than silently switching
+// scoring off: a typo in a mode name must not quietly stop recording points,
+// which is the failure nobody would notice. ValidateScoring reports it through
+// doctor instead.
+func (c Config) ScoringMode(repo string) string {
 	s := c.scoringFor(repo)
-	return s.Enabled == nil || *s.Enabled
+	if s.Mode != "" {
+		if ValidScoringMode(s.Mode) {
+			return s.Mode
+		}
+		return ScoringEnabled
+	}
+	// The pre-Mode switch. Only false is meaningful: it meant "do not score",
+	// which is exactly ScoringDisabled.
+	if s.Enabled != nil && !*s.Enabled {
+		return ScoringDisabled
+	}
+	return ScoringEnabled
+}
+
+// ScoringEnabled reports whether completed reviews are measured and scored.
+// False in both leaderboard-only and disabled, which is what removes the
+// per-review GitHub call that scoring otherwise adds.
+func (c Config) ScoringEnabled(repo string) bool {
+	return c.ScoringMode(repo) == ScoringEnabled
+}
+
+// LeaderboardVisible reports whether the standings should be shown at all.
+// Only a fully disabled mode hides them: turning off the measuring is not a
+// reason to hide the points already earned.
+func (c Config) LeaderboardVisible(repo string) bool {
+	return c.ScoringMode(repo) != ScoringDisabled
 }
 
 // UseGitattributes reports whether the repo's own .gitattributes is consulted
@@ -115,6 +171,9 @@ func (c Config) scoringOverride(repo string) (ScoringSettings, bool) {
 func mergeScoring(base, over ScoringSettings) ScoringSettings {
 	out := base
 	out.Repos = nil // a repo entry's own repos map is meaningless; validation says so
+	if over.Mode != "" {
+		out.Mode = over.Mode
+	}
 	if over.Enabled != nil {
 		out.Enabled = over.Enabled
 	}
@@ -223,8 +282,13 @@ func (c Config) ValidateScoring() []string {
 }
 
 func scoringProblems(prefix string, s ScoringSettings) []string {
-	if err := applyScoring(score.DefaultRules(), s).Validate(); err != nil {
-		return []string{fmt.Sprintf("%s: %v", prefix, err)}
+	var problems []string
+	if s.Mode != "" && !ValidScoringMode(s.Mode) {
+		problems = append(problems, fmt.Sprintf("%s.mode is %q; valid: %s (reading it as %q meanwhile)",
+			prefix, s.Mode, strings.Join(ScoringModes, ", "), ScoringEnabled))
 	}
-	return nil
+	if err := applyScoring(score.DefaultRules(), s).Validate(); err != nil {
+		problems = append(problems, fmt.Sprintf("%s: %v", prefix, err))
+	}
+	return problems
 }

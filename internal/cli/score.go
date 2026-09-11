@@ -48,6 +48,8 @@ type scoreFilters struct {
 func (f *scoreFilters) bind(cmd *cobra.Command) {
 	fs := cmd.Flags()
 	fs.StringVar(&f.repo, "repo", "", `Only this repo ("owner/name")`)
+	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
+	_ = cmd.RegisterFlagCompletionFunc("author", completeAuthorHandles)
 	fs.StringVar(&f.author, "author", "", "Only this GitHub handle")
 	fs.IntVar(&f.days, "days", 0, "Only reviews from the last N days (0 = all history)")
 	fs.BoolVar(&f.missing, "missing", false, "Only rows that were never scored (a fetch failed at the time)")
@@ -98,9 +100,10 @@ func scoreLsCmd() *cobra.Command {
 
 func scoreShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show <owner/repo> <number>",
-		Short: "Show every scored review of one PR (NDJSON)",
-		Args:  cobra.ExactArgs(2),
+		Use:               "show <owner/repo> <number>",
+		Short:             "Show every scored review of one PR (NDJSON)",
+		Args:              cobra.ExactArgs(2),
+		ValidArgsFunction: completeRepoThenNumber(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, number, err := parseRepoNumber(args)
 			if err != nil {
@@ -131,7 +134,8 @@ func scoreSetCmd() *cobra.Command {
 			"manual, which makes it immune to `recompute` unless that is run with\n" +
 			"--include-manual. A correction a later retune silently undid would not\n" +
 			"be a correction.",
-		Args: cobra.ExactArgs(3),
+		Args:              cobra.ExactArgs(3),
+		ValidArgsFunction: completeRepoThenNumber(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, number, err := parseRepoNumber(args[:2])
 			if err != nil {
@@ -438,6 +442,7 @@ func scoreLeaderboardCmd() *cobra.Command {
 	fs.StringVar(&repo, "repo", "", `Only this repo ("owner/name")`)
 	fs.IntVar(&days, "days", 0, "Only reviews from the last N days (0 = all history)")
 	fs.IntVar(&limit, "limit", 0, "Maximum authors to list (0 = no limit)")
+	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
 	return cmd
 }
 

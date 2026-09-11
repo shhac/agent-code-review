@@ -320,3 +320,74 @@ func TestCurrentRuleHashes(t *testing.T) {
 		t.Errorf("CurrentRuleHashes() = %v, want only the default", plain)
 	}
 }
+
+// The three modes separate "stop doing the work" from "hide the results",
+// because scoring's only ongoing cost is the per-review GitHub call.
+func TestScoringModes(t *testing.T) {
+	mode := func(m string) Config { return Config{Scoring: ScoringSettings{Mode: m}} }
+
+	for _, tc := range []struct {
+		mode             string
+		scores           bool
+		showsLeaderboard bool
+	}{
+		{ScoringEnabled, true, true},
+		{ScoringLeaderboardOnly, false, true},
+		{ScoringDisabled, false, false},
+	} {
+		c := mode(tc.mode)
+		if got := c.ScoringEnabled("o/r"); got != tc.scores {
+			t.Errorf("%s: ScoringEnabled = %v, want %v", tc.mode, got, tc.scores)
+		}
+		if got := c.LeaderboardVisible("o/r"); got != tc.showsLeaderboard {
+			t.Errorf("%s: LeaderboardVisible = %v, want %v", tc.mode, got, tc.showsLeaderboard)
+		}
+	}
+
+	// Unset means enabled.
+	if !(Config{}).ScoringEnabled("o/r") {
+		t.Error("an unset mode should score")
+	}
+}
+
+// A typo must not silently stop recording points, which is the failure nobody
+// would notice. It reads as enabled and is reported through doctor instead.
+func TestUnknownModeReadsAsEnabledAndIsReported(t *testing.T) {
+	c := Config{Scoring: ScoringSettings{Mode: "off"}}
+	if !c.ScoringEnabled("o/r") {
+		t.Error("an unrecognised mode must not quietly disable scoring")
+	}
+	problems := c.ValidateScoring()
+	if len(problems) == 0 || !strings.Contains(problems[0], "mode") {
+		t.Errorf("problems = %v, want one naming the mode", problems)
+	}
+}
+
+// The pre-Mode switch keeps its meaning for a config written against it.
+func TestLegacyEnabledFalseReadsAsDisabled(t *testing.T) {
+	c := Config{Scoring: ScoringSettings{Enabled: b(false)}}
+	if c.ScoringEnabled("o/r") || c.LeaderboardVisible("o/r") {
+		t.Error("the legacy enabled:false must read as fully disabled")
+	}
+	// Mode wins when both are set.
+	c.Scoring.Mode = ScoringEnabled
+	if !c.ScoringEnabled("o/r") {
+		t.Error("mode must win over the legacy switch")
+	}
+}
+
+// Scoring can be paused for one noisy repo without touching the rest.
+func TestScoringModePerRepo(t *testing.T) {
+	c := Config{Scoring: ScoringSettings{
+		Repos: map[string]ScoringSettings{"owner/noisy": {Mode: ScoringLeaderboardOnly}},
+	}}
+	if c.ScoringEnabled("owner/noisy") {
+		t.Error("the override should stop scoring that repo")
+	}
+	if !c.LeaderboardVisible("owner/noisy") {
+		t.Error("leaderboard-only must keep the standings visible")
+	}
+	if !c.ScoringEnabled("owner/other") {
+		t.Error("other repos should be unaffected")
+	}
+}

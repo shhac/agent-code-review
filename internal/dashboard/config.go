@@ -9,6 +9,17 @@ import (
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
+// configScoringResp is the global scoring switch, as the UI needs it.
+//
+// Mode and LeaderboardVisible are both present because they answer different
+// questions: mode is what the operator set, visibility is what the page should
+// do about it. Turning off the measuring deliberately does NOT hide the points
+// already earned, so a UI deriving one from the other would get it wrong.
+type configScoringResp struct {
+	Mode               string `json:"mode"`
+	LeaderboardVisible bool   `json:"leaderboard_visible"`
+}
+
 type configRepoResp struct {
 	Name string `json:"name"`
 	// AllowedAuthorsOnly predates groups and is kept for the UI: it now means
@@ -58,6 +69,7 @@ type configResp struct {
 	Engine           string              `json:"engine"`
 	EngineConfig     configEngineResp    `json:"engine_config"`
 	Version          string              `json:"version"`
+	Scoring          configScoringResp   `json:"scoring"`
 }
 
 // authorRow is one roster entry with the policy it actually resolves to. The
@@ -97,6 +109,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			DiscussionMaxAgeDays: int(cfg.DiscussionMaxAge().Hours() / 24),
 			RereviewCooldown:     cfg.RereviewCooldown().String(),
 			QuietPeriod:          cfg.QuietPeriod().String(),
+		},
+		Scoring: configScoringResp{
+			Mode:               cfg.ScoringMode(""),
+			LeaderboardVisible: cfg.LeaderboardVisible(""),
 		},
 		Schedule: configScheduleResp{
 			Enabled:                 cfg.ScheduleEnabled(),

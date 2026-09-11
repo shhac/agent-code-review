@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { maxOf } from './format';
-import { approvalRate, barWidth, displayName, emptyReason, meanScore, medal, netLines, signed } from './leaderboard';
+import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, meanScore, medal, netLines, signed } from './leaderboard';
 import type { LeaderboardEntry } from './types';
 
 const entry = (over: Partial<LeaderboardEntry> = {}): LeaderboardEntry => ({
@@ -95,5 +95,25 @@ describe('emptyReason', () => {
 
   it('says nothing when there is something to show', () => {
     expect(emptyReason(true, [entry()], 0)).toBe('');
+  });
+});
+
+describe('frozenNotice', () => {
+  // A board that silently stops updating reads as a bug rather than a setting.
+  it('explains a paused board', () => {
+    expect(frozenNotice('leaderboard-only')).toContain('paused');
+  });
+
+  it('says nothing while scoring is running', () => {
+    expect(frozenNotice('enabled')).toBe('');
+  });
+
+  // Disabled hides the page entirely, so emptyReason owns that message.
+  it('says nothing when scoring is fully disabled', () => {
+    expect(frozenNotice('disabled')).toBe('');
+  });
+
+  it('survives an unknown mode', () => {
+    expect(frozenNotice(undefined)).toBe('');
   });
 });

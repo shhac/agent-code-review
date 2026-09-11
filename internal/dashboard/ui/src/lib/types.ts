@@ -107,6 +107,11 @@ export type MetricsResponse = {
   scatter: { model: string; effort: string; verdict: string; fresh_tokens: number; duration_secs: number }[];
 };
 
+// ScoringMode is the global switch. leaderboard-only stops the per-review
+// GitHub call that measures a diff, without hiding the points already earned:
+// stopping the work and hiding the results are separate decisions.
+export type ScoringMode = 'enabled' | 'leaderboard-only' | 'disabled';
+
 export type LeaderboardEntry = {
   rank: number;
   author: string;
@@ -120,6 +125,7 @@ export type LeaderboardEntry = {
 
 export type LeaderboardResponse = {
   enabled: boolean;
+  mode: ScoringMode;
   days: number;
   repo?: string;
   entries: LeaderboardEntry[];
@@ -171,6 +177,7 @@ export type ConfigRepo = {
 };
 
 export type ConfigResponse = {
+  scoring: { mode: ScoringMode; leaderboard_visible: boolean };
   reviewing_as?: string;
   repos: ConfigRepo[];
   candidates: {

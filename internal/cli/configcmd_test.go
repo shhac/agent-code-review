@@ -91,7 +91,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"claude.permission_mode":              "dontAsk",
 		"claude.max_budget_usd":               "2.5",
 		"claude.max_resumes":                  "3",
-		"scoring.enabled":                     "true",
+		"scoring.mode":                        "leaderboard-only",
 		"scoring.base":                        "200",
 		"scoring.churn_unit":                  "25",
 		"scoring.deletion_weight":             "0.25",

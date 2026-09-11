@@ -185,6 +185,27 @@ func completeRepos(_ *cobra.Command, _ []string, toComplete string) ([]string, c
 	return noFile(completePrefix(config.Read().SortedRepos(), toComplete))
 }
 
+// completeAuthorHandles suggests handles the roster knows. Best-effort: a
+// store that will not open yields no suggestions rather than an error, because
+// a completion that fails must not look like a broken command.
+func completeAuthorHandles(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	var handles []string
+	_ = withStore(func(s store.Store) error {
+		ctx, cancel := context.WithTimeout(context.Background(), completionTimeout)
+		defer cancel()
+		authors, err := s.ListAuthors(ctx, "", "")
+		if err != nil {
+			return err
+		}
+		for _, a := range authors {
+			handles = append(handles, a.GitHubHandle)
+		}
+		return nil
+	})
+	sort.Strings(handles)
+	return noFile(completePrefix(handles, toComplete))
+}
+
 func completeRuleNames(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	rules := config.Read().Review.Rules
 	names := make([]string, 0, len(rules))

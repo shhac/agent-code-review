@@ -37,10 +37,12 @@ type leaderboardEntry struct {
 }
 
 type leaderboardResp struct {
-	// Enabled is false when scoring is switched off in config, so the page can
-	// say so rather than render an empty board that looks like nobody has
-	// earned anything.
+	// Enabled is false only when scoring is fully DISABLED, so the page can say
+	// so rather than render an empty board that looks like nobody has earned
+	// anything. Leaderboard-only mode leaves it true: the measuring has
+	// stopped, but the points already earned are still worth showing.
 	Enabled bool               `json:"enabled"`
+	Mode    string             `json:"mode"`
 	Days    int                `json:"days"`
 	Repo    string             `json:"repo,omitempty"`
 	Entries []leaderboardEntry `json:"entries"`
@@ -65,7 +67,8 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 			return leaderboardResp{}, err
 		}
 		return leaderboardResp{
-			Enabled: s.config().ScoringEnabled(repo),
+			Enabled: s.config().LeaderboardVisible(repo),
+			Mode:    s.config().ScoringMode(repo),
 			Days:    days,
 			Repo:    repo,
 			Entries: s.rankEntries(ctx, board),

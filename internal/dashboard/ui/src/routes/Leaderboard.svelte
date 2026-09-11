@@ -3,7 +3,7 @@
   import { getLeaderboard } from '../lib/api';
   import { withFeed } from '../lib/feed';
   import { maxOf } from '../lib/format';
-  import { approvalRate, barWidth, displayName, emptyReason, meanScore, medal, netLines, signed } from '../lib/leaderboard';
+  import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, meanScore, medal, netLines, signed } from '../lib/leaderboard';
   import type { LeaderboardResponse } from '../lib/types';
 
   let days = 0;
@@ -14,6 +14,7 @@
   // Metrics and ActivityChart feed their scales.
   $: topScore = maxOf(entries, (e) => e.total, 0);
   $: empty = data ? emptyReason(data.enabled, entries, data.days) : '';
+  $: frozen = frozenNotice(data?.mode);
 
   async function load() {
     data = await getLeaderboard(days, '');
@@ -41,6 +42,10 @@
     </label>
   </div>
 </section>
+
+{#if frozen}
+  <section class="panel"><p class="empty">{frozen}</p></section>
+{/if}
 
 {#if empty}
   <section class="panel"><p class="empty">{empty}</p></section>

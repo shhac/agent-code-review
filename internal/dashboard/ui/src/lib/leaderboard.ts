@@ -6,7 +6,7 @@
 // approval share — and it is separated from the component so it can be tested
 // without mounting one.
 
-import type { LeaderboardEntry } from './types';
+import type { LeaderboardEntry, ScoringMode } from './types';
 
 /** A medal for the top three, nothing below. */
 export function medal(rank: number): string {
@@ -70,8 +70,20 @@ export function displayName(entry: LeaderboardEntry): string {
  * scoring switched off, a window with no reviews in it, and no reviews at all.
  */
 export function emptyReason(enabled: boolean, entries: LeaderboardEntry[], days: number): string {
-  if (!enabled) return 'Scoring is switched off for this repo in config.';
+  if (!enabled) return 'Scoring is switched off in config (scoring.mode = disabled).';
   if (entries.length > 0) return '';
   if (days > 0) return `No reviews scored in the last ${days} days.`;
   return 'No reviews scored yet. Scores are recorded as reviews complete.';
+}
+
+/**
+ * A banner for a board that is still shown but no longer growing.
+ *
+ * leaderboard-only stops the per-review GitHub call that measures a diff, so
+ * the standings freeze where they are. Saying nothing would leave a board that
+ * silently stops updating, which reads as a bug rather than a setting.
+ */
+export function frozenNotice(mode: ScoringMode | undefined): string {
+  if (mode !== 'leaderboard-only') return '';
+  return 'Scoring is paused (scoring.mode = leaderboard-only). These standings are final until it is turned back on.';
 }

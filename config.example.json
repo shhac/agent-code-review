@@ -84,7 +84,8 @@
   },
   "//scoring_note": "Gamifies PR authorship: every completed review earns the PR's AUTHOR points. score = base x size-bucket x verdict x shrink x decay^(revision-1). Smaller diffs score higher, removing code scores higher than adding it, and a first-pass approval beats the same approval after rounds of comments. Scores are FROZEN when a review completes alongside a hash of these rules, so retuning anything here changes what FUTURE reviews earn and leaves existing points alone; `agent-code-review score recompute` is how you deliberately re-apply new rules to old rows. See `agent-code-review score --help`.",
   "scoring": {
-    "enabled": true,
+    "//mode_note": "Global switch. enabled = measure each reviewed PR and score it. leaderboard-only = STOP measuring (this removes the only ongoing network cost scoring adds, one GitHub call per review) while still showing the points already earned. disabled = no scoring, and the leaderboard is hidden in the dashboard. Can be narrowed per repo under scoring.repos.",
+    "mode": "enabled",
     "//base_note": "Points for one CHURN_UNIT of lines at multiplier 1.0. Score scales with the size of the change rather than being a flat fee per PR: a flat fee is farmable without bound, because points then track how many PRs you opened rather than how much was reviewed (2,000 lines split into 200 ten-line PRs scored 1000x the same change shipped whole). With scaling, the bucket multipliers set the RATE work is paid at, so the most any decomposition can gain is the spread between the best and worst rates: 7.5x at these defaults, and you get it by landing in the small bucket.",
     "base": 100,
     "//churn_unit_note": "How many lines base pays for. 50 means base is the points for a full small-bucket PR at multiplier 1.0.",

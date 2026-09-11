@@ -17,13 +17,20 @@ internal/
 │   ├── run.go                  # `run`: discover, drain the queue, exit
 │   ├── queue.go                # `queue ls/add/rm/promote/skip/log`
 │   ├── authors.go              # `authors set/rm/ls/groups/who`: the author roster
+│   ├── score.go                # `score ls/show/set/recompute/leaderboard`
 │   ├── repos.go                # `repos ls/add/rm`: the watched repos (config)
 │   ├── prompts.go              # `prompts show/set/unset/preview`: review prompts
 │   ├── configcmd.go            # `config init/path/show/list/get/set/unset`
 │   └── usage.go                # top-level LLM reference card
 ├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults
 ├── store/                      # Store interface + DuckDB subprocess driver + schema.sql
+├── score/                      # author scoring: pure rules, gitattributes matcher, exclusions
+│   ├── score.go                # Compute: diff + verdict + revision -> points
+│   ├── rules.go                # the resolved ruleset, its hash, and its validator
+│   ├── gitattributes.go        # linguist-generated/vendored matching, git's own semantics
+│   └── exclude.go              # what counts toward size, after exclusions
 ├── discover/                   # gh pr list → New/Refreshed/Discussion classification
+│   └── diff.go                 # per-file line counts + .gitattributes, GraphQL (never REST)
 ├── review/                     # Engine interface + codex/claude drivers + prompt/rule assembly
 ├── scheduler/                  # discovery loop, review dispatcher, parallelism cap, claim leases
 │   ├── scheduler.go            # Deps + New: the seam declarations and composition root
@@ -33,6 +40,7 @@ internal/
 │   ├── loop.go                 # the interval loop (discovery's only)
 │   ├── discover.go             # the sweep + its in-flight guard
 │   ├── review.go               # reviewOne: claim, recheck, engine, record
+│   ├── scoring.go              # fetch the diff at claim time, score after the verdict
 │   └── reconcile.go            # release a crashed daemon's claims on this host
 ├── usage/                      # per-engine subscription-headroom polling + usage-floor predicate
 ├── doctor/                     # preflight: gh/duckdb/engine binary, auth, and config sanity
@@ -42,6 +50,7 @@ internal/
     ├── queue.go                # queue write surface (add/reorder/remove) + statuses
     ├── reviewlog.go            # /api/review-log: live/postmortem agent-log tail
     ├── stats.go                # /api/stats: last-24h outcome buckets
+    ├── leaderboard.go          # /api/leaderboard: author standings (SQL aggregate)
     ├── ui/                     # Svelte + Vite source (npm; not embedded)
     └── assets/                 # BUILT bundle, committed + go:embed'd
 ```
@@ -61,6 +70,121 @@ internal/
   cross-builds the CGO-free binaries, publishes the GitHub Release, and updates
   the Homebrew formula. You never cross-compile or upload artifacts by hand;
   locally you only commit the dashboard bundle and push the tag.
+
+- **Author scoring is frozen per review, and the diff is read BEFORE the
+  engine runs.** Every completed review earns the PR's author points
+  (`internal/score`, pure, no I/O). Two orderings carry the design. First, the
+  score is computed once, at completion, and stored with a hash of the ruleset
+  that produced it, so retuning a multiplier changes what FUTURE reviews earn
+  and nobody loses points they already have; `score recompute` is the
+  deliberate act of re-applying new rules to old rows, and it refuses to touch
+  all of history without `--all`. Second, the per-file diff fetch happens at
+  CLAIM time, not after the verdict. The gap between a verdict and `Complete`
+  is microseconds and crash recovery depends on it: put ~31 sequential `gh`
+  calls there and a daemon death stops losing a score and starts losing the
+  REVIEW, because Reconcile appends an ERROR row, the next claim's recheck sees
+  we already reviewed this head on GitHub, and records SKIPPED. Scoring after
+  the verdict is therefore pure arithmetic that rides into the same atomic
+  history insert.
+
+- **Score is proportional to churn, because a flat fee per PR is farmable
+  without bound.** The multipliers are a RATE per `churn_unit` lines, not a
+  payment for existing. With a flat fee, points tracked how many PRs you opened
+  rather than how much was reviewed: a 10-line PR outscored a 1,000-line one
+  outright, and 2,000 lines chopped into 200 ten-line PRs scored **1000x** the
+  same change shipped whole, with the ratio growing without limit as the change
+  got bigger. Scaling by churn caps what any decomposition can gain at the
+  spread between the best and worst rates (7.5x shipped), and puts the optimum
+  in `small`, which is the behaviour worth paying for. Splitting a 20k PR into
+  20 x 1k still earns more than shipping it whole; splitting it into 2,000
+  fragments now earns less than either. The original guard test compared ONE
+  tiny PR to ONE small PR, which is not the attack, and passed throughout.
+
+- **Two scoring numbers that look arbitrary and are not.**
+  `attempt_decay` is validated as strictly under 1, not
+  "at most 1": at exactly 1 nothing decays and comment-comment-approve (225)
+  outscores a first-pass approval (150), inverting the one ordering the scheme
+  exists to enforce. And churn 0 scores 0 rather than falling through to the
+  smallest bucket: a PR whose every file is `linguist-generated` (a lockfile
+  bump, or this repo's own committed dashboard bundle) would otherwise land in
+  `tiny` AND collect the shrink bonus for a net of 0, scoring 120: more than a
+  real +200/-100 PR earns. Each is pinned by a test that demonstrates the
+  failure rather than just asserting the value.
+
+- **The leaderboard pays once per REVISION, enforced in the aggregate.** Two
+  scored history rows at the same `head_sha` would pay twice for one piece of
+  work, and that is reachable with no bug in the scoring at all: a review
+  outrunning its claim lease can be re-claimed, and if both workers resolve
+  their `ScoreContext` before either writes history, neither sees the other and
+  both derive a full score. The `Leaderboard` query keeps the earliest scored
+  row per `(repo, number, head_sha)`, which closes it in one place rather than
+  trying to win a race between processes that may not share a host.
+
+- **Exclusion settings are MEASUREMENT, not rules.** `exclude_paths` and
+  `use_gitattributes` change the line counts a score is computed FROM, and they
+  are deliberately outside the ruleset hash. Changing them therefore affects
+  reviews from then on and marks nothing stale: the counts on an existing row
+  were measured at review time, and `recompute` derives from those stored
+  counts rather than re-fetching, so it could not honour a new exclusion policy
+  even if asked. The same gap explains why a row whose diff fetch failed stays
+  NULL forever: repairing either needs a re-fetch, which nothing does yet.
+
+- **Generated files are the repo's declaration, never our list.** Size
+  excludes `linguist-generated` / `linguist-vendored` paths read from the
+  repo's own `.gitattributes` (the same declaration that collapses them in
+  GitHub's diff view), because we do not know which repos this runs against and
+  any list we owned would be wrong for all of them. Linguist's BUILT-IN
+  heuristics (it knows `package-lock.json` with no config at all) are Ruby and
+  are deliberately not reimplemented; `scoring.exclude_paths` is the operator's
+  escape hatch until a repo marks its own files. Git's own rules are honoured
+  where it counts: EVERY ancestor directory's file applies (skipping them to
+  save a few aliases silently counted files a repo had marked one level down),
+  last match wins, and `!attr` undoes an earlier rule rather than leaving it
+  standing. POSIX bracket expressions are handled too: `[[:digit:]]` contains a
+  `]` that closes the inner `[: :]`, and stopping at it produced an invalid
+  regexp and dropped the rule in silence. Per-file stats come from
+  GraphQL and never REST: `/pulls/{n}/files` returns the full `patch` per file
+  with no field selection, measured at 341,081 bytes against this query's 3,032
+  on a 13k-line PR.
+
+- **NULL means unscored, which inverts this table's own convention.** Every
+  other numeric column on `history` is `NOT NULL DEFAULT 0` under the rule that
+  0 means unknown. Scoring cannot follow it, because 0 is a legitimate score, so
+  `score` is nullable and aggregates must treat NULL as absent. Relatedly,
+  `history` has no primary key and `ReviewLogKey` is a Go-side digest with no
+  SQL form, so a score is written against the natural key
+  `(repo, number, reviewed_at)` and the write counts what it matched rather
+  than trusting it. That is also why history rows are now written with
+  `tsExact` (microseconds) rather than `ts` (seconds): the same truncation that
+  made the natural key ambiguous had already been silently breaking the history
+  pager's tie-break cursor.
+
+- **One derivation, because two of them had already drifted.**
+  `store.DeriveScore` is the ONLY place a review becomes points. There are two
+  paths that score one (the scheduler at completion, and `score recompute`
+  re-deriving later) and they must agree, which a shared arithmetic helper did
+  not achieve: the POLICY around the arithmetic was what diverged. The
+  scheduler grew a guard against a head that moved mid-review; recompute did
+  not, and since the scheduler leaves exactly those rows unscored WITH their
+  diff recorded, they were precisely what `--missing` selected, so the recovery
+  path scored them off a diff describing code the review never saw. Both guards
+  now live inside the derivation, so neither caller can forget one.
+
+- **Absent evidence is not evidence of absence.** A review whose diff fetch
+  failed has zeroed counts, and zeroed counts are churn 0, which is a
+  legitimate score of nothing for a PR whose every line is generated. Reading
+  the two the same way froze a 0 onto real PRs that had merely been rate
+  limited, and because the row then LOOKED scored, `--missing` never came back
+  for it: the points were gone for good. `DiffStats.Recorded` (a stamped
+  `diff_sha`) separates them, and an unfetched row stays NULL and recoverable.
+  There is deliberately no `SetReviewDiff`: repairing such a row means
+  re-fetching from GitHub, and the setter without that caller was dead code.
+
+- **Attempts count REVISIONS, not reviews.** A `discussion` re-review is a
+  second real verdict at the SAME head, so counting verdicts meant replying to
+  the bot cost the author a decay step with no new code written. The index is
+  the number of distinct earlier head SHAs with a real verdict, and only the
+  first verdict per head pays out; later ones record 0.
 
 - **Family libraries**: `lib-agent-cli` (root scaffolding, XDG paths, creds
   store), `lib-agent-output` (NDJSON contract, `{error, fixable_by, hint}`),

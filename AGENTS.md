@@ -120,14 +120,27 @@ internal/
   row per `(repo, number, head_sha)`, which closes it in one place rather than
   trying to win a race between processes that may not share a host.
 
-- **Exclusion settings are MEASUREMENT, not rules.** `exclude_paths` and
-  `use_gitattributes` change the line counts a score is computed FROM, and they
-  are deliberately outside the ruleset hash. Changing them therefore affects
-  reviews from then on and marks nothing stale: the counts on an existing row
-  were measured at review time, and `recompute` derives from those stored
-  counts rather than re-fetching, so it could not honour a new exclusion policy
-  even if asked. The same gap explains why a row whose diff fetch failed stays
-  NULL forever: repairing either needs a re-fetch, which nothing does yet.
+- **The measurement is stored, so policy is re-appliable offline.**
+  `history.diff_files` keeps each changed file's path, counts, and the repo's
+  own verdict on it (`linguist-generated`/`vendored`, resolved at review time).
+  Metadata only, never patch text, capped at 500 files and absent when the
+  listing was truncated. It is the same escape-hatch reasoning as `usage_raw`,
+  and it is what lets `exclude_paths` and `use_gitattributes` sit INSIDE the
+  ruleset hash: a change to either is a `recompute` that re-runs the policy
+  over the stored files with no network at all. They were deliberately outside
+  the hash until this existed, because flagging rows that nothing could repair
+  would have been worse than not flagging them. A change to the REPO's own
+  `.gitattributes` is not covered, and should not be: that is the repo changing
+  its mind, not us changing our policy.
+
+- **`refetch` is the only repair for an unmeasured row, and it needs the head
+  to still match.** GitHub serves a pull request's file list only at its
+  CURRENT head; measuring an older revision means REST `compare`, which bundles
+  patch text nobody wants (measured 581KB against this query's 3KB on the same
+  PR). So a row whose PR has moved on stays unscored and says why, rather than
+  being credited a diff its review never saw. One pipeline does the measuring
+  (`discover.Measurer`), shared by completion and refetch, because a second
+  copy of it is exactly what produced the earlier drift.
 
 - **Generated files are the repo's declaration, never our list.** Size
   excludes `linguist-generated` / `linguist-vendored` paths read from the

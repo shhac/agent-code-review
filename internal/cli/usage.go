@@ -45,6 +45,12 @@ COMMANDS:
                                                      Conditional prompt fragments, optionally
                                                      routed under a post-outcome section
 
+  score leaderboard [--days N] [--repo R]            Total points per author, highest first
+  score show <owner/repo> <number>                  Every scored review of one PR
+  score ls [--missing] [--stale]                    Scored reviews, narrowed
+  score recompute [--stale] [--dry-run]             Re-derive under today's rules (moves real points)
+  score set <owner/repo> <number> <n> --note "..."  Correct one score by hand
+
   config init | path | show                         Starter config / file location / full dump
   config list | get <key> | set <key> <v> | unset   Typed settings (schedule, candidates, codex, ...)
   doctor                                            Check this machine can run a review
@@ -124,8 +130,8 @@ STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
 OUTPUT: NDJSON to stdout; errors {error, fixable_by, hint} to stderr, exit 1.
 
 DETAIL: Run "<command> usage" for per-command docs and examples
-  (queue usage, repos usage, authors usage, prompts usage, prompts rules usage,
-  config usage).`
+  (queue usage, repos usage, authors usage, score usage, prompts usage,
+  prompts rules usage, config usage).`
 
 const queueUsageText = `queue: The review queue (stored in DuckDB)
 
@@ -431,3 +437,60 @@ func registerGroupUsage(parent *cobra.Command, verb, text string) {
 		},
 	})
 }
+
+const scoreUsageText = `score: Author scores and the leaderboard (stored in DuckDB)
+
+Every completed review earns the PR's AUTHOR points. The score comes from
+four things: how big the diff is, what the review concluded, whether the
+codebase grew or shrank, and how many revisions it took to get there.
+
+  score       = base x size x verdict x shrink x decay^(revision-1)
+  size bucket = additions + (deletions x deletion_weight), generated and
+                vendored files excluded
+
+Smaller is worth more, but the peak is at "small" rather than "tiny": if the
+smallest tier paid best, thirty one-line PRs would beat one coherent change.
+Removing code beats adding it. A first-pass approval beats the same approval
+after two rounds of comments, because each revision decays.
+
+  agent-code-review score leaderboard                  # who is winning
+  agent-code-review score leaderboard --days 30        # this month
+  agent-code-review score show owner/repo 123          # one PR's history
+  agent-code-review score ls --missing                 # rows never scored
+
+A row listed by --missing whose diff was never fetched (a rate limit at review
+time) cannot be repaired by recompute: the size was never measured, and
+recompute derives from stored counts rather than re-fetching. Such a row stays
+unscored rather than being credited a misleading zero.
+
+FROZEN, NOT DERIVED. A score is computed once, when the review completes,
+and stored with a hash of the rules that produced it. Retuning the
+multipliers in config therefore changes what FUTURE reviews earn; nobody
+loses points they already have.
+
+  agent-code-review score ls --stale                   # scored under old rules
+  agent-code-review score recompute --stale --dry-run  # what would change
+  agent-code-review score recompute --stale            # actually change it
+
+recompute moves points somebody already has, so it refuses to touch all of
+history without --all, and --dry-run prints every before/after without
+writing. A score set by hand is marked manual and recompute leaves it alone
+unless you pass --include-manual.
+
+  agent-code-review score set owner/repo 123 0 --note "duplicate of #120"
+
+WHAT COUNTS AS SIZE. Generated and vendored files are left out, read from
+the repo's OWN .gitattributes (linguist-generated / linguist-vendored) -
+the same declaration that collapses them in GitHub's diff view. A repo that
+has not marked its lockfiles will see them counted; scoring.exclude_paths
+is the per-repo escape hatch until it does.
+
+A second review at the same commit (somebody replying to the bot) scores 0:
+it is discussion, not new work.
+
+TUNING. Every dial is under scoring.* in config, and the doctor command
+reports a ruleset that cannot work (an inverted bucket ladder, a decay of 1)
+rather than scoring silently at defaults. A NEGATIVE value needs a -- first,
+or the flag parser claims it:
+
+  agent-code-review config set scoring.verdicts.requested_changes -- -0.25`

@@ -91,6 +91,18 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"claude.permission_mode":              "dontAsk",
 		"claude.max_budget_usd":               "2.5",
 		"claude.max_resumes":                  "3",
+		"scoring.enabled":                     "true",
+		"scoring.base":                        "200",
+		"scoring.churn_unit":                  "25",
+		"scoring.deletion_weight":             "0.25",
+		"scoring.shrink_bonus":                "1.5",
+		"scoring.attempt_decay":               "0.75",
+		"scoring.verdicts.approved":           "2",
+		"scoring.verdicts.commented":          "0.5",
+		// Negative on purpose: the bound has to admit it, or the shipped
+		// default for this key could not be typed back in.
+		"scoring.verdicts.requested_changes": "-0.5",
+		"scoring.use_gitattributes":          "false",
 	}
 	for _, key := range configKeysFromSpecs(configKeySpecs()) {
 		sample, ok := samples[key.Name]

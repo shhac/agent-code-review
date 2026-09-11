@@ -124,6 +124,31 @@ func floatKey(name, desc string, field func(*config.Config) *float64, min, max f
 		0)
 }
 
+// optionalFloatKey is floatKey where an explicit 0 is a real setting.
+//
+// floatKey reads 0 as unset, which is right for a spend ceiling ("0" and "no
+// ceiling" say the same thing) and wrong for every scoring multiplier: 0 means
+// "this outcome earns nothing", a deliberate choice that must survive a write
+// and read back as itself rather than reverting to the default. Hence the
+// pointer, matching optionalIntKey.
+func optionalFloatKey(name, desc string, field func(*config.Config) **float64, min, max float64) libcli.ConfigKey {
+	return configKeyOf(name, desc, field,
+		func(v string) (*float64, error) {
+			f, err := parseBoundedFloat(v, min, max)
+			if err != nil {
+				return nil, err
+			}
+			return &f, nil
+		},
+		func(p *float64) (string, bool) {
+			if p == nil {
+				return "", false
+			}
+			return strconv.FormatFloat(*p, 'f', -1, 64), true
+		},
+		nil)
+}
+
 func parseBoundedFloat(value string, min, max float64) (float64, error) {
 	f, err := strconv.ParseFloat(value, 64)
 	if err != nil || f < min || f > max {

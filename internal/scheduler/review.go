@@ -153,6 +153,11 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 	}
 	// Leave the tmp dir in place; a future run may reuse it (per the spec).
 
+	// Read the PR's size now, while nothing has been spent and the diff is
+	// the one the engine is about to look at. Deliberately not after the
+	// verdict: see scoring.go for what a daemon death in that window costs.
+	diff := s.fetchDiff(ctx, cfg, c)
+
 	facts := review.DeriveFacts(c, s.ghUser, p.policy)
 	if c.Steering != nil {
 		s.logf("review %s#%d: steering from @%s", c.Repo, c.Number, c.Steering.SetBy)
@@ -198,6 +203,10 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config,
 		s.logf("review %s#%d: POLICY VIOLATION: approved a PR by @%s, whose %q policy forbids approving",
 			c.Repo, c.Number, c.Author, p.policy.Group)
 	}
+	// Pure arithmetic over what was fetched at claim time, so the score rides
+	// into the SAME atomic history insert Complete already performs: there is
+	// no second write, and no window in which the row exists unscored.
+	s.applyScore(ctx, cfg, &rec, diff)
 	if reviewErr != nil {
 		retried, err := s.retryAfterError(ctx, c, rec, cfg)
 		if err != nil {

@@ -73,6 +73,10 @@ type SchedulerStore interface {
 	LastOutcome(context.Context, string, int) (store.Review, bool, error)
 	SetHolds(context.Context, string, int, map[string]time.Time) error
 	AuthorGroup(context.Context, string, string) (config.Membership, error)
+	// ScoreContext resolves which revision of the PR this review is, for the
+	// attempt decay. Read AFTER the verdict, but it is one cheap local query
+	// with no network, so it cannot widen the window before Complete.
+	ScoreContext(context.Context, string, int, string, time.Time) (store.ScoreContext, error)
 }
 
 // Scheduler wires the deterministic machinery around a review engine. Config
@@ -102,6 +106,12 @@ type Scheduler struct {
 	pidAlive       LivenessFn
 	heartbeat      time.Duration
 	now            func() time.Time
+
+	// diffFn and attrsFn read a PR's size and the repo's generated-file
+	// declarations, at CLAIM time (see scoring.go for why not after the
+	// verdict).
+	diffFn  DiffFn
+	attrsFn AttrsFn
 }
 
 // PriceFn values one review's token classes in USD. The second result is
@@ -152,6 +162,10 @@ type Deps struct {
 	PIDAlive       LivenessFn
 	Heartbeat      time.Duration
 	Now            func() time.Time
+	// Diff and Attrs supply author scoring's inputs. Seams for the same
+	// reason as the rest: the scheduler's tests must never shell out to gh.
+	Diff  DiffFn
+	Attrs AttrsFn
 }
 
 // New builds a Scheduler from d, filling every unset optional field with its
@@ -182,10 +196,16 @@ func New(d Deps) *Scheduler {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
+	if d.Diff == nil {
+		d.Diff = discover.PRFiles
+	}
+	if d.Attrs == nil {
+		d.Attrs = discover.GitAttributes
+	}
 	return &Scheduler{
 		cfg: d.Config, store: d.Store, sweeper: d.Sweeper, ghUser: d.GHUser,
 		logf: d.Logf, usageFn: d.Usage, priceFn: d.Price,
 		newEngine: d.NewEngine, stillCandidate: d.StillCandidate, pidAlive: d.PIDAlive,
-		heartbeat: d.Heartbeat, now: d.Now,
+		heartbeat: d.Heartbeat, now: d.Now, diffFn: d.Diff, attrsFn: d.Attrs,
 	}
 }

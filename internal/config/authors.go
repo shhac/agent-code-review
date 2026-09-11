@@ -290,9 +290,10 @@ func RepoScopeMatches(scope []string, repo string) bool {
 // the trace). The wildcard key is skipped: it is the caller's explicit
 // fallback, not a match for a named repo. Keys are scanned in sorted order so
 // a config with two keys differing only in case resolves the same way twice.
-func lookupRepo(m map[string]string, repo string) (string, string, bool) {
+func lookupRepo[T any](m map[string]T, repo string) (T, string, bool) {
+	var zero T
 	if repo == "" {
-		return "", "", false
+		return zero, "", false
 	}
 	if v, ok := m[repo]; ok {
 		return v, repo, true
@@ -307,7 +308,7 @@ func lookupRepo(m map[string]string, repo string) (string, string, bool) {
 			return m[k], k, true
 		}
 	}
-	return "", "", false
+	return zero, "", false
 }
 
 // WithPolicy returns these settings with the policy's engine dials applied:

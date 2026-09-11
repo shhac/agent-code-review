@@ -32,6 +32,13 @@ type ghPR struct {
 	// State (OPEN | CLOSED | MERGED) is only populated by `gh pr view`; the
 	// list path filters to open PRs at the query.
 	State string `json:"state"`
+	// Diff size, for author scoring. Free to ask for: `gh pr list --json` is
+	// one GraphQL query whatever fields it names, and these carry no patch
+	// text. They are the PR's RAW totals; the counts a score is computed from
+	// have generated files taken out and are fetched per-file at claim time.
+	Additions    int `json:"additions"`
+	Deletions    int `json:"deletions"`
+	ChangedFiles int `json:"changedFiles"`
 }
 
 type ghActor struct {
@@ -71,7 +78,20 @@ func (p ghPR) AlreadyReviewedBy(login, head string) bool {
 }
 
 // prListFields is the JSON field set requested from `gh pr list`.
-const prListFields = "number,title,author,headRefOid,createdAt,updatedAt,isDraft,url,reviewRequests,reviews,reviewDecision"
+const prListFields = "number,title,author,headRefOid,createdAt,updatedAt,isDraft,url,reviewRequests,reviews,reviewDecision,additions,deletions,changedFiles"
+
+// splitRepo parses "owner/name" into its halves.
+//
+// Three gh callers in this package need the pair and phrase the failure
+// identically; at two that was coincidence, at three it is the package's
+// convention and deserves a name.
+func splitRepo(repo string) (owner, name string, err error) {
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" {
+		return "", "", fmt.Errorf("bad repo %q, want owner/name", repo)
+	}
+	return owner, name, nil
+}
 
 // runGH executes the gh CLI and returns stdout, surfacing stderr on failure.
 func runGH(ctx context.Context, args ...string) ([]byte, error) {
@@ -149,7 +169,7 @@ func stillCandidateFromJSON(out []byte, login, head string) (bool, string, error
 func ManualCandidate(ctx context.Context, repo string, number int) (store.Candidate, error) {
 	out, err := runGH(ctx, "pr", "view", fmt.Sprintf("%d", number),
 		"--repo", repo,
-		"--json", "title,author,url,headRefOid,state,createdAt,updatedAt",
+		"--json", "title,author,url,headRefOid,state,createdAt,updatedAt,additions,deletions,changedFiles",
 	)
 	if err != nil {
 		return store.Candidate{}, err
@@ -181,6 +201,9 @@ func candidateFromView(repo string, number int, pr ghPR) (store.Candidate, error
 		UpdatedAt:    pr.UpdatedAt,
 		DiscoveredAt: time.Now(),
 		Source:       store.SourceManual,
+		Additions:    pr.Additions,
+		Deletions:    pr.Deletions,
+		ChangedFiles: pr.ChangedFiles,
 	}, nil
 }
 
@@ -266,9 +289,9 @@ type ghActivityResp struct {
 // typename, and selfLogin is excluded by login so our own posted review never
 // reads as somebody responding to it.
 func LastHumanActivity(ctx context.Context, repo string, number int, selfLogin string) (time.Time, error) {
-	owner, name, ok := strings.Cut(repo, "/")
-	if !ok {
-		return time.Time{}, fmt.Errorf("bad repo %q, want owner/name", repo)
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return time.Time{}, err
 	}
 	out, err := runGH(ctx, "api", "graphql",
 		"-f", "owner="+owner,

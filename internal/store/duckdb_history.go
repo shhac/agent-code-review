@@ -83,11 +83,17 @@ func afterClause(c ReviewCursor) string {
 	if c.IsZero() {
 		return ""
 	}
-	// The CAST is required, not decorative: ts renders a quoted literal, which
-	// DuckDB types as VARCHAR, and comparing a tuple whose first member is
-	// VARCHAR against one whose first column is TIMESTAMP is a binder error.
+	// The CAST is required, not decorative: tsExact renders a quoted literal,
+	// which DuckDB types as VARCHAR, and comparing a tuple whose first member
+	// is VARCHAR against one whose first column is TIMESTAMP is a binder error.
+	//
+	// tsExact rather than ts, and that is load-bearing: history rows carry
+	// sub-second precision, so a cursor truncated to the second no longer
+	// names the row it came from. The tuple comparison then re-included or
+	// skipped the whole group sharing that second, which is precisely the tie
+	// this clause exists to break.
 	return fmt.Sprintf(" (reviewed_at, repo, number) < (CAST(%s AS TIMESTAMP), %s, %d)",
-		ts(c.ReviewedAt), text(c.Repo), c.Number)
+		tsExact(c.ReviewedAt), text(c.Repo), c.Number)
 }
 
 // SearchReviews returns one page of outcome history, newest first, the total

@@ -272,3 +272,71 @@ UPDATE queue SET
   steering_at      = (SELECT s.set_at  FROM steering s WHERE s.repo = queue.repo AND s.number = queue.number)
 WHERE steering_message IS NULL
   AND EXISTS (SELECT 1 FROM steering s WHERE s.repo = queue.repo AND s.number = queue.number);
+
+-- Author scoring: the diff facts a score is computed from, and the score
+-- itself, frozen per review.
+--
+-- The diff columns are on BOTH tables on purpose. The queue row carries what
+-- discovery saw (free: `gh pr list --json` already costs one GraphQL call
+-- whatever fields it names), for display and for the dispatcher. The history
+-- row carries what the review actually scored, which is a different number:
+-- generated and vendored files have been taken out of it.
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS additions INTEGER;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS deletions INTEGER;
+ALTER TABLE queue ADD COLUMN IF NOT EXISTS changed_files INTEGER;
+
+ALTER TABLE history ADD COLUMN IF NOT EXISTS additions INTEGER;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS deletions INTEGER;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS changed_files INTEGER;
+-- The counts the score was actually computed from: raw totals minus the files
+-- the repo's own .gitattributes marks linguist-generated or linguist-vendored
+-- (plus any operator glob). Kept APART from the raw figures rather than
+-- replacing them, so a history row can say "GitHub reports 12,000 lines, we
+-- scored 43 of them, 2 files were excluded" instead of silently disagreeing
+-- with the PR page.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS scored_additions INTEGER;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS scored_deletions INTEGER;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS excluded_files INTEGER;
+-- The points, and the provenance of the number.
+--
+-- NULL here means NOT SCORED. That is a DELIBERATE departure from every other
+-- numeric column on this table, which are NOT NULL DEFAULT 0 under the
+-- convention that 0 means unknown (see cost_usd, fresh_tokens). Scoring has to
+-- invert it because 0 is a LEGITIMATE score: a PR whose every line is
+-- generated is worth exactly nothing, and that is a different fact from a PR
+-- nobody has scored yet. Aggregates must treat NULL as absent, never as zero.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS score INTEGER;
+-- 'derived' (computed from the rules) or 'manual' (an operator set it by
+-- hand). A manual score is immune to recompute unless explicitly included:
+-- a correction that a later retune silently undid would not be a correction.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS score_source TEXT;
+-- The 16-hex-char hash of the ruleset that produced the score. This is what
+-- makes "tuning changes scores going forwards" a fact rather than a promise:
+-- retuning changes the hash, new reviews score under the new rules, existing
+-- rows keep their points, and "which rows predate the current policy" is a
+-- query that a targeted recompute can be aimed at.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS score_rules TEXT;
+-- Why, for a manual correction.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS score_note TEXT;
+ALTER TABLE history ADD COLUMN IF NOT EXISTS scored_at TIMESTAMP;
+-- The attempt index the decay was applied at, frozen alongside the score.
+--
+-- Frozen rather than derived on read so that a row scored LATE (by
+-- `score recompute --missing`, after a fetch failed at completion) lands on
+-- the same index it would have had, and so a manual correction can pin one.
+-- It counts REVISIONS, not verdicts: the number of distinct earlier head SHAs
+-- of this PR that got a real verdict, plus one. A discussion re-review is a
+-- second verdict at the SAME head, so replying to the bot must not cost the
+-- author a decay step when no new code was written.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS score_attempt INTEGER;
+-- The head the diff figures describe. A review's head can advance while it
+-- runs (Complete's DELETE is gated on head_sha for exactly that reason), and
+-- the file stats are fetched at claim time, so this records which revision
+-- they belong to. A mismatch against head_sha means the diff moved under us
+-- and the row is left unscored rather than credited with someone else's lines.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS diff_sha TEXT;
+-- The size tier the score came from, frozen with it. Stored rather than
+-- re-derived on read for the same reason the score is: the row may have been
+-- scored under a ruleset whose tiers have since moved, and a bucket recomputed
+-- under today's rules would explain a number today's rules did not produce.
+ALTER TABLE history ADD COLUMN IF NOT EXISTS score_bucket TEXT;

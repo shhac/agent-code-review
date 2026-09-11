@@ -229,4 +229,8 @@ type Config struct {
 	Review     ReviewSettings    `json:"review,omitempty"`
 	Store      StoreSettings     `json:"store,omitempty"`
 	Dashboard  DashboardSettings `json:"dashboard,omitempty"`
+	// Scoring turns completed reviews into points for the PR's author. Its
+	// shape and resolution live in scoring.go, next to the merge rules that
+	// are the only interesting part of it.
+	Scoring ScoringSettings `json:"scoring,omitempty"`
 }

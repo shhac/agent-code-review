@@ -230,6 +230,26 @@ func scanReview(m map[string]any) (Review, error) {
 		ReasoningTokens:  r.int("reasoning_tokens"),
 		UsageRaw:         r.str("usage_raw"),
 		PolicyViolation:  r.bool("policy_violation"),
+		Diff: DiffStats{
+			Additions:       r.int("additions"),
+			Deletions:       r.int("deletions"),
+			ChangedFiles:    r.int("changed_files"),
+			ScoredAdditions: r.int("scored_additions"),
+			ScoredDeletions: r.int("scored_deletions"),
+			ExcludedFiles:   r.int("excluded_files"),
+			DiffSHA:         r.str("diff_sha"),
+		},
+		// Score and Attempt through intPtr, not int: NULL here means never
+		// scored, which a 0 would silently claim to be a score of zero.
+		Score: ScoreRecord{
+			Score:   r.intPtr("score"),
+			Source:  r.str("score_source"),
+			Rules:   r.str("score_rules"),
+			Bucket:  r.str("score_bucket"),
+			Note:    r.str("score_note"),
+			Attempt: r.intPtr("score_attempt"),
+			At:      r.time("scored_at"),
+		},
 	}
 	// Present only when a message is, exactly as scanCandidate does: a row with
 	// no instruction must not carry an empty struct that reads as one, and a
@@ -280,6 +300,9 @@ func scanCandidate(m map[string]any) (Candidate, error) {
 		ClaimPID:     r.int("claim_pid"),
 		ClaimedAt:    r.timePtr("claimed_at"),
 		Holds:        r.holds("holds"),
+		Additions:    r.int("additions"),
+		Deletions:    r.int("deletions"),
+		ChangedFiles: r.int("changed_files"),
 	}
 	// Steering is present only when a message is: set_by and set_at ride with
 	// it, so a row with no instruction carries no empty struct to be mistaken
@@ -319,9 +342,29 @@ func ts(t time.Time) string {
 	return "'" + t.UTC().Format("2006-01-02 15:04:05") + "'"
 }
 
+// tsExact renders a TIMESTAMP literal at MICROSECOND precision, which is
+// DuckDB's own resolution for the type.
+//
+// ts() truncates to the second, which is right for the columns it writes
+// (holds, claims, discovery instants: nobody asks whether a debounce expired
+// 300 microseconds ago) and wrong for addressing a row BY its timestamp. A
+// history row inserted by anything that kept sub-second precision reads back
+// as 10:33:06.022613, and `WHERE reviewed_at = '2026-09-11 10:33:06'` then
+// matches nothing at all — the lookup fails rather than finding the wrong row,
+// but a scoring command that cannot find any row it just listed is no better.
+//
+// Comparison is by TIMESTAMP value and not by string, so this also matches a
+// row whose stored value genuinely has no sub-second part.
+func tsExact(t time.Time) string {
+	if t.IsZero() {
+		return "NULL"
+	}
+	return "'" + t.UTC().Format("2006-01-02 15:04:05.000000") + "'"
+}
+
 // storedTimeLayouts are the shapes DuckDB's JSON output uses for a TIMESTAMP,
 // most specific first.
-var storedTimeLayouts = []string{"2006-01-02 15:04:05.999", "2006-01-02 15:04:05", time.RFC3339Nano, time.RFC3339}
+var storedTimeLayouts = []string{"2006-01-02 15:04:05.999999", "2006-01-02 15:04:05.999", "2006-01-02 15:04:05", time.RFC3339Nano, time.RFC3339}
 
 // parseStoredTime is the one timestamp rule. A value that matches no layout is
 // a decode failure rather than the zero instant: a review "completed" in year
@@ -351,6 +394,28 @@ func getInt(r map[string]any, key string) int {
 // needlessly hard to eyeball.
 func num(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+// intOrNull renders an optional integer: nil becomes NULL.
+//
+// Needed because num() and %d have no NULL form, so a score of nil would be
+// written as 0 — and 0 is a LEGITIMATE score (a PR whose every line is
+// generated), so conflating the two would hide exactly the rows a recompute
+// sweep needs to find.
+func intOrNull(v *int) string {
+	if v == nil {
+		return "NULL"
+	}
+	return strconv.Itoa(*v)
+}
+
+// intPtr reads a nullable integer column, distinguishing absent from zero.
+func (r *row) intPtr(key string) *int {
+	if _, ok := r.present(key); !ok {
+		return nil
+	}
+	v := r.int(key)
+	return &v
 }
 
 // scanCount reads a single-column count(*) result.

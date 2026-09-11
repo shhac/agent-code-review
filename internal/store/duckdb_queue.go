@@ -77,8 +77,8 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 		msg, by, at = text(c.Steering.Message), nullText(c.Steering.SetBy), ts(c.Steering.SetAt)
 	}
 	sql := fmt.Sprintf(`INSERT INTO queue
-	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, holds, steering_message, steering_by, steering_at)
-	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s)
+	  (repo, number, type, title, author, url, head_sha, created_at, updated_at, queue_pos, discovered_at, source, holds, steering_message, steering_by, steering_at, additions, deletions, changed_files)
+	VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s, %d, %d, %d)
 	ON CONFLICT (repo, number) DO UPDATE SET
 	  type = excluded.type,
 	  title = excluded.title,
@@ -86,6 +86,9 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  url = excluded.url,
 	  head_sha = excluded.head_sha,
 	  updated_at = excluded.updated_at,
+	  additions = excluded.additions,
+	  deletions = excluded.deletions,
+	  changed_files = excluded.changed_files,
 	  holds = `+holdsMerge+`,
 	  steering_message = `+steerCase("steering_message", "excluded.steering_message")+`,
 	  steering_by = `+steerCase("steering_by", "excluded.steering_by")+`,
@@ -93,7 +96,7 @@ func (d *duckDB) Enqueue(ctx context.Context, c Candidate) error {
 	  source = CASE WHEN excluded.source = 'manual' THEN 'manual' ELSE queue.source END`,
 		nullText(c.Repo), c.Number, nullText(cmp.Or(c.Type, TypeNew)), nullText(c.Title), nullText(c.Author), nullText(c.URL), nullText(c.HeadSHA),
 		ts(c.CreatedAt), ts(c.UpdatedAt), c.QueuePos, ts(c.DiscoveredAt), nullText(cmp.Or(c.Source, SourceDiscovered)),
-		holdsJSON(c.Holds), msg, by, at)
+		holdsJSON(c.Holds), msg, by, at, c.Additions, c.Deletions, c.ChangedFiles)
 	return d.exec(ctx, sql)
 }
 
@@ -173,8 +176,10 @@ func historyInsert(r Review) string {
 	if r.Steering != nil && r.Steering.Message != "" {
 		msg, by, at = text(r.Steering.Message), nullText(r.Steering.SetBy), ts(r.Steering.SetAt)
 	}
-	return fmt.Sprintf(`INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, engine_version, reviewed_at, duration_secs, work_dir, tokens_used, cost_usd, est_cost_usd, fresh_tokens, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, reasoning_tokens, usage_raw, steering_message, steering_by, steering_at, policy_violation) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d, %s, %s, %d, %d, %d, %d, %d, %d, %s, %s, %s, %s, %t);`,
-		nullText(r.Repo), r.Number, nullText(r.Title), nullText(r.Author), nullText(r.HeadSHA), nullText(r.Verdict), nullText(r.Engine), nullText(r.Model), nullText(r.Effort), nullText(r.EngineVersion), ts(r.ReviewedAt), r.DurationSecs, nullText(r.WorkDir), r.TokensUsed, num(r.CostUSD), num(r.EstCostUSD), r.FreshTokens, r.InputTokens, r.OutputTokens, r.CacheWriteTokens, r.CacheReadTokens, r.ReasoningTokens, nullText(r.UsageRaw), msg, by, at, r.PolicyViolation)
+	return fmt.Sprintf(`INSERT INTO history (repo, number, title, author, head_sha, verdict, engine, model, effort, engine_version, reviewed_at, duration_secs, work_dir, tokens_used, cost_usd, est_cost_usd, fresh_tokens, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, reasoning_tokens, usage_raw, steering_message, steering_by, steering_at, policy_violation, additions, deletions, changed_files, scored_additions, scored_deletions, excluded_files, diff_sha, score, score_source, score_rules, score_bucket, score_note, score_attempt, scored_at) VALUES (%s, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s, %d, %s, %d, %s, %s, %d, %d, %d, %d, %d, %d, %s, %s, %s, %s, %t, %d, %d, %d, %d, %d, %d, %s, %s, %s, %s, %s, %s, %s, %s);`,
+		nullText(r.Repo), r.Number, nullText(r.Title), nullText(r.Author), nullText(r.HeadSHA), nullText(r.Verdict), nullText(r.Engine), nullText(r.Model), nullText(r.Effort), nullText(r.EngineVersion), tsExact(r.ReviewedAt), r.DurationSecs, nullText(r.WorkDir), r.TokensUsed, num(r.CostUSD), num(r.EstCostUSD), r.FreshTokens, r.InputTokens, r.OutputTokens, r.CacheWriteTokens, r.CacheReadTokens, r.ReasoningTokens, nullText(r.UsageRaw), msg, by, at, r.PolicyViolation,
+		r.Diff.Additions, r.Diff.Deletions, r.Diff.ChangedFiles, r.Diff.ScoredAdditions, r.Diff.ScoredDeletions, r.Diff.ExcludedFiles, nullText(r.Diff.DiffSHA),
+		intOrNull(r.Score.Score), nullText(r.Score.Source), nullText(r.Score.Rules), nullText(r.Score.Bucket), nullText(r.Score.Note), intOrNull(r.Score.Attempt), ts(r.Score.At))
 }
 
 func (d *duckDB) Dequeue(ctx context.Context, repo string, number int) error {

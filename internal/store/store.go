@@ -95,6 +95,23 @@ type Store interface {
 	// attempt that ended with work still pending (a daemon killed mid-review).
 	AppendHistory(ctx context.Context, r Review) error
 
+	// Author scoring. ScoreContext resolves the revision index a decay is
+	// applied at, and whether this PR already had a real verdict at the same
+	// head (a discussion re-review, which must not pay out again).
+	// SetReviewScore freezes the result onto one history row, addressed by
+	// (repo, number, reviewed_at) because history has no primary key and
+	// ReviewLogKey has no SQL form. ReviewsToScore selects the rows a sweep
+	// should visit; Leaderboard aggregates per author.
+	//
+	// There is deliberately no SetReviewDiff. A row whose diff fetch failed
+	// stays unscored rather than being scored from nothing, and repairing one
+	// means re-fetching from GitHub, which is a command nobody has asked for
+	// yet; adding the setter ahead of that caller left it orphaned.
+	ScoreContext(ctx context.Context, repo string, number int, headSHA string, before time.Time) (ScoreContext, error)
+	SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecord) error
+	ReviewsToScore(ctx context.Context, q ScoreQuery) ([]Review, error)
+	Leaderboard(ctx context.Context, q LeaderboardQuery) ([]AuthorScore, error)
+
 	// Author roster (per repo, "*" = all repos): which group an author is in.
 	// The group names a policy in config; see config.ResolvePolicy.
 	SetAuthorGroup(ctx context.Context, a Author) error

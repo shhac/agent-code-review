@@ -336,5 +336,8 @@ func (d *Discoverer) toCandidate(repo string, pr ghPR, typ string, now time.Time
 		UpdatedAt:    pr.UpdatedAt,
 		DiscoveredAt: now,
 		Source:       store.SourceDiscovered,
+		Additions:    pr.Additions,
+		Deletions:    pr.Deletions,
+		ChangedFiles: pr.ChangedFiles,
 	}
 }

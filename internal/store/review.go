@@ -92,6 +92,16 @@ type Review struct {
 	// not followed — detection, not prevention. Verdict still says what
 	// actually happened; this says what we asked for.
 	PolicyViolation bool `json:"policy_violation,omitempty"`
+	// Diff is the PR's line counts, raw and after excluding generated files,
+	// fetched at CLAIM time rather than here. DiffSHA says which revision they
+	// describe: a head can advance mid-review (Complete's DELETE is gated on
+	// head_sha for that reason), and lines the review never saw must not be
+	// credited to it.
+	Diff DiffStats `json:"diff"`
+	// Score is the author's points for this review, frozen with the ruleset
+	// hash that produced it. Its Score field is nil when the row was never
+	// scored, which is NOT the same as a score of zero.
+	Score ScoreRecord `json:"score"`
 }
 
 // EffectiveCostUSD is the run's spend however it is best known: the engine's

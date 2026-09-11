@@ -67,6 +67,11 @@ func Run(ctx context.Context, cfg config.Config) []Check {
 // Exported so boot validation reports the same problems `doctor` does.
 func ConfigProblems(cfg config.Config) []string {
 	problems := cfg.ValidateAuthors()
+	// Scoring resolves a bad ruleset to the shipped defaults rather than
+	// failing a review, which is right at review time and wrong as the only
+	// signal: an inverted bucket ladder would otherwise score every PR at
+	// defaults forever and say nothing. This is where it says something.
+	problems = append(problems, cfg.ValidateScoring()...)
 	for _, rs := range reachableSettings(cfg) {
 		for _, p := range review.Preflight(rs.settings) {
 			problems = append(problems, rs.where+p)

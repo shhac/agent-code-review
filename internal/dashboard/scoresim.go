@@ -43,36 +43,45 @@ type scoreSimReq struct {
 
 // scoreSimResp is one policy, surveyed.
 type scoreSimResp struct {
-	Anchors []score.Anchor `json:"anchors"`
+	// Peak and Tiers are where this policy's landmarks fall: the best a single
+	// PR can do, and the labels a score is explained with. Derived from the
+	// dials rather than set, so the page must not work them out itself.
+	Peak  float64      `json:"peak"`
+	Tiers []score.Tier `json:"tiers"`
 	// Grids are the score at each point of a lines-added by lines-removed
 	// grid, one per number of review rounds. Row 0 is the fewest removed
 	// lines; the browser flips it to put removals up the page.
 	Grids []scoreSimGrid `json:"grids"`
 	// Max is the largest score in ANY grid, so the two maps can share a colour
 	// scale and be read against each other.
-	Max    int             `json:"max"`
+	Max int `json:"max"`
+	// Curve is the size reward sampled across the range, for drawing. Sampled
+	// HERE because the shape is the policy: a browser that plotted its own
+	// x^2/(1+x)^k would be a second implementation of it, and a chart that
+	// disagrees with the scorer is worse than no chart.
+	Curve  []scoreSimPoint `json:"curve"`
 	Probes []scoreSimProbe `json:"probes"`
-	// Peak is the best-paid balanced PR: the shape this policy is asking for.
-	Peak scoreSimProbe `json:"peak"`
+	// BestPR is the best-paid balanced PR found by scanning, which should land
+	// on Peak: a policy whose stated landmark and measured optimum disagree is
+	// one the page is explaining wrongly.
+	BestPR scoreSimProbe `json:"best_pr"`
 	// Fragment is what the policy pays somebody who chops their work up:
 	// the churn per piece that maximises points, and what 2000 lines earn
 	// split that way against shipped whole.
 	Fragment scoreSimFragment `json:"fragment"`
-	// RateSpread is the best size-rate over the worst. Under a proportional
-	// policy it is the entire ceiling on what any decomposition can gain;
-	// below that it is only part of the story, which is what Fragment tells.
-	//
-	// Null when a tier pays nothing, because the ratio is then unbounded. A
-	// pointer rather than an infinity: encoding/json refuses to marshal one,
-	// and writeJSON has already sent its status line by the time the encoder
-	// finds out, so the whole response would arrive empty with a 200 on it.
-	RateSpread *float64 `json:"rate_spread"`
 }
 
 type scoreSimGrid struct {
 	Rounds int     `json:"rounds"`
 	Step   float64 `json:"step"`
 	Cells  [][]int `json:"cells"`
+}
+
+// scoreSimPoint is one sample of the size curve: what a PR of this many
+// changed lines earns for its size, before any verdict or decay.
+type scoreSimPoint struct {
+	Changed float64 `json:"changed"`
+	Points  float64 `json:"points"`
 }
 
 type scoreSimProbe struct {
@@ -131,7 +140,7 @@ func simulate(rules score.Rules, lineRange, cells int) scoreSimResp {
 		cells = maxSimCells
 	}
 
-	resp := scoreSimResp{Anchors: rules.Anchors()}
+	resp := scoreSimResp{Peak: rules.Peak(), Tiers: rules.Tiers()}
 	step := float64(lineRange) / float64(cells)
 	for _, rounds := range []int{1, 2} {
 		grid := scoreSimGrid{Rounds: rounds, Step: step, Cells: make([][]int, cells)}
@@ -151,13 +160,29 @@ func simulate(rules score.Rules, lineRange, cells int) scoreSimResp {
 		resp.Grids = append(resp.Grids, grid)
 	}
 
+	resp.Curve = sampleCurve(rules, lineRange)
 	for _, n := range simProbes {
 		resp.Probes = append(resp.Probes, scoreSimProbe{Lines: n, Score: roundsTotal(rules, n, n, 1)})
 	}
-	resp.Peak = peakBalanced(rules)
+	resp.BestPR = peakBalanced(rules)
 	resp.Fragment = fragmentPayoff(rules)
-	resp.RateSpread = rateSpread(rules)
 	return resp
+}
+
+// sampleCurve walks the size reward from one changed line out past the peak.
+//
+// Logarithmic steps, because the interesting part is all at the small end: a
+// linear walk across a 20,000-line axis spends every sample on PRs nobody
+// should be writing and draws the peak as a spike two pixels wide.
+func sampleCurve(rules score.Rules, lineRange int) []scoreSimPoint {
+	const samples = 120
+	hi := math.Max(float64(lineRange), rules.Peak()*4)
+	out := make([]scoreSimPoint, 0, samples+1)
+	for i := 0; i <= samples; i++ {
+		changed := math.Exp(float64(i) / float64(samples) * math.Log(hi))
+		out = append(out, scoreSimPoint{Changed: changed, Points: rules.SizeReward(changed)})
+	}
+	return out
 }
 
 // roundsTotal is a PR reviewed `rounds` times: comment rounds, then an
@@ -178,6 +203,11 @@ func roundsTotal(rules score.Rules, adds, dels, rounds int) int {
 // peakBalanced is the best-paid PR that neither grows nor shrinks the tree.
 // The shape a policy pays most for is the shape it is asking for, and it is
 // not always the one the operator thinks they configured.
+//
+// Scanned on the awarded (rounded) score, because this is what somebody would
+// actually earn. Rounding makes a plateau around the real peak, so the answer
+// is the SMALLEST PR that earns the maximum, which is the honest reading of
+// "how big does this need to be".
 func peakBalanced(rules score.Rules) scoreSimProbe {
 	best := scoreSimProbe{}
 	for n := 1; n <= 3000; n++ {
@@ -188,48 +218,38 @@ func peakBalanced(rules score.Rules) scoreSimProbe {
 	return best
 }
 
-// fragmentPayoff is what chopping work up is worth under this policy.
+// fragmentPayoff is what chopping work up is worth under this policy: the
+// piece size somebody splitting a large change should aim for, and what that
+// earns against shipping it whole.
 //
-// Splitting a change of n lines into pieces of p lines earns (n/p) x score(p),
-// so the piece size that maximises it is wherever points PER LINE peak, and
-// that size is the thing worth reporting: a real pull request, or one line.
-// Measured in lines rather than churn because lines are what somebody
-// actually divides, and the two differ once a removal weighs more than an
-// addition.
+// The optimum is found on the UNROUNDED reward. Rounding to whole points
+// creates ties across a band of piece sizes either side of the real peak, and
+// an argmax over ties reports whichever came first: with the shipped dials
+// that is 42 lines, which is not a number anybody configured and not a number
+// the operator should be told to aim for. The totals below it are rounded,
+// because those are the points that would actually be awarded.
+//
+// The split total counts the WHOLE change, remainder included. Dropping the
+// leftover lines flattered every piece size that did not divide evenly.
 func fragmentPayoff(rules score.Rules) scoreSimFragment {
 	const lines = 2000
 	best, at := math.Inf(-1), 1
 	for p := 1; p <= lines; p++ {
-		per := float64(score.Compute(rules, score.Input{
-			Additions: p, Verdict: store.VerdictApproved, Attempt: 1,
-		}).Score) / float64(p)
-		if per > best {
+		if per := rules.SizeReward(float64(p)) / float64(p); per > best {
 			best, at = per, p
 		}
 	}
-	whole := score.Compute(rules, score.Input{Additions: lines, Verdict: store.VerdictApproved, Attempt: 1}).Score
-	split := (lines / at) * score.Compute(rules, score.Input{
-		Additions: at, Verdict: store.VerdictApproved, Attempt: 1,
-	}).Score
-	out := scoreSimFragment{Lines: at, Whole: whole, Split: split}
-	if whole > 0 {
-		out.Gain = float64(split) / float64(whole)
+	approved := func(n int) int {
+		return score.Compute(rules, score.Input{Additions: n, Verdict: store.VerdictApproved, Attempt: 1}).Score
+	}
+	pieces := lines / at
+	split := pieces * approved(at)
+	if rest := lines - pieces*at; rest > 0 {
+		split += approved(rest)
+	}
+	out := scoreSimFragment{Lines: at, Whole: approved(lines), Split: split}
+	if out.Whole > 0 {
+		out.Gain = float64(split) / float64(out.Whole)
 	}
 	return out
-}
-
-// rateSpread is the best size-rate over the worst, across the range a real PR
-// could land in. Nil when the worst rate is zero or below, where the ratio
-// stops meaning anything.
-func rateSpread(rules score.Rules) *float64 {
-	lo, hi := math.Inf(1), math.Inf(-1)
-	for c := 1; c <= 6000; c++ {
-		r := rules.Rate(float64(c))
-		lo, hi = math.Min(lo, r), math.Max(hi, r)
-	}
-	if lo <= 0 {
-		return nil
-	}
-	spread := hi / lo
-	return &spread
 }

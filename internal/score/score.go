@@ -26,39 +26,44 @@ const (
 	verdictRequestedChanges = "REQUESTED_CHANGES"
 )
 
-// Bucket is one size tier. MaxChurn is an INCLUSIVE upper bound; the final
-// bucket carries 0 and is open-ended.
-type Bucket struct {
-	Name       string  `json:"name"`
-	MaxChurn   float64 `json:"max_churn,omitempty"`
-	Multiplier float64 `json:"multiplier"`
-}
-
 // Rules is the RESOLVED scoring policy: every default filled in, every value
-// validated. config owns the on-disk shape (where a multiplier is a *float64
-// so an explicit 0 is distinguishable from unset) and resolves into this,
-// which has no optionality left to reason about.
+// validated. config owns the on-disk shape (where a dial is a *float64 so an
+// explicit 0 is distinguishable from unset) and resolves into this, which has
+// no optionality left to reason about.
+//
+// Four dials decide what a PR is worth, and each answers a question somebody
+// can hold an opinion about. There were eight and a hand-drawn ladder of
+// tiers, which between them could express policies that contradicted each
+// other: the rate curve tuned to make a tighter solve win also made a bigger
+// DELETION earn less, and the dial that fixed one broke the other. A
+// closed-form curve with named landmarks cannot get into that state.
 type Rules struct {
-	Base float64 `json:"base"`
-	// ChurnUnit is how many lines Base pays for. Score scales with churn in
-	// units of this, so Base reads as "points for one full unit of
-	// well-sized, first-pass-approved work".
-	ChurnUnit float64 `json:"churn_unit"`
-	// ChurnExponent is how much of a score follows sheer volume.
+	// PieceLines is the size, in changed lines, that earns the most points
+	// PER LINE. It answers "how big should one piece of a split be", and it
+	// is where somebody decomposing a large change should aim.
+	PieceLines float64 `json:"piece_lines"`
+	// SizePoints is the most a single PR can earn for its size alone. It sets
+	// the scale of the whole board.
+	SizePoints float64 `json:"size_points"`
+	// SizeFalloff is how sharply a PR stops being worth more as it grows.
 	//
-	// At 1 the score is proportional: double the churn, double the points, and
-	// a bigger PR always earns more in total. Below 1 a bigger PR keeps less
-	// of it, and past the ladder's peak the total FALLS: the same solve in
-	// fewer lines is worth more, which is the whole point of shipping it below
-	// 1. At 0 the size stops mattering at all and every PR is a flat fee.
-	ChurnExponent    float64  `json:"churn_exponent"`
-	DeletionWeight   float64  `json:"deletion_weight"`
-	Buckets          []Bucket `json:"buckets"`
-	Approved         float64  `json:"approved"`
-	Commented        float64  `json:"commented"`
-	RequestedChanges float64  `json:"requested_changes"`
-	ShrinkBonus      float64  `json:"shrink_bonus"`
-	AttemptDecay     float64  `json:"attempt_decay"`
+	// It must exceed 2 or there is no peak to fall from, and it is the dial
+	// for the loudest judgment this shape makes: how much better a stack of
+	// well-sized PRs is than the same change shipped whole. Higher falls
+	// harder and widens that gap.
+	SizeFalloff float64 `json:"size_falloff"`
+	// RemovalPointsPer100 is what a hundred NET removed lines earn, on top of
+	// the size reward and independent of it.
+	//
+	// Per hundred rather than per line because the useful values are small
+	// fractions, and a dial somebody has to write as 0.2 is a dial they will
+	// mistype. It is divided down in exactly one place.
+	RemovalPointsPer100 float64 `json:"removal_points_per_100"`
+
+	Approved         float64 `json:"approved"`
+	Commented        float64 `json:"commented"`
+	RequestedChanges float64 `json:"requested_changes"`
+	AttemptDecay     float64 `json:"attempt_decay"`
 	// ExcludePaths and UseGitattributes decide which lines are counted rather
 	// than what a counted line is worth, and they are part of the ruleset for
 	// exactly one reason: they are HASHED, so changing them marks affected
@@ -71,57 +76,34 @@ type Rules struct {
 	// reordering a list does not fake a policy change.
 	ExcludePaths     []string `json:"exclude_paths,omitempty"`
 	UseGitattributes bool     `json:"use_gitattributes"`
-	// Curve decides how a bucket's multiplier applies: as a STEP that holds
-	// across the whole tier, or as an ANCHOR the multiplier moves smoothly
-	// between. Empty means the shipped default, which is linear.
-	//
-	// So "" and "linear" score alike but hash differently. Harmless: only
-	// RESOLVED rules are hashed onto history rows, and resolution always
-	// starts from DefaultRules, which names the curve.
-	Curve string `json:"curve,omitempty"`
 }
 
 // DefaultRules is the shipped policy.
 //
-// The shape it aims for: the same solve in fewer lines is worth MORE. A
-// +100/-100 PR scores 190, a +200/-200 one 158, a +300/-300 one 135. That
-// needs ChurnExponent well below 1; at 1 the churn term outruns the falling
-// rate and a sprawling PR always wins, which is the opposite incentive.
+// What it is tuned to say, in the order people ask:
 //
-// Base is points per ChurnUnit lines and the multipliers set the RATE that is
-// paid at, so the ladder decides which SIZE is paid best (still "small") while
-// the exponent decides how fast the total falls away from it.
+//	+100/-100 (100) beats +1000/-1000 (29)          fewer lines for the same solve
+//	+100/-1000 (227) beats +1000/-100 (47)          removing beats adding
+//	40 PRs of 50 lines (2000) beat one of 2000 (29) granular beats monolithic
+//	100 PRs of 1 line (0) beat nothing at all       granular is not atomised
 //
-// DeletionWeight above 1 is deliberate: a removed line counts more than an
-// added one, so deleting is the cheapest way to earn. It pushes a big deletion
-// UP the ladder into a worse rate, which is the point - a PR should not be
-// able to farm by deleting indiscriminately - and the shrink bonus is what
-// makes the net-negative PR come out ahead anyway.
-//
-// The ladder is read as a CURVE by default, so those multipliers are the
-// points the rate passes through rather than five plateaus with cliffs
-// between them. The tiers still name what a PR is, which is what makes a
-// score explainable; they just no longer decide it on their own.
+// The last line is the property the previous ruleset could not hold. Points
+// per line rose without limit as a PR shrank, so the leaderboard was winnable
+// by opening one-line pull requests, and the only defence was a tier that
+// paid nothing, which nobody would remember to set. Here the reward is
+// QUADRATIC near zero, so N fragments of a change earn about 1/N of shipping
+// it whole: the defence is the shape rather than a dial.
 func DefaultRules() Rules {
 	return Rules{
-		Base:           100,
-		ChurnUnit:      80,
-		ChurnExponent:  0.15,
-		DeletionWeight: 1.5,
-		Curve:          CurveLinear,
-		Buckets: []Bucket{
-			{Name: "tiny", MaxChurn: 10, Multiplier: 1.0},
-			{Name: "small", MaxChurn: 50, Multiplier: 1.5},
-			{Name: "medium", MaxChurn: 250, Multiplier: 1.0},
-			{Name: "large", MaxChurn: 1000, Multiplier: 0.5},
-			{Name: "huge", Multiplier: 0.2},
-		},
-		Approved:         1.0,
-		Commented:        0.25,
-		RequestedChanges: -0.25,
-		ShrinkBonus:      1.6,
-		AttemptDecay:     0.4,
-		UseGitattributes: true,
+		PieceLines:          50,
+		SizePoints:          100,
+		SizeFalloff:         3,
+		RemovalPointsPer100: 20,
+		Approved:            1.0,
+		Commented:           0.25,
+		RequestedChanges:    -0.25,
+		AttemptDecay:        0.4,
+		UseGitattributes:    true,
 	}
 }
 
@@ -140,11 +122,9 @@ type Input struct {
 // Result is one review's points, with the size tier that produced them.
 //
 // Bucket travels with the score because it is the single fact that makes a
-// surprising number explain itself: the same diff scores very differently
-// either side of a tier boundary, and the boundary is the part a reader cannot
-// infer from the score alone. Churn and net WERE here too and are not, because
-// both are arithmetic over figures the history row already carries, so keeping
-// them meant three fields that could disagree with each other.
+// surprising number explain itself. It is now a LABEL rather than a mechanism:
+// the tiers used to carry the multipliers, and now they only name where a PR
+// sits against the policy's own landmarks.
 type Result struct {
 	Score  int    `json:"score"`
 	Bucket string `json:"bucket"`
@@ -156,14 +136,13 @@ type Result struct {
 // anything useful with one. Whether a verdict is scorable at all is decided
 // upstream, by the one canonical verdict list in store.
 func Compute(r Rules, in Input) Result {
-	churn := r.Churn(in.Additions, in.Deletions)
-	net := in.Additions - in.Deletions
-	bucket := bucketFor(r.Buckets, churn)
+	changed := float64(in.Additions + in.Deletions)
+	removed := float64(in.Deletions - in.Additions)
 
-	res := Result{Bucket: bucket.Name}
+	res := Result{Bucket: r.Tier(changed)}
 
 	verdictMult, ok := verdictMultiplier(r, in.Verdict)
-	if !ok || in.Attempt < 1 || len(r.Buckets) == 0 {
+	if !ok || in.Attempt < 1 {
 		return res
 	}
 
@@ -171,57 +150,24 @@ func Compute(r Rules, in Input) Result {
 	//
 	// Without this guard a PR whose every file is linguist-generated (a
 	// lockfile bump, a regenerated client, this repo's own committed
-	// internal/dashboard/assets bundle) reaches churn 0, lands in the smallest
-	// bucket AND collects the shrink bonus for a net of 0: 120 points, more
-	// than a real +200/-100 PR earns. Exclusion is meant to stop generated
-	// lines from burying a change, not to mint points for a PR that contains
-	// nothing else. It is scored, and the answer is zero.
-	if churn <= 0 {
+	// internal/dashboard/assets bundle) is scored on an empty diff. Exclusion
+	// exists to stop generated lines burying a change, not to mint points for
+	// a PR that contains nothing else. It is scored, and the answer is zero.
+	if changed <= 0 {
 		return res
 	}
 
-	// Scaled by the work, at ChurnExponent. Never a flat fee, and by default
-	// not proportional either.
+	// The removal reward is never scaled by a NEGATIVE verdict.
 	//
-	// A flat fee (exponent 0) is farmable without bound: points then track how
-	// many PRs you opened rather than how much was reviewed. Proportional
-	// (exponent 1) is the opposite failure for this project's purpose: the
-	// churn term outruns any falling rate, so a sprawling PR always beats the
-	// same solve written tightly. The shipped 0.15 sits deliberately near the
-	// flat end, which buys the incentive at a known cost: points per unit of
-	// churn now rise as a PR gets smaller, so chopping work into fragments
-	// pays better than shipping it whole. A ladder whose first tier pays 0
-	// puts a floor under that, and is the dial to reach for if anybody starts
-	// opening one-line PRs.
-	points := r.Base * math.Pow(churn/r.ChurnUnit, r.ChurnExponent) * sizeMultiplier(r, bucket, churn) * verdictMult
-	// Only ever a bonus. Shrinking the codebase must not AMPLIFY a penalty:
-	// without the sign check a rejected deletion is punished 1.2x harder than
-	// a rejected addition, which rewards exactly the wrong thing.
-	if net <= 0 && points > 0 {
-		points *= r.ShrinkBonus
-	}
+	// Shrinking the codebase must not amplify a penalty: without the clamp a
+	// rejected deletion is punished harder than a rejected addition, which
+	// rewards exactly the wrong thing. A rejected PR still loses its size
+	// reward, which is the part the review was actually about.
+	points := verdictMult*r.SizeReward(changed) + math.Max(verdictMult, 0)*r.RemovalReward(removed)
 	points *= math.Pow(r.AttemptDecay, float64(in.Attempt-1))
 
 	res.Score = roundHalfAway(points)
 	return res
-}
-
-// Churn is how much of a PR there is to read: added lines, plus removed ones
-// at whatever a removal is worth. It is the figure every other dial is
-// applied to, and the one a size tier is chosen by.
-//
-// Exported so that anything explaining a score (the dashboard's calculator)
-// weighs deletions the same way the scorer does, rather than restating
-// deletion_weight somewhere it can fall out of step.
-func (r Rules) Churn(additions, deletions int) float64 {
-	return float64(additions) + float64(deletions)*r.DeletionWeight
-}
-
-// Rate is what one unit of churn is paid at, at this size, under this curve.
-// The tier is resolved the way Compute resolves it, so a rate quoted to
-// somebody is the rate they will be paid.
-func (r Rules) Rate(churn float64) float64 {
-	return sizeMultiplier(r, bucketFor(r.Buckets, churn), churn)
 }
 
 // roundHalfAway rounds to a whole point, away from zero at the halfway mark.
@@ -236,11 +182,11 @@ func roundHalfAway(f float64) int {
 		return 0
 	}
 	// Clamped to the range the history column can actually hold (DuckDB
-	// INTEGER is 32-bit). The IsInf guard alone was not enough: a base of
-	// 1e308 stays FINITE through the multipliers, so nothing tripped, and the
-	// int conversion then saturated to 9223372036854775807 on its way into a
-	// 32-bit column. Validate bounds base as well; this is the backstop for a
-	// config.json edited by hand, which never passes through that check.
+	// INTEGER is 32-bit). The IsInf guard alone was not enough: a size_points
+	// of 1e308 stays FINITE through the arithmetic, so nothing tripped, and
+	// the int conversion then saturated to 9223372036854775807 on its way into
+	// a 32-bit column. Validate bounds the dials as well; this is the backstop
+	// for a config.json edited by hand, which never passes through that check.
 	switch {
 	case f > maxScore:
 		return maxScore
@@ -252,19 +198,6 @@ func roundHalfAway(f float64) int {
 
 // maxScore is math.MaxInt32: the widest value history.score can store.
 const maxScore = 1<<31 - 1
-
-// bucketFor returns the first bucket whose inclusive MaxChurn covers churn.
-// A bucket with MaxChurn 0 is open-ended and matches anything, which is why
-// validation insists it can only be the last one. An empty list yields a zero
-// bucket, whose 0 multiplier scores nothing.
-func bucketFor(buckets []Bucket, churn float64) Bucket {
-	for _, b := range buckets {
-		if b.MaxChurn <= 0 || churn <= b.MaxChurn {
-			return b
-		}
-	}
-	return Bucket{}
-}
 
 // verdictMultiplier maps a verdict onto its multiplier. ok=false for anything
 // that is not a real verdict, which is the SKIPPED/ERROR guard: those rows

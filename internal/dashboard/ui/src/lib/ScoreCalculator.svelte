@@ -13,8 +13,11 @@
   ];
   const label = (v: string) => VERDICTS.find(([value]) => value === v)?.[1] ?? v.toLowerCase();
 
-  let additions = 200;
-  let deletions = 100;
+  // Opens on a net-negative PR so the first thing on screen has both halves of
+  // a score in it. A net-positive default showed only the size reward, which
+  // is half the model and the half people already assume.
+  let additions = 100;
+  let deletions = 200;
   let rounds = 1;
   let earlier = 'COMMENTED';
   let final = 'APPROVED';
@@ -102,13 +105,14 @@
       <p class="calc-total" class:bad={preview.total < 0}>
         {signed(preview.total)}<em>points</em>
       </p>
-      <!-- The arithmetic, not just the total: churn is the one term this page
-           leans on everywhere and defines nowhere, and this is where somebody
-           is already asking where a number came from. -->
+      <!-- The two rewards, shown apart. A total that does not decompose is a
+           number to take on faith, and "size 47 plus removal 180" is the
+           sentence that explains why two PRs of the same length score
+           differently. -->
       <p class="calc-why">
-        <b>{preview.additions}</b> added plus <b>{preview.deletions}</b> removed at
-        <b>{preview.deletion_weight}x</b> is <b>{preview.churn}</b> churn, which lands in
-        <b>{preview.bucket}</b> and is paid at <b>{preview.rate.toFixed(2)}x</b>.
+        <b>{preview.changed}</b> changed lines ({preview.additions} added, {preview.deletions} removed)
+        is a <b>{preview.bucket}</b> PR, worth <b>{preview.size_reward.toFixed(0)}</b> for its size{#if preview.removal_reward > 0}, plus
+        <b>{preview.removal_reward.toFixed(0)}</b> for {preview.net_removed} net lines removed{/if}.
       </p>
       {#if preview.rounds.length > 1}
         <ol class="calc-rounds">

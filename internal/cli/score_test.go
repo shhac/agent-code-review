@@ -110,16 +110,16 @@ func TestRecomputeWritesDerivedScores(t *testing.T) {
 	if !ok {
 		t.Fatal("nothing written")
 	}
-	if got.Points() != 139 {
-		t.Errorf("score = %d, want 139", got.Points())
+	if got.Points() != 50 {
+		t.Errorf("score = %d, want 50", got.Points())
 	}
 	if got.Source != store.ScoreDerived {
 		t.Errorf("source = %q, want derived", got.Source)
 	}
-	// 40 added and 10 removed is 55 churn once removals weigh 1.5, which is
-	// "medium" and not the "small" it read as when they weighed 0.5.
-	if got.Bucket != "medium" {
-		t.Errorf("bucket = %q, want medium recorded alongside the score", got.Bucket)
+	// 40 added and 10 removed is 50 changed lines, which is exactly the piece
+	// size the policy asks for: the "small" label, and the best rate per line.
+	if got.Bucket != "small" {
+		t.Errorf("bucket = %q, want small recorded alongside the score", got.Bucket)
 	}
 }
 
@@ -211,9 +211,9 @@ func TestRecomputeReappliesExclusionsOffline(t *testing.T) {
 	if got.ExcludedFiles != 1 {
 		t.Errorf("excluded = %d, want 1", got.ExcludedFiles)
 	}
-	// medium bucket, not huge: the raw 8040 never reaches the score.
-	if fs.written[1].Bucket != "medium" {
-		t.Errorf("bucket = %q, want medium", fs.written[1].Bucket)
+	// small bucket, not huge: the raw 8040 never reaches the score.
+	if fs.written[1].Bucket != "small" {
+		t.Errorf("bucket = %q, want small", fs.written[1].Bucket)
 	}
 }
 

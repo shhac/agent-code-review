@@ -1,26 +1,22 @@
-// The policy-tuning panel's pure parts: the colour ramp its maps are painted
-// with, and the round trip between an editable policy and the config document
-// an operator would paste.
+// The scoring pages' pure parts: the colour ramp their maps are painted with,
+// the geometry of the reward curve, and the round trip between an editable
+// policy and the config document an operator would paste.
 //
-// No scoring arithmetic. Every number on that panel comes back from
-// /api/score/simulate, computed by the daemon's own scorer, for the same
-// reason the calculator asks rather than works it out: a tuning tool that
-// disagrees with the scorer is worse than none, because it is the policy
-// somebody then ships.
+// No scoring arithmetic. Every number on those pages comes back from
+// /api/score/preview or /api/score/simulate, computed by the daemon's own
+// scorer, for the same reason the anchors used to: a page that disagrees with
+// the scorer is worse than no page, because its answer is the policy somebody
+// then ships.
 
-import type { ConfigResponse, ScoreBucket, ScoreCurveMode } from './types';
+import type { ConfigResponse, ScoreSimulation } from './types';
 
-// Policy is the editable shape of the scoring document: the dials the panel
-// offers, flat, with no optionality to reason about.
+// Policy is the editable shape of the scoring document: four dials, flat, with
+// no optionality to reason about.
 export type Policy = {
-  base: number;
-  churn_unit: number;
-  churn_exponent: number;
-  deletion_weight: number;
-  shrink_bonus: number;
-  attempt_decay: number;
-  curve: ScoreCurveMode;
-  buckets: ScoreBucket[];
+  piece_lines: number;
+  size_points: number;
+  size_falloff: number;
+  removal_points_per_100: number;
 };
 
 // A single-hue luminance ramp in the dashboard's own green: brighter is worth
@@ -59,100 +55,66 @@ export function rampCSS(): string {
   return `linear-gradient(90deg,${RAMP.map(([at, c]) => `rgb(${c.join(',')}) ${Math.round(at * 100)}%`).join(',')})`;
 }
 
-// policyOf lifts the daemon's live policy into the editable shape, so the
-// panel opens on what is actually running rather than on a blank form.
+// policyOf lifts the daemon's live policy into the editable shape, so a panel
+// opens on what is actually running rather than on a blank form.
 export function policyOf(c: ConfigResponse): Policy {
   const s = c.scoring;
   return {
-    base: s.base,
-    churn_unit: s.churn_unit,
-    churn_exponent: s.churn_exponent,
-    deletion_weight: s.deletion_weight,
-    shrink_bonus: s.shrink_bonus,
-    attempt_decay: s.attempt_decay,
-    curve: s.curve,
-    buckets: s.buckets.map((b) => ({ ...b })),
-  };
-}
-
-// policyDoc is the scoring block as it goes over the wire, and as it would be
-// written to config.json. The open-ended tier omits max_churn rather than
-// sending a 0, which is what the config format means by open-ended.
-export function policyDoc(p: Policy) {
-  return {
-    base: p.base,
-    churn_unit: p.churn_unit,
-    churn_exponent: p.churn_exponent,
-    deletion_weight: p.deletion_weight,
-    curve: p.curve,
-    buckets: p.buckets.map((b) =>
-      b.max_churn > 0
-        ? { name: b.name, max_churn: b.max_churn, multiplier: b.multiplier }
-        : { name: b.name, multiplier: b.multiplier },
-    ),
-    shrink_bonus: p.shrink_bonus,
-    attempt_decay: p.attempt_decay,
+    piece_lines: s.piece_lines,
+    size_points: s.size_points,
+    size_falloff: s.size_falloff,
+    removal_points_per_100: s.removal_points_per_100,
   };
 }
 
 // policyJSON is what an operator pastes into config.json: the block, nested
 // under the key it lives at, so it can be dropped in whole.
 export function policyJSON(p: Policy): string {
-  return JSON.stringify({ scoring: policyDoc(p) }, null, 2);
+  return JSON.stringify({ scoring: p }, null, 2);
 }
 
-// sortTiers puts the ladder back in the only order it is allowed to be in.
-//
-// Where a tier sits is not information the operator supplies twice: validation
-// requires strictly ascending max_churn, so the bound decides the position.
-// Reordering by hand would be a second way to say the same thing, and a way to
-// say it wrongly.
-//
-// The last row is pinned rather than sorted with the rest: it is the
-// open-ended tier, it has no bound to sort by, and it has to stay last. A
-// bounded row that gets its bound cleared therefore stays where it is and the
-// daemon reports the problem, which is better than silently shuffling two
-// catch-alls into a ladder that cannot resolve.
-export function sortTiers(buckets: ScoreBucket[]): ScoreBucket[] {
-  if (buckets.length < 3) return buckets;
-  const last = buckets[buckets.length - 1];
-  const bounded = buckets.slice(0, -1);
-  const sorted = [...bounded].sort((a, b) => {
-    if (a.max_churn > 0 && b.max_churn > 0) return a.max_churn - b.max_churn;
-    return 0; // an unbounded row mid-ladder is an error to report, not to move
-  });
-  return [...sorted, last];
-}
-
-// ladderProblem states, in the words of the person editing, what is wrong
-// with a ladder the daemon will refuse.
-//
-// The daemon refuses it too, and says so, but it says so in the vocabulary of
-// the validator ("open-ended but is not last: it would match everything and
-// strand the 1 bucket(s) after it") in a banner at the top of the other
-// column. This is the same fact next to the field that caused it. It covers
-// only what the TABLE can get wrong; everything else is still the daemon's to
-// report.
-export function ladderProblem(buckets: ScoreBucket[]): string {
-  const open = buckets.findIndex((b, i) => !(b.max_churn > 0) && i !== buckets.length - 1);
-  if (open >= 0) {
-    return `Only the last tier can be open-ended. Give ${buckets[open].name || 'that tier'} a max churn, or remove the row.`;
-  }
-  for (let i = 1; i < buckets.length - 1; i++) {
-    if (buckets[i].max_churn === buckets[i - 1].max_churn) {
-      return `${buckets[i].name || 'A tier'} and ${buckets[i - 1].name || 'the one above it'} share a max churn, so one of them covers nothing.`;
-    }
-  }
-  return '';
-}
-
-// changedFrom names the dials this policy moves, so the panel can say whether
-// it is showing the daemon's policy or a draft. Buckets count as one.
+// changedFrom names the dials this policy moves, so a panel can say whether it
+// is showing the daemon's policy or a draft.
 export function changedFrom(draft: Policy, live: Policy): string[] {
-  const keys: (keyof Policy)[] = [
-    'base', 'churn_unit', 'churn_exponent', 'deletion_weight', 'shrink_bonus', 'attempt_decay', 'curve',
-  ];
-  const out = keys.filter((k) => draft[k] !== live[k]).map(String);
-  if (JSON.stringify(draft.buckets) !== JSON.stringify(live.buckets)) out.push('buckets');
-  return out;
+  return (Object.keys(draft) as (keyof Policy)[]).filter((k) => draft[k] !== live[k]);
+}
+
+// The plot box, in the units of an SVG viewBox.
+export type Plot = { width: number; height: number; pad: { l: number; r: number; t: number; b: number } };
+
+// curvePath turns the daemon's sampled reward curve into an SVG polyline.
+//
+// The x axis is logarithmic because the interesting part is all at the small
+// end: on a linear axis out to twenty thousand lines, the peak this whole
+// policy is built around is a spike two pixels wide.
+export function curvePath(curve: ScoreSimulation['curve'], plot: Plot, maxPoints: number): string {
+  return curve
+    .filter((p) => p.changed >= 1)
+    .map((p) => `${curveX(p.changed, curve, plot).toFixed(1)},${curveY(p.points, plot, maxPoints).toFixed(1)}`)
+    .join(' ');
+}
+
+export function curveX(changed: number, curve: ScoreSimulation['curve'], plot: Plot): number {
+  const hi = curve.length ? curve[curve.length - 1].changed : 1;
+  const span = Math.log(Math.max(hi, 2));
+  const at = Math.min(Math.max(changed, 1), hi);
+  return plot.pad.l + (Math.log(at) / span) * (plot.width - plot.pad.l - plot.pad.r);
+}
+
+export function curveY(points: number, plot: Plot, maxPoints: number): number {
+  const t = maxPoints > 0 ? points / maxPoints : 0;
+  return plot.pad.t + (1 - t) * (plot.height - plot.pad.t - plot.pad.b);
+}
+
+// tierRanges states the labels as ranges, because a boundary on its own does
+// not say which side a PR falls on. The last tier is open-ended.
+export function tierRanges(tiers: { name: string; up_to?: number }[]): { name: string; range: string }[] {
+  let from = 0;
+  return tiers.map((t, i) => {
+    const last = i === tiers.length - 1 || !t.up_to;
+    const to = Math.round(t.up_to ?? 0);
+    const range = last ? (from > 0 ? `${from}+` : 'any size') : from > 0 ? `${from} to ${to}` : `up to ${to}`;
+    from = to;
+    return { name: t.name, range };
+  });
 }

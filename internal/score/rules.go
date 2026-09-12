@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"strings"
 )
 
 // Hash identifies the ruleset a score was computed under.
@@ -31,37 +30,37 @@ func (r Rules) Hash() string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// maxBase caps the points a single review can be worth before multipliers.
-const maxBase = 1e6
+// maxPoints caps what a single dial can be worth before the arithmetic stops
+// fitting anywhere useful.
+const maxPoints = 1e6
 
 // Validate reports why a ruleset cannot be used. config calls it after
 // resolving; an invalid document falls back to DefaultRules rather than
 // wedging every review, matching config.Read's tolerance of a corrupt file.
 func (r Rules) Validate() error {
-	// Bounded, not merely finite. An unbounded base multiplies out to a value
-	// no history row can store, and the arithmetic stays finite the whole way
-	// so nothing else catches it. The ceiling is far above any sane scale and
-	// matches the bound `config set scoring.base` already enforces.
-	if !(r.Base > 0) || r.Base > maxBase || math.IsNaN(r.Base) {
-		return fmt.Errorf("base must be a positive number no greater than %v, got %v", float64(maxBase), r.Base)
+	if !(r.PieceLines > 0) || r.PieceLines > maxPoints || math.IsNaN(r.PieceLines) {
+		return fmt.Errorf("piece_lines must be a positive number no greater than %v, got %v", float64(maxPoints), r.PieceLines)
 	}
-	if !(r.ChurnUnit > 0) || r.ChurnUnit > maxBase || math.IsNaN(r.ChurnUnit) {
-		return fmt.Errorf("churn_unit must be a positive number no greater than %v, got %v", float64(maxBase), r.ChurnUnit)
+	if !(r.SizePoints > 0) || r.SizePoints > maxPoints || math.IsNaN(r.SizePoints) {
+		return fmt.Errorf("size_points must be a positive number no greater than %v, got %v", float64(maxPoints), r.SizePoints)
 	}
-	// Zero is legal and means a flat fee per PR, which is farmable without
-	// bound; the ceiling is where a score stops fitting anywhere useful.
-	// Negative is not: it would pay a PR MORE for being smaller without limit,
-	// so a one-line PR would be worth more than every other PR ever reviewed.
-	if r.ChurnExponent < 0 || r.ChurnExponent > 4 || math.IsNaN(r.ChurnExponent) {
-		return fmt.Errorf("churn_exponent must be between 0 and 4, got %v", r.ChurnExponent)
+	// Strictly above 2. At 2 and below the curve has no peak to fall from: it
+	// rises forever, so a bigger pull request always earns more and the whole
+	// policy inverts. The ceiling is where the fall is so sharp that only a
+	// PR within a hair of the peak scores at all.
+	if !(r.SizeFalloff > 2) || r.SizeFalloff > 12 || math.IsNaN(r.SizeFalloff) {
+		return fmt.Errorf("size_falloff must be greater than 2 and no greater than 12, got %v (at 2 or below a bigger PR always earns more)", r.SizeFalloff)
 	}
-	if r.DeletionWeight < 0 || r.DeletionWeight > 1000 || math.IsNaN(r.DeletionWeight) {
-		return fmt.Errorf("deletion_weight must be between 0 and 1000, got %v", r.DeletionWeight)
+	// Zero is legal and switches the removal reward off. Negative is not: it
+	// would charge somebody for deleting code, which no configuration of this
+	// tool should be able to say by accident.
+	if r.RemovalPointsPer100 < 0 || r.RemovalPointsPer100 > maxPoints || math.IsNaN(r.RemovalPointsPer100) {
+		return fmt.Errorf("removal_points_per_100 must be between 0 and %v, got %v", float64(maxPoints), r.RemovalPointsPer100)
 	}
 	// Strictly below 1, not "at most 1". At exactly 1 nothing decays, and
-	// comment-comment-approve (37.5+37.5+150=225) outscores a first-pass
-	// approval (150): the one ordering this whole scheme exists to enforce,
-	// inverted by a value the range would otherwise have called legal.
+	// comment-comment-approve outscores a first-pass approval: the one
+	// ordering this whole scheme exists to enforce, inverted by a value the
+	// range would otherwise have called legal.
 	if !(r.AttemptDecay > 0 && r.AttemptDecay < 1) {
 		return fmt.Errorf("attempt_decay must be greater than 0 and less than 1, got %v (at 1 nothing decays, and repeated review rounds would outscore getting it right first time)", r.AttemptDecay)
 	}
@@ -69,7 +68,6 @@ func (r Rules) Validate() error {
 		name string
 		val  float64
 	}{
-		{"shrink_bonus", r.ShrinkBonus},
 		{"verdicts.approved", r.Approved},
 		{"verdicts.commented", r.Commented},
 		{"verdicts.requested_changes", r.RequestedChanges},
@@ -77,48 +75,6 @@ func (r Rules) Validate() error {
 		if math.IsNaN(f.val) || math.IsInf(f.val, 0) {
 			return fmt.Errorf("%s must be a finite number, got %v", f.name, f.val)
 		}
-	}
-	// Empty is legal and means the default, like an unset multiplier. A
-	// MISSPELLED one is not: it would score under the default while the config
-	// file claims otherwise, and the point of naming a curve is to know which
-	// one you are on.
-	if r.Curve != "" && !ValidCurve(r.Curve) {
-		return fmt.Errorf("curve is %q; valid: %s", r.Curve, strings.Join(Curves, ", "))
-	}
-	return validateBuckets(r.Buckets)
-}
-
-// validateBuckets enforces the shape bucketFor relies on: ascending bounds,
-// and exactly one open-ended bucket, last. An open-ended bucket anywhere else
-// matches everything and silently strands every bucket after it.
-func validateBuckets(buckets []Bucket) error {
-	if len(buckets) == 0 {
-		return fmt.Errorf("at least one bucket is required")
-	}
-	prev := 0.0
-	for i, b := range buckets {
-		if b.Name == "" {
-			return fmt.Errorf("bucket %d has no name", i)
-		}
-		if math.IsNaN(b.Multiplier) || math.IsInf(b.Multiplier, 0) {
-			return fmt.Errorf("bucket %q: multiplier must be a finite number, got %v", b.Name, b.Multiplier)
-		}
-		last := i == len(buckets)-1
-		if b.MaxChurn <= 0 {
-			if !last {
-				return fmt.Errorf("bucket %q is open-ended but is not last: it would match everything and strand the %d bucket(s) after it",
-					b.Name, len(buckets)-i-1)
-			}
-			continue
-		}
-		if last {
-			return fmt.Errorf("the last bucket (%q) must be open-ended (omit max_churn), or a PR larger than %v scores nothing",
-				b.Name, b.MaxChurn)
-		}
-		if b.MaxChurn <= prev {
-			return fmt.Errorf("bucket %q: max_churn %v must be greater than the previous bucket's %v", b.Name, b.MaxChurn, prev)
-		}
-		prev = b.MaxChurn
 	}
 	return nil
 }

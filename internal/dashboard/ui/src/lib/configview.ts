@@ -3,7 +3,7 @@
 // rather than only reachable by rendering the page — which is how the rest of
 // this project's route logic is already organised (lib/metrics.ts, poll.ts).
 
-import type { ConfigResponse, ScoreCurveMode, ScoringMode } from './types';
+import type { ConfigResponse, ScoringMode } from './types';
 
 export type SettingsGroup = [string, [string, string][]];
 
@@ -41,18 +41,10 @@ function round2(n: number): string {
   return String(Math.round(n * 100) / 100);
 }
 
-// How the ladder is read. Named, not explained: the tier table and the chart
-// sit together in their own panel, and they are where the difference between
-// the two curves is actually legible.
-const curveWording: Record<ScoreCurveMode, string> = {
-  linear: '`linear` (see Score tiers)',
-  step: '`step` (see Score tiers)',
-};
-
 // scoringDialsShown reports whether the scoring policy is worth showing at
 // all: only a mode that is actually scoring has dials a reader can act on.
 //
-// Exported because the Config page draws the size curve next to the settings
+// Exported because the Config page draws the reward curve next to the settings
 // table, and the two must agree about when there is a policy to explain. The
 // template used to compare the mode string itself, which was the page's only
 // raw mode comparison and a second owner of this rule.
@@ -63,9 +55,9 @@ export function scoringDialsShown(c: ConfigResponse | null): boolean {
 // scoringRows describes what a review earns its author.
 //
 // The mode comes first because it is the only row that can make every other
-// one moot. The multipliers are shown as a rate per unit rather than as raw
-// numbers: "1.5x per 50 lines" answers the question people actually arrive
-// with, which is why their PR scored what it did.
+// one moot. The rest are phrased as the questions the dials answer rather than
+// as the dials themselves: "the size that earns the most per line" is what
+// somebody wants to know, and piece_lines is merely where they would type it.
 function scoringRows(c: ConfigResponse): [string, string][] {
   const s = c.scoring;
   const mode: Record<ScoringMode, string> = {
@@ -76,15 +68,13 @@ function scoringRows(c: ConfigResponse): [string, string][] {
   if (!scoringDialsShown(c)) return [['Mode', mode[s.mode] ?? s.mode]];
   return [
     ['Mode', mode[s.mode]],
-    // The per-line rate, not "base per churn_unit": a reader given the latter
-    // reasonably expects 50 lines to score 100, and it scores 150 because 50
-    // lines lands in the tier that pays 1.5x. State the rate; the Score tiers
-    // panel states what modifies it.
-    ['Base rate', `\`${round2(s.base / s.churn_unit)}\` points per line of churn, before the size multiplier`],
-    ['Size curve', curveWording[s.curve] ?? `\`${s.curve}\``],
-    ['Deletion weight', `a removed line counts \`${s.deletion_weight}x\` an added one`],
-    ['Verdicts', `approve \`${s.approved}x\` · comment \`${s.commented}x\` · changes \`${s.requested_changes}x\``],
-    ['Shrink bonus', `\`${s.shrink_bonus}x\` when a PR is net-negative`],
+    ['Best piece size', `\`${s.piece_lines}\` changed lines, which earns the most points per line`],
+    ['Best single PR', `\`${Math.round(s.peak)}\` changed lines, worth \`${s.size_points}\` points`],
+    ['Size falloff', `\`${s.size_falloff}\`, so a PR past the peak is worth less the bigger it gets`],
+    ['Removing code', s.removal_points_per_100 > 0
+      ? `\`${round2(s.removal_points_per_100 / 100)}\` points a line, net, on top of the size reward`
+      : 'earns nothing beyond the size reward'],
+    ['Verdicts', `approve \`${s.approved}x\` \u00b7 comment \`${s.commented}x\` \u00b7 changes \`${s.requested_changes}x\``],
     ['Revision decay', `\`${s.attempt_decay}x\` per extra round of review`],
     ['Generated files', s.use_gitattributes
       ? `excluded via the repo's .gitattributes${s.exclude_paths ? `, plus ${s.exclude_paths} glob(s)` : ''}`

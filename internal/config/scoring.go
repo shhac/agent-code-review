@@ -11,6 +11,7 @@ package config
 // lets score.Rules.Hash be stable without a canonicalisation step.
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -39,28 +40,39 @@ type ScoringSettings struct {
 	// Enabled is the pre-Mode switch, still honoured so a config written
 	// against it keeps its meaning: false reads as ScoringDisabled. Mode wins
 	// when both are set. New configs should use mode.
-	Enabled *bool    `json:"enabled,omitempty"`
-	Base    *float64 `json:"base,omitempty"`
-	// ChurnUnit is how many lines Base pays for; score scales with churn in
-	// units of this rather than being a flat fee per PR.
-	ChurnUnit *float64 `json:"churn_unit,omitempty"`
-	// ChurnExponent is how much of a score follows sheer volume: 1 is
-	// proportional, and below 1 the same solve in fewer lines is worth more.
-	ChurnExponent  *float64 `json:"churn_exponent,omitempty"`
-	DeletionWeight *float64 `json:"deletion_weight,omitempty"`
-	// Curve is how a bucket's multiplier applies across its range: "step"
-	// (a flat tier) or "linear" (anchors the multiplier moves between).
-	Curve string `json:"curve,omitempty"`
-	// Buckets is score.Bucket directly rather than a config-side twin: the
-	// twin was field-for-field and tag-for-tag identical, since buckets REPLACE
-	// wholesale and so have no optionality to express, and it cost a conversion
-	// loop plus a second place to forget a new field.
-	Buckets          []score.Bucket     `json:"buckets,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
+	// PieceLines is the changed-line count that earns the most points per
+	// line: the size to aim for when splitting a large change up.
+	PieceLines *float64 `json:"piece_lines,omitempty"`
+	// SizePoints is the most a single PR can earn for its size alone.
+	SizePoints *float64 `json:"size_points,omitempty"`
+	// SizeFalloff is how sharply a PR stops being worth more as it grows.
+	SizeFalloff *float64 `json:"size_falloff,omitempty"`
+	// RemovalPointsPer100 is what a hundred net removed lines earn on top.
+	RemovalPointsPer100 *float64 `json:"removal_points_per_100,omitempty"`
+
 	Verdicts         VerdictMultipliers `json:"verdicts,omitempty"`
-	ShrinkBonus      *float64           `json:"shrink_bonus,omitempty"`
 	AttemptDecay     *float64           `json:"attempt_decay,omitempty"`
 	ExcludePaths     []string           `json:"exclude_paths,omitempty"`
 	UseGitattributes *bool              `json:"use_gitattributes,omitempty"`
+
+	// The dials of the ladder-and-exponent ruleset, kept ONLY so a config
+	// written against it is told rather than silently scored under the new
+	// defaults. Nothing reads them; ValidateScoring names any that are set.
+	//
+	// That model was base x (churn/churn_unit)^churn_exponent x a tier
+	// multiplier, where churn weighted deletions and a separate bonus paid for
+	// shrinking. None of those terms survive and there is no honest automatic
+	// translation, because the shapes they describe are not expressible here:
+	// the tier ladder could draw a curve where deleting more earned less, and
+	// this one cannot.
+	Base           *float64          `json:"base,omitempty"`
+	ChurnUnit      *float64          `json:"churn_unit,omitempty"`
+	ChurnExponent  *float64          `json:"churn_exponent,omitempty"`
+	DeletionWeight *float64          `json:"deletion_weight,omitempty"`
+	ShrinkBonus    *float64          `json:"shrink_bonus,omitempty"`
+	Curve          string            `json:"curve,omitempty"`
+	Buckets        []json.RawMessage `json:"buckets,omitempty"`
 
 	Repos map[string]ScoringSettings `json:"repos,omitempty"`
 }
@@ -183,32 +195,23 @@ func mergeScoring(base, over ScoringSettings) ScoringSettings {
 	if over.Enabled != nil {
 		out.Enabled = over.Enabled
 	}
-	if over.Base != nil {
-		out.Base = over.Base
+	if over.PieceLines != nil {
+		out.PieceLines = over.PieceLines
 	}
-	if over.ChurnUnit != nil {
-		out.ChurnUnit = over.ChurnUnit
+	if over.SizePoints != nil {
+		out.SizePoints = over.SizePoints
 	}
-	if over.ChurnExponent != nil {
-		out.ChurnExponent = over.ChurnExponent
+	if over.SizeFalloff != nil {
+		out.SizeFalloff = over.SizeFalloff
 	}
-	if over.DeletionWeight != nil {
-		out.DeletionWeight = over.DeletionWeight
-	}
-	if over.Curve != "" {
-		out.Curve = over.Curve
-	}
-	if over.ShrinkBonus != nil {
-		out.ShrinkBonus = over.ShrinkBonus
+	if over.RemovalPointsPer100 != nil {
+		out.RemovalPointsPer100 = over.RemovalPointsPer100
 	}
 	if over.AttemptDecay != nil {
 		out.AttemptDecay = over.AttemptDecay
 	}
 	if over.UseGitattributes != nil {
 		out.UseGitattributes = over.UseGitattributes
-	}
-	if over.Buckets != nil {
-		out.Buckets = over.Buckets
 	}
 	if over.ExcludePaths != nil {
 		out.ExcludePaths = over.ExcludePaths
@@ -227,21 +230,14 @@ func mergeScoring(base, over ScoringSettings) ScoringSettings {
 
 // applyScoring lays a settings document over a ruleset.
 func applyScoring(r score.Rules, s ScoringSettings) score.Rules {
-	r.Base = floatOr(s.Base, r.Base)
-	r.ChurnUnit = floatOr(s.ChurnUnit, r.ChurnUnit)
-	r.ChurnExponent = floatOr(s.ChurnExponent, r.ChurnExponent)
-	r.DeletionWeight = floatOr(s.DeletionWeight, r.DeletionWeight)
-	if s.Curve != "" {
-		r.Curve = s.Curve
-	}
-	r.ShrinkBonus = floatOr(s.ShrinkBonus, r.ShrinkBonus)
+	r.PieceLines = floatOr(s.PieceLines, r.PieceLines)
+	r.SizePoints = floatOr(s.SizePoints, r.SizePoints)
+	r.SizeFalloff = floatOr(s.SizeFalloff, r.SizeFalloff)
+	r.RemovalPointsPer100 = floatOr(s.RemovalPointsPer100, r.RemovalPointsPer100)
 	r.AttemptDecay = floatOr(s.AttemptDecay, r.AttemptDecay)
 	r.Approved = floatOr(s.Verdicts.Approved, r.Approved)
 	r.Commented = floatOr(s.Verdicts.Commented, r.Commented)
 	r.RequestedChanges = floatOr(s.Verdicts.RequestedChanges, r.RequestedChanges)
-	if len(s.Buckets) > 0 {
-		r.Buckets = s.Buckets
-	}
 	if s.UseGitattributes != nil {
 		r.UseGitattributes = *s.UseGitattributes
 	}
@@ -306,8 +302,37 @@ func (c Config) ValidateScoring() []string {
 	return problems
 }
 
+// retiredKeys are the dials of the previous ruleset and what to reach for
+// instead. Named rather than translated: the old shape could express policies
+// this one deliberately cannot, so a silent mapping would be a guess about
+// what somebody meant.
+func retiredKeys(s ScoringSettings) []string {
+	var found []string
+	for _, k := range []struct {
+		name string
+		set  bool
+		use  string
+	}{
+		{"base", s.Base != nil, "size_points"},
+		{"churn_unit", s.ChurnUnit != nil, "piece_lines"},
+		{"churn_exponent", s.ChurnExponent != nil, "size_falloff"},
+		{"deletion_weight", s.DeletionWeight != nil, "removal_points_per_100"},
+		{"shrink_bonus", s.ShrinkBonus != nil, "removal_points_per_100"},
+		{"curve", s.Curve != "", "size_falloff"},
+		{"buckets", len(s.Buckets) > 0, "piece_lines and size_falloff, which place the tiers"},
+	} {
+		if k.set {
+			found = append(found, fmt.Sprintf("%s is no longer read; use %s", k.name, k.use))
+		}
+	}
+	return found
+}
+
 func scoringProblems(prefix string, s ScoringSettings) []string {
 	var problems []string
+	for _, retired := range retiredKeys(s) {
+		problems = append(problems, prefix+"."+retired)
+	}
 	if s.Mode != "" && !ValidScoringMode(s.Mode) {
 		problems = append(problems, fmt.Sprintf("%s.mode is %q; valid: %s (reading it as %q meanwhile)",
 			prefix, s.Mode, strings.Join(ScoringModes, ", "), ScoringEnabled))

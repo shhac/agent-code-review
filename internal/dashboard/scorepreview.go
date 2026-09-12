@@ -31,9 +31,10 @@ const (
 
 // scorePreviewResp is one hypothetical PR, round by round.
 //
-// Churn, Bucket and Rate travel with the scores because the score alone does
-// not explain itself: the same line count scores very differently either side
-// of a tier, and the rate is the part a reader cannot infer.
+// The components travel with the scores because the total does not explain
+// itself: two PRs of the same length score very differently depending on which
+// way the lines went, and "size 47 plus removal 180" is the sentence that
+// makes that obvious.
 type scorePreviewResp struct {
 	// Repo is which ruleset priced this, echoed back because it decides the
 	// answer: a repo with its own scoring block is scored under that, and a
@@ -42,16 +43,16 @@ type scorePreviewResp struct {
 	Repo      string `json:"repo"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
-	// DeletionWeight travels with the counts so the page can show the
-	// ARITHMETIC rather than assert a total: "200 added plus 100 removed at
-	// 1.5x" is the definition of churn stated in the one place somebody is
-	// already asking where a number came from.
-	DeletionWeight float64             `json:"deletion_weight"`
-	Churn          float64             `json:"churn"`
-	Bucket         string              `json:"bucket"`
-	Rate           float64             `json:"rate"`
-	Rounds         []scorePreviewRound `json:"rounds"`
-	Total          int                 `json:"total"`
+	// The two halves of a score, sent apart so the page can show the working
+	// rather than assert a total. They are the whole model: what it cost to
+	// review, and what it was worth to the codebase.
+	Changed       int                 `json:"changed"`
+	NetRemoved    int                 `json:"net_removed"`
+	SizeReward    float64             `json:"size_reward"`
+	RemovalReward float64             `json:"removal_reward"`
+	Bucket        string              `json:"bucket"`
+	Rounds        []scorePreviewRound `json:"rounds"`
+	Total         int                 `json:"total"`
 }
 
 // scorePreviewRound is one review of that PR. Attempt is 1-based, matching
@@ -93,15 +94,16 @@ func (s *Server) scorePreview(q url.Values) (scorePreviewResp, error) {
 
 	repo := q.Get("repo")
 	rules := s.config().ResolveScoring(repo)
-	churn := rules.Churn(additions, deletions)
+	changed := additions + deletions
 	resp := scorePreviewResp{
-		Repo:           repo,
-		Additions:      additions,
-		Deletions:      deletions,
-		DeletionWeight: rules.DeletionWeight,
-		Churn:          churn,
-		Rate:           rules.Rate(churn),
-		Rounds:         make([]scorePreviewRound, 0, len(verdicts)),
+		Repo:          repo,
+		Additions:     additions,
+		Deletions:     deletions,
+		Changed:       changed,
+		NetRemoved:    max(deletions-additions, 0),
+		SizeReward:    rules.SizeReward(float64(changed)),
+		RemovalReward: rules.RemovalReward(float64(deletions - additions)),
+		Rounds:        make([]scorePreviewRound, 0, len(verdicts)),
 	}
 	for i, v := range verdicts {
 		got := score.Compute(rules, score.Input{

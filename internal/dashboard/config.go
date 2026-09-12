@@ -24,75 +24,51 @@ type configScoringResp struct {
 	// the raw document: what a review is actually scored under is what an
 	// operator needs, and the per-repo overrides mean the file alone does not
 	// say it.
-	Base             float64 `json:"base"`
-	ChurnUnit        float64 `json:"churn_unit"`
-	ChurnExponent    float64 `json:"churn_exponent"`
-	DeletionWeight   float64 `json:"deletion_weight"`
-	Approved         float64 `json:"approved"`
-	Commented        float64 `json:"commented"`
-	RequestedChanges float64 `json:"requested_changes"`
-	ShrinkBonus      float64 `json:"shrink_bonus"`
-	AttemptDecay     float64 `json:"attempt_decay"`
-	Curve            string  `json:"curve"`
-	UseGitattributes bool    `json:"use_gitattributes"`
-	ExcludePaths     int     `json:"exclude_paths"`
-	// Buckets is the size ladder, in match order. Sent because the base rate
-	// alone does not predict a score: the tier multiplies it, so a reader
-	// working out why their PR scored what it did needs to see where the
-	// boundaries fall.
-	Buckets []scoringBucketResp `json:"buckets"`
-	// Anchors is the same ladder as the CURVE it actually pays at, with the
-	// open-ended tier's derived control point included.
-	//
-	// Computed here rather than in the browser because that derivation is
-	// policy, not drawing: the dashboard charts this, and a chart that
-	// re-derived the tail in TypeScript would be a second opinion about what a
-	// tier is worth. score.Anchor is used as-is rather than mirrored into a
-	// resp type, so there is one shape to keep in step instead of two.
-	Anchors []score.Anchor `json:"anchors"`
+	PieceLines          float64 `json:"piece_lines"`
+	SizePoints          float64 `json:"size_points"`
+	SizeFalloff         float64 `json:"size_falloff"`
+	RemovalPointsPer100 float64 `json:"removal_points_per_100"`
+	Approved            float64 `json:"approved"`
+	Commented           float64 `json:"commented"`
+	RequestedChanges    float64 `json:"requested_changes"`
+	AttemptDecay        float64 `json:"attempt_decay"`
+	UseGitattributes    bool    `json:"use_gitattributes"`
+	ExcludePaths        int     `json:"exclude_paths"`
+	// Peak is the changed-line count that earns the most as a single PR. It is
+	// DERIVED from piece_lines and size_falloff rather than set, and it is the
+	// number people actually want ("how big should this PR be"), so the page
+	// should not have to work it out and get it subtly wrong.
+	Peak float64 `json:"peak"`
+	// Tiers are the labels a score is explained with, and where they fall.
+	// They follow the dials rather than being configured, so sending them
+	// keeps the page from carrying its own copy of the boundaries.
+	Tiers []score.Tier `json:"tiers"`
 	// ScopedRepos are the repos NOT described by the figures above: they
 	// narrow the policy with their own. Sent so the page can say so rather
-	// than presenting the global ladder as everybody's.
+	// than presenting the global policy as everybody's.
 	ScopedRepos []string `json:"scoped_repos"`
-}
-
-// scoringBucketResp is one size tier. MaxChurn 0 means the open-ended last one.
-type scoringBucketResp struct {
-	Name       string  `json:"name"`
-	MaxChurn   float64 `json:"max_churn"`
-	Multiplier float64 `json:"multiplier"`
 }
 
 // scoringResp resolves the scoring dials as reviews actually see them.
 func scoringResp(cfg config.Config) configScoringResp {
 	r := cfg.ResolveScoring("")
 	return configScoringResp{
-		Mode:               cfg.ScoringMode(""),
-		LeaderboardVisible: cfg.LeaderboardVisible(""),
-		Base:               r.Base,
-		ChurnUnit:          r.ChurnUnit,
-		ChurnExponent:      r.ChurnExponent,
-		DeletionWeight:     r.DeletionWeight,
-		Approved:           r.Approved,
-		Commented:          r.Commented,
-		RequestedChanges:   r.RequestedChanges,
-		ShrinkBonus:        r.ShrinkBonus,
-		AttemptDecay:       r.AttemptDecay,
-		Curve:              r.Curve,
-		Anchors:            r.Anchors(),
-		ScopedRepos:        cfg.ScoringScopedRepos(),
-		UseGitattributes:   r.UseGitattributes,
-		ExcludePaths:       len(r.ExcludePaths),
-		Buckets:            scoringBuckets(r.Buckets),
+		Mode:                cfg.ScoringMode(""),
+		LeaderboardVisible:  cfg.LeaderboardVisible(""),
+		PieceLines:          r.PieceLines,
+		SizePoints:          r.SizePoints,
+		SizeFalloff:         r.SizeFalloff,
+		RemovalPointsPer100: r.RemovalPointsPer100,
+		Approved:            r.Approved,
+		Commented:           r.Commented,
+		RequestedChanges:    r.RequestedChanges,
+		AttemptDecay:        r.AttemptDecay,
+		Peak:                r.Peak(),
+		Tiers:               r.Tiers(),
+		ScopedRepos:         cfg.ScoringScopedRepos(),
+		UseGitattributes:    r.UseGitattributes,
+		ExcludePaths:        len(r.ExcludePaths),
 	}
-}
-
-func scoringBuckets(bs []score.Bucket) []scoringBucketResp {
-	out := make([]scoringBucketResp, 0, len(bs))
-	for _, b := range bs {
-		out = append(out, scoringBucketResp{Name: b.Name, MaxChurn: b.MaxChurn, Multiplier: b.Multiplier})
-	}
-	return out
 }
 
 type configRepoResp struct {

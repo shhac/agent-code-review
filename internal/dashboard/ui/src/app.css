@@ -512,35 +512,6 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
   font: inherit; font-size: 12px; padding: 3px 6px; border-radius: 6px;
   border: 1px solid var(--line); background: var(--surface-warm); color: var(--ink);
 }
-.tier-edit { width: 100%; border-collapse: collapse; font-size: 12px; }
-.tier-edit th {
-  text-align: left; padding-bottom: 4px; color: var(--faint);
-  font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
-}
-.tier-edit td { padding: 2px 6px 2px 0; border-top: 1px solid var(--line); }
-.tier-edit td.x { width: 26px; padding-right: 0; text-align: right; }
-.tier-edit input {
-  font: inherit; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px;
-  width: 100%; min-width: 0; padding: 3px 4px; border-radius: 4px;
-  border: 1px solid transparent; background: transparent; color: var(--ink);
-}
-.tier-edit input:hover:enabled { border-color: var(--line); }
-.tier-edit input:disabled { color: var(--faint); }
-.tier-edit .kill {
-  padding: 2px 4px; border: 0; border-radius: 0; background: none; color: var(--faint); cursor: pointer;
-}
-.tier-edit .kill:hover { color: var(--bad-ink); transform: none; }
-/* The ladder's own mistakes, said next to the field that caused them. The
-   daemon reports them too, in the validator's words, at the top of the other
-   column. */
-.ladder-note {
-  margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
-  border: 1px solid var(--warn-ink); background: var(--surface-warm); color: var(--warn-ink);
-}
-.shape .add-tier {
-  justify-self: start; padding: 5px 10px; font-size: 12px; border-radius: 6px;
-  border: 1px solid var(--line); background: var(--surface-warm); color: var(--ink); cursor: pointer;
-}
 .probe-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .probe {
   flex: 1 1 120px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-warm);

@@ -194,59 +194,56 @@ export type ConfigRepo = {
   unlisted_group?: string;
 };
 
-// One size tier of the scoring ladder, and how its multiplier is read across
-// that tier's range.
-export type ScoreBucket = { name: string; max_churn: number; multiplier: number };
-export type ScoreCurveMode = 'step' | 'linear';
-// A control point of the size curve, computed daemon-side: the churn at which
-// a tier's multiplier applies exactly, including the derived one standing in
-// for the open-ended tier.
-export type ScoreAnchor = { churn: number; multiplier: number };
+// One tier label and the changed-line count it runs to. Labels now: they
+// explain a score rather than decide it, and their boundaries follow the
+// dials. up_to 0 is the open-ended last one.
+export type ScoreTier = { name: string; up_to?: number };
+
+// One hypothetical PR, priced by the daemon. The two rewards travel apart
+// because a total that does not decompose is a number to take on faith:
+// internal/dashboard/scorepreview.go.
+export type ScorePreview = {
+  repo: string;
+  additions: number;
+  deletions: number;
+  changed: number;
+  net_removed: number;
+  size_reward: number;
+  removal_reward: number;
+  bucket: string;
+  rounds: { attempt: number; verdict: string; score: number }[];
+  total: number;
+};
 
 // One candidate scoring policy, surveyed by the daemon: what every PR shape
 // would earn under it, and what that policy therefore pays for.
 export type ScoreSimulation = {
-  anchors: ScoreAnchor[];
+  peak: number;
+  tiers: ScoreTier[];
+  curve: { changed: number; points: number }[];
   grids: { rounds: number; step: number; cells: number[][] }[];
   max: number;
   probes: { lines: number; score: number }[];
-  peak: { lines: number; score: number };
+  best_pr: { lines: number; score: number };
   fragment: { lines: number; whole: number; split: number; gain: number };
-  // Null when a tier pays nothing, which makes the ratio unbounded.
-  rate_spread: number | null;
-};
-
-// One hypothetical PR, priced by the daemon's own scorer. The arithmetic is
-// deliberately not repeated in the browser: see internal/dashboard/scorepreview.go.
-export type ScorePreview = {
-  additions: number;
-  deletions: number;
-  deletion_weight: number;
-  churn: number;
-  bucket: string;
-  rate: number;
-  rounds: { attempt: number; verdict: string; score: number }[];
-  total: number;
 };
 
 export type ConfigResponse = {
   scoring: {
     mode: ScoringMode;
     leaderboard_visible: boolean;
-    base: number;
-    churn_unit: number;
-    churn_exponent: number;
-    deletion_weight: number;
+    piece_lines: number;
+    size_points: number;
+    size_falloff: number;
+    removal_points_per_100: number;
     approved: number;
     commented: number;
     requested_changes: number;
-    shrink_bonus: number;
     attempt_decay: number;
-    curve: ScoreCurveMode;
     use_gitattributes: boolean;
     exclude_paths: number;
-    buckets: ScoreBucket[];
-    anchors: ScoreAnchor[];
+    peak: number;
+    tiers: ScoreTier[];
     scoped_repos: string[];
   };
   workspace_retention: string;

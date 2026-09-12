@@ -8,7 +8,6 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/score"
 )
 
 var (
@@ -160,18 +159,14 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) **int { return &c.Schedule.UsageFloor.WeeklyPercent }, 0, 100)),
 		static(stringKey("scoring.mode", "Global scoring switch: enabled (measure and score), leaderboard-only (stop measuring, keep showing the standings), disabled (also hide the leaderboard)",
 			func(c *config.Config) *string { return &c.Scoring.Mode }, validateOneOf("scoring mode", config.ScoringModes)), config.ScoringModes),
-		plain(optionalFloatKey("scoring.base", "Points a mid-sized, first-pass approved PR is worth before multipliers (default 100)",
-			func(c *config.Config) **float64 { return &c.Scoring.Base }, 0.0001, 1e6)),
-		static(stringKey("scoring.curve", "How a size tier's multiplier applies: linear (the default: anchors the multiplier moves smoothly between) or step (one flat rate per tier, with a cliff at each boundary)",
-			func(c *config.Config) *string { return &c.Scoring.Curve }, validateOneOf("curve", score.Curves)), score.Curves),
-		plain(optionalFloatKey("scoring.churn_unit", "How many lines scoring.base pays for (default 80), so base is points per unit of work rather than a flat fee per PR",
-			func(c *config.Config) **float64 { return &c.Scoring.ChurnUnit }, 0.0001, 1e6)),
-		plain(optionalFloatKey("scoring.churn_exponent", "How much of a score follows sheer volume (default 0.15): 1 is proportional, below 1 the same solve in fewer lines is worth more, 0 is a flat fee per PR",
-			func(c *config.Config) **float64 { return &c.Scoring.ChurnExponent }, 0, 4)),
-		plain(optionalFloatKey("scoring.deletion_weight", "How much a removed line counts toward size vs an added one (default 1.5; deleting is the cheapest way to earn)",
-			func(c *config.Config) **float64 { return &c.Scoring.DeletionWeight }, 0, 10)),
-		plain(optionalFloatKey("scoring.shrink_bonus", "Multiplier when a PR is net-negative (default 1.2). Only ever a bonus: it never deepens a penalty",
-			func(c *config.Config) **float64 { return &c.Scoring.ShrinkBonus }, 0, 10)),
+		plain(optionalFloatKey("scoring.piece_lines", "Changed lines that earn the most points PER LINE (default 50): the size to aim for when splitting a large change into a stack",
+			func(c *config.Config) **float64 { return &c.Scoring.PieceLines }, 1, 1e6)),
+		plain(optionalFloatKey("scoring.size_points", "The most a single PR can earn for its size alone (default 100), which sets the scale of the whole board",
+			func(c *config.Config) **float64 { return &c.Scoring.SizePoints }, 0.0001, 1e6)),
+		plain(optionalFloatKey("scoring.size_falloff", "How sharply a PR stops being worth more as it grows (default 3; must be above 2, higher widens the gap between a stack and one big PR)",
+			func(c *config.Config) **float64 { return &c.Scoring.SizeFalloff }, 2.0001, 12)),
+		plain(optionalFloatKey("scoring.removal_points_per_100", "Points for a hundred NET removed lines (default 20), paid on top of the size reward and independent of it",
+			func(c *config.Config) **float64 { return &c.Scoring.RemovalPointsPer100 }, 0, 1e6)),
 		plain(optionalFloatKey("scoring.attempt_decay", "Per-revision decay, so a first-pass approval beats the same approval after rounds of comments (default 0.6; must be under 1)",
 			func(c *config.Config) **float64 { return &c.Scoring.AttemptDecay }, 0.0001, 0.9999)),
 		plain(optionalFloatKey("scoring.verdicts.approved", "Multiplier for an approval (default 1.0)",

@@ -26,17 +26,20 @@ test.describe('the tabs split the page by who is asking', () => {
   });
 });
 
-test.describe('score tiers', () => {
+test.describe('score shape', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/config');
     await page.getByRole('tab', { name: 'Settings' }).click();
     await expect(page.locator('.tier-table tbody tr').first()).toBeVisible();
   });
 
-  test('states every tier the chart draws', async ({ page }) => {
-    const names = await page.locator('.tier-table tbody tr td:first-child').allTextContents();
-    const bands = await page.locator('.curve .band').allTextContents();
-    expect(names).toEqual(bands.map((b) => b.trim()));
+  // The two sizes the whole policy is built around. They are DERIVED from the
+  // dials, so the page must not be working them out for itself.
+  test('states the two sizes the policy is built around', async ({ page }) => {
+    const summary = page.locator('.shape-summary');
+    await expect(summary).toContainText('50 changed lines');
+    await expect(summary).toContainText('200 changed lines');
+    await expect(summary).toContainText('100 points');
   });
 
   test('quotes the open-ended tier without an upper bound', async ({ page }) => {
@@ -52,22 +55,20 @@ test.describe('score calculator', () => {
     await expect(page.locator('.calc-total')).toBeVisible();
   });
 
-  test('prices a PR the way the scorer does', async ({ page }) => {
-    // 200 added and 100 removed is 350 churn once a removal weighs 1.5, which
-    // is inside "large" and paid at 0.88x on the way down. The figures come
-    // from the daemon, so this pins that the page is showing its answer and
-    // not an estimate of its own.
-    await expect(page.locator('.calc-total')).toContainText('+110');
-    await expect(page.locator('.calc-why')).toContainText('350');
+  test('prices a PR the way the scorer does, and shows both halves', async ({ page }) => {
+    // 100 added and 200 removed is 300 changed lines, past the 200-line peak,
+    // plus 100 net removed. The figures come from the daemon, so this pins
+    // that the page is showing its answer rather than an estimate of its own,
+    // and that a total which does not decompose is never shown alone.
+    await expect(page.locator('.calc-total')).toContainText('+115');
+    await expect(page.locator('.calc-why')).toContainText('300');
     await expect(page.locator('.calc-why')).toContainText('large');
-    // Churn is the one term this tab leans on everywhere and defines nowhere,
-    // so the working is shown rather than just the total.
-    await expect(page.locator('.calc-why')).toContainText('1.5x');
+    await expect(page.locator('.calc-why')).toContainText('100 net lines removed');
   });
 
   test('turns negative when the verdict costs points', async ({ page }) => {
     await page.locator('.calc select').last().selectOption('REQUESTED_CHANGES');
-    await expect(page.locator('.calc-total')).toContainText('-27');
+    await expect(page.locator('.calc-total')).toContainText('-24');
     await expect(page.locator('.calc-total.bad')).toBeVisible();
   });
 
@@ -99,17 +100,17 @@ test.describe('score shape', () => {
   test('opens on the running policy and answers the tighter-solve question', async ({ page }) => {
     await expect(page.locator('.shape-state')).toContainText('running');
     const scores = await page.locator('.shape .probe b').allTextContents();
-    expect(scores.map(Number)).toEqual([190, 158, 135]);
+    expect(scores.map(Number)).toEqual([100, 86, 71]);
     await expect(page.locator('.probe-state')).toHaveText('tighter wins');
   });
 
   test('re-surveys when a dial moves, and says it is a draft', async ({ page }) => {
-    // The exponent back at 1 is the old proportional policy, where a bigger
-    // PR always earns more: the ordering must flip.
-    await page.locator('#dial-churn_exponent').fill('1');
-    await page.locator('#dial-churn_exponent').dispatchEvent('input');
+    // A piece size of 400 lines moves the peak out past every probe, so the
+    // biggest of the three becomes the best-paid: the ordering must flip.
+    await page.locator('#dial-piece_lines').fill('400');
+    await page.locator('#dial-piece_lines').dispatchEvent('input');
     await expect(page.locator('.probe-state')).toHaveText('bigger wins');
-    await expect(page.locator('.shape-state')).toContainText('churn_exponent');
+    await expect(page.locator('.shape-state')).toContainText('piece_lines');
 
     await page.getByRole('button', { name: 'reset' }).click();
     await expect(page.locator('.probe-state')).toHaveText('tighter wins');
@@ -118,10 +119,9 @@ test.describe('score shape', () => {
   test('hands back a config block for the policy on screen', async ({ page }) => {
     const json = JSON.parse(await page.locator('.policy-json').textContent() ?? '{}');
     expect(Object.keys(json)).toEqual(['scoring']);
-    expect(json.scoring.churn_exponent).toBe(0.15);
-    // The open-ended tier omits max_churn, which is what the format means by
-    // open-ended; a 0 would read as a tier covering nothing.
-    expect(json.scoring.buckets.at(-1)).not.toHaveProperty('max_churn');
+    expect(json.scoring).toEqual({
+      piece_lines: 50, size_points: 100, size_falloff: 3, removal_points_per_100: 20,
+    });
   });
 });
 
@@ -148,24 +148,4 @@ test.describe('the tab strip', () => {
   });
 });
 
-// Where a tier sits is decided by its bound, so the table orders itself and
-// nobody has to drag anything.
-test('a new tier lands where its bound puts it', async ({ page }) => {
-  await page.goto('/config');
-  await page.getByRole('tab', { name: 'Score tuning' }).click();
-  await expect(page.locator('.tier-edit tbody tr')).toHaveCount(5);
 
-  await page.getByRole('button', { name: '+ tier' }).click();
-  await expect(page.locator('.tier-edit tbody tr')).toHaveCount(6);
-
-  // 120 belongs between small (50) and medium (250), not at the end where it
-  // was added.
-  const added = page.locator('.tier-edit tbody tr').nth(4).locator('input[type=number]').first();
-  await added.fill('120');
-  await added.blur();
-
-  const order = await page.locator('.tier-edit tbody tr').evaluateAll((rows) =>
-    rows.map((r) => (r.querySelectorAll('input')[1] as HTMLInputElement).value),
-  );
-  expect(order).toEqual(['10', '50', '120', '250', '1000', 'open']);
-});

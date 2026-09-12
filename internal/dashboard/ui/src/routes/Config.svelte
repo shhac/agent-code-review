@@ -1,6 +1,6 @@
 <script lang="ts">
   import { codeSpans, scoringDialsShown, settingsGroups } from '../lib/configview';
-  import { tierRows } from '../lib/scorecurve';
+  import { tierRanges } from '../lib/scoreshape';
   import { toggleIn } from '../lib/expandable';
   import { onMount } from 'svelte';
   import { getAuthors, getConfig } from '../lib/api';
@@ -8,7 +8,6 @@
   import PromptBox from '../lib/PromptBox.svelte';
   import ScoreCalculator from '../lib/ScoreCalculator.svelte';
   import ScoreShape from '../lib/ScoreShape.svelte';
-  import ScoreCurve from '../lib/ScoreCurve.svelte';
   import type { AllowedAuthor, ConfigResponse } from '../lib/types';
 
 
@@ -64,7 +63,7 @@
     ['Effort', a.policy?.effort || 'inherits the engine default'],
   ];
   $: groups = settingsGroups(configData);
-  $: tiers = tierRows(configData?.scoring.buckets ?? []);
+  $: tiers = tierRanges(configData?.scoring.tiers ?? []);
 
   // Three pages' worth of panels, split by who is asking. The roster is the
   // people config; settings and the ladder are what the reviewer will do with
@@ -143,12 +142,8 @@
     {#if scoringDialsShown(configData)}
       <section class="surface">
         <div class="section-head">
-          <h2>Score tiers</h2>
-          <span>
-            {configData.scoring.curve === 'linear'
-              ? 'each rate applies at its own boundary, ramping between'
-              : 'each rate applies flat across its whole tier'}
-          </span>
+          <h2>Score shape</h2>
+          <span>what a PR earns for its shape</span>
         </div>
         {#if configData.scoring.scoped_repos.length}
           <p class="scoped-note">
@@ -157,12 +152,17 @@
           </p>
         {/if}
         <div class="tier-panel">
-          <ScoreCurve buckets={configData.scoring.buckets} anchors={configData.scoring.anchors} curve={configData.scoring.curve} />
+          <dl class="shape-summary">
+            <div><dt>Best piece size</dt><dd>{configData.scoring.piece_lines} changed lines</dd></div>
+            <div><dt>Best single PR</dt><dd>{Math.round(configData.scoring.peak)} changed lines</dd></div>
+            <div><dt>Worth, at the peak</dt><dd>{configData.scoring.size_points} points</dd></div>
+            <div><dt>Removing code</dt><dd>{configData.scoring.removal_points_per_100} points per 100 net lines</dd></div>
+          </dl>
           <table class="tier-table">
-            <thead><tr><th>Tier</th><th>Churn</th><th>Rate</th></tr></thead>
+            <thead><tr><th>Tier</th><th>Changed lines</th></tr></thead>
             <tbody>
               {#each tiers as t}
-                <tr><td>{t.name}</td><td class="mono">{t.range}</td><td class="mono">{t.rate}</td></tr>
+                <tr><td>{t.name}</td><td class="mono">{t.range}</td></tr>
               {/each}
             </tbody>
           </table>

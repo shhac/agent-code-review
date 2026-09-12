@@ -22,8 +22,8 @@ func TestDeriveScoreFreezesTheRecord(t *testing.T) {
 	if !ok {
 		t.Fatal("a clean review should be scorable")
 	}
-	if got.Points() != 139 {
-		t.Errorf("score = %d, want 139", got.Points())
+	if got.Points() != 50 {
+		t.Errorf("score = %d, want 50", got.Points())
 	}
 	if got.Source != ScoreDerived || got.Rules != rules.Hash() {
 		t.Errorf("provenance = %+v, want derived under the current ruleset", got)
@@ -115,7 +115,7 @@ func TestDeriveScoreAppliesTheAttemptDecay(t *testing.T) {
 func TestDeriveScoreRecordsTheRulesetItUsed(t *testing.T) {
 	r := reviewAt("sha", "sha", VerdictApproved, 40, 10)
 	tuned := score.DefaultRules()
-	tuned.Base = 250
+	tuned.SizePoints = 250
 
 	base, _ := DeriveScore(score.DefaultRules(), ScoreContext{Attempt: 1}, r, time.Now())
 	other, _ := DeriveScore(tuned, ScoreContext{Attempt: 1}, r, time.Now())

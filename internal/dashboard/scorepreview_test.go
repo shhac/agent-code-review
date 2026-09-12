@@ -17,10 +17,9 @@ func preview(t *testing.T, query string) (int, scorePreviewResp) {
 		http.MethodGet, "/api/score/preview?"+query, "")
 }
 
-// The preview must be the scorer's own answer, not a lookalike. This is the
-// worked example from internal/score: +40/-10 is 55 churn once removals weigh
-// 1.5, which is just past the "small" anchor, so it is paid at 1.47x on the
-// way down rather than at any tier's flat figure.
+// The preview must be the scorer's own answer, not a lookalike, and it must
+// hand back the two halves it is made of: a total that does not decompose is
+// a number somebody has to take on faith.
 func TestScorePreviewMatchesTheScorer(t *testing.T) {
 	code, resp := preview(t, "additions=40&deletions=10&verdicts=APPROVED")
 	if code != http.StatusOK {
@@ -35,16 +34,14 @@ func TestScorePreviewMatchesTheScorer(t *testing.T) {
 	if resp.Bucket != want.Bucket {
 		t.Errorf("bucket = %q, want %q", resp.Bucket, want.Bucket)
 	}
-	if resp.Churn != 55 {
-		t.Errorf("churn = %v, want 55: deletions weighed at the configured 1.5", resp.Churn)
+	if resp.Changed != 50 || resp.NetRemoved != 0 {
+		t.Errorf("changed = %d, net removed = %d; want 50 changed and nothing net removed", resp.Changed, resp.NetRemoved)
 	}
-	// The weight rides along so the page can show the working. Churn is the
-	// one term on that page nothing else defines.
-	if resp.DeletionWeight != 1.5 {
-		t.Errorf("deletion weight = %v, want the 1.5 the churn was computed with", resp.DeletionWeight)
-	}
-	if resp.Rate < 1.46 || resp.Rate > 1.48 {
-		t.Errorf("rate = %v, want the interpolated ~1.47x rather than a tier's flat figure", resp.Rate)
+	// The halves must add up to the total, or the page's explanation is not an
+	// explanation of the number beside it.
+	rules := score.DefaultRules()
+	if resp.SizeReward != rules.SizeReward(50) || resp.RemovalReward != 0 {
+		t.Errorf("components = %v + %v, want score's own", resp.SizeReward, resp.RemovalReward)
 	}
 }
 
@@ -112,9 +109,9 @@ func TestScorePreviewIsReadOnly(t *testing.T) {
 // A repo scored under its own rules must preview under those rules, or the
 // calculator quietly answers for a policy that repo does not use.
 func TestScorePreviewHonoursARepoOverride(t *testing.T) {
-	half := 0.5
+	half := 50.0
 	s := testServer(withConfig(config.Config{Scoring: config.ScoringSettings{
-		Repos: map[string]config.ScoringSettings{"o/thrifty": {Base: &half}},
+		Repos: map[string]config.ScoringSettings{"o/thrifty": {SizePoints: &half}},
 	}}))
 	code, scoped := serveJSON[scorePreviewResp](t, s.handleScorePreview, http.MethodGet,
 		"/api/score/preview?additions=40&deletions=10&repo=o/thrifty", "")

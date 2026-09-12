@@ -17,14 +17,16 @@ const cfg = (over: Partial<ConfigResponse> = {}) =>
     workspace_retention: '720h0m0s',
     scoring: {
       mode: 'enabled', leaderboard_visible: true,
-      base: 100, churn_unit: 50, deletion_weight: 0.5,
+      piece_lines: 50, size_points: 100, size_falloff: 3, removal_points_per_100: 20,
       approved: 1, commented: 0.25, requested_changes: -0.25,
-      shrink_bonus: 1.2, attempt_decay: 0.6,
-      curve: 'linear', use_gitattributes: true, exclude_paths: 0,
-      buckets: [
-        { name: 'tiny', max_churn: 10, multiplier: 1 },
-        { name: 'small', max_churn: 50, multiplier: 1.5 },
-        { name: 'huge', max_churn: 0, multiplier: 0.2 },
+      attempt_decay: 0.4, use_gitattributes: true, exclude_paths: 0,
+      peak: 200, scoped_repos: [],
+      tiers: [
+        { name: 'tiny', up_to: 12.5 },
+        { name: 'small', up_to: 50 },
+        { name: 'medium', up_to: 200 },
+        { name: 'large', up_to: 1000 },
+        { name: 'huge' },
       ],
     },
     ...over,
@@ -79,15 +81,11 @@ describe('settingsGroups', () => {
 });
 
 describe('scoring cluster', () => {
-  it('states the dials as a rate, which is the question people arrive with', () => {
+  it('states what a review is worth, not which field it came from', () => {
     const c = cells(settingsGroups(cfg()));
-    // The per-line rate, not base-per-unit: the latter invites the reader to
-    // expect 50 lines to score 100, when 50 lines lands in a 1.5x tier.
-    expect(c['Base rate']).toBe('`2` points per line of churn, before the size multiplier');
-    expect(c['Deletion weight']).toContain('`0.5x` an added one');
     expect(c['Verdicts']).toContain('approve `1x`');
     expect(c['Verdicts']).toContain('changes `-0.25x`');
-    expect(c['Revision decay']).toContain('`0.6x`');
+    expect(c['Revision decay']).toContain('`0.4x`');
   });
 
   // When scoring is off, every other dial is moot: showing eight rows that do
@@ -170,7 +168,7 @@ describe('settings values carry their machine parts as code', () => {
     expect(coded('Re-review cooldown')).toEqual(['90m']);
     expect(coded('Max parallel')).toEqual(['4']);
     expect(coded('Verdicts')).toEqual(['1x', '0.25x', '-0.25x']);
-    expect(coded('Base rate')).toEqual(['2']);
+    expect(coded('Best piece size')).toEqual(['50']);
   });
 
   // "disabled" and "kept forever" are prose, not values: wrapping them would
@@ -199,22 +197,24 @@ describe('scoringDialsShown owns when there is a policy to explain', () => {
 
   it('is the same rule the settings table uses', () => {
     const c = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, mode: 'disabled' } })));
-    expect(Object.keys(c)).not.toContain('Size curve');
+    expect(Object.keys(c)).not.toContain('Best piece size');
   });
 });
 
-describe('the settings panel names the curve and leaves the ladder to the chart', () => {
-  // The ladder is a table beside its chart now. Restating it here as a run-on
-  // sentence made the reader compare two renderings of the same five numbers,
-  // and the settings cluster is 150px wide.
-  it('names which curve is in force, briefly', () => {
-    for (const curve of ['linear', 'step'] as const) {
-      const c = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, curve } })));
-      expect(c['Size curve']).toBe(`\`${curve}\` (see Score tiers)`);
-    }
+describe('the settings panel states the questions, not the dials', () => {
+  // "piece_lines: 50" is where you would type it; "the size that earns the
+  // most per line" is what you are choosing. The panel says the second.
+  it('names the two sizes the policy is built around', () => {
+    const c = cells(settingsGroups(cfg()));
+    expect(c['Best piece size']).toContain('`50`');
+    expect(c['Best piece size']).toContain('per line');
+    expect(c['Best single PR']).toContain('`200`');
+    expect(c['Best single PR']).toContain('`100`');
   });
 
-  it('no longer lists the tiers', () => {
-    expect(Object.keys(cells(settingsGroups(cfg())))).not.toContain('Size tiers');
+  it('says when removing code earns nothing extra', () => {
+    const off = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, removal_points_per_100: 0 } })));
+    expect(off['Removing code']).toBe('earns nothing beyond the size reward');
+    expect(cells(settingsGroups(cfg()))['Removing code']).toContain('`0.2`');
   });
 });

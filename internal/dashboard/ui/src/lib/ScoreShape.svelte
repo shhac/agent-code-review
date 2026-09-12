@@ -1,7 +1,7 @@
 <script lang="ts">
   import { simulateScoring } from './api';
-  import ScoreCurve from './ScoreCurve.svelte';
-  import { changedFrom, heatColor, ladderProblem, policyDoc, policyJSON, policyOf, rampCSS, sortTiers, type Policy } from './scoreshape';
+  import ScoreRewardCurve from './ScoreRewardCurve.svelte';
+  import { changedFrom, heatColor, policyJSON, policyOf, rampCSS, tierRanges, type Policy } from './scoreshape';
   import type { ConfigResponse, ScoreSimulation } from './types';
 
   export let config: ConfigResponse;
@@ -17,11 +17,9 @@
   let error = '';
 
   $: changed = changedFrom(policy, live);
-  $: ladderNote = ladderProblem(policy.buckets);
-  $: ordered = sim ? sim.probes.every((p, i) => i === 0 || sim!.probes[i - 1].score > p.score) : false;
 
-  // Same contract as the calculator: the token is taken the moment the policy
-  // changes, so an answer to the previous policy can never land under the new
+  // The token is taken the moment the policy changes, not when the request
+  // goes out, so an answer to the previous policy can never land under the new
   // dials.
   let timer: ReturnType<typeof setTimeout> | undefined;
   let asked = 0;
@@ -35,23 +33,17 @@
 
   async function run(mine: number) {
     try {
-      const got = await simulateScoring(policyDoc(policy), range, CELLS);
+      const got = await simulateScoring(policy, range, CELLS);
       if (mine !== asked) return;
       sim = got;
       error = '';
     } catch (e) {
       if (mine !== asked) return;
-      // The last good survey stays on screen, dimmed. Half-typed numbers pass
+      // The last good survey stays on screen, dimmed: half-typed numbers pass
       // through states the daemon will not resolve, and blanking the panel
-      // every time takes away the picture being edited against.
+      // takes away the picture being edited against.
       error = e instanceof Error ? e.message : String(e);
     }
-  }
-
-  // Committed, not on every keystroke: sorting as the digits arrive would send
-  // a row intended for 150 to the top of the ladder the moment it read 1.
-  function commitTiers() {
-    policy = { ...policy, buckets: sortTiers(policy.buckets) };
   }
 
   // Painting is the only thing this panel does with the numbers. Every one of
@@ -86,21 +78,6 @@
   const marks = (n: number) => [0, n / 4, n / 2, (n * 3) / 4, n].map(Math.round);
   const fmt = (n: number, d = 2) => n.toFixed(d);
 
-  function addTier() {
-    const tiers = policy.buckets;
-    const prev = tiers.length > 1 ? tiers[tiers.length - 2].max_churn : 10;
-    tiers.splice(tiers.length - 1, 0, {
-      name: `tier${tiers.length}`,
-      max_churn: Math.round(prev * 2) || 20,
-      multiplier: tiers[tiers.length - 1].multiplier * 2,
-    });
-    policy = { ...policy, buckets: sortTiers(tiers) };
-  }
-
-  function dropTier(i: number) {
-    policy = { ...policy, buckets: policy.buckets.filter((_, n) => n !== i) };
-  }
-
   let copied = false;
   async function copyJSON() {
     try {
@@ -112,16 +89,18 @@
     }
   }
 
-  const dials: { key: keyof Policy; label: string; min: number; max: number; step: number; hint?: string }[] = [
-    { key: 'churn_exponent', label: 'Size exponent', min: 0, max: 1, step: 0.05,
-      hint: 'How much of a score follows sheer volume. At 1 a bigger PR always earns more. Below it, the same solve in fewer lines is worth more.' },
-    { key: 'base', label: 'Base', min: 10, max: 600, step: 10, hint: 'Points for one full churn unit at 1x.' },
-    { key: 'churn_unit', label: 'Churn unit', min: 10, max: 200, step: 5,
-      hint: 'How many lines of churn the base pays for.' },
-    { key: 'deletion_weight', label: 'Deletion weight', min: 0, max: 3, step: 0.1,
-      hint: 'What a removed line counts, against an added one: churn = added + removed x this. Above 1 a removal counts for more, which moves a big deletion up the ladder into a worse rate.' },
-    { key: 'shrink_bonus', label: 'Shrink bonus', min: 1, max: 2, step: 0.05, hint: 'Applied when the PR is net-negative.' },
-    { key: 'attempt_decay', label: 'Revision decay', min: 0.05, max: 0.95, step: 0.05 },
+  // Four dials, each phrased as the question it answers. The old ruleset had
+  // eight and a ladder, and the reason this panel needed heatmaps to be
+  // understood at all was that no single dial meant anything on its own.
+  const dials: { key: keyof Policy; label: string; min: number; max: number; step: number; hint: string }[] = [
+    { key: 'piece_lines', label: 'Best piece size', min: 5, max: 400, step: 5,
+      hint: 'Changed lines that earn the most points PER LINE: the size to aim for when splitting a large change into a stack.' },
+    { key: 'size_points', label: 'Points at the peak', min: 10, max: 600, step: 10,
+      hint: 'The most a single PR can earn for its size. Sets the scale of the board and nothing else.' },
+    { key: 'size_falloff', label: 'Size falloff', min: 2.1, max: 8, step: 0.1,
+      hint: 'How sharply a PR stops being worth more as it grows. Higher widens the gap between a stack of well-sized PRs and one enormous one.' },
+    { key: 'removal_points_per_100', label: 'Removal, per 100 lines', min: 0, max: 100, step: 5,
+      hint: 'Points for a hundred NET removed lines, paid on top of the size reward. Set it to 0 to stop paying for deletions.' },
   ];
 </script>
 
@@ -139,7 +118,7 @@
     {#each dials as d}
       <div class="dial">
         <label for={`dial-${d.key}`}>{d.label}</label>
-        <output>{fmt(policy[d.key] as number, d.step < 0.1 ? 2 : d.step < 1 ? 2 : 0)}</output>
+        <output>{fmt(policy[d.key], d.step < 1 ? 1 : 0)}</output>
         <input
           id={`dial-${d.key}`}
           type="range"
@@ -149,64 +128,21 @@
           value={policy[d.key]}
           on:input={(e) => (policy = { ...policy, [d.key]: Number(e.currentTarget.value) })}
         />
-        {#if d.hint}<p class="hint">{d.hint}</p>{/if}
+        <p class="hint">{d.hint}</p>
       </div>
     {/each}
 
-    <div class="dial">
-      <label for="dial-curve">Curve</label>
-      <output>
-        <select id="dial-curve" bind:value={policy.curve}>
-          <option value="linear">linear</option>
-          <option value="step">step</option>
-        </select>
-      </output>
-    </div>
-
-    <table class="tier-edit">
-      <thead><tr><th>Tier</th><th>Max churn</th><th>Rate</th><th></th></tr></thead>
-      <tbody>
-        {#each policy.buckets as b, i}
-          <tr>
-            <td><input id={`tier-name-${i}`} aria-label="tier name" bind:value={b.name} on:input={() => (policy = policy)} /></td>
-            <td>
-              {#if i === policy.buckets.length - 1}
-                <!-- The catch-all has no bound to edit. Showing its stored 0
-                     would read as a tier covering nothing. -->
-                <input id={`tier-max-${i}`} aria-label="max churn" value="open" disabled />
-              {:else}
-                <input
-                  id={`tier-max-${i}`}
-                  aria-label="max churn"
-                  type="number"
-                  min="1"
-                  bind:value={b.max_churn}
-                  on:input={() => (policy = policy)}
-                  on:change={commitTiers}
-                />
-              {/if}
-            </td>
-            <td><input id={`tier-rate-${i}`} aria-label="rate" type="number" step="0.05" bind:value={b.multiplier} on:input={() => (policy = policy)} /></td>
-            <td class="x">
-              {#if policy.buckets.length > 2}
-                <button class="kill" title="Remove this tier" on:click={() => dropTier(i)}>&times;</button>
-              {/if}
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-    <button class="add-tier" on:click={addTier}>+ tier</button>
-    {#if ladderNote}
-      <p class="ladder-note">{ladderNote}</p>
+    {#if sim}
+      <table class="tier-table">
+        <thead><tr><th>Tier</th><th>Changed lines</th></tr></thead>
+        <tbody>
+          {#each tierRanges(sim.tiers) as t}
+            <tr><td>{t.name}</td><td class="mono">{t.range}</td></tr>
+          {/each}
+        </tbody>
+      </table>
+      <p class="hint">Labels, not dials. They follow the two sizes above, so a score always explains itself against the policy you set.</p>
     {/if}
-    <p class="hint">
-      Tiers sort themselves by max churn when you leave the field, so a new one
-      lands where its bound puts it. The last row is the catch-all: it has no
-      max churn, which is what <code>open</code> means, and only it may.
-      To say a PR is too small to be worth points, give the first tier a
-      <b>rate</b> of <code>0</code>.
-    </p>
   </div>
 
   <div class="shape-output">
@@ -221,8 +157,17 @@
             <b>{p.score}</b><span>+{p.lines} / -{p.lines}</span>
           </div>
         {/each}
-        <span class="probe-state" class:bad={!ordered}>{ordered ? 'tighter wins' : 'bigger wins'}</span>
+        <span class="probe-state" class:bad={!(sim.probes[0].score > sim.probes[1].score && sim.probes[1].score > sim.probes[2].score)}>
+          {sim.probes[0].score > sim.probes[1].score && sim.probes[1].score > sim.probes[2].score ? 'tighter wins' : 'bigger wins'}
+        </span>
       </div>
+
+      <ScoreRewardCurve
+        curve={sim.curve}
+        peak={sim.peak}
+        pieceLines={policy.piece_lines}
+        sizePoints={policy.size_points}
+      />
 
       <div class="shape-ranges">
         {#each [200, 400, 1000, 2000] as r}
@@ -248,27 +193,20 @@
         <div class="ramp-bar" style={`background:${rampCSS()}`}></div>
         <div class="ramp-ends"><span>0 pts</span><span>{sim.max} pts</span></div>
       </div>
-      <ScoreCurve buckets={policy.buckets} anchors={sim.anchors} curve={policy.curve} />
 
       <dl class="facts" class:shape-stale={error}>
         <div class="fact">
           <dt>Best-paid pull request</dt>
-          <dd>+{sim.peak.lines} / -{sim.peak.lines} &rarr; {sim.peak.score} pts</dd>
+          <dd>+{sim.best_pr.lines} / -{sim.best_pr.lines} &rarr; {sim.best_pr.score} pts</dd>
           <p class="note">The balanced PR this policy pays most for: the shape it is asking people to write.</p>
         </div>
         <div class="fact">
-          <dt>Size somebody would chop to</dt>
-          <dd class:bad={sim.fragment.lines < 5}>{sim.fragment.lines} line{sim.fragment.lines === 1 ? '' : 's'}</dd>
+          <dt>Splitting 2000 lines</dt>
+          <dd>{fmt(sim.fragment.gain, 1)}x</dd>
           <p class="note">
-            Where points per line peak, so this is the piece size that maximises a split. 2000 lines earn
-            {sim.fragment.whole} shipped whole against {sim.fragment.split} split that way ({fmt(sim.fragment.gain, 1)}x).
-            One line here means the ladder has no floor: give the first tier a <b>rate</b> of <code>0</code>.
+            {sim.fragment.whole} pts shipped whole against {sim.fragment.split} as pieces of
+            {sim.fragment.lines} lines. This premium is the loudest thing the policy says; the falloff dial sets it.
           </p>
-        </div>
-        <div class="fact">
-          <dt>Rate spread across the ladder</dt>
-          <dd>{sim.rate_spread === null ? 'unbounded' : `${fmt(sim.rate_spread, 1)}x`}</dd>
-          <p class="note">Best size-rate over worst. With the exponent at 1 this is the whole ceiling on what splitting can gain.</p>
         </div>
       </dl>
 

@@ -7,42 +7,41 @@ import (
 	"github.com/shhac/agent-code-review/internal/score"
 )
 
-// The Config page draws the size ladder as a curve, so the response has to
-// carry both halves of it: which curve is in force, and the control points it
-// passes through.
-//
-// This also pins the invariant that removed a defensive helper here. The
-// response used to map an empty curve onto a name, which could never happen:
-// a resolved ruleset always starts from DefaultRules. Asserting that a bare
-// config reports "linear" says the same thing where it can actually fail.
-func TestScoringRespNamesTheCurveAndItsAnchors(t *testing.T) {
+// The Config page explains a score in terms of the policy's landmarks, and
+// neither of them is configured: the peak and the tier boundaries are DERIVED
+// from piece_lines and size_falloff. Sending them keeps the page from carrying
+// its own copy of arithmetic that would then drift.
+func TestScoringRespCarriesTheDerivedLandmarks(t *testing.T) {
 	got := scoringResp(config.Config{})
-	if got.Curve != score.CurveLinear {
-		t.Errorf("curve = %q, want the shipped %q rather than a blank", got.Curve, score.CurveLinear)
+	r := score.DefaultRules()
+
+	if got.PieceLines != r.PieceLines || got.SizePoints != r.SizePoints ||
+		got.SizeFalloff != r.SizeFalloff || got.RemovalPointsPer100 != r.RemovalPointsPer100 {
+		t.Errorf("dials = %+v, want the shipped ones", got)
 	}
-	want := score.DefaultRules().Anchors()
-	if len(got.Anchors) != len(want) {
-		t.Fatalf("anchors = %v, want %v", got.Anchors, want)
+	if got.Peak != r.Peak() || got.Peak != 200 {
+		t.Errorf("peak = %v, want score's %v", got.Peak, r.Peak())
 	}
-	for i := range want {
-		if got.Anchors[i] != want[i] {
-			t.Errorf("anchor %d = %v, want %v", i, got.Anchors[i], want[i])
-		}
+	if len(got.Tiers) != 5 || got.Tiers[0].Name != "tiny" || got.Tiers[4].UpTo != 0 {
+		t.Errorf("tiers = %+v, want five labels ending in an open-ended one", got.Tiers)
 	}
-	// The derived tail is the part the browser cannot work out for itself.
-	// What it should BE is pinned in score; that it survives the wire is this
-	// test's business.
-	if last := got.Anchors[len(got.Anchors)-1]; last.Churn < 4000 || last.Multiplier != 0.2 {
-		t.Errorf("tail anchor = %+v, want the derived one score computes", last)
+	if got.Tiers[1].UpTo != r.PieceLines || got.Tiers[2].UpTo != r.Peak() {
+		t.Errorf("tiers = %+v, want the boundaries to follow the dials", got.Tiers)
 	}
 }
 
-// A repo-less override still reaches the page: the Config view reports the
-// global policy, which is what an operator edits.
-func TestScoringRespCarriesAConfiguredCurve(t *testing.T) {
-	cfg := config.Config{Scoring: config.ScoringSettings{Curve: score.CurveStep}}
-	if got := scoringResp(cfg).Curve; got != score.CurveStep {
-		t.Errorf("curve = %q, want %q", got, score.CurveStep)
+// A configured dial reaches the page: the Config view reports the global
+// policy, which is what an operator edits.
+func TestScoringRespCarriesAConfiguredDial(t *testing.T) {
+	lines := 120.0
+	cfg := config.Config{Scoring: config.ScoringSettings{PieceLines: &lines}}
+	got := scoringResp(cfg)
+	if got.PieceLines != 120 {
+		t.Errorf("piece_lines = %v, want the configured 120", got.PieceLines)
+	}
+	// And the landmarks move with it rather than staying on the defaults.
+	if got.Peak != 480 || got.Tiers[1].UpTo != 120 {
+		t.Errorf("peak = %v, tiers = %+v: the landmarks must follow the dial", got.Peak, got.Tiers)
 	}
 }
 

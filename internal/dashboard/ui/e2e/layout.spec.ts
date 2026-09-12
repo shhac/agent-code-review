@@ -166,24 +166,24 @@ test.describe('queue tickets', () => {
   });
 });
 
-// The score-tier chart. It is the one place on the page where the meaning is
-// the geometry, so the things that can break it are geometric: labels landing
-// on top of each other, and a plot drawn outside the box it lives in.
-test.describe('score tier chart', () => {
+// The reward curve. It is the one place on the page where the meaning is the
+// geometry, so the things that can break it are geometric: a line drawn
+// outside the box it lives in, or landmarks that land on top of each other.
+test.describe('score reward curve', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/config');
-    await page.getByRole('tab', { name: 'Settings' }).click();
-    await expect(page.locator('.curve svg')).toBeVisible();
+    await page.getByRole('tab', { name: 'Score tuning' }).click();
+    await expect(page.locator('.reward-curve svg')).toBeVisible();
   });
 
-  test('names every tier without the labels colliding', async ({ page }) => {
-    await expect(page.locator('.curve .band')).toHaveCount(5);
-    expect(await overlappingPairs(page, '.curve .band')).toEqual([]);
+  test('marks both landmarks without the labels colliding', async ({ page }) => {
+    await expect(page.locator('.reward-curve .mark-label')).toHaveCount(2);
+    expect(await overlappingPairs(page, '.reward-curve .mark-label')).toEqual([]);
   });
 
-  test('draws the rate inside the panel it sits in', async ({ page }) => {
-    const panel = await page.locator('.curve').first().boundingBox();
-    const rate = await page.locator('.curve .rate').first().boundingBox();
+  test('draws the curve inside the panel it sits in', async ({ page }) => {
+    const panel = await page.locator('.reward-curve').boundingBox();
+    const rate = await page.locator('.reward-curve .rate').boundingBox();
     if (!panel || !rate) throw new Error('chart not laid out');
     // Not merely present: a polyline whose coordinates came out NaN renders as
     // a zero-size box, and an unscaled one overflows its figure.

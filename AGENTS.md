@@ -26,6 +26,7 @@ internal/
 ├── store/                      # Store interface + DuckDB subprocess driver + schema.sql
 ├── score/                      # author scoring: pure rules, gitattributes matcher, exclusions
 │   ├── score.go                # Compute: diff + verdict + revision -> points
+│   ├── size.go                 # the size curve, the removal reward, the tier labels
 │   ├── rules.go                # the resolved ruleset, its hash, and its validator
 │   ├── gitattributes.go        # linguist-generated/vendored matching, git's own semantics
 │   └── exclude.go              # what counts toward size, after exclusions
@@ -52,6 +53,7 @@ internal/
     ├── stats.go                # /api/stats: last-24h outcome buckets
     ├── leaderboard.go          # /api/leaderboard: author standings (SQL aggregate)
     ├── scorepreview.go         # /api/score/preview: prices a hypothetical PR through score.Compute
+    ├── scoresim.go             # /api/score/simulate: surveys a whole candidate scoring policy
     ├── ui/                     # Svelte + Vite source (npm; not embedded)
     └── assets/                 # BUILT bundle, committed + go:embed'd
 ```
@@ -109,70 +111,72 @@ internal/
   at all. Rows written before the move keep their dead `/tmp` paths and degrade
   exactly as they already did.
 
-- **Score is proportional to churn, because a flat fee per PR is farmable
-  without bound.** The multipliers are a RATE per `churn_unit` lines, not a
-  payment for existing. With a flat fee, points tracked how many PRs you opened
-  rather than how much was reviewed: a 10-line PR outscored a 1,000-line one
-  outright, and 2,000 lines chopped into 200 ten-line PRs scored **1000x** the
-  same change shipped whole, with the ratio growing without limit as the change
-  got bigger. Scaling by churn caps what any decomposition can gain at the
-  spread between the best and worst rates (7.5x shipped), and puts the optimum
-  in `small`, which is the behaviour worth paying for. Splitting a 20k PR into
-  20 x 1k still earns more than shipping it whole; splitting it into 2,000
-  fragments now earns less than either. The original guard test compared ONE
-  tiny PR to ONE small PR, which is not the attack, and passed throughout.
+- **A score is two rewards, because there are two questions.** SIZE asks how
+  manageable the change was to review; REMOVAL asks whether the codebase got
+  smaller. They were one number until v0.39 and it could not hold both: the
+  curve that makes a tighter solve win is exactly the wrong shape for a
+  deletion, so while deletions ran through it, removing 2,000 lines earned
+  LESS than removing 10, and the dial that fixed one broke the other
+  (`deletion_weight` above 1 pushed a big deletion into a worse rate, and
+  `shrink_bonus` existed to pay it back). Removal is now
+  `removal_points_per_100` x net removed lines, added rather than multiplied,
+  so it cannot be dragged around by the size curve. It is NET (a pure move
+  earns nothing from it; the review it cost is already paid by size) and
+  linear (split-neutral: a thousand lines removed pays the same in one PR or
+  twenty).
 
-- **The size ladder is a curve, not a staircase.** `scoring.curve` reads each
-  bucket's `max_churn` either as an ANCHOR the multiplier moves between
-  (`linear`, the default, interpolated on log(churn) because the tiers are
-  spaced geometrically) or as a flat tier (`step`). Steps are legible but put a
-  cliff at every boundary: one line past 1000 churn costs 60% of the rate, and
-  adding more tiers only makes more, smaller cliffs. Interpolation takes the
-  worst single-line drop from 60% to 0.4% while leaving the farming bound at
-  7.5x, because that bound is best rate over worst rate and interpolation moves
-  neither end. The open-ended tier's anchor is derived rather than configured,
-  and under a proportional ruleset is pushed out far enough that the tail stays
-  monotonic: points are churn x rate, so the ladder's own spacing alone put it
-  at 4000 and made a 3700-churn PR outscore a 4000-churn one, which is the
-  cliff's incentive wearing a smooth face. Under the shipped exponent that rule
-  stands aside, because there the decline is the point. It does move absolute numbers: a tier's multiplier is now the
-  rate at its own boundary rather than across its whole range, so the worked
-  examples in internal/score moved with it and only "medium" (250 churn, which
-  IS the medium anchor) is unchanged. Repeating a multiplier on two consecutive buckets holds it flat
-  between them, so a plateau is expressible and the peak stays a range worth
-  aiming at rather than a number worth hitting exactly. The bucket NAME still
-  comes from the tier the churn falls in under either curve, because that is
-  what makes a score explainable. The Config page draws the ladder and prices
-  hypothetical PRs against it, both from the daemon: the anchors ride on
-  /api/config and the calculator calls score.Compute through
-  /api/score/preview. Every dial it needs is already on the page, so a
-  client-side version was available and would have been a second
-  implementation of the whole policy; a preview that disagrees with the scorer
-  is worse than none, because it is the number people plan against.
+- **The size curve is closed-form, with landmarks, because a hand-drawn ladder
+  could draw incoherent shapes.** Five configurable tiers whose multipliers
+  were interpolated between anchors could express any curve, and most of the
+  curves it could express were wrong in ways nobody could see: cliffs at every
+  boundary under `step`, a tail that paid a bigger PR less by accident, a rate
+  spread that silently set the farming bound. The machinery that policed all
+  that (derived tail anchors, a monotonicity rule, a step-or-ramp mode) existed
+  only because the shape was drawn by hand. `size = size_points x norm(k) x
+  x^2/(1+x)^k` with `x = changed / (piece_lines x (k-1))` needs none of it, and
+  both landmarks fall exactly on the dials: points per LINE peak at
+  `piece_lines` (the size to aim for when splitting), points per PR peak at
+  `Peak()` (the biggest one PR should be). The normalisation is DERIVED from
+  the falloff rather than hardcoded, or changing the falloff would quietly
+  rescale the whole leaderboard.
 
-- **The score is deliberately NOT proportional to size.** `churn_exponent`
-  0.15 means a PR's size barely lifts its score, so the ladder's falling rate
-  decides it and the same solve in fewer lines is worth more: +100/-100 scores
-  190, +200/-200 scores 158, +300/-300 scores 135. At 1 (what shipped through
-  v0.37) the churn term outruns any falling rate and a sprawling PR always
-  wins. The cost is not avoidable and is not a bug: splitting a change into
-  several PRs IS turning one big PR into several small ones, so once smaller
-  pays better, splitting pays too, and points per unit of churn now rise as a
-  PR shrinks. The floor for that is a first tier with multiplier 0, which
-  nothing sets today. Two consequences fall out: `deletion_weight` went ABOVE
-  1 (a removal now costs more churn, pushing a big deletion into a worse rate,
-  with the shrink bonus still carrying it ahead), and the tail-anchor
-  monotonicity rule stands aside whenever the exponent says the decline is the
-  policy.
+- **Quadratic near zero is what stops the leaderboard being won by one-line
+  PRs.** The v0.38 ruleset made points per line rise without limit as a PR
+  shrank, so 2,000 lines as 2,000 one-line PRs earned 104,000 against 57
+  shipped whole, and the only defence was a tier configured to pay nothing,
+  which nobody would remember to set. Under the curve, N fragments of a change
+  earn about 1/N of shipping it whole, so atomising loses by construction while
+  a stack of well-sized pieces still wins by a lot (2,000 lines: 29 whole,
+  2,000 as forty pieces of 50, 0 as two thousand fragments). That premium is
+  the loudest judgment in the policy and `size_falloff` is its dial.
+
+- **The tiers are labels now.** `tiny/small/medium/large/huge` still travel
+  with a score because they are what makes a surprising number explain itself,
+  but they no longer carry multipliers: their boundaries are multiples of
+  `piece_lines` and `Peak()`, so they follow the dials instead of being a
+  second set of numbers to keep in step. The Config page draws the curve,
+  prices hypothetical PRs against it and surveys whole candidate policies, all
+  from the daemon: `/api/config` carries the landmarks, `/api/score/preview`
+  calls `score.Compute`, `/api/score/simulate` takes a whole scoring document.
+  Every dial is already on the page, so a browser-side version was available
+  and would have been a second implementation of the policy; a preview that
+  disagrees with the scorer is worse than none, because it is the number people
+  plan against.
+
+- **The retired dials are reported, not translated.** `base`, `churn_unit`,
+  `churn_exponent`, `deletion_weight`, `shrink_bonus`, `curve` and `buckets`
+  are still parsed and still hashed into nothing: `ValidateScoring` names each
+  one and what to reach for instead. There is no honest automatic mapping,
+  because the old shape could express policies this one deliberately cannot.
 
 - **Two scoring numbers that look arbitrary and are not.**
   `attempt_decay` is validated as strictly under 1, not
   "at most 1": at exactly 1 nothing decays and comment-comment-approve (225)
   outscores a first-pass approval (150), inverting the one ordering the scheme
-  exists to enforce. And churn 0 scores 0 rather than falling through to the
-  smallest bucket: a PR whose every file is `linguist-generated` (a lockfile
-  bump, or this repo's own committed dashboard bundle) would otherwise land in
-  `tiny` AND collect the shrink bonus for a net of 0, scoring 120: more than a
+  exists to enforce. And a PR with nothing to review scores 0 rather than
+  falling through to the smallest tier: a PR whose every file is
+  `linguist-generated` (a lockfile bump, or this repo's own committed dashboard
+  bundle) would otherwise be priced as a tidy little change, scoring more than a
   real +200/-100 PR earns. Each is pinned by a test that demonstrates the
   failure rather than just asserting the value.
 

@@ -26,16 +26,16 @@ func TestResolveScoringDefaultsWhenUnset(t *testing.T) {
 
 func TestGlobalOverridesPatchDefaults(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
-		Base:         f(50),
+		SizePoints:   f(50),
 		AttemptDecay: f(0.9),
 		Verdicts:     VerdictMultipliers{Commented: f(0.1)},
 	}}
 	got := c.ResolveScoring("owner/name")
-	if got.Base != 50 || got.AttemptDecay != 0.9 || got.Commented != 0.1 {
+	if got.SizePoints != 50 || got.AttemptDecay != 0.9 || got.Commented != 0.1 {
 		t.Errorf("overrides not applied: %+v", got)
 	}
 	// Untouched fields keep their defaults.
-	if got.Approved != score.DefaultRules().Approved || got.ShrinkBonus != score.DefaultRules().ShrinkBonus {
+	if got.Approved != score.DefaultRules().Approved || got.PieceLines != score.DefaultRules().PieceLines {
 		t.Errorf("unset fields should keep their defaults: %+v", got)
 	}
 }
@@ -50,8 +50,8 @@ func TestExplicitZeroIsNotUnset(t *testing.T) {
 }
 
 // base: 0 must FAIL the base > 0 check rather than silently meaning 100.
-func TestExplicitZeroBaseIsInvalidNotDefault(t *testing.T) {
-	c := Config{Scoring: ScoringSettings{Base: f(0)}}
+func TestExplicitZeroSizePointsIsInvalidNotDefault(t *testing.T) {
+	c := Config{Scoring: ScoringSettings{SizePoints: f(0)}}
 	if got := c.ValidateScoring(); len(got) == 0 {
 		t.Error("base: 0 should be reported as invalid, not read as unset")
 	}
@@ -59,16 +59,16 @@ func TestExplicitZeroBaseIsInvalidNotDefault(t *testing.T) {
 
 func TestRepoOverridesPatchGlobal(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
-		Base: f(50),
+		SizePoints: f(50),
 		Repos: map[string]ScoringSettings{
-			"owner/special": {Base: f(200)},
+			"owner/special": {SizePoints: f(200)},
 		},
 	}}
-	if got := c.ResolveScoring("owner/special"); got.Base != 200 {
-		t.Errorf("repo base = %v, want 200", got.Base)
+	if got := c.ResolveScoring("owner/special"); got.SizePoints != 200 {
+		t.Errorf("repo size_points = %v, want 200", got.SizePoints)
 	}
-	if got := c.ResolveScoring("owner/other"); got.Base != 50 {
-		t.Errorf("other repo base = %v, want the global 50", got.Base)
+	if got := c.ResolveScoring("owner/other"); got.SizePoints != 50 {
+		t.Errorf("other repo size_points = %v, want the global 50", got.SizePoints)
 	}
 }
 
@@ -76,30 +76,39 @@ func TestRepoOverridesPatchGlobal(t *testing.T) {
 // override keyed "Owner/Name" must still narrow "owner/name".
 func TestRepoOverrideLookupIsCaseInsensitive(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
-		Repos: map[string]ScoringSettings{"Owner/Name": {Base: f(7)}},
+		Repos: map[string]ScoringSettings{"Owner/Name": {SizePoints: f(7)}},
 	}}
-	if got := c.ResolveScoring("owner/name"); got.Base != 7 {
-		t.Errorf("base = %v, want the override to match case-insensitively", got.Base)
+	if got := c.ResolveScoring("owner/name"); got.SizePoints != 7 {
+		t.Errorf("size_points = %v, want the override to match case-insensitively", got.SizePoints)
 	}
 }
 
-// Slice fields replace rather than append: an appending merge could not
-// express a SHORTER ladder than the global one.
-func TestRepoBucketsReplaceRatherThanAppend(t *testing.T) {
+// The dials of the previous ruleset are reported rather than obeyed. There is
+// no honest translation: that model could express a policy this one
+// deliberately cannot, so a config still carrying its keys is being scored
+// under something other than what it says.
+func TestRetiredKeysAreReported(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
-		Repos: map[string]ScoringSettings{
-			"owner/name": {Buckets: []score.Bucket{
-				{Name: "small", MaxChurn: 100, Multiplier: 2},
-				{Name: "big", Multiplier: 0.5},
-			}},
-		},
+		Base:           f(100),
+		ChurnExponent:  f(0.15),
+		DeletionWeight: f(1.5),
+		Curve:          "linear",
 	}}
-	got := c.ResolveScoring("owner/name")
-	if len(got.Buckets) != 2 {
-		t.Fatalf("got %d buckets, want the repo's 2 (replace, not append)", len(got.Buckets))
+	problems := c.ValidateScoring()
+	for _, want := range []string{"base", "churn_exponent", "deletion_weight", "curve", "size_points", "size_falloff", "removal_points_per_100"} {
+		found := false
+		for _, p := range problems {
+			if strings.Contains(p, want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("problems = %v, want one mentioning %q", problems, want)
+		}
 	}
-	if got.Buckets[0].Name != "small" || got.Buckets[1].Name != "big" {
-		t.Errorf("buckets = %+v, want the repo's own ladder", got.Buckets)
+	// And they change nothing: the resolved ruleset is the shipped one.
+	if got := c.ResolveScoring(""); got.Hash() != score.DefaultRules().Hash() {
+		t.Errorf("retired keys changed the resolved ruleset: %+v", got)
 	}
 }
 
@@ -146,7 +155,7 @@ func TestInvalidRulesFallBackToDefaultsAndAreReported(t *testing.T) {
 
 func TestValidateScoringReportsPerRepoProblems(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
-		Repos: map[string]ScoringSettings{"owner/name": {Base: f(-1)}},
+		Repos: map[string]ScoringSettings{"owner/name": {SizePoints: f(-1)}},
 	}}
 	problems := c.ValidateScoring()
 	if len(problems) == 0 || !strings.Contains(problems[0], "scoring.repos.owner/name") {
@@ -175,8 +184,8 @@ func TestNestedReposIsReported(t *testing.T) {
 
 func TestValidateScoringSilentOnGoodConfig(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
-		Base: f(100), AttemptDecay: f(0.5),
-		Repos: map[string]ScoringSettings{"owner/name": {ShrinkBonus: f(2)}},
+		SizePoints: f(100), AttemptDecay: f(0.5),
+		Repos: map[string]ScoringSettings{"owner/name": {PieceLines: f(20)}},
 	}}
 	if got := c.ValidateScoring(); len(got) != 0 {
 		t.Errorf("ValidateScoring() = %v, want nothing", got)
@@ -187,13 +196,14 @@ func TestValidateScoringSilentOnGoodConfig(t *testing.T) {
 // pointers and nested map included.
 func TestScoringRoundTripsThroughJSON(t *testing.T) {
 	in := Config{Scoring: ScoringSettings{
-		Enabled:        b(true),
-		Base:           f(100),
-		DeletionWeight: f(0.5),
-		Buckets:        []score.Bucket{{Name: "small", MaxChurn: 50, Multiplier: 1.5}, {Name: "big", Multiplier: 0.2}},
-		Verdicts:       VerdictMultipliers{Approved: f(1), Commented: f(0.25), RequestedChanges: f(-0.25)},
-		ExcludePaths:   []string{"vendor/**"},
-		Repos:          map[string]ScoringSettings{"owner/name": {Base: f(200)}},
+		Enabled:             b(true),
+		SizePoints:          f(100),
+		PieceLines:          f(40),
+		SizeFalloff:         f(3.5),
+		RemovalPointsPer100: f(25),
+		Verdicts:            VerdictMultipliers{Approved: f(1), Commented: f(0.25), RequestedChanges: f(-0.25)},
+		ExcludePaths:        []string{"vendor/**"},
+		Repos:               map[string]ScoringSettings{"owner/name": {SizePoints: f(200)}},
 	}}
 	raw, err := json.Marshal(in)
 	if err != nil {
@@ -203,7 +213,7 @@ func TestScoringRoundTripsThroughJSON(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if out.ResolveScoring("owner/name").Base != 200 {
+	if out.ResolveScoring("owner/name").SizePoints != 200 {
 		t.Error("repo override lost in the round trip")
 	}
 	if out.ResolveScoring("owner/other").RequestedChanges != -0.25 {
@@ -226,7 +236,7 @@ func TestAbsentScoringBlockIsValid(t *testing.T) {
 	}
 }
 
-// mergeScoring is nine near-identical `if over.X != nil { out.X = over.X }`
+// mergeScoring is a row of near-identical `if over.X != nil { out.X = over.X }`
 // branches, which is exactly the shape where assigning the wrong field is
 // plausible and invisible: a per-repo override silently not applying, or
 // applying to the wrong dial, changes what that repo's authors earn with no
@@ -234,12 +244,12 @@ func TestAbsentScoringBlockIsValid(t *testing.T) {
 func TestEveryFieldCanBeOverriddenPerRepo(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
 		// Global values, all distinct from both the defaults and the override.
-		Base: f(10), DeletionWeight: f(0.1), ShrinkBonus: f(1.1), AttemptDecay: f(0.11),
+		SizePoints: f(10), PieceLines: f(10), SizeFalloff: f(2.1), RemovalPointsPer100: f(1.1), AttemptDecay: f(0.11),
 		Verdicts:         VerdictMultipliers{Approved: f(0.1), Commented: f(0.11), RequestedChanges: f(-0.11)},
 		UseGitattributes: b(true),
 		Repos: map[string]ScoringSettings{
 			"owner/name": {
-				Base: f(77), DeletionWeight: f(0.77), ShrinkBonus: f(7.7), AttemptDecay: f(0.77),
+				SizePoints: f(77), PieceLines: f(77), SizeFalloff: f(7.7), RemovalPointsPer100: f(7.7), AttemptDecay: f(0.77),
 				Verdicts:         VerdictMultipliers{Approved: f(7), Commented: f(0.7), RequestedChanges: f(-0.7)},
 				UseGitattributes: b(false),
 			},
@@ -252,9 +262,10 @@ func TestEveryFieldCanBeOverriddenPerRepo(t *testing.T) {
 		got   float64
 		want  float64
 	}{
-		{"base", got.Base, 77},
-		{"deletion_weight", got.DeletionWeight, 0.77},
-		{"shrink_bonus", got.ShrinkBonus, 7.7},
+		{"size_points", got.SizePoints, 77},
+		{"piece_lines", got.PieceLines, 77},
+		{"size_falloff", got.SizeFalloff, 7.7},
+		{"removal_points_per_100", got.RemovalPointsPer100, 7.7},
 		{"attempt_decay", got.AttemptDecay, 0.77},
 		{"verdicts.approved", got.Approved, 7},
 		{"verdicts.commented", got.Commented, 0.7},
@@ -271,7 +282,7 @@ func TestEveryFieldCanBeOverriddenPerRepo(t *testing.T) {
 	// And a repo with no entry keeps every global value, so the assertions
 	// above are about the override and not about the defaults leaking.
 	other := c.ResolveScoring("owner/other")
-	if other.Base != 10 || other.AttemptDecay != 0.11 || other.Approved != 0.1 {
+	if other.SizePoints != 10 || other.AttemptDecay != 0.11 || other.Approved != 0.1 || other.SizeFalloff != 2.1 {
 		t.Errorf("an unoverridden repo should keep the global values, got %+v", other)
 	}
 	if !c.UseGitattributes("owner/other") {
@@ -282,13 +293,13 @@ func TestEveryFieldCanBeOverriddenPerRepo(t *testing.T) {
 // A partial override patches only what it names.
 func TestRepoOverrideLeavesUnnamedFieldsAlone(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
-		Base:     f(10),
-		Verdicts: VerdictMultipliers{Approved: f(3)},
-		Repos:    map[string]ScoringSettings{"owner/name": {Base: f(99)}},
+		SizePoints: f(10),
+		Verdicts:   VerdictMultipliers{Approved: f(3)},
+		Repos:      map[string]ScoringSettings{"owner/name": {SizePoints: f(99)}},
 	}}
 	got := c.ResolveScoring("owner/name")
-	if got.Base != 99 {
-		t.Errorf("base = %v, want the override's 99", got.Base)
+	if got.SizePoints != 99 {
+		t.Errorf("size_points = %v, want the override's 99", got.SizePoints)
 	}
 	if got.Approved != 3 {
 		t.Errorf("approved = %v, want the global 3 to survive a partial override", got.Approved)
@@ -299,7 +310,7 @@ func TestRepoOverrideLeavesUnnamedFieldsAlone(t *testing.T) {
 // to carry an entry per overridden repo plus the default.
 func TestCurrentRuleHashes(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
-		Repos: map[string]ScoringSettings{"owner/special": {Base: f(500)}},
+		Repos: map[string]ScoringSettings{"owner/special": {SizePoints: f(500)}},
 	}}
 	got := c.CurrentRuleHashes()
 

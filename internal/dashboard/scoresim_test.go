@@ -47,7 +47,7 @@ func TestSimulateGridIsTheScorersOwnAnswer(t *testing.T) {
 // visible without reading the map.
 func TestSimulateAnswersTheTighterSolveQuestion(t *testing.T) {
 	_, resp := simulateReq(t, `{"scoring":{},"range":400,"cells":8}`)
-	want := []scoreSimProbe{{100, 190}, {200, 158}, {300, 135}}
+	want := []scoreSimProbe{{100, 100}, {200, 86}, {300, 71}}
 	if len(resp.Probes) != len(want) {
 		t.Fatalf("probes = %+v", resp.Probes)
 	}
@@ -56,38 +56,37 @@ func TestSimulateAnswersTheTighterSolveQuestion(t *testing.T) {
 			t.Errorf("probe %d = %+v, want %+v", i, resp.Probes[i], want[i])
 		}
 	}
-	if resp.Peak.Lines > 60 {
-		t.Errorf("peak = %+v, want the best-paid PR to be a small one", resp.Peak)
+	// The measured best must agree with the landmark the dials name, to within
+	// the plateau that whole-point rounding puts around it. A policy whose
+	// stated peak and measured optimum disagree is one the page explains
+	// wrongly.
+	if changed := float64(resp.BestPR.Lines * 2); changed > resp.Peak || changed < resp.Peak*0.85 {
+		t.Errorf("best balanced PR is %v changed lines, want it just under the stated peak of %v", changed, resp.Peak)
+	}
+	if resp.BestPR.Score != 100 {
+		t.Errorf("best balanced PR scored %d, want size_points", resp.BestPR.Score)
 	}
 }
 
-// The cost of a sub-1 exponent, surfaced rather than buried: chopping work up
-// pays, and how much is the number an operator needs before they ship a
-// policy. The scan must look BELOW one unit of churn, which is where the
-// cheapest possible PR lives.
+// Splitting a big change pays, and the piece size it pays for is the one the
+// policy names. Both halves matter: an operator needs to know the premium
+// before they ship a policy, and a premium that points at one-line PRs is a
+// different policy from the one they think they picked.
 func TestSimulateReportsWhatFragmentingPays(t *testing.T) {
 	_, resp := simulateReq(t, `{"scoring":{},"range":400,"cells":8}`)
 	if resp.Fragment.Gain <= 1 {
-		t.Errorf("fragment = %+v, want the shipped policy to admit that splitting pays", resp.Fragment)
+		t.Errorf("fragment = %+v, want splitting a big change to pay", resp.Fragment)
 	}
-	if resp.Fragment.Lines != 1 {
-		t.Errorf("fragment lines = %v, want the one-line optimum the shipped ladder leaves open", resp.Fragment.Lines)
+	// And the size it points at is a real pull request rather than one line,
+	// which is the whole reason the reward is quadratic near zero.
+	if resp.Fragment.Lines != 50 {
+		t.Errorf("fragment lines = %v, want the configured piece size", resp.Fragment.Lines)
 	}
-
-	// And the dial that closes it: a first tier paying nothing moves the
-	// optimum back to a real pull request.
-	_, floored := simulateReq(t, `{"scoring":{"buckets":[
-		{"name":"tiny","max_churn":10,"multiplier":0},
-		{"name":"small","max_churn":50,"multiplier":1.5},
-		{"name":"huge","multiplier":0.2}]},"range":400,"cells":8}`)
-	if floored.Fragment.Lines < 10 {
-		t.Errorf("floored fragment lines = %v, want the optimum pushed past the zero-rated tier", floored.Fragment.Lines)
-	}
-	// A tier that pays nothing makes the spread unbounded. It travels as null
-	// rather than as an infinity, which encoding/json cannot write: the reply
-	// would arrive empty, with a 200 on it.
-	if floored.RateSpread != nil {
-		t.Errorf("rate spread = %v, want null when a tier pays nothing", *floored.RateSpread)
+	// Moving the dial moves the answer, so the number is being derived from
+	// the policy rather than remembered.
+	_, wider := simulateReq(t, `{"scoring":{"piece_lines":100},"range":400,"cells":8}`)
+	if wider.Fragment.Lines != 100 {
+		t.Errorf("fragment lines = %v, want the reconfigured piece size", wider.Fragment.Lines)
 	}
 }
 

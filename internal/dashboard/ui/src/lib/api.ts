@@ -12,6 +12,7 @@ import type {
   PromptResponse,
   PromptPreviewResponse,
   ScorePreview,
+  ScoreSimulation,
   StatsResponse,
   Viewer,
   QueueAdd,
@@ -121,6 +122,11 @@ export const getScorePreview = (p: { additions: number; deletions: number; verdi
   });
   return fetchJSON<ScorePreview>(`/api/score/preview?${params.toString()}`);
 };
+// Surveying a candidate policy is a POST because the request body IS a
+// scoring document, not because anything is written: nothing on the daemon
+// changes, and the reply is a few thousand numbers to paint.
+export const simulateScoring = (scoring: unknown, range: number, cells: number) =>
+  postJSON<ScoreSimulation>('/api/score/simulate', { scoring, range, cells });
 export const getLogs = () => fetchJSON<LogsResponse>('/api/logs');
 
 export function getReviewLog(ref: ReviewLogRef) {

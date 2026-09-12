@@ -172,6 +172,7 @@ test.describe('queue tickets', () => {
 test.describe('score tier chart', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/config');
+    await page.getByRole('tab', { name: 'Settings' }).click();
     await expect(page.locator('.curve svg')).toBeVisible();
   });
 
@@ -181,8 +182,8 @@ test.describe('score tier chart', () => {
   });
 
   test('draws the rate inside the panel it sits in', async ({ page }) => {
-    const panel = await page.locator('.curve').boundingBox();
-    const rate = await page.locator('.curve .rate').boundingBox();
+    const panel = await page.locator('.curve').first().boundingBox();
+    const rate = await page.locator('.curve .rate').first().boundingBox();
     if (!panel || !rate) throw new Error('chart not laid out');
     // Not merely present: a polyline whose coordinates came out NaN renders as
     // a zero-size box, and an unscaled one overflows its figure.

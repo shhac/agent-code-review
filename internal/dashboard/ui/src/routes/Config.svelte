@@ -7,6 +7,7 @@
   import { withFeed } from '../lib/feed';
   import PromptBox from '../lib/PromptBox.svelte';
   import ScoreCalculator from '../lib/ScoreCalculator.svelte';
+  import ScoreShape from '../lib/ScoreShape.svelte';
   import ScoreCurve from '../lib/ScoreCurve.svelte';
   import type { AllowedAuthor, ConfigResponse } from '../lib/types';
 
@@ -65,6 +66,17 @@
   $: groups = settingsGroups(configData);
   $: tiers = tierRows(configData?.scoring.buckets ?? []);
 
+  // Three pages' worth of panels, split by who is asking. The roster is the
+  // people config; settings and the ladder are what the reviewer will do with
+  // it; the tools are for working out what it SHOULD do, which is a job you
+  // do once and then leave alone.
+  const TABS = [
+    { id: 'roster', label: 'Repos & authors' },
+    { id: 'settings', label: 'Settings' },
+    { id: 'tuning', label: 'Score tuning' },
+  ];
+  let tab = 'roster';
+
   async function load() {
     const [cfg, au] = await Promise.all([getConfig(), getAuthors()]);
     configData = cfg;
@@ -81,7 +93,19 @@
   <p>Edit via the <code>repos</code> / <code>authors</code> CLIs and config.json. Run <code>authors who &lt;handle&gt; --repo &lt;owner/name&gt;</code> to see which layer decided what.</p>
 </section>
 {#if configData}
-  <div class="stack">
+  <div class="page-tabs" role="tablist" aria-label="Configuration sections">
+    {#each TABS as t}
+      <button
+        role="tab"
+        id={`tab-${t.id}`}
+        aria-selected={tab === t.id}
+        aria-controls={`panel-${t.id}`}
+        on:click={() => (tab = t.id)}
+      >{t.label}</button>
+    {/each}
+  </div>
+  <div class="stack" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabindex="-1">
+    {#if tab === 'roster'}
     <section class="surface">
       <div class="section-head"><h2>Watched repos</h2></div>
       {#if configData.repos?.length}
@@ -101,6 +125,8 @@
         <div class="empty">No repos. Add with: agent-code-review repos add owner/name</div>
       {/if}
     </section>
+    {/if}
+    {#if tab === 'settings'}
     <section class="surface">
       <div class="section-head"><h2>Settings</h2></div>
       <div class="settings">
@@ -142,14 +168,29 @@
           </table>
         </div>
       </section>
-      <section class="surface">
-        <div class="section-head">
-          <h2>Score calculator</h2>
-          <span>scored by the daemon, not estimated here</span>
-        </div>
-        <ScoreCalculator />
-      </section>
     {/if}
+    {/if}
+    {#if tab === 'tuning'}
+      {#if scoringDialsShown(configData)}
+        <section class="surface">
+          <div class="section-head">
+            <h2>Score calculator</h2>
+            <span>scored by the daemon, not estimated here</span>
+          </div>
+          <ScoreCalculator />
+        </section>
+        <section class="surface">
+          <div class="section-head">
+            <h2>Score shape</h2>
+            <span>what a policy would pay, before you ship it</span>
+          </div>
+          <ScoreShape config={configData} />
+        </section>
+      {:else}
+        <div class="empty">Scoring is off, so there is nothing to tune. Set scoring.mode to enabled first.</div>
+      {/if}
+    {/if}
+    {#if tab === 'roster'}
     <section class="surface">
       <div class="section-head">
         <h2>Author roster</h2>
@@ -236,5 +277,6 @@
         <div class="empty">No authors match this filter.</div>
       {/if}
     </section>
+    {/if}
   </div>
 {/if}

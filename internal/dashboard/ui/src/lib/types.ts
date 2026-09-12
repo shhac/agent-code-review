@@ -203,6 +203,19 @@ export type ScoreCurveMode = 'step' | 'linear';
 // for the open-ended tier.
 export type ScoreAnchor = { churn: number; multiplier: number };
 
+// One candidate scoring policy, surveyed by the daemon: what every PR shape
+// would earn under it, and what that policy therefore pays for.
+export type ScoreSimulation = {
+  anchors: ScoreAnchor[];
+  grids: { rounds: number; step: number; cells: number[][] }[];
+  max: number;
+  probes: { lines: number; score: number }[];
+  peak: { lines: number; score: number };
+  fragment: { lines: number; whole: number; split: number; gain: number };
+  // Null when a tier pays nothing, which makes the ratio unbounded.
+  rate_spread: number | null;
+};
+
 // One hypothetical PR, priced by the daemon's own scorer. The arithmetic is
 // deliberately not repeated in the browser: see internal/dashboard/scorepreview.go.
 export type ScorePreview = {
@@ -221,6 +234,7 @@ export type ConfigResponse = {
     leaderboard_visible: boolean;
     base: number;
     churn_unit: number;
+    churn_exponent: number;
     deletion_weight: number;
     approved: number;
     commented: number;

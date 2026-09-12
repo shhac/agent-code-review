@@ -80,10 +80,10 @@ func TestScoreLandsOnTheCompletedRow(t *testing.T) {
 	fs := &scoringStore{fakeSchedStore: &fakeSchedStore{}, sc: store.ScoreContext{Attempt: 1}}
 	got := runScored(t, fs, smallDiff(), nil, nil, baseCfg(), store.VerdictApproved)
 
-	// 45 churn under the shipped linear curve: just short of the "small"
-	// anchor at 50, so the rate is 1.467x rather than a flat 1.5x.
-	if !got.Score.Scored() || got.Score.Points() != 132 {
-		t.Errorf("score = %+v, want 132", got.Score)
+	// 55 churn (removals weigh 1.5), just past the "small" anchor at 50, so
+	// the rate is 1.47x on the way down rather than a flat tier figure.
+	if !got.Score.Scored() || got.Score.Points() != 139 {
+		t.Errorf("score = %+v, want 139", got.Score)
 	}
 	if got.Score.Source != store.ScoreDerived {
 		t.Errorf("source = %q, want %q", got.Score.Source, store.ScoreDerived)
@@ -118,8 +118,8 @@ func TestGeneratedFilesAreExcludedFromTheScoredCounts(t *testing.T) {
 	if got.Diff.ExcludedFiles != 1 {
 		t.Errorf("excluded files = %d, want 1", got.Diff.ExcludedFiles)
 	}
-	if got.Score.Points() != 132 {
-		t.Errorf("score = %d, want the small-bucket 132 rather than a huge-bucket score", got.Score.Points())
+	if got.Score.Points() != 139 {
+		t.Errorf("score = %d, want the medium-bucket 139 rather than a huge-bucket score", got.Score.Points())
 	}
 }
 
@@ -229,8 +229,8 @@ func TestAttemptIndexIsFrozenOntoTheRow(t *testing.T) {
 	if got.Score.Attempt == nil || *got.Score.Attempt != 3 {
 		t.Fatalf("attempt = %v, want 3", got.Score.Attempt)
 	}
-	// 100 * (45/50) * 1.467 * 1.0 * 0.6^2 = 47.5 -> 48
-	if got.Score.Points() != 48 {
-		t.Errorf("score = %d, want 48 (the third revision's decay)", got.Score.Points())
+	// 139 * 0.4^2 = 22.2 -> 22
+	if got.Score.Points() != 22 {
+		t.Errorf("score = %d, want 22 (the third revision's decay)", got.Score.Points())
 	}
 }

@@ -131,10 +131,11 @@ internal/
   worst single-line drop from 60% to 0.4% while leaving the farming bound at
   7.5x, because that bound is best rate over worst rate and interpolation moves
   neither end. The open-ended tier's anchor is derived rather than configured,
-  and is pushed out far enough that the tail stays monotonic: points are churn
-  x rate, so the ladder's own spacing alone put it at 4000 and made a
-  3700-churn PR outscore a 4000-churn one, which is the cliff's incentive
-  wearing a smooth face. It does move absolute numbers: a tier's multiplier is now the
+  and under a proportional ruleset is pushed out far enough that the tail stays
+  monotonic: points are churn x rate, so the ladder's own spacing alone put it
+  at 4000 and made a 3700-churn PR outscore a 4000-churn one, which is the
+  cliff's incentive wearing a smooth face. Under the shipped exponent that rule
+  stands aside, because there the decline is the point. It does move absolute numbers: a tier's multiplier is now the
   rate at its own boundary rather than across its whole range, so the worked
   examples in internal/score moved with it and only "medium" (250 churn, which
   IS the medium anchor) is unchanged. Repeating a multiplier on two consecutive buckets holds it flat
@@ -148,6 +149,21 @@ internal/
   client-side version was available and would have been a second
   implementation of the whole policy; a preview that disagrees with the scorer
   is worse than none, because it is the number people plan against.
+
+- **The score is deliberately NOT proportional to size.** `churn_exponent`
+  0.15 means a PR's size barely lifts its score, so the ladder's falling rate
+  decides it and the same solve in fewer lines is worth more: +100/-100 scores
+  190, +200/-200 scores 158, +300/-300 scores 135. At 1 (what shipped through
+  v0.37) the churn term outruns any falling rate and a sprawling PR always
+  wins. The cost is not avoidable and is not a bug: splitting a change into
+  several PRs IS turning one big PR into several small ones, so once smaller
+  pays better, splitting pays too, and points per unit of churn now rise as a
+  PR shrinks. The floor for that is a first tier with multiplier 0, which
+  nothing sets today. Two consequences fall out: `deletion_weight` went ABOVE
+  1 (a removal now costs more churn, pushing a big deletion into a worse rate,
+  with the shrink bonus still carrying it ahead), and the tail-anchor
+  monotonicity rule stands aside whenever the exponent says the decline is the
+  policy.
 
 - **Two scoring numbers that look arbitrary and are not.**
   `attempt_decay` is validated as strictly under 1, not

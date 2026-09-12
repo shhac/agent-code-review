@@ -43,7 +43,15 @@ type Rules struct {
 	// ChurnUnit is how many lines Base pays for. Score scales with churn in
 	// units of this, so Base reads as "points for one full unit of
 	// well-sized, first-pass-approved work".
-	ChurnUnit        float64  `json:"churn_unit"`
+	ChurnUnit float64 `json:"churn_unit"`
+	// ChurnExponent is how much of a score follows sheer volume.
+	//
+	// At 1 the score is proportional: double the churn, double the points, and
+	// a bigger PR always earns more in total. Below 1 a bigger PR keeps less
+	// of it, and past the ladder's peak the total FALLS: the same solve in
+	// fewer lines is worth more, which is the whole point of shipping it below
+	// 1. At 0 the size stops mattering at all and every PR is a flat fee.
+	ChurnExponent    float64  `json:"churn_exponent"`
 	DeletionWeight   float64  `json:"deletion_weight"`
 	Buckets          []Bucket `json:"buckets"`
 	Approved         float64  `json:"approved"`
@@ -75,11 +83,20 @@ type Rules struct {
 
 // DefaultRules is the shipped policy.
 //
-// Base is points per ChurnUnit lines, so the multipliers set the RATE a PR is
-// paid at rather than a flat fee for existing. The tier that pays best is
-// "small", which is the size worth encouraging; splitting a large change into
-// well-sized pieces therefore earns more than shipping it in one go, and
-// splitting it further into fragments earns less again.
+// The shape it aims for: the same solve in fewer lines is worth MORE. A
+// +100/-100 PR scores 190, a +200/-200 one 158, a +300/-300 one 135. That
+// needs ChurnExponent well below 1; at 1 the churn term outruns the falling
+// rate and a sprawling PR always wins, which is the opposite incentive.
+//
+// Base is points per ChurnUnit lines and the multipliers set the RATE that is
+// paid at, so the ladder decides which SIZE is paid best (still "small") while
+// the exponent decides how fast the total falls away from it.
+//
+// DeletionWeight above 1 is deliberate: a removed line counts more than an
+// added one, so deleting is the cheapest way to earn. It pushes a big deletion
+// UP the ladder into a worse rate, which is the point - a PR should not be
+// able to farm by deleting indiscriminately - and the shrink bonus is what
+// makes the net-negative PR come out ahead anyway.
 //
 // The ladder is read as a CURVE by default, so those multipliers are the
 // points the rate passes through rather than five plateaus with cliffs
@@ -88,8 +105,9 @@ type Rules struct {
 func DefaultRules() Rules {
 	return Rules{
 		Base:           100,
-		ChurnUnit:      50,
-		DeletionWeight: 0.5,
+		ChurnUnit:      80,
+		ChurnExponent:  0.15,
+		DeletionWeight: 1.5,
 		Curve:          CurveLinear,
 		Buckets: []Bucket{
 			{Name: "tiny", MaxChurn: 10, Multiplier: 1.0},
@@ -101,8 +119,8 @@ func DefaultRules() Rules {
 		Approved:         1.0,
 		Commented:        0.25,
 		RequestedChanges: -0.25,
-		ShrinkBonus:      1.2,
-		AttemptDecay:     0.6,
+		ShrinkBonus:      1.6,
+		AttemptDecay:     0.4,
 		UseGitattributes: true,
 	}
 }
@@ -162,17 +180,20 @@ func Compute(r Rules, in Input) Result {
 		return res
 	}
 
-	// Proportional to the work, NOT a flat fee per PR.
+	// Scaled by the work, at ChurnExponent. Never a flat fee, and by default
+	// not proportional either.
 	//
-	// A flat fee is farmable without bound: points then track how many PRs you
-	// opened rather than how much was reviewed, so splitting a change into
-	// ever-smaller pieces multiplies the payout forever (2,000 lines as 200
-	// ten-line PRs scored 1000x the same change shipped whole, and a 10-line
-	// PR outscored a 1,000-line one outright). Scaling by churn makes the
-	// bucket multiplier a RATE, so the most any decomposition can gain is the
-	// spread between the best and worst rates: 7.5x at the shipped defaults,
-	// maximised by landing in "small", which is the behaviour worth paying for.
-	points := r.Base * (churn / r.ChurnUnit) * sizeMultiplier(r, bucket, churn) * verdictMult
+	// A flat fee (exponent 0) is farmable without bound: points then track how
+	// many PRs you opened rather than how much was reviewed. Proportional
+	// (exponent 1) is the opposite failure for this project's purpose: the
+	// churn term outruns any falling rate, so a sprawling PR always beats the
+	// same solve written tightly. The shipped 0.15 sits deliberately near the
+	// flat end, which buys the incentive at a known cost: points per unit of
+	// churn now rise as a PR gets smaller, so chopping work into fragments
+	// pays better than shipping it whole. A ladder whose first tier pays 0
+	// puts a floor under that, and is the dial to reach for if anybody starts
+	// opening one-line PRs.
+	points := r.Base * math.Pow(churn/r.ChurnUnit, r.ChurnExponent) * sizeMultiplier(r, bucket, churn) * verdictMult
 	// Only ever a bonus. Shrinking the codebase must not AMPLIFY a penalty:
 	// without the sign check a rejected deletion is punished 1.2x harder than
 	// a rejected addition, which rewards exactly the wrong thing.

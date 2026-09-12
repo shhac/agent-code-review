@@ -33,8 +33,8 @@ func TestApplyWithGitattributes(t *testing.T) {
 	res := Compute(DefaultRules(), Input{
 		Additions: got.Additions, Deletions: got.Deletions, Verdict: verdictApproved, Attempt: 1,
 	})
-	if res.Bucket != "small" {
-		t.Errorf("bucket = %q, want small: exclusions should rescue this PR from huge", res.Bucket)
+	if res.Bucket != "medium" {
+		t.Errorf("bucket = %q, want medium: exclusions should rescue this PR from huge", res.Bucket)
 	}
 }
 

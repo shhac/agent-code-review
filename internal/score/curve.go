@@ -79,38 +79,47 @@ func (r Rules) Anchors() []Anchor {
 		// A single open-ended bucket: one flat multiplier everywhere.
 		return []Anchor{{Churn: 1, Multiplier: tail.Multiplier}}
 	case 1:
-		return append(out, tailAnchor(out[0], tail.Multiplier, 2))
+		return append(out, r.tailAnchor(out[0], tail.Multiplier, 2))
 	default:
 		last, prev := out[len(out)-1], out[len(out)-2]
-		return append(out, tailAnchor(last, tail.Multiplier, last.Churn/prev.Churn))
+		return append(out, r.tailAnchor(last, tail.Multiplier, last.Churn/prev.Churn))
 	}
 }
 
+// maxTailStretch bounds how far the monotonicity rule may push the tail anchor
+// beyond the ladder's own spacing. Past this the rule is not fixing an
+// accidental dip, it is arguing with a policy that has deliberately chosen to
+// pay a big PR less.
+const maxTailStretch = 50
+
 // tailAnchor places the open-ended tier's control point: ratio steps along the
-// ladder, or further out if that would make the last stretch pay a bigger PR
-// LESS in total.
+// ladder, or further out if that would stop the last stretch paying a bigger
+// PR less by ACCIDENT.
 //
-// Points are churn x rate, so a falling rate can outrun a rising churn. Over a
-// segment from (x0,y0) to (x1,y1), interpolated on log churn, total points
-// stop rising once the rate falls below (y0-y1)/ln(x1/x0), and the rate is
-// lowest at x1. Monotonic therefore means ln(x1/x0) >= (y0-y1)/y1.
+// Points are churn^exponent x rate, so a falling rate can outrun a rising
+// churn. Over a segment from (x0,y0) to (x1,y1), interpolated on log churn,
+// the total stops rising once the rate falls below (y0-y1)/(e*ln(x1/x0)) for
+// exponent e, and the rate is lowest at x1. Monotonic therefore means
+// ln(x1/x0) >= (y0-y1)/(e*y1).
 //
-// At the shipped ladder the ratio rule alone put the tail at 4000 and broke
-// that by 8%: a 3700-churn PR outscored a 4000-churn one, so trimming 300
-// lines from an already-huge PR paid better than writing them. That is
-// precisely the incentive a cliff creates, which is what this curve exists to
-// remove, and it is worse than the cliff because it is invisible. The tail
-// goes to 4482 instead.
+// Whether that is worth enforcing depends on the policy. Under a proportional
+// ruleset (exponent 1, which this used to be) a dip here is an accident: the
+// ratio rule alone put the tail at 4000 and a 3700-churn PR outscored a
+// 4000-churn one, so trimming 300 lines from an already-huge PR paid better
+// than writing them, with no visible boundary to blame. Pushing the anchor to
+// 4500 fixed it. Under the shipped exponent of 0.15 the decline is the POINT,
+// the requirement comes out past 20 million churn, and enforcing it would be
+// arguing with the operator; maxTailStretch is where the rule gives up.
 //
-// A tail multiplier of zero or less cannot be fixed by moving the anchor: the
-// rate ends at nothing whatever the distance, so there is no monotone tail to
-// find and the ladder's own spacing stands. Validation permits it (a policy of
-// "past here, nothing" is a choice an operator may make), and Compute stays
-// total either way.
-func tailAnchor(last Anchor, multiplier, ratio float64) Anchor {
+// A tail multiplier of zero or less is likewise left alone: the rate ends at
+// nothing whatever the distance, so there is no monotone tail to find.
+// Validation permits it (a policy of "past here, nothing" is a choice an
+// operator may make), and Compute stays total either way.
+func (r Rules) tailAnchor(last Anchor, multiplier, ratio float64) Anchor {
 	churn := last.Churn * ratio
-	if multiplier > 0 && multiplier < last.Multiplier {
-		if needed := last.Churn * math.Exp((last.Multiplier-multiplier)/multiplier); needed > churn {
+	if multiplier > 0 && multiplier < last.Multiplier && r.ChurnExponent > 0 {
+		needed := last.Churn * math.Exp((last.Multiplier-multiplier)/(r.ChurnExponent*multiplier))
+		if needed > churn && needed <= last.Churn*maxTailStretch {
 			churn = roundUpTidy(needed)
 		}
 	}

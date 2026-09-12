@@ -290,18 +290,22 @@ still means what it meant.
 Every completed review earns the PR's **author** points:
 
 ```
-score  = base x (churn / churn_unit) x size x verdict x shrink x decay^(revision-1)
+score  = base x (churn / churn_unit)^churn_exponent x size x verdict x shrink x decay^(revision-1)
 churn  = additions + (deletions x deletion_weight), generated files excluded
 ```
 
-Points scale with how much was reviewed, so the size multipliers set a *rate*
-rather than a flat fee per PR. That matters: with a flat fee, points track how
-many PRs you opened rather than how much was reviewed, and splitting a change
-into ever-smaller pieces multiplies the payout without limit. Scaling caps what
-any decomposition can gain at the spread between the best and worst rates (7.5x
-at the defaults). Splitting a large change into well-sized pieces still earns
-more than shipping it whole, which is the point; fragmenting it further earns
-less than either.
+**The same solve in fewer lines is worth more.** A +100/-100 PR scores 190, a
++200/-200 one 158, a +300/-300 one 135. That is what `churn_exponent` buys: at
+1 the score is proportional to size, the churn term outruns the falling rate,
+and a sprawling PR always wins. At the shipped 0.15 size barely lifts a score
+and the ladder decides it, so past the peak a bigger PR earns less.
+
+The cost is worth stating plainly, because it is not avoidable: splitting a
+change into several PRs *is* turning one big PR into several small ones, so the
+moment smaller pays better, splitting pays too. Points per line of churn now
+rise as a PR shrinks, and 2,000 lines as 2,000 one-line PRs would earn far more
+than one 2,000-line PR. Setting the first tier's multiplier to `0` puts a floor
+under it: a PR too small to be worth reviewing is worth no points either.
 
 `size` comes from the tier ladder (`tiny` through `huge`), read as a *curve*
 by default: each tier's multiplier is the rate at its own boundary and the rate
@@ -310,14 +314,17 @@ moves smoothly between them, so no single line is worth 60% of a score. Set
 rate and every boundary is a cliff. The tier NAME comes from the tier the churn
 falls in either way, which is what makes a score explainable.
 
-The dashboard's Config page draws this ladder and will price a hypothetical
-PR against it: lines added and removed, how many rounds of review it takes,
-and how it ends. The figures come from the daemon's own scorer, so the
-preview is what the review would actually pay.
+The dashboard's Config page draws this ladder, prices a hypothetical PR
+against it, and lets you tune a whole policy against a map of what every PR
+shape would earn before you commit to it. The figures come from the daemon's
+own scorer, so a preview is what a review would actually pay.
 
-Removing code beats adding the same amount of reviewing, and a first-pass
-approval beats the same approval after rounds of comments, because each
-revision decays. A second
+Removing code beats adding it, by two mechanisms: a removed line weighs more
+churn than an added one, which pushes a deletion up the ladder into a worse
+rate rather than letting indiscriminate deletion farm the board, and a
+net-negative PR then takes the shrink bonus on top. A first-pass approval
+beats the same approval after rounds of comments, because each revision
+decays. A second
 review at the same commit scores 0: it is discussion, not new work.
 
 Which lines count is the repo's own business. Files its `.gitattributes` marks

@@ -89,11 +89,12 @@ agent-code-review score show owner/repo 123          # every scored review of on
 agent-code-review score ls --missing                 # rows that were never scored
 ```
 
-Points scale with how much was reviewed, so the bucket multipliers set a RATE
-rather than a flat fee per PR. Splitting a large change into well-sized pieces
-earns more than shipping it whole; fragmenting it into tiny ones earns less
-than either. The ladder is read as a curve (`scoring.curve`, default `linear`),
-so the rate moves between tiers rather than jumping at each boundary.
+The shape the defaults aim for: THE SAME SOLVE IN FEWER LINES IS WORTH MORE.
++100/-100 scores 190, +200/-200 scores 158, +300/-300 scores 135. Size barely
+lifts a score (`scoring.churn_exponent`, default 0.15) and the size ladder,
+read as a curve (`scoring.curve`, default `linear`), decides the rest. The
+known cost is that chopping work into fragments pays better than shipping it
+whole; a first bucket with multiplier 0 is the floor for that.
 
 Scores are **frozen** when a review completes, alongside a hash of the rules
 that produced them, so retuning config changes what FUTURE reviews earn and

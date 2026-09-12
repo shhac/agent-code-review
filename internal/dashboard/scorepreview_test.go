@@ -18,9 +18,9 @@ func preview(t *testing.T, query string) (int, scorePreviewResp) {
 }
 
 // The preview must be the scorer's own answer, not a lookalike. This is the
-// worked example from internal/score: +40/-10 is 45 churn, which is inside
-// "small" but below its anchor, so it is paid at 1.467x and scores 132 rather
-// than the 135 a flat tier would give.
+// worked example from internal/score: +40/-10 is 55 churn once removals weigh
+// 1.5, which is just past the "small" anchor, so it is paid at 1.47x on the
+// way down rather than at any tier's flat figure.
 func TestScorePreviewMatchesTheScorer(t *testing.T) {
 	code, resp := preview(t, "additions=40&deletions=10&verdicts=APPROVED")
 	if code != http.StatusOK {
@@ -35,11 +35,11 @@ func TestScorePreviewMatchesTheScorer(t *testing.T) {
 	if resp.Bucket != want.Bucket {
 		t.Errorf("bucket = %q, want %q", resp.Bucket, want.Bucket)
 	}
-	if resp.Churn != 45 {
-		t.Errorf("churn = %v, want 45: deletions weighed at the configured 0.5", resp.Churn)
+	if resp.Churn != 55 {
+		t.Errorf("churn = %v, want 55: deletions weighed at the configured 1.5", resp.Churn)
 	}
-	if resp.Rate < 1.46 || resp.Rate > 1.47 {
-		t.Errorf("rate = %v, want the interpolated ~1.467x rather than the tier's 1.5x", resp.Rate)
+	if resp.Rate < 1.46 || resp.Rate > 1.48 {
+		t.Errorf("rate = %v, want the interpolated ~1.47x rather than a tier's flat figure", resp.Rate)
 	}
 }
 

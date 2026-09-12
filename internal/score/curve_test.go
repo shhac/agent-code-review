@@ -133,18 +133,33 @@ func TestAnchorsCarryTheLadderSpacingIntoTheTail(t *testing.T) {
 	}
 }
 
-// A bigger PR must never earn LESS in total, anywhere on the ladder.
+// The tail rule yields to a policy that has chosen to pay a big PR less.
 //
-// Points are churn x rate, so a rate falling faster than churn rises inverts
-// the incentive: with the tail derived from the ladder's spacing alone, a
-// 3700-churn PR outscored a 4000-churn one, and trimming 300 lines from an
-// already-huge change paid better than writing them. That is the same
-// incentive a cliff creates, and worse, because there is no visible boundary
-// to blame it on. The tail is now placed to make this hold; the bounded
-// anchors are the operator's own figures, so a ladder that plunges inside its
-// own range is a policy they chose rather than one derived for them.
-func TestBiggerPRsNeverEarnLess(t *testing.T) {
+// It exists to stop an ACCIDENTAL dip. Under a proportional ruleset a falling
+// rate can outrun rising churn, and the ladder's own spacing put the tail at
+// 4000, where a 3700-churn PR outscored a 4000-churn one: a cliff's incentive
+// with no visible boundary to blame. Pushing the anchor to 4500 fixed that.
+// Under the shipped exponent of 0.15 the decline is deliberate, the rule's
+// requirement lands past twenty million churn, and it stands aside.
+func TestTailRuleYieldsToADecliningPolicy(t *testing.T) {
+	shipped := DefaultRules()
+	if got := shipped.Anchors()[4].Churn; got != 4000 {
+		t.Errorf("tail churn = %v, want the ladder's own 4000: nothing should be pushing it out", got)
+	}
+
+	proportional := DefaultRules()
+	proportional.ChurnExponent = 1
+	if got := proportional.Anchors()[4].Churn; got != 4500 {
+		t.Errorf("tail churn = %v, want 4500 once the policy is proportional again", got)
+	}
+}
+
+// Under a proportional ruleset a bigger PR must still never earn less: that is
+// what the pushed-out tail anchor buys, and it is the shape anyone who sets
+// churn_exponent back to 1 is asking for.
+func TestProportionalRulesNeverPayABiggerPRLess(t *testing.T) {
 	r := DefaultRules()
+	r.ChurnExponent = 1
 	at := func(churn int) int {
 		return Compute(r, Input{Additions: churn, Verdict: verdictApproved, Attempt: 1}).Score
 	}
@@ -189,13 +204,15 @@ func TestCurveIsHashed(t *testing.T) {
 	}
 }
 
-// The derived tail is a label on a chart as well as a number in the maths.
-// The monotonicity bound lands on 4481.689070338063, which is true and unfit
-// to print under an axis, so it rounds UP (never down, which would break the
-// bound it was computed to satisfy).
-func TestDerivedTailIsATidyNumber(t *testing.T) {
-	tail := DefaultRules().Anchors()[4]
-	if tail.Churn != 4500 {
-		t.Errorf("tail churn = %v, want 4500", tail.Churn)
+// The derived tail is a label on a chart as well as a number in the maths, so
+// when the monotonicity rule does move it, it moves to something printable:
+// the bound lands on 4481.689070338063, which is true and unfit to put under
+// an axis. It rounds UP, never down, which would break the bound it was
+// computed to satisfy.
+func TestAPushedOutTailIsATidyNumber(t *testing.T) {
+	r := DefaultRules()
+	r.ChurnExponent = 1
+	if got := r.Anchors()[4].Churn; got != 4500 {
+		t.Errorf("tail churn = %v, want 4500", got)
 	}
 }

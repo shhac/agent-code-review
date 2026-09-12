@@ -48,6 +48,13 @@ func (r Rules) Validate() error {
 	if !(r.ChurnUnit > 0) || r.ChurnUnit > maxBase || math.IsNaN(r.ChurnUnit) {
 		return fmt.Errorf("churn_unit must be a positive number no greater than %v, got %v", float64(maxBase), r.ChurnUnit)
 	}
+	// Zero is legal and means a flat fee per PR, which is farmable without
+	// bound; the ceiling is where a score stops fitting anywhere useful.
+	// Negative is not: it would pay a PR MORE for being smaller without limit,
+	// so a one-line PR would be worth more than every other PR ever reviewed.
+	if r.ChurnExponent < 0 || r.ChurnExponent > 4 || math.IsNaN(r.ChurnExponent) {
+		return fmt.Errorf("churn_exponent must be between 0 and 4, got %v", r.ChurnExponent)
+	}
 	if r.DeletionWeight < 0 || r.DeletionWeight > 1000 || math.IsNaN(r.DeletionWeight) {
 		return fmt.Errorf("deletion_weight must be between 0 and 1000, got %v", r.DeletionWeight)
 	}

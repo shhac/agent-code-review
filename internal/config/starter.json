@@ -55,7 +55,10 @@
       "effort": "",
       "sandbox": "workspace-write",
       "//args_note": "workspace-write disables network by default, but the agent must reach GitHub via gh; this override re-enables network while keeping writes scoped to the per-PR workdir.",
-      "args": ["-c", "sandbox_workspace_write.network_access=true"],
+      "args": [
+        "-c",
+        "sandbox_workspace_write.network_access=true"
+      ],
       "//max_resumes_note": "How many times to resume a session that ended on a WORKING report before recording an ERROR. Unset means 2; 0 disables resuming.",
       "max_resumes": 2
     },
@@ -82,25 +85,46 @@
     "engine": "duckdb",
     "path": ""
   },
-  "//scoring_note": "Gamifies PR authorship: every completed review earns the PR AUTHOR points. score = base x (churn / churn_unit) x size-bucket x verdict x shrink x decay^(revision-1), where churn is additions + (deletions x deletion_weight) with generated files excluded. Points scale with how much was reviewed, so the bucket multipliers set a RATE rather than a flat fee per PR: a bigger PR earns more in total but at a worse rate per line, splitting a large change into well-sized pieces earns more than shipping it whole, and fragmenting it further earns less than either. Removing code beats adding the same amount of reviewing (a removed line counts deletion_weight of an added one, and a net-negative PR earns shrink_bonus on top), and a first-pass approval beats the same approval after rounds of comments. Scores are FROZEN when a review completes alongside a hash of these rules, so retuning anything here changes what FUTURE reviews earn and leaves existing points alone; `agent-code-review score recompute` re-applies new rules to old rows and `score refetch` re-measures from GitHub. See `agent-code-review score usage`.",
+  "//scoring_note": "Gamifies PR authorship: every completed review earns the PR AUTHOR points. score = base x (churn / churn_unit)^churn_exponent x size-rate x verdict x shrink x decay^(revision-1), where churn is additions + (deletions x deletion_weight) with generated files excluded. The shape it aims for is that THE SAME SOLVE IN FEWER LINES IS WORTH MORE: +100/-100 scores 190, +200/-200 scores 158, +300/-300 scores 135. Removing code beats adding it, and a first-pass approval beats the same approval after rounds of comments. Scores are FROZEN when a review completes alongside a hash of these rules, so retuning anything here changes what FUTURE reviews earn and leaves existing points alone; `agent-code-review score recompute` re-applies new rules to old rows and `score refetch` re-measures from GitHub. See `agent-code-review score usage`.",
   "scoring": {
     "//mode_note": "Global switch. enabled = measure each reviewed PR and score it. leaderboard-only = STOP measuring (this removes the only ongoing network cost scoring adds, one GitHub call per review) while still showing the points already earned. disabled = no scoring, and the leaderboard is hidden in the dashboard. Can be narrowed per repo under scoring.repos.",
     "mode": "enabled",
-    "//base_note": "Points for one CHURN_UNIT of lines at multiplier 1.0. Score scales with the size of the change rather than being a flat fee per PR: a flat fee is farmable without bound, because points then track how many PRs you opened rather than how much was reviewed (2,000 lines split into 200 ten-line PRs scored 1000x the same change shipped whole). With scaling, the bucket multipliers set the RATE work is paid at, so the most any decomposition can gain is the spread between the best and worst rates: 7.5x at these defaults, and you get it by landing in the small bucket.",
+    "//base_note": "Points for one CHURN_UNIT of lines at multiplier 1.0. It sets the scale of the whole board; churn_exponent decides how much a PR's size moves it.",
     "base": 100,
-    "//churn_unit_note": "How many lines base pays for. 50 means base is the points for a full small-bucket PR at multiplier 1.0.",
-    "churn_unit": 50,
+    "//churn_unit_note": "How many lines base pays for. At 80 a PR of that size sits near the top of the curve, so base reads as roughly what a well-sized change is worth.",
+    "churn_unit": 80,
+    "//churn_exponent_note": "How much of a score follows sheer volume. At 1 the score is proportional (double the churn, double the points) and a bigger PR always earns more, which is the wrong incentive if you want concise work: it pays better to sprawl. At 0.15 size barely lifts a score and the falling size-rate decides it, so past the ladder's peak a bigger PR earns LESS. At 0 size stops mattering at all. KNOWN COST of going below 1: points per line of churn now rise as a PR gets smaller, so chopping work into fragments pays better than shipping it whole (2,000 lines as 2,000 one-line PRs earns far more than one 2,000-line PR). Setting the first bucket's multiplier to 0 puts a floor under that, so a PR too small to be worth reviewing is worth no points either.",
+    "churn_exponent": 0.15,
     "//curve_note": "How a size tier's multiplier applies across its range. 'linear' (the default) reads each max_churn as an ANCHOR and moves the multiplier smoothly between them, interpolated on log(churn) because the tiers are spaced geometrically; the worst a single line can cost is 0.4% of the rate. 'step' holds one multiplier across the whole tier, which states in one line what any PR is worth at the cost of a cliff at every boundary: one line over 1000 churn costs 60% of the rate. Neither widens what splitting a change can gain, since that is best rate over worst rate and interpolation moves neither end. Repeating a multiplier on two consecutive tiers holds it flat between them, which keeps the peak a range worth aiming at rather than an exact number worth hitting.",
     "curve": "linear",
-    "//deletion_weight_note": "How much a REMOVED line counts toward size compared with an added one. Below 1 because removed code is cheaper to read than new code, so a deletion-heavy PR lands in a smaller bucket. Together with shrink_bonus this is two expressions of the same preference; tune one at a time.",
-    "deletion_weight": 0.5,
-    "//buckets_note": "Size tiers, matched in order against churn = additions + (deletions x deletion_weight), with generated files already excluded. max_churn is an INCLUSIVE upper bound; the last bucket omits it and catches everything else. Each multiplier is a RATE per churn_unit, not a flat fee, so a bigger PR still earns more in total (it is more work) but at a worse rate per line. Under the default 'linear' curve the open-ended tier's anchor is derived far enough out to keep that true: points are churn x rate, so a rate falling faster than churn rises would have made a slightly smaller PR worth more. The peak sits at the small tier: splitting a large change into well-sized pieces earns more than shipping it whole, and fragmenting it further earns less again.",
+    "//deletion_weight_note": "How much a REMOVED line counts toward size compared with an added one. Above 1 so that deleting is the cheapest way to earn: it pushes a deletion-heavy PR UP the ladder into a worse rate, which stops indiscriminate deletion being a farm, while shrink_bonus makes the net-negative PR come out ahead anyway. It was below 1 while scoring was proportional, when the same weighting would have made a huge deletion the best-paid PR on the board.",
+    "deletion_weight": 1.5,
+    "//buckets_note": "Size tiers, matched in order against churn = additions + (deletions x deletion_weight), with generated files already excluded. max_churn is an INCLUSIVE upper bound; the last bucket omits it and catches everything else. Each multiplier is the RATE a PR of that size is paid at. The peak sits at the small tier: that is the size worth encouraging, and with churn_exponent below 1 the total falls away on both sides of it. A multiplier of 0 on the first tier is the dial for 'too small to be worth points'.",
     "buckets": [
-      { "name": "tiny", "max_churn": 10, "multiplier": 1.0 },
-      { "name": "small", "max_churn": 50, "multiplier": 1.5 },
-      { "name": "medium", "max_churn": 250, "multiplier": 1.0 },
-      { "name": "large", "max_churn": 1000, "multiplier": 0.5 },
-      { "name": "huge", "multiplier": 0.2 }
+      {
+        "name": "tiny",
+        "max_churn": 10,
+        "multiplier": 1.0
+      },
+      {
+        "name": "small",
+        "max_churn": 50,
+        "multiplier": 1.5
+      },
+      {
+        "name": "medium",
+        "max_churn": 250,
+        "multiplier": 1.0
+      },
+      {
+        "name": "large",
+        "max_churn": 1000,
+        "multiplier": 0.5
+      },
+      {
+        "name": "huge",
+        "multiplier": 0.2
+      }
     ],
     "//verdicts_note": "Multiplier per outcome. requested_changes is negative, so a rejected round actively costs points and a leaderboard can go below zero; set it to 0 if you would rather quality pressure came only from the decay. SKIPPED and ERROR never score: they are our machinery's outcomes, not the author's work.",
     "verdicts": {
@@ -108,10 +132,10 @@
       "commented": 0.25,
       "requested_changes": -0.25
     },
-    "//shrink_bonus_note": "Multiplier when a PR is net-negative overall. Only ever a bonus: it never deepens the penalty on a rejected PR.",
-    "shrink_bonus": 1.2,
+    "//shrink_bonus_note": "Multiplier when a PR is net-negative overall. Only ever a bonus: it never deepens the penalty on a rejected PR. This is what makes removing code beat adding it at the same line count.",
+    "shrink_bonus": 1.6,
     "//attempt_decay_note": "Applied as decay^(revision-1), so each further round of review on the same PR is worth less. Must be under 1: at exactly 1 nothing decays and comment-comment-approve would outscore getting it right first time. Counts REVISIONS, not reviews, so replying to the bot at the same commit costs nothing.",
-    "attempt_decay": 0.6,
+    "attempt_decay": 0.4,
     "//use_gitattributes_note": "Read the repo OWN .gitattributes to leave linguist-generated and linguist-vendored files out of the size, honouring git own rules (every ancestor directory file applies, last match wins, and !attr undoes an earlier rule). This is the same declaration that collapses them in GitHub diff view, and it deliberately keeps the list of what counts as generated with each repo rather than here. A repo that has not marked its generated files will see them counted until it does. NOTE that exclusion settings are part of the RULES and are hashed with them, so changing one marks the rows scored under the old policy stale. They can be re-applied offline: each row stores its per-file measurement, so `score recompute --stale` re-decides what counts without asking GitHub again. `score refetch` is only for a row whose measurement is missing or describes a revision the review never saw.",
     "use_gitattributes": true,
     "//exclude_paths_note": "Extra globs excluded from the size, for repos that have not adopted linguist-generated. Gitignore-style: 'vendor/**', '*.pb.go', 'package-lock.json'.",

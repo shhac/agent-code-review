@@ -43,7 +43,10 @@ type ScoringSettings struct {
 	Base    *float64 `json:"base,omitempty"`
 	// ChurnUnit is how many lines Base pays for; score scales with churn in
 	// units of this rather than being a flat fee per PR.
-	ChurnUnit      *float64 `json:"churn_unit,omitempty"`
+	ChurnUnit *float64 `json:"churn_unit,omitempty"`
+	// ChurnExponent is how much of a score follows sheer volume: 1 is
+	// proportional, and below 1 the same solve in fewer lines is worth more.
+	ChurnExponent  *float64 `json:"churn_exponent,omitempty"`
 	DeletionWeight *float64 `json:"deletion_weight,omitempty"`
 	// Curve is how a bucket's multiplier applies across its range: "step"
 	// (a flat tier) or "linear" (anchors the multiplier moves between).
@@ -186,6 +189,9 @@ func mergeScoring(base, over ScoringSettings) ScoringSettings {
 	if over.ChurnUnit != nil {
 		out.ChurnUnit = over.ChurnUnit
 	}
+	if over.ChurnExponent != nil {
+		out.ChurnExponent = over.ChurnExponent
+	}
 	if over.DeletionWeight != nil {
 		out.DeletionWeight = over.DeletionWeight
 	}
@@ -223,6 +229,7 @@ func mergeScoring(base, over ScoringSettings) ScoringSettings {
 func applyScoring(r score.Rules, s ScoringSettings) score.Rules {
 	r.Base = floatOr(s.Base, r.Base)
 	r.ChurnUnit = floatOr(s.ChurnUnit, r.ChurnUnit)
+	r.ChurnExponent = floatOr(s.ChurnExponent, r.ChurnExponent)
 	r.DeletionWeight = floatOr(s.DeletionWeight, r.DeletionWeight)
 	if s.Curve != "" {
 		r.Curve = s.Curve

@@ -2,16 +2,19 @@ package score
 
 import "testing"
 
-// The worked examples from the design (.ai-cache/plan-pr-scoring.md), carried
-// here so the documented numbers and the code cannot drift. Each scenario is a
-// full PR history, because the interesting cases are about how repeated rounds
-// compose, not about one review in isolation.
+// The worked examples, carried here so the documented numbers and the code
+// cannot drift. Each scenario is a full PR history, because the interesting
+// cases are about how repeated rounds compose, not about one review in
+// isolation.
 //
-// The figures moved once, when the shipped curve became linear: a tier's
-// multiplier is now the rate at its own boundary rather than a plateau across
-// the whole tier, so anything not sitting exactly on a boundary scores off the
-// ramp. "medium approved first pass" is unchanged because 250 churn IS the
-// medium anchor, which is the clearest illustration of the difference.
+// The figures have moved twice. First when the ladder became a curve, so a
+// tier's multiplier is the rate at its own boundary rather than a plateau.
+// Then when the policy stopped being proportional: with a churn exponent of
+// 0.15 a PR's size barely lifts its score, and the ladder's falling rate is
+// what decides it, so the whole table compressed and the big scenarios
+// collapsed. A 2000-line PR now earns less than a 50-line one, which is the
+// entire point. Deletions weighing 1.5 also moved every bucket: +40/-10 is 55
+// churn, which is "medium" and no longer "small".
 func TestWorkedExamples(t *testing.T) {
 	r := DefaultRules()
 
@@ -28,39 +31,39 @@ func TestWorkedExamples(t *testing.T) {
 		wantBucket string
 	}{
 		{
-			name: "small approved first pass", additions: 40, deletions: 10,
-			rounds:    []round{{verdictApproved, 132}},
-			wantTotal: 132, wantBucket: "small",
+			name: "tidy change approved first pass", additions: 40, deletions: 10,
+			rounds:    []round{{verdictApproved, 139}},
+			wantTotal: 139, wantBucket: "medium",
 		},
 		{
-			name: "medium approved first pass", additions: 200, deletions: 100,
-			rounds:    []round{{verdictApproved, 500}},
-			wantTotal: 500, wantBucket: "medium",
+			name: "three times the change, two thirds the points", additions: 200, deletions: 100,
+			rounds:    []round{{verdictApproved, 110}},
+			wantTotal: 110, wantBucket: "large",
 		},
 		{
-			name: "small, two comment rounds then approved", additions: 40, deletions: 10,
-			rounds:    []round{{verdictCommented, 33}, {verdictCommented, 20}, {verdictApproved, 48}},
-			wantTotal: 101, wantBucket: "small",
+			name: "tidy change, two comment rounds then approved", additions: 40, deletions: 10,
+			rounds:    []round{{verdictCommented, 35}, {verdictCommented, 14}, {verdictApproved, 22}},
+			wantTotal: 71, wantBucket: "medium",
 		},
 		{
 			name: "huge, two comment rounds then approved", additions: 2000, deletions: 0,
-			rounds:    []round{{verdictCommented, 362}, {verdictCommented, 217}, {verdictApproved, 521}},
-			wantTotal: 1100, wantBucket: "huge",
+			rounds:    []round{{verdictCommented, 14}, {verdictCommented, 6}, {verdictApproved, 9}},
+			wantTotal: 29, wantBucket: "huge",
 		},
 		{
 			name: "pure deletion approved first pass", additions: 0, deletions: 800,
-			rounds:    []round{{verdictApproved, 797}},
-			wantTotal: 797, wantBucket: "large",
+			rounds:    []round{{verdictApproved, 111}},
+			wantTotal: 111, wantBucket: "huge",
 		},
 		{
-			name: "small, rejected then approved", additions: 40, deletions: 10,
-			rounds:    []round{{verdictRequestedChanges, -33}, {verdictApproved, 79}},
-			wantTotal: 46, wantBucket: "small",
+			name: "tidy change, rejected then approved", additions: 40, deletions: 10,
+			rounds:    []round{{verdictRequestedChanges, -35}, {verdictApproved, 56}},
+			wantTotal: 21, wantBucket: "medium",
 		},
 		{
-			name: "small, rejected then abandoned", additions: 40, deletions: 10,
-			rounds:    []round{{verdictRequestedChanges, -33}},
-			wantTotal: -33, wantBucket: "small",
+			name: "tidy change, rejected then abandoned", additions: 40, deletions: 10,
+			rounds:    []round{{verdictRequestedChanges, -35}},
+			wantTotal: -35, wantBucket: "medium",
 		},
 	}
 
@@ -117,65 +120,102 @@ func TestBucketUsesChurnNotNet(t *testing.T) {
 	}
 }
 
-// THE farming test, and the one the original got wrong.
+// Splitting a big change into reviewable pieces pays, and how much it pays is
+// now the operator's problem rather than a guarantee.
 //
-// Comparing one tiny PR to one small PR proved nothing: the attack is VOLUME.
-// With a flat fee per PR, points tracked how many PRs you opened rather than
-// how much was reviewed, so chopping a change into ever-smaller pieces
-// multiplied the payout without bound (2,000 lines as 200 ten-line PRs scored
-// 1000x the same change shipped whole). Scaling by churn caps what any
-// decomposition can gain at the spread between the best and worst rates.
-func TestDecompositionIsRewardedButBounded(t *testing.T) {
-	r := DefaultRules()
-	total := func(lines, chunk int) int {
+// Under proportional scoring the ceiling was the ladder's rate spread: 7.5x,
+// whatever anybody did. A churn exponent below 1 removes that ceiling by
+// construction, because points per unit of churn now RISE as a PR gets
+// smaller. At the shipped 0.15, two thousand lines shipped whole earn 57 and
+// the same lines as two thousand one-line PRs earn 104,000. That is the price
+// of "the same solve in fewer lines is worth more", and it is a price rather
+// than a bug: the two properties are the same statement with the sign flipped.
+//
+// The dial that puts a floor under it is a first tier that pays nothing, so a
+// PR too small to be worth reviewing is worth no points either. This test
+// pins both halves: the incentive to split, and the dial that stops it running
+// away.
+func TestFragmentingIsFlooredByAZeroRatedFirstTier(t *testing.T) {
+	split := func(r Rules, lines, chunk int) int {
 		per := Compute(r, Input{Additions: chunk, Verdict: verdictApproved, Attempt: 1}).Score
 		return per * (lines / chunk)
 	}
 
-	for _, lines := range []int{2000, 20000} {
-		whole := total(lines, lines)
-		wellSized := total(lines, 50)
-		chunky := total(lines, 1000)
-		fragments := total(lines, 10)
-
-		// Splitting a big change into reviewable pieces SHOULD pay.
-		if chunky <= whole {
-			t.Errorf("%d lines: %d as chunks of 1000 vs %d whole; splitting must be rewarded", lines, chunky, whole)
-		}
-		// The sweet spot is the small bucket, not the smallest possible piece.
-		if fragments >= wellSized {
-			t.Errorf("%d lines: fragments scored %d against well-sized %d; fragmenting must not be optimal",
-				lines, fragments, wellSized)
-		}
-		// And the whole incentive is bounded by the multiplier spread.
-		best := max(max(whole, wellSized), max(chunky, fragments))
-		if ratio := float64(best) / float64(whole); ratio > 8 {
-			t.Errorf("%d lines: best decomposition is %.0fx one PR; must stay near the 7.5x multiplier spread", lines, ratio)
-		}
-	}
-}
-
-// Bigger PRs earn more in total (more work) but at a worse rate per line.
-func TestBiggerPRsEarnMoreInTotalAndLessPerLine(t *testing.T) {
 	r := DefaultRules()
-	rate := func(lines int) float64 {
-		return float64(Compute(r, Input{Additions: lines, Verdict: verdictApproved, Attempt: 1}).Score) / float64(lines)
+	if whole, chunky := split(r, 2000, 2000), split(r, 2000, 200); chunky <= whole {
+		t.Errorf("2000 lines: %d as ten pieces vs %d whole; splitting into reviewable pieces must pay", chunky, whole)
 	}
-	small := Compute(r, Input{Additions: 50, Verdict: verdictApproved, Attempt: 1}).Score
-	huge := Compute(r, Input{Additions: 5000, Verdict: verdictApproved, Attempt: 1}).Score
-	if huge <= small {
-		t.Errorf("a 5000-line PR scored %d against a 50-line PR's %d: more work should earn more", huge, small)
+	if fragments, wellSized := split(r, 2000, 1), split(r, 2000, 50); fragments <= wellSized {
+		t.Errorf("fragments scored %d against well-sized %d; the shipped ruleset is expected to be farmable this way, "+
+			"so if this now holds the floor arrived somewhere and this test should say where", fragments, wellSized)
 	}
-	if rate(5000) >= rate(50) {
-		t.Errorf("per-line rate %v at 5000 lines vs %v at 50: the big PR must be paid worse per line", rate(5000), rate(50))
+
+	floored := DefaultRules()
+	floored.Buckets = append([]Bucket(nil), floored.Buckets...)
+	floored.Buckets[0] = Bucket{Name: "tiny", MaxChurn: 10, Multiplier: 0}
+	if fragments, wellSized := split(floored, 2000, 1), split(floored, 2000, 50); fragments >= wellSized {
+		t.Errorf("with a zero-rated first tier, fragments still scored %d against well-sized %d", fragments, wellSized)
 	}
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+// THE property this ruleset exists for: the same solve in fewer lines is
+// worth more.
+//
+// The three figures are the ones the policy was tuned against, so they are
+// pinned as numbers rather than as an ordering: an ordering would still pass
+// if the curve flattened to within a point of itself, and a leaderboard
+// nobody can feel is not an incentive.
+func TestATighterSolveEarnsMore(t *testing.T) {
+	r := DefaultRules()
+	for _, tc := range []struct {
+		lines int
+		want  int
+	}{{100, 190}, {200, 158}, {300, 135}} {
+		got := Compute(r, Input{Additions: tc.lines, Deletions: tc.lines, Verdict: verdictApproved, Attempt: 1}).Score
+		if got != tc.want {
+			t.Errorf("+%d/-%d scored %d, want %d", tc.lines, tc.lines, got, tc.want)
+		}
 	}
-	return b
+}
+
+// Past the ladder's peak, a bigger PR earns less in total, all the way out.
+//
+// This is the inverse of what the ruleset guaranteed until the churn exponent
+// arrived, and the inversion is deliberate rather than a side effect: the
+// tail-anchor rule that used to enforce the old direction now stands aside
+// when the exponent says the decline is the policy.
+func TestPastThePeakBiggerEarnsLess(t *testing.T) {
+	r := DefaultRules()
+	at := func(lines int) int {
+		return Compute(r, Input{Additions: lines, Deletions: lines, Verdict: verdictApproved, Attempt: 1}).Score
+	}
+	peak, peakAt := 0, 0
+	for n := 1; n <= 3000; n++ {
+		if v := at(n); v > peak {
+			peak, peakAt = v, n
+		}
+	}
+	if peakAt > 60 {
+		t.Errorf("the best-paid PR is +%d/-%d; the peak should sit at a small change, not a large one", peakAt, peakAt)
+	}
+	// Out to the ladder's final anchor, which at 4000 churn is 1600 lines each
+	// way. Past it the rate is flat, because interpolation has nothing beyond
+	// the last anchor to aim at, so the churn term creeps the total back up.
+	// The creep is real and deliberately tolerated: it runs from 57 points to
+	// about 70 over the following sixteen thousand lines, which is a third of
+	// what the peak pays and not an incentive anybody can act on. The second
+	// assertion is what keeps it that way.
+	prev := peak
+	for n := peakAt + 1; n <= 1600; n++ {
+		got := at(n)
+		if got > prev {
+			t.Fatalf("+%d/-%d scored %d against %d one line smaller: past the peak, bigger must not earn more", n, n, got, prev)
+		}
+		prev = got
+	}
+	if huge := at(20000); huge >= peak/2 {
+		t.Errorf("+20000/-20000 scored %d against a peak of %d: the flat tail must stay far below the peak", huge, peak)
+	}
 }
 
 func TestBucketBoundariesAreInclusive(t *testing.T) {
@@ -195,26 +235,32 @@ func TestBucketBoundariesAreInclusive(t *testing.T) {
 	}
 }
 
-// Deletions are discounted in churn (cheaper to read) and earn the shrink
-// bonus when the PR is net-negative, so for the SAME amount of reviewing a
-// removal pays 1.2x what an addition does.
+// Removing code beats adding it, at the same churn AND at the same line count.
 //
-// Same churn, not the same line count. Those coincided under the step ladder
-// only by accident: 400 deleted lines measure as 200 churn, which landed a
-// tier better than 400 added lines and beat it on the multiplier jump alone.
-// Interpolation removed the jump, and with it an incentive that was really an
-// artefact of where a boundary happened to sit. What survives is the honest
-// version: half the reading earns half the points, and choosing to delete
-// rather than add earns the bonus.
-func TestDeletionsBeatAdditionsOfTheSameChurn(t *testing.T) {
+// Both hold now, by two different mechanisms, and it is worth keeping them
+// apart. At the same CHURN the shrink bonus is the whole difference. At the
+// same LINE COUNT a deletion measures as MORE churn (weight 1.5), which pushes
+// it up the ladder into a worse rate: the near-flat churn exponent means that
+// costs it very little, and the bonus more than covers it. Under the old
+// proportional ruleset the same weighting would have made a big deletion the
+// best-paid PR on the board, which is why it was below 1 then.
+func TestDeletionsBeatAdditions(t *testing.T) {
 	r := DefaultRules()
-	added := Compute(r, Input{Additions: 200, Verdict: verdictApproved, Attempt: 1})
-	removed := Compute(r, Input{Deletions: 400, Verdict: verdictApproved, Attempt: 1})
-	if added.Bucket != removed.Bucket {
-		t.Fatalf("buckets differ (%q vs %q); the two are no longer the same amount of reviewing", added.Bucket, removed.Bucket)
+	sameChurn := func() (int, int) {
+		added := Compute(r, Input{Additions: 300, Verdict: verdictApproved, Attempt: 1})
+		removed := Compute(r, Input{Deletions: 200, Verdict: verdictApproved, Attempt: 1})
+		if added.Bucket != removed.Bucket {
+			t.Fatalf("buckets differ (%q vs %q); the two are no longer the same amount of reviewing", added.Bucket, removed.Bucket)
+		}
+		return removed.Score, added.Score
 	}
-	if removed.Score <= added.Score {
-		t.Errorf("removing 400 lines scored %d, adding the same 200 churn scored %d: removal must score higher", removed.Score, added.Score)
+	if removed, added := sameChurn(); removed <= added {
+		t.Errorf("removing 200 lines scored %d, adding the same 300 churn scored %d: removal must score higher", removed, added)
+	}
+	removed := Compute(r, Input{Deletions: 300, Verdict: verdictApproved, Attempt: 1}).Score
+	added := Compute(r, Input{Additions: 300, Verdict: verdictApproved, Attempt: 1}).Score
+	if removed <= added {
+		t.Errorf("removing 300 lines scored %d, adding 300 scored %d: removal must score higher", removed, added)
 	}
 }
 
@@ -324,10 +370,12 @@ func TestZeroChurnScoresNothing(t *testing.T) {
 // addition of the same size, rewarding exactly the wrong behaviour.
 func TestShrinkBonusNeverAmplifiesAPenalty(t *testing.T) {
 	r := DefaultRules()
-	// -40 net against +40 net, both rejected, both landing in the same bucket
-	// (churn 20 vs 40 are each "small"), so the bonus is the only difference.
-	shrinking := Compute(r, Input{Additions: 0, Deletions: 40, Verdict: verdictRequestedChanges, Attempt: 1})
-	growing := Compute(r, Input{Additions: 40, Deletions: 0, Verdict: verdictRequestedChanges, Attempt: 1})
+	// Matched on CHURN, not on line count: 30 removed lines weigh the same 45
+	// as 45 added ones, so both land on the same rate in the same bucket and
+	// the shrink bonus is the only thing that could separate them. It must
+	// not, because the score is negative.
+	shrinking := Compute(r, Input{Additions: 0, Deletions: 30, Verdict: verdictRequestedChanges, Attempt: 1})
+	growing := Compute(r, Input{Additions: 45, Deletions: 0, Verdict: verdictRequestedChanges, Attempt: 1})
 	if shrinking.Bucket != growing.Bucket {
 		t.Fatalf("buckets differ (%q vs %q); test no longer isolates the bonus", shrinking.Bucket, growing.Bucket)
 	}

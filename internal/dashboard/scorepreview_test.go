@@ -92,6 +92,18 @@ func TestScorePreviewRejectsNonsense(t *testing.T) {
 	}
 }
 
+// Only GET. The shared read frame owns that check, and routing through it is
+// what keeps this endpoint from answering a POST as cheerfully as a GET.
+func TestScorePreviewIsReadOnly(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		code, _ := serveJSON[scorePreviewResp](t, previewServer().handleScorePreview,
+			method, "/api/score/preview?additions=40", "")
+		if code != http.StatusMethodNotAllowed {
+			t.Errorf("%s: code = %d, want 405", method, code)
+		}
+	}
+}
+
 // A repo scored under its own rules must preview under those rules, or the
 // calculator quietly answers for a policy that repo does not use.
 func TestScorePreviewHonoursARepoOverride(t *testing.T) {
@@ -107,5 +119,10 @@ func TestScorePreviewHonoursARepoOverride(t *testing.T) {
 	_, global := preview(t, "additions=40&deletions=10")
 	if scoped.Total >= global.Total {
 		t.Errorf("repo total = %d, global = %d: the override must apply", scoped.Total, global.Total)
+	}
+	// Echoed back, so a caller can see which policy answered rather than
+	// assuming the one it asked about.
+	if scoped.Repo != "o/thrifty" || global.Repo != "" {
+		t.Errorf("repo = %q / %q, want the scope each answer used", scoped.Repo, global.Repo)
 	}
 }

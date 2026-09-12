@@ -45,3 +45,23 @@ func TestScoringRespCarriesAConfiguredCurve(t *testing.T) {
 		t.Errorf("curve = %q, want %q", got, score.CurveStep)
 	}
 }
+
+// The page shows ONE ruleset, and a repo with its own is not described by it.
+// Naming those repos is what stops the ladder and the calculator from
+// presenting the global policy as everybody's.
+func TestScoringRespNamesTheReposItDoesNotDescribe(t *testing.T) {
+	base := 50.0
+	cfg := config.Config{Scoring: config.ScoringSettings{
+		Repos: map[string]config.ScoringSettings{
+			"o/second": {Base: &base},
+			"o/first":  {Base: &base},
+		},
+	}}
+	got := scoringResp(cfg).ScopedRepos
+	if len(got) != 2 || got[0] != "o/first" || got[1] != "o/second" {
+		t.Errorf("scoped repos = %v, want both, sorted", got)
+	}
+	if other := scoringResp(config.Config{}).ScopedRepos; len(other) != 0 {
+		t.Errorf("scoped repos = %v, want none when nothing is narrowed", other)
+	}
+}

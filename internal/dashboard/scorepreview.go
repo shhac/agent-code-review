@@ -11,8 +11,10 @@ package dashboard
 // is the number people plan against.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -33,6 +35,11 @@ const (
 // not explain itself: the same line count scores very differently either side
 // of a tier, and the rate is the part a reader cannot infer.
 type scorePreviewResp struct {
+	// Repo is which ruleset priced this, echoed back because it decides the
+	// answer: a repo with its own scoring block is scored under that, and a
+	// preview that quietly used the global one would promise points that repo
+	// will never pay. Empty is the global policy.
+	Repo      string              `json:"repo"`
 	Additions int                 `json:"additions"`
 	Deletions int                 `json:"deletions"`
 	Churn     float64             `json:"churn"`
@@ -57,26 +64,33 @@ type scorePreviewRound struct {
 // PR of THIS shape earns rather than replaying a history where the diff also
 // grew. The decay across rounds is the whole point of showing them.
 func (s *Server) handleScorePreview(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
+	// Through the shared read frame, which is where the method check lives:
+	// answering a POST as cheerfully as a GET is the bug that frame exists to
+	// have fixed once.
+	serveGet(s, w, r, func(context.Context) (scorePreviewResp, error) {
+		return s.scorePreview(r.URL.Query())
+	})
+}
+
+func (s *Server) scorePreview(q url.Values) (scorePreviewResp, error) {
 	additions, err := previewLines(q.Get("additions"))
 	if err != nil {
-		httpError(w, http.StatusBadRequest, "additions: "+err.Error())
-		return
+		return scorePreviewResp{}, &apiErr{http.StatusBadRequest, "additions: " + err.Error()}
 	}
 	deletions, err := previewLines(q.Get("deletions"))
 	if err != nil {
-		httpError(w, http.StatusBadRequest, "deletions: "+err.Error())
-		return
+		return scorePreviewResp{}, &apiErr{http.StatusBadRequest, "deletions: " + err.Error()}
 	}
 	verdicts, err := previewVerdicts(q.Get("verdicts"))
 	if err != nil {
-		httpError(w, http.StatusBadRequest, err.Error())
-		return
+		return scorePreviewResp{}, &apiErr{http.StatusBadRequest, err.Error()}
 	}
 
-	rules := s.config().ResolveScoring(q.Get("repo"))
+	repo := q.Get("repo")
+	rules := s.config().ResolveScoring(repo)
 	churn := rules.Churn(additions, deletions)
 	resp := scorePreviewResp{
+		Repo:      repo,
 		Additions: additions,
 		Deletions: deletions,
 		Churn:     churn,
@@ -91,7 +105,7 @@ func (s *Server) handleScorePreview(w http.ResponseWriter, r *http.Request) {
 		resp.Total += got.Score
 		resp.Rounds = append(resp.Rounds, scorePreviewRound{Attempt: i + 1, Verdict: v, Score: got.Score})
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return resp, nil
 }
 
 // previewLines parses a line count. Empty is 0, which is a legal PR half: a

@@ -253,6 +253,15 @@ func floatOr(p *float64, fallback float64) float64 {
 	return *p
 }
 
+// ScoringScopedRepos are the repos that narrow the global scoring policy with
+// one of their own, sorted.
+//
+// Surfaced so that anything showing "the" scoring rules can say whose they
+// are. The dashboard resolves the global policy for its ladder and its
+// calculator, which is the right default and a quiet lie for a repo scored
+// under different numbers.
+func (c Config) ScoringScopedRepos() []string { return sortedKeys(c.Scoring.Repos) }
+
 // CurrentRuleHashes is the ruleset hash each repo is scored under right now,
 // keyed by repo, with "" holding the hash for any repo that has no override.
 //

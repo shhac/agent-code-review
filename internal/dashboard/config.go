@@ -49,6 +49,10 @@ type configScoringResp struct {
 	// tier is worth. score.Anchor is used as-is rather than mirrored into a
 	// resp type, so there is one shape to keep in step instead of two.
 	Anchors []score.Anchor `json:"anchors"`
+	// ScopedRepos are the repos NOT described by the figures above: they
+	// narrow the policy with their own. Sent so the page can say so rather
+	// than presenting the global ladder as everybody's.
+	ScopedRepos []string `json:"scoped_repos"`
 }
 
 // scoringBucketResp is one size tier. MaxChurn 0 means the open-ended last one.
@@ -74,6 +78,7 @@ func scoringResp(cfg config.Config) configScoringResp {
 		AttemptDecay:       r.AttemptDecay,
 		Curve:              r.Curve,
 		Anchors:            r.Anchors(),
+		ScopedRepos:        cfg.ScoringScopedRepos(),
 		UseGitattributes:   r.UseGitattributes,
 		ExcludePaths:       len(r.ExcludePaths),
 		Buckets:            scoringBuckets(r.Buckets),

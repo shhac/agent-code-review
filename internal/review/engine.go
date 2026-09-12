@@ -114,10 +114,7 @@ var Engines = config.EngineNames
 
 // NewEngine builds the configured engine.
 func NewEngine(cfg config.ReviewSettings) (Engine, error) {
-	engine := cfg.Engine
-	if engine == "" {
-		engine = Engines[0]
-	}
+	engine := cfg.ResolvedEngine()
 	switch engine {
 	case "codex":
 		return newCodex(cfg.Codex, ResumePrompt(cfg)), nil

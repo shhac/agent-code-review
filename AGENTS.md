@@ -130,7 +130,11 @@ internal/
   adding more tiers only makes more, smaller cliffs. Interpolation takes the
   worst single-line drop from 60% to 0.4% while leaving the farming bound at
   7.5x, because that bound is best rate over worst rate and interpolation moves
-  neither end. It does move absolute numbers: a tier's multiplier is now the
+  neither end. The open-ended tier's anchor is derived rather than configured,
+  and is pushed out far enough that the tail stays monotonic: points are churn
+  x rate, so the ladder's own spacing alone put it at 4000 and made a
+  3700-churn PR outscore a 4000-churn one, which is the cliff's incentive
+  wearing a smooth face. It does move absolute numbers: a tier's multiplier is now the
   rate at its own boundary rather than across its whole range, so the worked
   examples in internal/score moved with it and only "medium" (250 churn, which
   IS the medium anchor) is unchanged. Repeating a multiplier on two consecutive buckets holds it flat

@@ -30,8 +30,10 @@ func TestScoringRespNamesTheCurveAndItsAnchors(t *testing.T) {
 		}
 	}
 	// The derived tail is the part the browser cannot work out for itself.
-	if last := got.Anchors[len(got.Anchors)-1]; last.Churn != 4000 {
-		t.Errorf("tail anchor at churn %v, want the derived 4000", last.Churn)
+	// What it should BE is pinned in score; that it survives the wire is this
+	// test's business.
+	if last := got.Anchors[len(got.Anchors)-1]; last.Churn < 4000 || last.Multiplier != 0.2 {
+		t.Errorf("tail anchor = %+v, want the derived one score computes", last)
 	}
 }
 

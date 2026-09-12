@@ -104,7 +104,7 @@ func TestCurveIsFlatOutsideTheAnchors(t *testing.T) {
 	for _, tc := range []struct {
 		churn float64
 		want  float64
-	}{{1, 1.0}, {5, 1.0}, {10, 1.0}, {4000, 0.2}, {50000, 0.2}} {
+	}{{1, 1.0}, {5, 1.0}, {10, 1.0}, {20000, 0.2}, {500000, 0.2}} {
 		if got := rateAt(r, tc.churn); got != tc.want {
 			t.Errorf("churn %v: multiplier %v, want a flat %v", tc.churn, got, tc.want)
 		}
@@ -113,18 +113,48 @@ func TestCurveIsFlatOutsideTheAnchors(t *testing.T) {
 
 // The tail anchor is DERIVED, and the dashboard draws the curve from these,
 // so what it derives is a published fact rather than an implementation
-// detail: 1000 x (1000/250) is why a "huge" PR is paid at 0.35x at 2000 churn
-// instead of a flat 0.2x.
+// detail: it is why a 2000-churn PR is paid at 0.36x instead of a flat 0.2x.
 func TestAnchorsCarryTheLadderSpacingIntoTheTail(t *testing.T) {
 	got := DefaultRules().Anchors()
-	want := []Anchor{{10, 1.0}, {50, 1.5}, {250, 1.0}, {1000, 0.5}, {4000, 0.2}}
-	if len(got) != len(want) {
-		t.Fatalf("anchors = %v, want %v", got, want)
+	bounded := []Anchor{{10, 1.0}, {50, 1.5}, {250, 1.0}, {1000, 0.5}}
+	if len(got) != len(bounded)+1 {
+		t.Fatalf("anchors = %v, want the four bounded tiers plus a derived tail", got)
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("anchor %d = %v, want %v", i, got[i], want[i])
+	for i := range bounded {
+		if got[i] != bounded[i] {
+			t.Errorf("anchor %d = %v, want %v", i, got[i], bounded[i])
 		}
+	}
+	tail := got[len(got)-1]
+	// At least the ladder's own spacing (1000 x 1000/250), and further out
+	// than that here because 4000 would have made the tail non-monotonic.
+	if tail.Multiplier != 0.2 || tail.Churn < 4000 {
+		t.Errorf("tail anchor = %v, want 0.2x at 4000 churn or beyond", tail)
+	}
+}
+
+// A bigger PR must never earn LESS in total, anywhere on the ladder.
+//
+// Points are churn x rate, so a rate falling faster than churn rises inverts
+// the incentive: with the tail derived from the ladder's spacing alone, a
+// 3700-churn PR outscored a 4000-churn one, and trimming 300 lines from an
+// already-huge change paid better than writing them. That is the same
+// incentive a cliff creates, and worse, because there is no visible boundary
+// to blame it on. The tail is now placed to make this hold; the bounded
+// anchors are the operator's own figures, so a ladder that plunges inside its
+// own range is a policy they chose rather than one derived for them.
+func TestBiggerPRsNeverEarnLess(t *testing.T) {
+	r := DefaultRules()
+	at := func(churn int) int {
+		return Compute(r, Input{Additions: churn, Verdict: verdictApproved, Attempt: 1}).Score
+	}
+	prev := at(1)
+	for churn := 2; churn <= 20000; churn++ {
+		got := at(churn)
+		if got < prev {
+			t.Fatalf("churn %d scored %d, one line less scored %d: a bigger PR must not earn less", churn, got, prev)
+		}
+		prev = got
 	}
 }
 
@@ -156,5 +186,16 @@ func TestCurveIsHashed(t *testing.T) {
 	bad.Curve = "wobbly"
 	if bad.Validate() == nil {
 		t.Error("an unknown curve must be rejected")
+	}
+}
+
+// The derived tail is a label on a chart as well as a number in the maths.
+// The monotonicity bound lands on 4481.689070338063, which is true and unfit
+// to print under an axis, so it rounds UP (never down, which would break the
+// bound it was computed to satisfy).
+func TestDerivedTailIsATidyNumber(t *testing.T) {
+	tail := DefaultRules().Anchors()[4]
+	if tail.Churn != 4500 {
+		t.Errorf("tail churn = %v, want 4500", tail.Churn)
 	}
 }

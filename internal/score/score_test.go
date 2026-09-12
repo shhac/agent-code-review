@@ -44,8 +44,8 @@ func TestWorkedExamples(t *testing.T) {
 		},
 		{
 			name: "huge, two comment rounds then approved", additions: 2000, deletions: 0,
-			rounds:    []round{{verdictCommented, 350}, {verdictCommented, 210}, {verdictApproved, 504}},
-			wantTotal: 1064, wantBucket: "huge",
+			rounds:    []round{{verdictCommented, 362}, {verdictCommented, 217}, {verdictApproved, 521}},
+			wantTotal: 1100, wantBucket: "huge",
 		},
 		{
 			name: "pure deletion approved first pass", additions: 0, deletions: 800,

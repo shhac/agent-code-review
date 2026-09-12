@@ -50,7 +50,8 @@ type Anchor struct {
 // anchored one step further along the ladder's existing spacing (the ratio of
 // the last two bounded anchors, or double the last one when there is only
 // one), which keeps the tail's slope in proportion with the rest rather than
-// inventing a constant.
+// inventing a constant, and then pushed out far enough that the tail cannot
+// pay a bigger PR less in total (see tailAnchor).
 //
 // Exported because the dashboard DRAWS this curve, and that derived tail is
 // policy rather than geometry: it is why the last anchor lands at 4000 and why
@@ -78,11 +79,56 @@ func (r Rules) Anchors() []Anchor {
 		// A single open-ended bucket: one flat multiplier everywhere.
 		return []Anchor{{Churn: 1, Multiplier: tail.Multiplier}}
 	case 1:
-		return append(out, Anchor{Churn: out[0].Churn * 2, Multiplier: tail.Multiplier})
+		return append(out, tailAnchor(out[0], tail.Multiplier, 2))
 	default:
-		ratio := out[len(out)-1].Churn / out[len(out)-2].Churn
-		return append(out, Anchor{Churn: out[len(out)-1].Churn * ratio, Multiplier: tail.Multiplier})
+		last, prev := out[len(out)-1], out[len(out)-2]
+		return append(out, tailAnchor(last, tail.Multiplier, last.Churn/prev.Churn))
 	}
+}
+
+// tailAnchor places the open-ended tier's control point: ratio steps along the
+// ladder, or further out if that would make the last stretch pay a bigger PR
+// LESS in total.
+//
+// Points are churn x rate, so a falling rate can outrun a rising churn. Over a
+// segment from (x0,y0) to (x1,y1), interpolated on log churn, total points
+// stop rising once the rate falls below (y0-y1)/ln(x1/x0), and the rate is
+// lowest at x1. Monotonic therefore means ln(x1/x0) >= (y0-y1)/y1.
+//
+// At the shipped ladder the ratio rule alone put the tail at 4000 and broke
+// that by 8%: a 3700-churn PR outscored a 4000-churn one, so trimming 300
+// lines from an already-huge PR paid better than writing them. That is
+// precisely the incentive a cliff creates, which is what this curve exists to
+// remove, and it is worse than the cliff because it is invisible. The tail
+// goes to 4482 instead.
+//
+// A tail multiplier of zero or less cannot be fixed by moving the anchor: the
+// rate ends at nothing whatever the distance, so there is no monotone tail to
+// find and the ladder's own spacing stands. Validation permits it (a policy of
+// "past here, nothing" is a choice an operator may make), and Compute stays
+// total either way.
+func tailAnchor(last Anchor, multiplier, ratio float64) Anchor {
+	churn := last.Churn * ratio
+	if multiplier > 0 && multiplier < last.Multiplier {
+		if needed := last.Churn * math.Exp((last.Multiplier-multiplier)/multiplier); needed > churn {
+			churn = roundUpTidy(needed)
+		}
+	}
+	return Anchor{Churn: churn, Multiplier: multiplier}
+}
+
+// roundUpTidy rounds up to two significant figures.
+//
+// Only the DERIVED tail goes through this: the monotonicity bound comes out
+// as 4481.689070338063, which is a true number and a terrible thing to label
+// an axis with. Rounding UP keeps the bound satisfied, and two figures is
+// enough to stay in proportion with a ladder written in round numbers.
+func roundUpTidy(x float64) float64 {
+	if x <= 0 || math.IsInf(x, 0) || math.IsNaN(x) {
+		return x
+	}
+	step := math.Pow(10, math.Floor(math.Log10(x))-1)
+	return math.Ceil(x/step) * step
 }
 
 // sizeMultiplier is what the PR's size is worth, under the configured curve.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { durSecs, exact, holdBlurb, isReview, maxOf, prHref, statusKind, statusLabel, tokens, untilRel, when } from './format';
+import { durSecs, exact, holdBlurb, isReview, maxOf, prHref, scoreLabel, scoreTitle, signed, statusKind, statusLabel, tokens, untilRel, when } from './format';
 
 describe('maxOf', () => {
   it('takes the largest selected value', () => {
@@ -135,5 +135,47 @@ describe('isReview', () => {
     expect(isReview('SKIPPED')).toBe(false);
     expect(isReview('ERROR')).toBe(false);
     expect(isReview(undefined)).toBe(false);
+  });
+});
+
+describe('signed', () => {
+  it('marks a positive explicitly so it cannot read as a bare count', () => {
+    expect(signed(30)).toBe('+30');
+  });
+
+  it('carries a negative without doubling the sign', () => {
+    expect(signed(-790)).toBe('-790');
+  });
+
+  it('leaves zero unsigned', () => {
+    expect(signed(0)).toBe('0');
+  });
+});
+
+describe('scoreLabel', () => {
+  // The number a person sees for their own points. A missing or doubled sign
+  // here is the closest thing this feature has to a wrong balance.
+  it('signs the points', () => {
+    expect(scoreLabel(135)).toBe('+135 pts');
+    expect(scoreLabel(-34)).toBe('-34 pts');
+    expect(scoreLabel(0)).toBe('0 pts');
+  });
+
+  // Built on signed rather than restating it, so the sign convention has one
+  // definition. This pins that they agree.
+  it('agrees with signed', () => {
+    for (const n of [135, -34, 0, 1, -1]) {
+      expect(scoreLabel(n)).toBe(`${signed(n)} pts`);
+    }
+  });
+});
+
+describe('scoreTitle', () => {
+  it('names the size tier, which is what explains a surprising number', () => {
+    expect(scoreTitle(135, 'small')).toBe('135 points for the PR author (small diff)');
+  });
+
+  it('omits the tier when it was not recorded', () => {
+    expect(scoreTitle(135, '')).toBe('135 points for the PR author');
   });
 });

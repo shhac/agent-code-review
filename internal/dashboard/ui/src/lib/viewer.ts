@@ -24,3 +24,26 @@ export async function refreshViewer() {
     // would read as "you have been logged out".
   }
 }
+
+/**
+ * Whether a GitHub handle belongs to the person looking at the page.
+ *
+ * Here rather than beside any one page's derivations, because this is the
+ * module that declares itself the single place identity is interpreted, and
+ * the server's own copy of this rule (identity.go) carries a comment about the
+ * predicate having drifted into three copies across two languages within an
+ * hour of being written. One client-side home makes a fourth less likely.
+ *
+ * Handles are case-insensitive and the roster stores whatever case it was
+ * given, so a raw comparison would fail to recognise somebody by the
+ * capitalisation of their own name. An unidentified viewer owns nothing: this
+ * must never answer true for the empty handle, or it would claim every row
+ * whose author was not recorded.
+ *
+ * This is OWNERSHIP, not permission. The queue's may_steer is authorisation
+ * and is true for an operator on every PR, so it is not a substitute.
+ */
+export function isViewer(author: string, v: Viewer | null): boolean {
+  if (!v?.handle || !author) return false;
+  return author.toLowerCase() === v.handle.toLowerCase();
+}

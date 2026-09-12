@@ -6,7 +6,7 @@
 // approval share — and it is separated from the component so it can be tested
 // without mounting one.
 
-import type { LeaderboardEntry, ScoringMode, Viewer } from './types';
+import type { LeaderboardEntry, ScoringMode } from './types';
 
 /** A medal for the top three, nothing below. */
 export function medal(rank: number): string {
@@ -53,10 +53,6 @@ export function netLines(entry: LeaderboardEntry): number {
   return entry.additions - entry.deletions;
 }
 
-/** A signed line count, with an explicit + so the sign is never ambiguous. */
-export function signed(n: number): string {
-  return n > 0 ? `+${n}` : String(n);
-}
 
 /** The display name if the roster knows one, else the handle. */
 export function displayName(entry: LeaderboardEntry): string {
@@ -88,31 +84,5 @@ export function frozenNotice(mode: ScoringMode | undefined): string {
   return 'Scoring is paused (scoring.mode = leaderboard-only). These standings are final until it is turned back on.';
 }
 
-/** A review's points, signed so a penalty is never mistaken for a small gain. */
-export function scoreLabel(score: number): string {
-  return `${score > 0 ? '+' : ''}${score} pts`;
-}
 
-/**
- * The hover explanation for a score.
- *
- * The bucket is the one fact a reader cannot infer from the number: the same
- * diff scores very differently either side of a tier boundary, so a surprising
- * total is usually explained by which tier it landed in.
- */
-export function scoreTitle(score: number, bucket: string): string {
-  const base = `${score} points for the PR author`;
-  return bucket ? `${base} (${bucket} diff)` : base;
-}
 
-/**
- * Whether these points belong to the person looking at the page.
- *
- * GitHub handles are case-insensitive, and the roster stores whatever case it
- * was given, so comparing them raw would fail to recognise somebody by the
- * capitalisation of their own name. An unidentified viewer owns nothing.
- */
-export function isViewersScore(author: string, viewer: Viewer | null): boolean {
-  if (!viewer?.handle || !author) return false;
-  return author.toLowerCase() === viewer.handle.toLowerCase();
-}

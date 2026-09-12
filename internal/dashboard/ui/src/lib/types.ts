@@ -194,7 +194,21 @@ export type ConfigRepo = {
 };
 
 export type ConfigResponse = {
-  scoring: { mode: ScoringMode; leaderboard_visible: boolean };
+  scoring: {
+    mode: ScoringMode;
+    leaderboard_visible: boolean;
+    base: number;
+    churn_unit: number;
+    deletion_weight: number;
+    approved: number;
+    commented: number;
+    requested_changes: number;
+    shrink_bonus: number;
+    attempt_decay: number;
+    use_gitattributes: boolean;
+    exclude_paths: number;
+  };
+  workspace_retention: string;
   reviewing_as?: string;
   repos: ConfigRepo[];
   candidates: {
@@ -202,12 +216,12 @@ export type ConfigResponse = {
     refreshed_max_age_days: number;
     discussion_max_age_days: number;
     rereview_cooldown: string;
-    quiet_period: string;
+    quiet_period: string; steering_hold: string; error_backoff: string;
   };
   schedule: {
     enabled: boolean;
     interval: string;
-    max_parallel: number;
+    max_parallel: number; dispatch_cooldown: string;
     usage_floor_5h_percent: number;
     usage_floor_weekly_percent: number;
   };

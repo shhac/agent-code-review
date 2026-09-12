@@ -18,6 +18,40 @@ import (
 type configScoringResp struct {
 	Mode               string `json:"mode"`
 	LeaderboardVisible bool   `json:"leaderboard_visible"`
+	// The dials behind a score, so "why did this PR earn that" is answerable
+	// from the page rather than only from `config show`. Resolved values, not
+	// the raw document: what a review is actually scored under is what an
+	// operator needs, and the per-repo overrides mean the file alone does not
+	// say it.
+	Base             float64 `json:"base"`
+	ChurnUnit        float64 `json:"churn_unit"`
+	DeletionWeight   float64 `json:"deletion_weight"`
+	Approved         float64 `json:"approved"`
+	Commented        float64 `json:"commented"`
+	RequestedChanges float64 `json:"requested_changes"`
+	ShrinkBonus      float64 `json:"shrink_bonus"`
+	AttemptDecay     float64 `json:"attempt_decay"`
+	UseGitattributes bool    `json:"use_gitattributes"`
+	ExcludePaths     int     `json:"exclude_paths"`
+}
+
+// scoringResp resolves the scoring dials as reviews actually see them.
+func scoringResp(cfg config.Config) configScoringResp {
+	r := cfg.ResolveScoring("")
+	return configScoringResp{
+		Mode:               cfg.ScoringMode(""),
+		LeaderboardVisible: cfg.LeaderboardVisible(""),
+		Base:               r.Base,
+		ChurnUnit:          r.ChurnUnit,
+		DeletionWeight:     r.DeletionWeight,
+		Approved:           r.Approved,
+		Commented:          r.Commented,
+		RequestedChanges:   r.RequestedChanges,
+		ShrinkBonus:        r.ShrinkBonus,
+		AttemptDecay:       r.AttemptDecay,
+		UseGitattributes:   r.UseGitattributes,
+		ExcludePaths:       len(r.ExcludePaths),
+	}
 }
 
 type configRepoResp struct {
@@ -36,12 +70,15 @@ type configCandidateResp struct {
 	DiscussionMaxAgeDays int    `json:"discussion_max_age_days"`
 	RereviewCooldown     string `json:"rereview_cooldown"`
 	QuietPeriod          string `json:"quiet_period"`
+	SteeringHold         string `json:"steering_hold"`
+	ErrorBackoff         string `json:"error_backoff"`
 }
 
 type configScheduleResp struct {
 	Enabled                 bool   `json:"enabled"`
 	Interval                string `json:"interval"`
 	MaxParallel             int    `json:"max_parallel"`
+	DispatchCooldown        string `json:"dispatch_cooldown"`
 	UsageFloor5hPercent     int    `json:"usage_floor_5h_percent"`
 	UsageFloorWeeklyPercent int    `json:"usage_floor_weekly_percent"`
 }
@@ -69,7 +106,11 @@ type configResp struct {
 	Engine           string              `json:"engine"`
 	EngineConfig     configEngineResp    `json:"engine_config"`
 	Version          string              `json:"version"`
-	Scoring          configScoringResp   `json:"scoring"`
+	// WorkspaceRetention is how long a finished review's transcript is kept.
+	// Surfaced because nothing else says it, and a transcript that has aged
+	// out is the difference between a postmortem and a shrug.
+	WorkspaceRetention string            `json:"workspace_retention"`
+	Scoring            configScoringResp `json:"scoring"`
 }
 
 // authorRow is one roster entry with the policy it actually resolves to. The
@@ -109,15 +150,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			DiscussionMaxAgeDays: int(cfg.DiscussionMaxAge().Hours() / 24),
 			RereviewCooldown:     cfg.RereviewCooldown().String(),
 			QuietPeriod:          cfg.QuietPeriod().String(),
+			SteeringHold:         cfg.SteeringHold().String(),
+			ErrorBackoff:         cfg.ErrorBackoff().String(),
 		},
-		Scoring: configScoringResp{
-			Mode:               cfg.ScoringMode(""),
-			LeaderboardVisible: cfg.LeaderboardVisible(""),
-		},
+		Scoring: scoringResp(cfg),
 		Schedule: configScheduleResp{
 			Enabled:                 cfg.ScheduleEnabled(),
 			Interval:                cfg.Interval().String(),
 			MaxParallel:             cfg.MaxParallel(),
+			DispatchCooldown:        cfg.DispatchCooldown().String(),
 			UsageFloor5hPercent:     cfg.UsageFloor5h(),
 			UsageFloorWeeklyPercent: cfg.UsageFloorWeekly(),
 		},
@@ -127,11 +168,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		},
 		// The effective state of THIS daemon: config may say enabled while the
 		// process was started with --no-schedule.
-		ReviewRunning:    s.running.Review,
-		DiscoveryRunning: s.running.Discovery,
-		Engine:           cfg.Engine(),
-		EngineConfig:     engineConfigOf(cfg),
-		Version:          s.version,
+		ReviewRunning:      s.running.Review,
+		DiscoveryRunning:   s.running.Discovery,
+		Engine:             cfg.Engine(),
+		EngineConfig:       engineConfigOf(cfg),
+		Version:            s.version,
+		WorkspaceRetention: cfg.WorkspaceRetention().String(),
 	})
 }
 

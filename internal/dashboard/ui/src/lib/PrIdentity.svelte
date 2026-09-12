@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { prHref } from './format';
-  import { scoreLabel, scoreTitle } from './leaderboard';
+  import { prHref, scoreLabel, scoreTitle } from './format';
 
   export let repo: string;
   export let number: number;
@@ -21,7 +20,7 @@
 <span class="ticket-id">
   <a class="ticket-pr" href={prHref(repo, number, url)} target="_blank" rel="noopener" on:click|stopPropagation>#{number}</a>
   {#if score !== undefined}
-    <small class="ticket-score" class:negative={score < 0} class:mine={mine && score > 0} title={scoreTitle(score, bucket)}>{scoreLabel(score)}</small>
+    <small class="ticket-score" class:negative={score < 0} class:score-halo={mine && score > 0} title={scoreTitle(score, bucket)}>{scoreLabel(score)}</small>
   {/if}
 </span>
 <span class="ticket-copy">
@@ -39,7 +38,6 @@
      No halo by default. A gold glow behind gold text eats its own edge and
      the number reads soft; plain gold on the dark surface stays crisp. */
   .ticket-score {
-    position: relative;
     font-size: 11px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
@@ -49,31 +47,4 @@
   /* --bad-ink is the token the rest of the app uses for this. */
   .ticket-score.negative { color: var(--bad-ink); }
 
-  /* Only the viewer's OWN points get a halo, and it pulses.
-     Reserving it for one person's rows is what makes it affordable: on a
-     typical page nothing is animating at all, rather than every row carrying
-     an effect that has to be composited whether or not anyone cares about it.
-     The halo is PALE, not gold: a different value from the text leaves the
-     glyph edges hard, so the number stays legible while the surround moves.
-     Animating the pseudo-element's opacity rather than a text-shadow keeps it
-     on the compositor, so the text itself is never repainted. */
-  .ticket-score.mine::before {
-    content: '';
-    position: absolute;
-    inset: -3px -7px;
-    border-radius: 999px;
-    background: radial-gradient(ellipse at center, rgba(255, 252, 240, 0.5), transparent 70%);
-    opacity: 0.2;
-    animation: score-pulse 3.2s ease-in-out infinite;
-    pointer-events: none;
-  }
-  @keyframes score-pulse {
-    0%, 100% { opacity: 0.12; }
-    50% { opacity: 0.42; }
-  }
-  /* Anyone who has asked for less motion, and every device that reports it,
-     keeps the halo and loses the movement. */
-  @media (prefers-reduced-motion: reduce) {
-    .ticket-score.mine::before { animation: none; opacity: 0.28; }
-  }
 </style>

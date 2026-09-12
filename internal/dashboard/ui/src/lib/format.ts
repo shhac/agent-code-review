@@ -166,3 +166,25 @@ export function windowName(w: UsageWindow | undefined, fallback: string) {
   if (w.window_mins >= 60) return `${Math.round(w.window_mins / 60)}h window`;
   return `${w.window_mins}m window`;
 }
+
+/** A signed number, so a negative is never mistaken for a small positive. */
+export function signed(n: number): string {
+  return n > 0 ? `+${n}` : String(n);
+}
+
+/** A review's points for its author, signed. */
+export function scoreLabel(score: number): string {
+  return `${signed(score)} pts`;
+}
+
+/**
+ * The hover explanation for a score.
+ *
+ * The bucket is the one fact a reader cannot infer from the number: the same
+ * diff scores very differently either side of a tier boundary, so a surprising
+ * total is usually explained by which tier it landed in.
+ */
+export function scoreTitle(score: number, bucket: string): string {
+  const base = `${score} points for the PR author`;
+  return bucket ? `${base} (${bucket} diff)` : base;
+}

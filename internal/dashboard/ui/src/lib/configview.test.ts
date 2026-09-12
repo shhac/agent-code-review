@@ -7,11 +7,20 @@ const cfg = (over: Partial<ConfigResponse> = {}) =>
     version: 'dev', reviewing_as: 'paul-gh', engine: 'codex',
     engine_config: { model: '', effort: '' },
     review_running: true, discovery_running: true,
-    schedule: { enabled: true, interval: '30s', max_parallel: 4, usage_floor_5h_percent: 0, usage_floor_weekly_percent: 10 },
+    schedule: { enabled: true, interval: '30s', max_parallel: 4, dispatch_cooldown: '5s', usage_floor_5h_percent: 0, usage_floor_weekly_percent: 10 },
     discovery: { enabled: true, interval: '5m' },
     candidates: {
       new_max_age_days: 14, refreshed_max_age_days: 21, discussion_max_age_days: 14,
       rereview_cooldown: '90m', quiet_period: '15m',
+      steering_hold: '5m', error_backoff: '15m',
+    },
+    workspace_retention: '720h0m0s',
+    scoring: {
+      mode: 'enabled', leaderboard_visible: true,
+      base: 100, churn_unit: 50, deletion_weight: 0.5,
+      approved: 1, commented: 0.25, requested_changes: -0.25,
+      shrink_bonus: 1.2, attempt_decay: 0.6,
+      use_gitattributes: true, exclude_paths: 0,
     },
     ...over,
   }) as ConfigResponse;
@@ -61,5 +70,59 @@ describe('settingsGroups', () => {
     const c = cells(settingsGroups(cfg({ version: '', reviewing_as: '' })));
     expect(c['Version']).toBe('dev');
     expect(c['Reviewing as']).toContain('gh not authenticated');
+  });
+});
+
+describe('scoring cluster', () => {
+  it('states the dials as a rate, which is the question people arrive with', () => {
+    const c = cells(settingsGroups(cfg()));
+    expect(c['Base']).toBe('100 points per 50 lines');
+    expect(c['Deletion weight']).toContain('0.5x an added one');
+    expect(c['Verdicts']).toContain('approve 1x');
+    expect(c['Verdicts']).toContain('changes -0.25x');
+    expect(c['Revision decay']).toContain('0.6x');
+  });
+
+  // When scoring is off, every other dial is moot: showing eight rows that do
+  // not apply would be worse than showing one that explains why.
+  it('collapses to a single row when scoring is not running', () => {
+    for (const mode of ['leaderboard-only', 'disabled'] as const) {
+      const groups = settingsGroups(cfg({ scoring: { ...cfg().scoring, mode } }));
+      const scoring = groups.find(([name]) => name === 'Scoring');
+      expect(scoring?.[1]).toHaveLength(1);
+      expect(scoring?.[1][0][0]).toBe('Mode');
+    }
+    expect(cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, mode: 'disabled' } })))['Mode'])
+      .toContain('leaderboard hidden');
+  });
+
+  it('says how generated files are decided', () => {
+    expect(cells(settingsGroups(cfg()))['Generated files']).toContain('.gitattributes');
+
+    const noAttrs = cfg({ scoring: { ...cfg().scoring, use_gitattributes: false, exclude_paths: 0 } });
+    expect(cells(settingsGroups(noAttrs))['Generated files']).toBe('all files counted');
+
+    const globs = cfg({ scoring: { ...cfg().scoring, use_gitattributes: false, exclude_paths: 3 } });
+    expect(cells(settingsGroups(globs))['Generated files']).toBe('3 glob(s) only');
+  });
+});
+
+describe('completed clusters', () => {
+  it('shows the holds that were previously invisible', () => {
+    const c = cells(settingsGroups(cfg()));
+    expect(c['Steering hold']).toContain('5m');
+    expect(c['Error backoff']).toContain('15m');
+    expect(c['Dispatch cooldown']).toContain('5s');
+    expect(c['Transcript retention']).toContain('720h');
+  });
+
+  it('spells out the off states rather than printing 0s', () => {
+    const c = cells(settingsGroups(cfg({
+      candidates: { ...cfg().candidates, steering_hold: '0s', error_backoff: '0s' },
+      workspace_retention: '0s',
+    })));
+    expect(c['Steering hold']).toBe('disabled');
+    expect(c['Error backoff']).toBe('retire on first error');
+    expect(c['Transcript retention']).toBe('kept forever');
   });
 });

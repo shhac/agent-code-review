@@ -77,6 +77,26 @@ code, pre, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monosp
 @keyframes pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .signal { animation: none; } }
 
+/* The halo marking points as the viewer's OWN, shared by the history rows and
+   the leaderboard so the two cannot drift apart.
+   Pale rather than gold: a halo the same colour as the text eats its own glyph
+   edges and the number reads soft. It does not animate, and does not need to,
+   because it already appears on nothing but your own rows: scarcity is the
+   signal, so movement would be decoration on top of a distinction the reader
+   has already made. That also means there is nothing here to throttle on a
+   weak device and no reduced-motion case to handle.
+   --halo-inset lets each caller size it to its own text. */
+.score-halo { position: relative; }
+.score-halo::before {
+  content: '';
+  position: absolute;
+  inset: var(--halo-inset, -3px -7px);
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, rgba(255, 252, 240, .5), transparent 70%);
+  opacity: .28;
+  pointer-events: none;
+}
+
 main { min-width: 0; padding: 30px clamp(18px, 4vw, 54px) 56px; }
 .hero, .page-head {
   display: flex; justify-content: space-between; gap: 24px; align-items: end;
@@ -391,9 +411,14 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 /* Only a row that actually splits across CLI versions is interactive; the rest
    must not look clickable when nothing would happen. */
 .metric-table .metric-row.expandable { cursor: pointer; }
-.metric-table .metric-row.expandable:hover, .metric-table .metric-row.expandable:focus-visible { background: var(--row-hover, rgba(255,255,255,.03)); outline: none; }
-.metric-table .metric-row.open { background: var(--row-hover, rgba(255,255,255,.03)); }
-.metric-table .chev { color: var(--dim); font-size: 13px; line-height: 1; }
+/* --surface-warm, the hover both other expandable tables already use: this
+   one briefly invented a --row-hover that was never defined, so only its
+   hardcoded fallback rendered. No outline:none either, or this would be the
+   one table where a keyboard user loses the focus ring. The chevron comes
+   from the single .chev rule above, whose comment records that a second one
+   was a bug. */
+.metric-table .metric-row.expandable:hover, .metric-table .metric-row.expandable:focus-visible { background: var(--surface-warm); }
+.metric-table .metric-row.open { background: var(--surface-warm); }
 .metric-table .metric-row.expandable:hover .chev, .metric-table .metric-row.open .chev { color: var(--accent); }
 /* A nested version reads as a detail of the row above: indented, quieter, and
    without the border that would make it look like a peer. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cacheShare, costTitle, estimatedShare, metricFacets, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing } from './metrics';
+import { cacheShare, costTitle, estimatedShare, metricFacets, modelKey, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing, versionSummary } from './metrics';
 
 const scatter = (...models: string[]) => models.map((model) => ({ model }) as any);
 
@@ -141,5 +141,45 @@ describe('estimatedShare', () => {
   it('is empty when there is nothing inferred to disclose', () => {
     expect(estimatedShare(undefined)).toBe('');
     expect(estimatedShare({ ...base, priced_reviews: 5, estimated_reviews: 0 })).toBe('');
+  });
+});
+
+describe('modelKey', () => {
+  it('identifies a row by model and effort', () => {
+    expect(modelKey({ model: 'gpt-5.6', effort: 'high' })).toBe('gpt-5.6 :: high');
+  });
+
+  // The key is what carries a row's expansion state across a refresh that
+  // reorders rows, so two distinct rows must never collide.
+  it('separates rows that differ only in effort', () => {
+    expect(modelKey({ model: 'm', effort: 'high' })).not.toBe(modelKey({ model: 'm', effort: 'low' }));
+  });
+
+  it('handles an unset effort', () => {
+    expect(modelKey({ model: 'm', effort: '' })).toBe('m :: ');
+  });
+});
+
+describe('versionSummary', () => {
+  const row = (versions: { engine_version: string }[], reviews: number) =>
+    ({ model: 'm', effort: 'high', reviews, fresh_tokens: 0, cache_read_tokens: 0,
+       median_duration_secs: 0, median_cost_usd: 0,
+       versions: versions.map((v) => ({ ...v, reviews: 1, fresh_tokens: 0, cache_read_tokens: 0, median_duration_secs: 0, median_cost_usd: 0 })) }) as any;
+
+  it('says nothing when there are no versions', () => {
+    expect(versionSummary(row([], 0))).toBe('');
+  });
+
+  it('names the single version rather than offering a breakdown', () => {
+    expect(versionSummary(row([{ engine_version: 'v1' }], 4))).toBe('all 4 reviews on v1');
+  });
+
+  it('covers an unrecorded version', () => {
+    expect(versionSummary(row([{ engine_version: '' }], 2))).toContain('an unrecorded version');
+  });
+
+  it('invites expansion when several versions are behind the row', () => {
+    expect(versionSummary(row([{ engine_version: 'v1' }, { engine_version: 'v2' }], 9)))
+      .toBe('9 reviews across 2 CLI versions, expand for the breakdown');
   });
 });

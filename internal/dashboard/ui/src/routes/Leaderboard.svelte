@@ -2,9 +2,9 @@
   import { onMount } from 'svelte';
   import { getLeaderboard } from '../lib/api';
   import { withFeed } from '../lib/feed';
-  import { maxOf } from '../lib/format';
-  import { viewer } from '../lib/viewer';
-  import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, isViewersScore, meanScore, medal, netLines, signed } from '../lib/leaderboard';
+  import { maxOf, signed } from '../lib/format';
+  import { isViewer, viewer } from '../lib/viewer';
+  import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, meanScore, medal, netLines } from '../lib/leaderboard';
   import type { LeaderboardResponse } from '../lib/types';
 
   let days = 0;
@@ -57,7 +57,7 @@
       <span>Approved</span><span>Mean</span><span>Net lines</span>
     </p>
     {#each entries as e (e.author)}
-      {@const mine = isViewersScore(e.author, $viewer)}
+      {@const mine = isViewer(e.author, $viewer)}
       <p class="board-row" class:negative={e.total < 0} class:mine>
         <span class="rank">{medal(e.rank) || e.rank}</span>
         <span class="who">
@@ -66,7 +66,7 @@
         </span>
         <span class="score">
           <span class="bar" style="--w: {barWidth(e.total, topScore)}%"></span>
-          <b class="total" class:mine={mine && e.total > 0}>{e.total}</b>
+          <b class="total" class:score-halo={mine && e.total > 0}>{e.total}</b>
         </span>
         <span>{e.reviews}</span>
         <span>{approvalRate(e)}%</span>
@@ -115,33 +115,12 @@
     background: color-mix(in srgb, var(--amber) 20%, transparent);
     border-radius: 3px;
   }
-  /* The same gold as a history row's points, so "points" reads one way
-     across the dashboard. The bar behind stays accent-green, which keeps the
-     number legible against it rather than gold-on-gold. */
+  /* The same gold as a history row's points, so "points" reads one way across
+     the dashboard. */
   .score b { position: relative; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--amber); }
+  /* The leaderboard total is larger than a history row's, so its halo is too. */
+  .score b.score-halo { --halo-inset: -4px -9px; }
   .board-row.negative .score b { color: var(--bad-ink); }
-
-  /* The viewer's own standing gets the halo, and it pulses. Pale rather than
-     gold so the total keeps a hard edge, and reserved for one row so a board
-     of thirty people animates nothing. Same composited-opacity route the
-     history rows use. */
-  .score b.mine::before {
-    content: '';
-    position: absolute;
-    inset: -4px -9px;
-    border-radius: 999px;
-    background: radial-gradient(ellipse at center, rgba(255, 252, 240, 0.5), transparent 70%);
-    opacity: 0.2;
-    animation: board-pulse 3.2s ease-in-out infinite;
-    pointer-events: none;
-  }
-  @keyframes board-pulse {
-    0%, 100% { opacity: 0.12; }
-    50% { opacity: 0.42; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .score b.mine::before { animation: none; opacity: 0.28; }
-  }
 
   .net { font-variant-numeric: tabular-nums; color: var(--dim); }
   /* Removing code is the good outcome, so it is the one that gets the accent.

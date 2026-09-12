@@ -309,3 +309,46 @@ func TestVersionsCollapseIntoOneModelRow(t *testing.T) {
 		t.Errorf("row = %+v, want the four versions summed and nested", got.Models[0])
 	}
 }
+
+// The sort tie-breaks exist so identical requests return identical orderings.
+// Every other fixture uses distinct review counts, so nothing exercised them:
+// collapsing them back to a bare Reviews comparison would reintroduce
+// map-iteration nondeterminism with no test noticing.
+func TestModelGroupsOrderingIsStableOnTies(t *testing.T) {
+	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	mk := func(model, effort, version string) store.Review {
+		return store.Review{
+			Model: model, Effort: effort, EngineVersion: version, Verdict: "APPROVED",
+			FreshTokens: 1, DurationSecs: 1, ReviewedAt: at,
+		}
+	}
+	// Two model rows tied at 2 reviews, and within one row two versions tied at 1.
+	reviews := []store.Review{
+		mk("zeta", "high", "v1"), mk("zeta", "high", "v2"),
+		mk("alpha", "low", "v1"), mk("alpha", "low", "v2"),
+	}
+
+	first := metricsFor(reviews, "", "")
+	if len(first.Models) != 2 {
+		t.Fatalf("got %d rows, want 2", len(first.Models))
+	}
+	// Tied on reviews, so model name decides: alpha before zeta.
+	if first.Models[0].Model != "alpha" || first.Models[1].Model != "zeta" {
+		t.Errorf("order = %s, %s; want alpha before zeta on a review-count tie",
+			first.Models[0].Model, first.Models[1].Model)
+	}
+	// Tied versions inside a row are ordered by version string, descending.
+	if v := first.Models[0].Versions; len(v) != 2 || v[0].EngineVersion != "v2" || v[1].EngineVersion != "v1" {
+		t.Errorf("version order = %+v, want v2 before v1 on a tie", v)
+	}
+
+	// And it must not depend on map iteration: the same input orders the same
+	// way every time.
+	for i := 0; i < 5; i++ {
+		again := metricsFor(reviews, "", "")
+		if again.Models[0].Model != first.Models[0].Model ||
+			again.Models[0].Versions[0].EngineVersion != first.Models[0].Versions[0].EngineVersion {
+			t.Fatalf("ordering changed between identical calls on run %d", i)
+		}
+	}
+}

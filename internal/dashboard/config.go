@@ -26,6 +26,7 @@ type configScoringResp struct {
 	// say it.
 	Base             float64 `json:"base"`
 	ChurnUnit        float64 `json:"churn_unit"`
+	ChurnExponent    float64 `json:"churn_exponent"`
 	DeletionWeight   float64 `json:"deletion_weight"`
 	Approved         float64 `json:"approved"`
 	Commented        float64 `json:"commented"`
@@ -70,6 +71,7 @@ func scoringResp(cfg config.Config) configScoringResp {
 		LeaderboardVisible: cfg.LeaderboardVisible(""),
 		Base:               r.Base,
 		ChurnUnit:          r.ChurnUnit,
+		ChurnExponent:      r.ChurnExponent,
 		DeletionWeight:     r.DeletionWeight,
 		Approved:           r.Approved,
 		Commented:          r.Commented,

@@ -143,3 +143,58 @@ func TestRefetchRefusesAnUnnarrowedSweep(t *testing.T) {
 		t.Error("refetch with no filter and no --all must refuse before spending GitHub calls")
 	}
 }
+
+// A repair must store the per-file detail it just paid an API call for.
+//
+// Without it the row comes back carrying totals and nothing else, so the NEXT
+// change to the exclusion policy cannot be re-applied offline and has to spend
+// the call again. That is the whole difference between recompute and refetch,
+// and it was quietly lost because the write listed every column except this
+// one.
+func TestRefetchStoresTheEvidenceItPaidFor(t *testing.T) {
+	fs := &fakeScoreStore{rows: []store.Review{
+		scoredReview(1, store.VerdictApproved, 0, 0, "head", ""),
+	}}
+	files := []score.FileStat{
+		{Path: "main.go", Additions: 40, Deletions: 10},
+		{Path: "deps.lock", Additions: 100, Deletions: 50},
+	}
+	m := refetchMeasurer(func(context.Context, string, int) (discover.PRDiff, error) {
+		return discover.PRDiff{HeadSHA: "head", Additions: 140, Deletions: 60, ChangedFiles: 2, Files: files}, nil
+	})
+	if err := refetch(context.Background(), fs, config.Config{}, m, store.ScoreQuery{Repo: "o/r"}, false); err != nil {
+		t.Fatal(err)
+	}
+	got := fs.storedFiles[1]
+	if len(got) != len(files) {
+		t.Fatalf("stored %d files, want the %d it measured", len(got), len(files))
+	}
+	for i := range files {
+		if got[i].Path != files[i].Path || got[i].Additions != files[i].Additions {
+			t.Errorf("stored file %d = %+v, want %+v", i, got[i], files[i])
+		}
+	}
+}
+
+// A truncated listing measures without exclusions and stores no detail, so the
+// repair must CLEAR whatever a previous measurement left. Detail from a
+// complete listing sitting under counts that were not derived from it would
+// let a later recount claim a precision this measurement never had.
+func TestRefetchClearsEvidenceATruncatedListingCannotSupport(t *testing.T) {
+	fs := &fakeScoreStore{
+		rows:  []store.Review{scoredReview(1, store.VerdictApproved, 40, 10, "head", "head")},
+		files: map[int][]score.FileStat{1: {{Path: "main.go", Additions: 40, Deletions: 10}}},
+	}
+	m := refetchMeasurer(func(context.Context, string, int) (discover.PRDiff, error) {
+		return discover.PRDiff{HeadSHA: "head", Additions: 9000, Deletions: 500, ChangedFiles: 4000, Truncated: true}, nil
+	})
+	if err := refetch(context.Background(), fs, config.Config{}, m, store.ScoreQuery{Repo: "o/r"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := fs.storedFiles[1]; len(got) != 0 {
+		t.Errorf("stored %d files from a truncated listing, want none", len(got))
+	}
+	if got := fs.measured[1]; got.ScoredAdditions != 9000 || got.ExcludedFiles != 0 {
+		t.Errorf("measured %+v, want the raw totals with nothing excluded", got)
+	}
+}

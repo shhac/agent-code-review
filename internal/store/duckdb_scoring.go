@@ -93,12 +93,22 @@ func (d *duckDB) SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecor
 		intOrNull(s.Score), nullText(s.Source), nullText(s.Rules), nullText(s.Bucket), nullText(s.Note), intOrNull(s.Attempt), ts(at), where))
 }
 
-// SetReviewScoring writes a re-measured diff and its score together.
+// SetReviewScoring writes a re-measured diff, the per-file detail behind it,
+// and its score together.
 //
-// One statement, not two, because the pair must not come apart: a row left
-// carrying new counts under an old score, or the reverse, would misreport what
-// it was measured from and no later sweep could tell it had happened.
-func (d *duckDB) SetReviewScoring(ctx context.Context, ref ReviewRef, diff DiffStats, s ScoreRecord) error {
+// One statement, not three, because they must not come apart: a row left
+// carrying new counts under an old score, or new counts over the per-file
+// detail of an old measurement, would misreport what it was measured from and
+// no later sweep could tell it had happened.
+//
+// The files are what make the repair worth its API call. Without them a
+// refetched row carries totals and nothing else, so the NEXT change to the
+// exclusion policy cannot be re-applied to it offline and has to spend the
+// call again. Writing them is also why an empty list must CLEAR the column
+// rather than leave the old one: a truncated listing deliberately measures
+// without exclusions, and the detail from a previous, complete measurement
+// would sit under counts that were not derived from it.
+func (d *duckDB) SetReviewScoring(ctx context.Context, ref ReviewRef, diff DiffStats, files []score.FileStat, s ScoreRecord) error {
 	if err := d.refersToOneRow(ctx, ref); err != nil {
 		return err
 	}
@@ -107,9 +117,9 @@ func (d *duckDB) SetReviewScoring(ctx context.Context, ref ReviewRef, diff DiffS
 		at = time.Now()
 	}
 	return d.exec(ctx, fmt.Sprintf(
-		"UPDATE history SET additions = %d, deletions = %d, changed_files = %d, scored_additions = %d, scored_deletions = %d, excluded_files = %d, diff_sha = %s, "+
+		"UPDATE history SET additions = %d, deletions = %d, changed_files = %d, scored_additions = %d, scored_deletions = %d, excluded_files = %d, diff_sha = %s, diff_files = %s, "+
 			"score = %s, score_source = %s, score_rules = %s, score_bucket = %s, score_note = %s, score_attempt = %s, scored_at = %s WHERE %s AND reviewed_at = %s",
-		diff.Additions, diff.Deletions, diff.ChangedFiles, diff.ScoredAdditions, diff.ScoredDeletions, diff.ExcludedFiles, nullText(diff.DiffSHA),
+		diff.Additions, diff.Deletions, diff.ChangedFiles, diff.ScoredAdditions, diff.ScoredDeletions, diff.ExcludedFiles, nullText(diff.DiffSHA), nullText(marshalFiles(files)),
 		intOrNull(s.Score), nullText(s.Source), nullText(s.Rules), nullText(s.Bucket), nullText(s.Note), intOrNull(s.Attempt), ts(at),
 		prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt)))
 }

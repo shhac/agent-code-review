@@ -23,7 +23,7 @@ func TestMeasureFetchFailureLeavesSizeUnknownRatherThanZero(t *testing.T) {
 			return nil, nil
 		},
 	}
-	got, err := m.Measure(context.Background(), config.Config{}, "o/r", 1)
+	got, err := m.Measure(context.Background(), score.DefaultRules(), "o/r", 1)
 	if !errors.Is(err, failure) {
 		t.Fatalf("error = %v, want the fetch failure", err)
 	}
@@ -46,8 +46,8 @@ func TestMeasureTruncationCannotTurnPartialFilesIntoCompleteEvidence(t *testing.
 		},
 	}
 	// Excluding the listed files would turn the unseen remainder into zero.
-	cfg := config.Config{Scoring: config.ScoringSettings{ExcludePaths: []string{"**"}}}
-	got, err := m.Measure(context.Background(), cfg, "o/r", 1)
+	rules := config.Config{Scoring: config.ScoringSettings{ExcludePaths: []string{"**"}}}.ResolveScoring("o/r")
+	got, err := m.Measure(context.Background(), rules, "o/r", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +78,8 @@ func TestMeasureUnreadableAttributesStillHonoursOperatorExclusions(t *testing.T)
 			return nil, errors.New("unavailable")
 		},
 	}
-	cfg := config.Config{Scoring: config.ScoringSettings{ExcludePaths: []string{"*.lock"}}}
-	got, err := m.Measure(context.Background(), cfg, "o/r", 1)
+	rules := config.Config{Scoring: config.ScoringSettings{ExcludePaths: []string{"*.lock"}}}.ResolveScoring("o/r")
+	got, err := m.Measure(context.Background(), rules, "o/r", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,8 +114,8 @@ func TestMeasureDisabledAttributesDoesNotFetchOrExcludeDeclarations(t *testing.T
 		},
 	}
 	disabled := false
-	cfg := config.Config{Scoring: config.ScoringSettings{UseGitattributes: &disabled}}
-	got, err := m.Measure(context.Background(), cfg, "o/r", 1)
+	rules := config.Config{Scoring: config.ScoringSettings{UseGitattributes: &disabled}}.ResolveScoring("o/r")
+	got, err := m.Measure(context.Background(), rules, "o/r", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,8 +149,8 @@ func TestMeasureKeepsRepositoryMarksSeparateFromOperatorExclusions(t *testing.T)
 			return map[string]string{"": "generated.go linguist-generated"}, nil
 		},
 	}
-	cfg := config.Config{Scoring: config.ScoringSettings{ExcludePaths: []string{"*.lock"}}}
-	got, err := m.Measure(context.Background(), cfg, "o/r", 17)
+	rules := config.Config{Scoring: config.ScoringSettings{ExcludePaths: []string{"*.lock"}}}.ResolveScoring("o/r")
+	got, err := m.Measure(context.Background(), rules, "o/r", 17)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,5 +174,50 @@ func TestMeasureKeepsRepositoryMarksSeparateFromOperatorExclusions(t *testing.T)
 	recount := score.Recount(got.Files, score.DefaultRules())
 	if recount != (score.Totals{Additions: 140, Deletions: 60, ExcludedFiles: 1}) {
 		t.Errorf("stored evidence cannot support an independent policy change: %+v", recount)
+	}
+}
+
+// An unusable scoring block must not measure under its own exclusions and then
+// record the defaults' hash over the result.
+//
+// ResolveScoring falls back to the shipped defaults when a ruleset cannot be
+// used, which is right at review time: a bad multiplier must not wedge the
+// reviewer. Measuring from the RAW settings meanwhile let the two disagree.
+// size_points 0 is invalid, so this config scores under the defaults, while
+// its exclude_paths would have thrown every line away. A row measured that way
+// looks current to `score ls --stale` forever, because the hash beside it
+// belongs to a policy that never touched it.
+func TestAnInvalidRulesetMeasuresUnderTheRulesItWillBeScoredBy(t *testing.T) {
+	zero := 0.0
+	cfg := config.Config{Scoring: config.ScoringSettings{
+		SizePoints:   &zero,
+		ExcludePaths: []string{"**"},
+	}}
+	rules := cfg.ResolveScoring("o/r")
+	if err := rules.Validate(); err != nil {
+		t.Fatalf("the fallback ruleset should be usable: %v", err)
+	}
+
+	m := Measurer{
+		Diff: func(context.Context, string, int) (PRDiff, error) {
+			return PRDiff{
+				HeadSHA: "sha", Additions: 40, Deletions: 10, ChangedFiles: 1,
+				Files: []score.FileStat{{Path: "main.go", Additions: 40, Deletions: 10}},
+			}, nil
+		},
+		Attrs: func(context.Context, string, string, []score.FileStat) (map[string]string, error) {
+			return nil, nil
+		},
+	}
+	got, err := m.Measure(context.Background(), rules, "o/r", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The defaults exclude nothing, so the lines survive. Under the raw
+	// settings the "**" glob would have taken all of them and the row would
+	// have scored zero under a hash that says otherwise.
+	if got.Stats.ScoredAdditions != 40 || got.Stats.ExcludedFiles != 0 {
+		t.Errorf("measured %+v, want the fallback ruleset's exclusions (none) rather than the unusable block's",
+			got.Stats)
 	}
 }

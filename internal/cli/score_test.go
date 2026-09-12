@@ -43,12 +43,13 @@ func TestParseScoreAcceptsWholeNumbers(t *testing.T) {
 // panic, so an unexpected dependency shows up loudly.
 type fakeScoreStore struct {
 	store.Store
-	rows     []store.Review
-	sc       map[int]store.ScoreContext
-	written  map[int]store.ScoreRecord
-	files    map[int][]score.FileStat // per-row stored measurement, for recount
-	measured map[int]store.DiffStats  // what a re-measure wrote back
-	failOn   int                      // SetReviewScore returns an error for this PR number
+	rows        []store.Review
+	sc          map[int]store.ScoreContext
+	written     map[int]store.ScoreRecord
+	files       map[int][]score.FileStat // per-row stored measurement, for recount
+	measured    map[int]store.DiffStats  // what a re-measure wrote back
+	storedFiles map[int][]score.FileStat // the per-file detail a write persisted
+	failOn      int                      // SetReviewScore returns an error for this PR number
 }
 
 func (f *fakeScoreStore) ReviewsToScore(context.Context, store.ScoreQuery) ([]store.Review, error) {
@@ -66,11 +67,15 @@ func (f *fakeScoreStore) ReviewFiles(_ context.Context, ref store.ReviewRef) ([]
 	return f.files[ref.Number], nil
 }
 
-func (f *fakeScoreStore) SetReviewScoring(_ context.Context, ref store.ReviewRef, diff store.DiffStats, rec store.ScoreRecord) error {
+func (f *fakeScoreStore) SetReviewScoring(_ context.Context, ref store.ReviewRef, diff store.DiffStats, files []score.FileStat, rec store.ScoreRecord) error {
 	if f.measured == nil {
 		f.measured = map[int]store.DiffStats{}
 	}
+	if f.storedFiles == nil {
+		f.storedFiles = map[int][]score.FileStat{}
+	}
 	f.measured[ref.Number] = diff
+	f.storedFiles[ref.Number] = files
 	return f.SetReviewScore(context.Background(), ref, rec)
 }
 

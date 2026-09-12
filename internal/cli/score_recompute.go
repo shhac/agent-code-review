@@ -97,7 +97,10 @@ func recompute(ctx context.Context, s store.Store, cfg config.Config, q store.Sc
 			continue
 		}
 		if !dryRun {
-			if err := s.SetReviewScoring(ctx, r.Ref(), r.Diff, rec); err != nil {
+			// The same files back, unchanged: recompute re-applies policy to
+			// the stored evidence rather than taking new evidence, so the
+			// detail a later recompute needs must survive this write.
+			if err := s.SetReviewScoring(ctx, r.Ref(), r.Diff, files, rec); err != nil {
 				return err
 			}
 		}

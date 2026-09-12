@@ -110,9 +110,11 @@ type Store interface {
 	// yet; adding the setter ahead of that caller left it orphaned.
 	ScoreContext(ctx context.Context, repo string, number int, headSHA string, before time.Time) (ScoreContext, error)
 	SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecord) error
-	// SetReviewScoring writes a re-measured diff and its score in one
-	// statement, so the pair cannot come apart.
-	SetReviewScoring(ctx context.Context, ref ReviewRef, diff DiffStats, s ScoreRecord) error
+	// SetReviewScoring writes a re-measured diff, the per-file detail behind
+	// it, and its score in one statement, so the three cannot come apart. An
+	// empty file list clears the stored detail rather than leaving the
+	// previous measurement's under counts that were not derived from it.
+	SetReviewScoring(ctx context.Context, ref ReviewRef, diff DiffStats, files []score.FileStat, s ScoreRecord) error
 	ReviewsToScore(ctx context.Context, q ScoreQuery) ([]Review, error)
 	// ReviewFiles reads the per-file detail a review was measured from, so an
 	// exclusion policy can be re-applied offline. Nil means not recorded (a

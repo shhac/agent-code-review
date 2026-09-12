@@ -52,7 +52,10 @@ func (s *Scheduler) fetchDiff(ctx context.Context, cfg config.Config, c store.Ca
 	if !cfg.ScoringEnabled(c.Repo) {
 		return nil
 	}
-	m, err := discover.Measurer{Diff: s.diffFn, Attrs: s.attrsFn}.Measure(ctx, cfg, c.Repo, c.Number)
+	// One resolution, used to measure and later to score, so the lines that
+	// count and the hash recorded beside them cannot describe two policies.
+	rules := cfg.ResolveScoring(c.Repo)
+	m, err := discover.Measurer{Diff: s.diffFn, Attrs: s.attrsFn}.Measure(ctx, rules, c.Repo, c.Number)
 	if err != nil {
 		s.logf("review %s#%d: diff stats unavailable, leaving it unscored: %v", c.Repo, c.Number, err)
 		return nil

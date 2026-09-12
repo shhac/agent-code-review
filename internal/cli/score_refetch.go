@@ -68,7 +68,11 @@ func refetch(ctx context.Context, s store.Store, cfg config.Config, m discover.M
 	}
 	changed, skipped := 0, 0
 	for _, r := range rows {
-		measurement, err := m.Measure(ctx, cfg, r.Repo, r.Number)
+		// Resolved once and used for both halves: measuring under one policy
+		// and recording another's hash is how a row comes to look current
+		// under rules it was never measured with.
+		rules := cfg.ResolveScoring(r.Repo)
+		measurement, err := m.Measure(ctx, rules, r.Repo, r.Number)
 		if err != nil {
 			// One unreachable PR (deleted repo, revoked access, a rate limit)
 			// must not abandon the rest of the sweep.
@@ -94,7 +98,7 @@ func refetch(ctx context.Context, s store.Store, cfg config.Config, m discover.M
 		}
 		was := r.Score
 		r.Diff = measurement.Stats
-		rec, ok := store.DeriveScore(cfg.ResolveScoring(r.Repo), sc, r, time.Now())
+		rec, ok := store.DeriveScore(rules, sc, r, time.Now())
 		if !ok {
 			if emitErr := emit(refetchSkip(r, "measured, but still not scorable")); emitErr != nil {
 				return emitErr
@@ -103,7 +107,7 @@ func refetch(ctx context.Context, s store.Store, cfg config.Config, m discover.M
 			continue
 		}
 		if !dryRun {
-			if err := s.SetReviewScoring(ctx, r.Ref(), r.Diff, rec); err != nil {
+			if err := s.SetReviewScoring(ctx, r.Ref(), r.Diff, measurement.Files, rec); err != nil {
 				return err
 			}
 		}

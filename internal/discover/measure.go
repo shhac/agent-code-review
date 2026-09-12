@@ -12,7 +12,6 @@ package discover
 import (
 	"context"
 
-	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/score"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -59,10 +58,19 @@ func (m Measurer) attrs() AttrsFn {
 
 // Measure reads a PR's size and works out how much of it counts.
 //
+// It takes the RESOLVED ruleset rather than the config, so that the policy
+// deciding which lines count is the same one whose hash gets recorded beside
+// the score. Reading the raw settings here was a way for the two to disagree:
+// ResolveScoring falls back to the shipped defaults when a ruleset is invalid,
+// while the raw accessors do not, so an unusable scoring block could exclude
+// every file under its own exclude_paths and then record the DEFAULT hash over
+// the result. That row looks current to `--stale` forever, and nothing can
+// tell it was measured under a policy nobody chose.
+//
 // An error means the size is unknown, which callers must record as unknown
 // rather than as zero: a PR nobody measured and a PR with nothing in it are
 // different facts, and only one of them is worth no points.
-func (m Measurer) Measure(ctx context.Context, cfg config.Config, repo string, number int) (Measurement, error) {
+func (m Measurer) Measure(ctx context.Context, rules score.Rules, repo string, number int) (Measurement, error) {
 	diff, err := m.diff()(ctx, repo, number)
 	if err != nil {
 		return Measurement{}, err
@@ -87,7 +95,7 @@ func (m Measurer) Measure(ctx context.Context, cfg config.Config, repo string, n
 	}
 
 	var attrs score.Attrs
-	if cfg.UseGitattributes(repo) {
+	if rules.UseGitattributes {
 		byDir, err := m.attrs()(ctx, repo, "HEAD", diff.Files)
 		if err != nil {
 			// The repo's declarations are an enrichment on an enrichment. Not
@@ -102,7 +110,7 @@ func (m Measurer) Measure(ctx context.Context, cfg config.Config, repo string, n
 	// Apply marks each file with the repo's verdict as it totals them, so the
 	// detail stored below is the resolved fact rather than a promise to
 	// re-derive it.
-	totals := score.NewExclusions(attrs, cfg.ExcludePaths(repo)).Apply(diff.Files)
+	totals := score.NewExclusions(attrs, rules.ExcludePaths).Apply(diff.Files)
 	out.Stats.ScoredAdditions = totals.Additions
 	out.Stats.ScoredDeletions = totals.Deletions
 	out.Stats.ExcludedFiles = totals.ExcludedFiles

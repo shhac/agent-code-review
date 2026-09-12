@@ -32,6 +32,7 @@ type configScoringResp struct {
 	RequestedChanges float64 `json:"requested_changes"`
 	ShrinkBonus      float64 `json:"shrink_bonus"`
 	AttemptDecay     float64 `json:"attempt_decay"`
+	Curve            string  `json:"curve"`
 	UseGitattributes bool    `json:"use_gitattributes"`
 	ExcludePaths     int     `json:"exclude_paths"`
 	// Buckets is the size ladder, in match order. Sent because the base rate
@@ -39,6 +40,15 @@ type configScoringResp struct {
 	// working out why their PR scored what it did needs to see where the
 	// boundaries fall.
 	Buckets []scoringBucketResp `json:"buckets"`
+	// Anchors is the same ladder as the CURVE it actually pays at, with the
+	// open-ended tier's derived control point included.
+	//
+	// Computed here rather than in the browser because that derivation is
+	// policy, not drawing: the dashboard charts this, and a chart that
+	// re-derived the tail in TypeScript would be a second opinion about what a
+	// tier is worth. score.Anchor is used as-is rather than mirrored into a
+	// resp type, so there is one shape to keep in step instead of two.
+	Anchors []score.Anchor `json:"anchors"`
 }
 
 // scoringBucketResp is one size tier. MaxChurn 0 means the open-ended last one.
@@ -62,6 +72,8 @@ func scoringResp(cfg config.Config) configScoringResp {
 		RequestedChanges:   r.RequestedChanges,
 		ShrinkBonus:        r.ShrinkBonus,
 		AttemptDecay:       r.AttemptDecay,
+		Curve:              r.Curve,
+		Anchors:            r.Anchors(),
 		UseGitattributes:   r.UseGitattributes,
 		ExcludePaths:       len(r.ExcludePaths),
 		Buckets:            scoringBuckets(r.Buckets),

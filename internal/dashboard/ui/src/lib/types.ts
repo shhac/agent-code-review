@@ -194,6 +194,15 @@ export type ConfigRepo = {
   unlisted_group?: string;
 };
 
+// One size tier of the scoring ladder, and how its multiplier is read across
+// that tier's range.
+export type ScoreBucket = { name: string; max_churn: number; multiplier: number };
+export type ScoreCurveMode = 'step' | 'linear';
+// A control point of the size curve, computed daemon-side: the churn at which
+// a tier's multiplier applies exactly, including the derived one standing in
+// for the open-ended tier.
+export type ScoreAnchor = { churn: number; multiplier: number };
+
 export type ConfigResponse = {
   scoring: {
     mode: ScoringMode;
@@ -206,9 +215,11 @@ export type ConfigResponse = {
     requested_changes: number;
     shrink_bonus: number;
     attempt_decay: number;
+    curve: ScoreCurveMode;
     use_gitattributes: boolean;
     exclude_paths: number;
-    buckets: { name: string; max_churn: number; multiplier: number }[];
+    buckets: ScoreBucket[];
+    anchors: ScoreAnchor[];
   };
   workspace_retention: string;
   reviewing_as?: string;

@@ -1,0 +1,126 @@
+// The score ladder as GEOMETRY: where the rate line goes, and where the tier
+// names and axis labels sit around it.
+//
+// Deliberately NOT a second opinion about what a tier is worth. The anchors
+// (including the derived one for the open-ended tier, which is policy rather
+// than drawing) are computed by internal/score and arrive on the config
+// response; this file turns them into coordinates. An earlier draft ported
+// that derivation into TypeScript and claimed the two were pinned together by
+// matching test figures, which was wishful: numbers copied by hand stay green
+// when the Go side changes, and a chart that disagrees with the daemon is
+// worse than no chart, because it is believed.
+//
+// Straight segments between anchors are exact rather than sampled: score
+// interpolates on log(churn) and the x axis IS log(churn), so between two
+// anchors the line is straight.
+
+import type { ScoreAnchor, ScoreBucket, ScoreCurveMode } from './types';
+
+export type CurvePoint = { churn: number; multiplier: number };
+
+// One tier as a band of the x axis: where its name belongs on the chart.
+export type TierBand = { name: string; from: number; to: number; multiplier: number };
+
+export type ScoreCurve = {
+  points: CurvePoint[];
+  bands: TierBand[];
+  minChurn: number;
+  maxChurn: number;
+  maxMultiplier: number;
+};
+
+// The plot box, in the units of the SVG's viewBox.
+export type Plot = { width: number; height: number; pad: { l: number; r: number; t: number; b: number } };
+
+// The left edge of the chart. One line of churn: the smallest PR that scores
+// anything at all (churn 0 scores nothing and is not on this curve).
+const MIN_CHURN = 1;
+
+const EMPTY: ScoreCurve = { points: [], bands: [], minChurn: MIN_CHURN, maxChurn: MIN_CHURN * 10, maxMultiplier: 1 };
+
+// scoreCurve is everything the chart needs from one ruleset.
+export function scoreCurve(buckets: ScoreBucket[], anchors: ScoreAnchor[], curve: ScoreCurveMode): ScoreCurve {
+  if (anchors.length === 0 || buckets.length === 0) return EMPTY;
+
+  // A degenerate ladder (one open-ended tier) anchors at the left edge, which
+  // would otherwise leave the axis zero-wide and every coordinate NaN. Give it
+  // a decade to be flat across.
+  const maxChurn = Math.max(anchors[anchors.length - 1].churn, MIN_CHURN * 10);
+  const maxMultiplier = Math.max(...buckets.map((b) => b.multiplier), 0);
+  if (maxMultiplier <= 0) return EMPTY;
+
+  const bands = bandsOf(buckets, maxChurn);
+  const points = curve === 'step' ? stepPoints(bands) : rampPoints(anchors, maxChurn);
+  return { points, bands, minChurn: MIN_CHURN, maxChurn, maxMultiplier };
+}
+
+// bandsOf lays the tiers along the axis. The open-ended tier runs to the right
+// edge, which is the derived tail anchor: past it the rate is flat under
+// either curve, so there is nothing further to show.
+function bandsOf(buckets: ScoreBucket[], maxChurn: number): TierBand[] {
+  let from = MIN_CHURN;
+  const bands: TierBand[] = [];
+  for (const b of buckets) {
+    const to = b.max_churn > 0 ? b.max_churn : maxChurn;
+    if (to > from) bands.push({ name: b.name, from, to, multiplier: b.multiplier });
+    from = to;
+  }
+  return bands;
+}
+
+// A staircase: two vertices per tier, so the risers are drawn as the cliffs
+// they are.
+function stepPoints(bands: TierBand[]): CurvePoint[] {
+  return bands.flatMap((b) => [
+    { churn: b.from, multiplier: b.multiplier },
+    { churn: b.to, multiplier: b.multiplier },
+  ]);
+}
+
+// The ramp is the anchors themselves, held flat at either end.
+function rampPoints(anchors: ScoreAnchor[], maxChurn: number): CurvePoint[] {
+  const head = anchors[0].churn > MIN_CHURN ? [{ churn: MIN_CHURN, multiplier: anchors[0].multiplier }] : [];
+  const last = anchors[anchors.length - 1];
+  const tail = maxChurn > last.churn ? [{ churn: maxChurn, multiplier: last.multiplier }] : [];
+  return [...head, ...anchors, ...tail];
+}
+
+// plotX places a churn on the log-scaled x axis, clamped to the drawn range so
+// a figure off the end cannot put a coordinate outside the box.
+export function plotX(c: ScoreCurve, plot: Plot, churn: number): number {
+  const span = Math.log(c.maxChurn) - Math.log(c.minChurn);
+  const at = Math.min(Math.max(churn, c.minChurn), c.maxChurn);
+  const t = span > 0 ? (Math.log(at) - Math.log(c.minChurn)) / span : 0;
+  return plot.pad.l + t * (plot.width - plot.pad.l - plot.pad.r);
+}
+
+// plotY places a multiplier on the linear y axis, 0 at the baseline.
+export function plotY(c: ScoreCurve, plot: Plot, multiplier: number): number {
+  const t = c.maxMultiplier > 0 ? multiplier / c.maxMultiplier : 0;
+  return plot.pad.t + (1 - t) * (plot.height - plot.pad.t - plot.pad.b);
+}
+
+// linePoints is the rate line as an SVG points attribute.
+export function linePoints(c: ScoreCurve, plot: Plot): string {
+  return c.points.map((p) => `${round1(plotX(c, plot, p.churn))},${round1(plotY(c, plot, p.multiplier))}`).join(' ');
+}
+
+// areaPoints is the same line closed along the baseline, so the area under the
+// rate reads as the thing being earned rather than as an abstract plot.
+export function areaPoints(c: ScoreCurve, plot: Plot): string {
+  if (c.points.length === 0) return '';
+  const base = round1(plotY(c, plot, 0));
+  const first = round1(plotX(c, plot, c.points[0].churn));
+  const last = round1(plotX(c, plot, c.points[c.points.length - 1].churn));
+  return `${first},${base} ${linePoints(c, plot)} ${last},${base}`;
+}
+
+// rateLines are the horizontal gridlines: one per DISTINCT multiplier, because
+// those are the numbers in the config and so the ones worth reading off.
+export function rateLines(buckets: ScoreBucket[]): number[] {
+  return [...new Set(buckets.map((b) => b.multiplier))].sort((a, b) => a - b);
+}
+
+function round1(n: number): string {
+  return n.toFixed(1);
+}

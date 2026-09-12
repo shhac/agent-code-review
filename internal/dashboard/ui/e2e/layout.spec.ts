@@ -165,3 +165,29 @@ test.describe('queue tickets', () => {
     expect(await overlappingPairs(page, '.ticket-detail dl div')).toEqual([]);
   });
 });
+
+// The score-tier chart. It is the one place on the page where the meaning is
+// the geometry, so the things that can break it are geometric: labels landing
+// on top of each other, and a plot drawn outside the box it lives in.
+test.describe('score tier chart', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/config');
+    await expect(page.locator('.curve svg')).toBeVisible();
+  });
+
+  test('names every tier without the labels colliding', async ({ page }) => {
+    await expect(page.locator('.curve .band')).toHaveCount(5);
+    expect(await overlappingPairs(page, '.curve .band')).toEqual([]);
+  });
+
+  test('draws the rate inside the panel it sits in', async ({ page }) => {
+    const panel = await page.locator('.curve').boundingBox();
+    const rate = await page.locator('.curve .rate').boundingBox();
+    if (!panel || !rate) throw new Error('chart not laid out');
+    // Not merely present: a polyline whose coordinates came out NaN renders as
+    // a zero-size box, and an unscaled one overflows its figure.
+    expect(rate.width).toBeGreaterThan(panel.width / 2);
+    expect(rate.x).toBeGreaterThanOrEqual(panel.x - 1);
+    expect(rate.x + rate.width).toBeLessThanOrEqual(panel.x + panel.width + 1);
+  });
+});

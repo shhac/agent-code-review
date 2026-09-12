@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codeSpans, loopState, settingsGroups } from './configview';
+import { codeSpans, loopState, scoringDialsShown, settingsGroups } from './configview';
 import type { ConfigResponse } from './types';
 
 const cfg = (over: Partial<ConfigResponse> = {}) =>
@@ -20,7 +20,7 @@ const cfg = (over: Partial<ConfigResponse> = {}) =>
       base: 100, churn_unit: 50, deletion_weight: 0.5,
       approved: 1, commented: 0.25, requested_changes: -0.25,
       shrink_bonus: 1.2, attempt_decay: 0.6,
-      use_gitattributes: true, exclude_paths: 0,
+      curve: 'linear', use_gitattributes: true, exclude_paths: 0,
       buckets: [
         { name: 'tiny', max_churn: 10, multiplier: 1 },
         { name: 'small', max_churn: 50, multiplier: 1.5 },
@@ -184,5 +184,45 @@ describe('settings values carry their machine parts as code', () => {
     })));
     expect(codeSpans(c['Re-review cooldown']).some((s) => s.code)).toBe(false);
     expect(codeSpans(c['Transcript retention']).some((s) => s.code)).toBe(false);
+  });
+});
+
+describe('scoringDialsShown owns when there is a policy to explain', () => {
+  // The settings table and the tier chart both ask this, so it lives in one
+  // place: a page that showed the curve beside "scoring is off" would be
+  // explaining a policy nothing is applying.
+  it('is true only while reviews are actually being scored', () => {
+    expect(scoringDialsShown(cfg())).toBe(true);
+    for (const mode of ['leaderboard-only', 'disabled'] as const) {
+      expect(scoringDialsShown(cfg({ scoring: { ...cfg().scoring, mode } }))).toBe(false);
+    }
+    expect(scoringDialsShown(null)).toBe(false);
+  });
+
+  it('is the same rule the settings table uses', () => {
+    const c = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, mode: 'disabled' } })));
+    expect(Object.keys(c)).not.toContain('Curve');
+  });
+});
+
+describe('the curve is named, because the ladder alone does not say', () => {
+  // The same five numbers mean two different things: rates at a boundary
+  // under "linear", flat rates across a tier under "step". A reader given
+  // only the ladder would mis-predict every PR not sitting on a boundary.
+  it('says the rate ramps under the shipped linear curve', () => {
+    expect(cells(settingsGroups(cfg()))['Curve']).toContain('ramps');
+  });
+
+  it('says every boundary is a cliff under step', () => {
+    const c = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, curve: 'step' } })));
+    expect(c['Curve']).toContain('cliff');
+  });
+
+  // The ladder row stays the plain list of configured figures either way.
+  it('keeps the ladder free of curve wording', () => {
+    for (const curve of ['linear', 'step'] as const) {
+      const c = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, curve } })));
+      expect(c['Size tiers']).toBe('tiny \u226410: `1x` \u00b7 small \u226450: `1.5x` \u00b7 huge: `0.2x`');
+    }
   });
 });

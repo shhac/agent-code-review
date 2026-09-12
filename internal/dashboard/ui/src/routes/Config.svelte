@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { codeSpans, settingsGroups } from '../lib/configview';
+  import { codeSpans, scoringDialsShown, settingsGroups } from '../lib/configview';
   import { toggleIn } from '../lib/expandable';
   import { onMount } from 'svelte';
   import { getAuthors, getConfig } from '../lib/api';
   import { withFeed } from '../lib/feed';
   import PromptBox from '../lib/PromptBox.svelte';
+  import ScoreCurve from '../lib/ScoreCurve.svelte';
   import type { AllowedAuthor, ConfigResponse } from '../lib/types';
 
 
@@ -110,6 +111,15 @@
         {/each}
       </div>
     </section>
+    {#if scoringDialsShown(configData)}
+      <section class="surface">
+        <div class="section-head">
+          <h2>Score tiers</h2>
+          <span>what a PR's size is worth</span>
+        </div>
+        <ScoreCurve buckets={configData.scoring.buckets} anchors={configData.scoring.anchors} curve={configData.scoring.curve} />
+      </section>
+    {/if}
     <section class="surface">
       <div class="section-head">
         <h2>Author roster</h2>

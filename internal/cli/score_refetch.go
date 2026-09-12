@@ -42,7 +42,7 @@ func scoreRefetchCmd() *cobra.Command {
 					output.FixableByAgent)
 			}
 			return withStore(func(s store.Store) error {
-				return refetch(cmd.Context(), s, cfg, q, dryRun)
+				return refetch(cmd.Context(), s, cfg, discover.Measurer{}, q, dryRun)
 			})
 		},
 	}
@@ -61,12 +61,11 @@ func scoreRefetchCmd() *cobra.Command {
 // talks to GitHub once per row. It is therefore limited by default, and it
 // declines any row whose PR has moved past the revision we reviewed rather
 // than measuring a diff that review never saw.
-func refetch(ctx context.Context, s store.Store, cfg config.Config, q store.ScoreQuery, dryRun bool) error {
+func refetch(ctx context.Context, s store.Store, cfg config.Config, m discover.Measurer, q store.ScoreQuery, dryRun bool) error {
 	rows, err := s.ReviewsToScore(ctx, q)
 	if err != nil {
 		return err
 	}
-	m := discover.Measurer{}
 	changed, skipped := 0, 0
 	for _, r := range rows {
 		measurement, err := m.Measure(ctx, cfg, r.Repo, r.Number)

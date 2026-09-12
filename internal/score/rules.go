@@ -38,16 +38,17 @@ const maxPoints = 1e6
 // resolving; an invalid document falls back to DefaultRules rather than
 // wedging every review, matching config.Read's tolerance of a corrupt file.
 func (r Rules) Validate() error {
-	if !(r.PieceLines > 0) || r.PieceLines > maxPoints || math.IsNaN(r.PieceLines) {
-		return fmt.Errorf("piece_lines must be a positive number no greater than %v, got %v", float64(maxPoints), r.PieceLines)
+	// A PR cannot contain a fraction of a changed line. Tiny positive scales
+	// also overflow x before the reward can fall to zero. Match the CLI floor.
+	if !(r.PieceLines >= 1) || r.PieceLines > maxPoints {
+		return fmt.Errorf("piece_lines must be between 1 and %v, got %v", float64(maxPoints), r.PieceLines)
 	}
 	if !(r.SizePoints > 0) || r.SizePoints > maxPoints || math.IsNaN(r.SizePoints) {
 		return fmt.Errorf("size_points must be a positive number no greater than %v, got %v", float64(maxPoints), r.SizePoints)
 	}
 	// Strictly above 2. At 2 and below the curve has no peak to fall from: it
 	// rises forever, so a bigger pull request always earns more and the whole
-	// policy inverts. The ceiling is where the fall is so sharp that only a
-	// PR within a hair of the peak scores at all.
+	// policy inverts. The ceiling bounds how steeply the tail can decline.
 	if !(r.SizeFalloff > 2) || r.SizeFalloff > 12 || math.IsNaN(r.SizeFalloff) {
 		return fmt.Errorf("size_falloff must be greater than 2 and no greater than 12, got %v (at 2 or below a bigger PR always earns more)", r.SizeFalloff)
 	}

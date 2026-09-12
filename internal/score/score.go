@@ -36,14 +36,14 @@ const (
 // tiers, which between them could express policies that contradicted each
 // other: the rate curve tuned to make a tighter solve win also made a bigger
 // DELETION earn less, and the dial that fixed one broke the other. A
-// closed-form curve with named landmarks cannot get into that state.
+// separate removal reward lets each preference be tuned explicitly.
 type Rules struct {
 	// PieceLines is the size, in changed lines, that earns the most points
 	// PER LINE. It answers "how big should one piece of a split be", and it
 	// is where somebody decomposing a large change should aim.
 	PieceLines float64 `json:"piece_lines"`
 	// SizePoints is the most a single PR can earn for its size alone. It sets
-	// the scale of the whole board.
+	// its weight relative to removal.
 	SizePoints float64 `json:"size_points"`
 	// SizeFalloff is how sharply a PR stops being worth more as it grows.
 	//
@@ -91,8 +91,8 @@ type Rules struct {
 // per line rose without limit as a PR shrank, so the leaderboard was winnable
 // by opening one-line pull requests, and the only defence was a tier that
 // paid nothing, which nobody would remember to set. Here the reward is
-// QUADRATIC near zero, so N fragments of a change earn about 1/N of shipping
-// it whole: the defence is the shape rather than a dial.
+// QUADRATIC near zero, so splitting an already small change into N pieces
+// pays about 1/N of its unrounded size reward.
 func DefaultRules() Rules {
 	return Rules{
 		PieceLines:          50,

@@ -1,6 +1,10 @@
 package score
 
-import "testing"
+import (
+	"fmt"
+	"math"
+	"testing"
+)
 
 // The worked examples, carried here so the documented numbers and the code
 // cannot drift. Each scenario is a full PR history, because the interesting
@@ -401,4 +405,41 @@ func abs(i int) int {
 		return -i
 	}
 	return i
+}
+
+func TestCurveStaysFiniteAndNormalizedAtTheAllowedExtremes(t *testing.T) {
+	for _, k := range []float64{math.Nextafter(2, 3), 2.0001, 3, 12} {
+		for _, piece := range []float64{1, 50, 1e6} {
+			t.Run(fmt.Sprintf("falloff=%g/piece=%g", k, piece), func(t *testing.T) {
+				r := DefaultRules()
+				r.SizeFalloff, r.PieceLines, r.SizePoints = k, piece, 1e6
+				if err := r.Validate(); err != nil {
+					t.Fatal(err)
+				}
+				peak := r.SizeReward(r.Peak())
+				if math.IsNaN(peak) || math.Abs(peak/r.SizePoints-1) > 1e-12 {
+					t.Fatalf("peak pays %v, want %v", peak, r.SizePoints)
+				}
+				for _, changed := range []float64{0, 1, 2e6, r.Peak(), r.Peak() * 4} {
+					got := r.SizeReward(changed)
+					if math.IsNaN(got) || math.IsInf(got, 0) || got < 0 || got > r.SizePoints*(1+1e-12) {
+						t.Errorf("size(%v) = %v, outside the finite reward range", changed, got)
+					}
+				}
+				bestRate := r.SizeReward(piece) / piece
+				for _, changed := range []float64{piece / 2, piece * 2} {
+					if got := r.SizeReward(changed) / changed; got >= bestRate {
+						t.Errorf("rate at %v = %v, beats piece_lines rate %v", changed, got, bestRate)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestTinyFragmentsLoseBeforeRoundingCanHideTheirReward(t *testing.T) {
+	r := DefaultRules()
+	if fragments, whole := 100*r.SizeReward(1), r.SizeReward(100); fragments >= whole {
+		t.Fatalf("100 one-line fragments earn %v before rounding, versus %v whole", fragments, whole)
+	}
 }

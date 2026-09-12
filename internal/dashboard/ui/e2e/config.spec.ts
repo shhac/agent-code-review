@@ -121,6 +121,7 @@ test.describe('score shape', () => {
     expect(Object.keys(json)).toEqual(['scoring']);
     expect(json.scoring).toEqual({
       piece_lines: 50, size_points: 100, size_falloff: 3, removal_points_per_100: 20,
+      attempt_decay: 0.4, verdicts: { approved: 1, commented: 0.25, requested_changes: -0.25 },
     });
   });
 });
@@ -149,3 +150,33 @@ test.describe('the tab strip', () => {
 });
 
 
+
+test('a falloff that rounds the monolith to zero does not claim a zero premium', async ({ page }) => {
+  await page.goto('/config');
+  await page.getByRole('tab', { name: 'Score tuning' }).click();
+  await expect(page.locator('.shape .probe b').first()).toBeVisible();
+  await page.locator('#dial-size_falloff').fill('8');
+  await page.locator('#dial-size_falloff').dispatchEvent('input');
+  const comparison = page.locator('.fact').filter({ hasText: 'Splitting 2000 lines' });
+  await expect(comparison).toContainText('ratio unavailable');
+  await expect(comparison).toContainText('0 pts shipped whole against 2520');
+});
+
+test('the draft uses configured verdicts and decay instead of silently using defaults', async ({ page }) => {
+  await page.route('**/api/config', async (route) => {
+    const response = await route.fetch();
+    const config = await response.json();
+    config.scoring.approved = 2;
+    config.scoring.commented = 0.1;
+    config.scoring.attempt_decay = 0.7;
+    await route.fulfill({ response, json: config });
+  });
+  await page.goto('/config');
+  const request = page.waitForRequest('**/api/score/simulate');
+  await page.getByRole('tab', { name: 'Score tuning' }).click();
+  const sent = (await request).postDataJSON();
+  expect(sent.scoring).toMatchObject({ attempt_decay: 0.7, verdicts: { approved: 2, commented: 0.1 } });
+  await expect(page.locator('.shape .probe b').first()).toHaveText('200');
+  const exported = JSON.parse(await page.locator('.policy-json').textContent() ?? '{}');
+  expect(exported.scoring).toEqual(sent.scoring);
+});

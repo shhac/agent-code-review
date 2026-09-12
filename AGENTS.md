@@ -119,11 +119,16 @@ internal/
   LESS than removing 10, and the dial that fixed one broke the other
   (`deletion_weight` above 1 pushed a big deletion into a worse rate, and
   `shrink_bonus` existed to pay it back). Removal is now
-  `removal_points_per_100` x net removed lines, added rather than multiplied,
+  `removal_points_per_100` x net removed lines / 100, added rather than multiplied,
   so it cannot be dragged around by the size curve. It is NET (a pure move
   earns nothing from it; the review it cost is already paid by size) and
-  linear (split-neutral: a thousand lines removed pays the same in one PR or
-  twenty).
+  linear (the removal component is split-neutral before rounding when every
+  piece is net-deleting at the same verdict and revision multiplier). Splitting
+  a balanced replacement into a deletion PR and an addition PR earns a removal
+  reward the combined PR would not. Monotonic deletion scores hold at the
+  DEFAULTS, not under every legal tuning: with only `piece_lines` changed to
+  5, deleting 20 lines earns 104 but deleting 100 earns 71. The removal rate
+  must outweigh the size curve's declining slope to preserve that ordering.
 
 - **The size curve is closed-form, with landmarks, because a hand-drawn ladder
   could draw incoherent shapes.** Five configurable tiers whose multipliers
@@ -135,8 +140,8 @@ internal/
   only because the shape was drawn by hand. `size = size_points x norm(k) x
   x^2/(1+x)^k` with `x = changed / (piece_lines x (k-1))` needs none of it, and
   both landmarks fall exactly on the dials: points per LINE peak at
-  `piece_lines` (the size to aim for when splitting), points per PR peak at
-  `Peak()` (the biggest one PR should be). The normalisation is DERIVED from
+  `piece_lines` (the size to aim for when splitting), the size reward per PR peaks at
+  `Peak()` (before verdict and revision decay). The normalisation is DERIVED from
   the falloff rather than hardcoded, or changing the falloff would quietly
   rescale the whole leaderboard.
 
@@ -144,8 +149,8 @@ internal/
   PRs.** The v0.38 ruleset made points per line rise without limit as a PR
   shrank, so 2,000 lines as 2,000 one-line PRs earned 104,000 against 57
   shipped whole, and the only defence was a tier configured to pay nothing,
-  which nobody would remember to set. Under the curve, N fragments of a change
-  earn about 1/N of shipping it whole, so atomising loses by construction while
+  which nobody would remember to set. In the quadratic region, N fragments of an already small change
+  earn about 1/N of its unrounded size reward, while
   a stack of well-sized pieces still wins by a lot (2,000 lines: 29 whole,
   2,000 as forty pieces of 50, 0 as two thousand fragments). That premium is
   the loudest judgment in the policy and `size_falloff` is its dial.

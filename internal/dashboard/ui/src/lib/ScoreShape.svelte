@@ -1,7 +1,7 @@
 <script lang="ts">
   import { simulateScoring } from './api';
   import ScoreRewardCurve from './ScoreRewardCurve.svelte';
-  import { changedFrom, heatColor, policyJSON, policyOf, rampCSS, tierRanges, type Policy } from './scoreshape';
+  import { changedFrom, heatColor, policyDoc, policyJSON, policyOf, probeTrend, rampCSS, tierRanges, type Policy } from './scoreshape';
   import type { ConfigResponse, ScoreSimulation } from './types';
 
   export let config: ConfigResponse;
@@ -10,6 +10,7 @@
   // is measured against, so it is kept apart from the one being edited.
   const live: Policy = policyOf(config);
   let policy: Policy = policyOf(config);
+  let surveyed: Policy = policy;
   let range = 400;
   const CELLS = 48;
 
@@ -17,6 +18,7 @@
   let error = '';
 
   $: changed = changedFrom(policy, live);
+  $: trend = sim ? probeTrend(sim.probes) : '';
 
   // The token is taken the moment the policy changes, not when the request
   // goes out, so an answer to the previous policy can never land under the new
@@ -33,9 +35,11 @@
 
   async function run(mine: number) {
     try {
-      const got = await simulateScoring(policy, range, CELLS);
+      const candidate = policy;
+      const got = await simulateScoring(policyDoc(candidate, config), range, CELLS);
       if (mine !== asked) return;
       sim = got;
+      surveyed = candidate;
       error = '';
     } catch (e) {
       if (mine !== asked) return;
@@ -81,7 +85,7 @@
   let copied = false;
   async function copyJSON() {
     try {
-      await navigator.clipboard.writeText(policyJSON(policy));
+      await navigator.clipboard.writeText(policyJSON(policy, config));
       copied = true;
       setTimeout(() => (copied = false), 1600);
     } catch {
@@ -96,7 +100,7 @@
     { key: 'piece_lines', label: 'Best piece size', min: 5, max: 400, step: 5,
       hint: 'Changed lines that earn the most points PER LINE: the size to aim for when splitting a large change into a stack.' },
     { key: 'size_points', label: 'Points at the peak', min: 10, max: 600, step: 10,
-      hint: 'The most a single PR can earn for its size. Sets the scale of the board and nothing else.' },
+      hint: 'The maximum size reward, before verdict and revision decay. Raising it also makes size count more relative to net removal.' },
     { key: 'size_falloff', label: 'Size falloff', min: 2.1, max: 8, step: 0.1,
       hint: 'How sharply a PR stops being worth more as it grows. Higher widens the gap between a stack of well-sized PRs and one enormous one.' },
     { key: 'removal_points_per_100', label: 'Removal, per 100 lines', min: 0, max: 100, step: 5,
@@ -152,21 +156,19 @@
     {#if sim}
       <div class="probe-row" class:shape-stale={error}>
         {#each sim.probes as p, i}
-          {#if i > 0}<span class="probe-arrow">{sim.probes[i - 1].score > p.score ? '>' : '<'}</span>{/if}
+          {#if i > 0}<span class="probe-arrow">{sim.probes[i - 1].score === p.score ? '=' : sim.probes[i - 1].score > p.score ? '>' : '<'}</span>{/if}
           <div class="probe" class:best={p.score === Math.max(...sim.probes.map((q) => q.score))}>
             <b>{p.score}</b><span>+{p.lines} / -{p.lines}</span>
           </div>
         {/each}
-        <span class="probe-state" class:bad={!(sim.probes[0].score > sim.probes[1].score && sim.probes[1].score > sim.probes[2].score)}>
-          {sim.probes[0].score > sim.probes[1].score && sim.probes[1].score > sim.probes[2].score ? 'tighter wins' : 'bigger wins'}
-        </span>
+        <span class="probe-state" class:bad={trend !== 'tighter wins'}>{trend}</span>
       </div>
 
       <ScoreRewardCurve
         curve={sim.curve}
         peak={sim.peak}
-        pieceLines={policy.piece_lines}
-        sizePoints={policy.size_points}
+        pieceLines={surveyed.piece_lines}
+        sizePoints={surveyed.size_points}
       />
 
       <div class="shape-ranges">
@@ -196,25 +198,24 @@
 
       <dl class="facts" class:shape-stale={error}>
         <div class="fact">
-          <dt>Best-paid pull request</dt>
+          <dt>Best-paid balanced PR</dt>
           <dd>+{sim.best_pr.lines} / -{sim.best_pr.lines} &rarr; {sim.best_pr.score} pts</dd>
-          <p class="note">The balanced PR this policy pays most for: the shape it is asking people to write.</p>
+          <p class="note">The smallest balanced PR tied for the highest score within {sim.best_pr_limit.toLocaleString()} added and removed lines.</p>
         </div>
         <div class="fact">
           <dt>Splitting 2000 lines</dt>
-          <dd>{fmt(sim.fragment.gain, 1)}x</dd>
+          <dd>{sim.fragment.gain === null ? 'ratio unavailable' : `${fmt(sim.fragment.gain, 1)}x`}</dd>
           <p class="note">
-            {sim.fragment.whole} pts shipped whole against {sim.fragment.split} as pieces of
-            {sim.fragment.lines} lines. This premium is the loudest thing the policy says; the falloff dial sets it.
+            {sim.fragment.whole} pts shipped whole against {sim.fragment.split} using {sim.fragment.lines}-line pieces, with any remainder scored separately. This premium is the loudest thing the policy says; the falloff dial sets it.
           </p>
         </div>
       </dl>
 
       <div class="json-head">
-        <span>Paste into <code>config.json</code>, or apply it with <code>agent-code-review config set</code></span>
+        <span>Merge these fields into <code>scoring</code> in <code>config.json</code>; keep your mode, exclusions and repo overrides.</span>
         <button on:click={copyJSON}>{copied ? 'copied' : 'copy'}</button>
       </div>
-      <pre class="policy-json">{policyJSON(policy)}</pre>
+      <pre class="policy-json">{policyJSON(policy, config)}</pre>
     {:else if !error}
       <p class="hint">Surveying the policy&hellip;</p>
     {/if}

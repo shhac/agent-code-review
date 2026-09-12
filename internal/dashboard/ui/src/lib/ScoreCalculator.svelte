@@ -111,8 +111,10 @@
            differently. -->
       <p class="calc-why">
         <b>{preview.changed}</b> changed lines ({preview.additions} added, {preview.deletions} removed)
-        is a <b>{preview.bucket}</b> PR, worth <b>{preview.size_reward.toFixed(0)}</b> for its size{#if preview.removal_reward > 0}, plus
-        <b>{preview.removal_reward.toFixed(0)}</b> for {preview.net_removed} net lines removed{/if}.
+        is a <b>{preview.bucket}</b> PR. Before verdict and revision decay:
+        <b>{preview.size_reward.toFixed(2)}</b> size points{#if preview.removal_reward > 0}, plus
+        <b>{preview.removal_reward.toFixed(2)}</b> for {preview.net_removed} net lines removed{/if}.
+        {#if preview.removal_reward > 0}Removal rewards apply only to positive verdict multipliers.{/if}
       </p>
       {#if preview.rounds.length > 1}
         <ol class="calc-rounds">

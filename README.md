@@ -292,7 +292,7 @@ Every completed review earns the PR's **author** points:
 ```
 score   = decay^(revision-1) x [ verdict x size + max(verdict,0) x removal ]
 size    = a curve over (additions + deletions), peaking at size_points
-removal = removal_points_per_100 x (deletions - additions), when that is positive
+removal = removal_points_per_100 x max(deletions - additions, 0) / 100
 ```
 
 Two rewards, because there are two different questions. **Size** asks how
@@ -307,12 +307,12 @@ trial:
 - **`piece_lines`** (50) is where points *per line* peak: the size to aim for
   when splitting a large change into a stack.
 - the **peak** (200 changed lines, from `piece_lines` and `size_falloff`) is
-  where points *per PR* peak: the biggest a single pull request should be.
+  where the size reward per PR peaks, before verdict and revision decay.
 
 So a stack of well-sized PRs beats one enormous one, by a lot, and that is
 deliberate. What it does *not* do is reward atomising work: the curve is
-quadratic near zero, so N fragments of a change earn about 1/N of shipping it
-whole. 2,000 lines score 29 shipped whole, 2,000 as forty pieces of 50, and
+quadratic near zero: when a whole change is already in that small-size range,
+N fragments earn about 1/N of its unrounded size reward. 2,000 lines score 29 shipped whole, 2,000 as forty pieces of 50, and
 nothing at all as two thousand one-line pull requests.
 
 | PR | score |
@@ -324,9 +324,19 @@ nothing at all as two thousand one-line pull requests.
 | -2000 | 429 |
 
 Removal is measured NET, so a pure move or rename earns nothing from it: the
-review it cost is already paid for by the size reward. It is linear, so it is
-split-neutral. A first-pass approval beats the same approval after rounds of
-comments, because each revision decays.
+review it cost is already paid for by the size reward. The removal component is
+split-neutral before rounding when all pieces are net deletions under the same
+verdict and revision multiplier. Splitting a balanced replacement into a delete
+and an add earns a removal reward the combined PR would not.
+
+At the defaults, deleting more never earns less. That is not guaranteed by
+separating the rewards alone: a smaller piece size, larger size reward, steeper
+falloff or lower removal rate can make the declining size reward outweigh the
+extra removal reward. For example, changing only `piece_lines` to 5 makes a
+20-line deletion earn 104 and a 100-line deletion earn 71.
+
+A first-pass approval beats comment rounds followed by approval at the defaults.
+A second review at the same commit scores 0: it is discussion, not new work.
 
 The dashboard's Config page draws this curve, prices a hypothetical PR against
 it, and lets you tune a whole policy against a map of what every PR shape would

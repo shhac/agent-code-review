@@ -1,6 +1,7 @@
 package score
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -138,5 +139,15 @@ func TestOversizedDialsAreRejectedAndClamped(t *testing.T) {
 	got = Compute(r, Input{Additions: 40, Deletions: 10, Verdict: verdictRequestedChanges, Attempt: 1})
 	if got.Score != -maxScore {
 		t.Errorf("score = %d, want it clamped to %d", got.Score, -maxScore)
+	}
+}
+
+func TestSubLinePiecesCannotSilentlyProduceAnUnscorableCurve(t *testing.T) {
+	for _, piece := range []float64{0.5, 1e-200, math.SmallestNonzeroFloat64} {
+		r := DefaultRules()
+		r.PieceLines = piece
+		if err := r.Validate(); err == nil {
+			t.Errorf("piece_lines %v must be rejected, matching the CLI's one-line minimum", piece)
+		}
 	}
 }

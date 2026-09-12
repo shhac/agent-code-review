@@ -9,8 +9,7 @@ package score
 // incoherent, several of them silently, and the machinery that stopped the
 // worst ones (derived tail anchors, a monotonicity rule, a step-or-ramp mode)
 // existed only because the shape was drawn by hand. A closed form with named
-// landmarks needs none of it, and every policy it can express is one somebody
-// meant.
+// landmarks removes those independently configured boundaries.
 
 import "math"
 
@@ -29,8 +28,8 @@ import "math"
 //   - points per PR peak at x = 2/(k-2), which is changed = Peak(). The best
 //     a single pull request can do, and where SizePoints is paid.
 //
-// Quadratic near zero is the property that matters most. N fragments of a
-// change earn about 1/N of shipping it whole, so atomising work LOSES without
+// Quadratic near zero is the property that matters most. Splitting an already
+// small change into N pieces pays about 1/N of its unrounded size reward, without
 // any floor dial to remember: the previous ruleset had points per line rising
 // without limit as a PR shrank, and one-line pull requests were the optimal
 // strategy.
@@ -56,8 +55,8 @@ func (r Rules) SizeReward(changed float64) float64 {
 // deletions would pay a rewrite the same as a deletion, which is not the thing
 // being rewarded.
 //
-// Linear, so it is split-neutral: a thousand lines removed pays the same in
-// one PR or in twenty. The one seam that leaves is a balanced replacement
+// Linear, so the removal component is split-neutral before rounding for net-
+// deleting pieces at the same verdict and revision multiplier. A balanced replacement
 // split into a delete and an add, which collects a removal reward the combined
 // PR would not. That is accepted rather than defended against, because the
 // alternative is netting across related pull requests, and deleting first is
@@ -69,8 +68,8 @@ func (r Rules) RemovalReward(netRemoved float64) float64 {
 	return r.RemovalPointsPer100 * netRemoved / 100
 }
 
-// Peak is the changed-line count that earns the most points as a single PR:
-// the biggest a pull request should be before it starts costing its author.
+// Peak locates the maximum SIZE reward. Removal can keep a total score rising
+// past this point, so the landmark must not be presented as a cap on all PRs.
 func (r Rules) Peak() float64 {
 	if !(r.SizeFalloff > 2) {
 		return 0

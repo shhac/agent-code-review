@@ -167,7 +167,7 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) **float64 { return &c.Scoring.SizeFalloff }, 2.0001, 12)),
 		plain(optionalFloatKey("scoring.removal_points_per_100", "Points for a hundred NET removed lines (default 20), paid on top of the size reward and independent of it",
 			func(c *config.Config) **float64 { return &c.Scoring.RemovalPointsPer100 }, 0, 1e6)),
-		plain(optionalFloatKey("scoring.attempt_decay", "Per-revision decay, so a first-pass approval beats the same approval after rounds of comments (default 0.6; must be under 1)",
+		plain(optionalFloatKey("scoring.attempt_decay", "Per-revision decay, so a first-pass approval beats the same approval after rounds of comments (default 0.4; must be under 1)",
 			func(c *config.Config) **float64 { return &c.Scoring.AttemptDecay }, 0.0001, 0.9999)),
 		plain(optionalFloatKey("scoring.verdicts.approved", "Multiplier for an approval (default 1.0)",
 			func(c *config.Config) **float64 { return &c.Scoring.Verdicts.Approved }, -100, 100)),

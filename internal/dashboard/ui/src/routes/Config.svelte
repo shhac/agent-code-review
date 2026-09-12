@@ -175,7 +175,7 @@
         <section class="surface">
           <div class="section-head">
             <h2>Score calculator</h2>
-            <span>scored by the daemon, not estimated here</span>
+            <span>live global policy; the draft below does not change this calculator</span>
           </div>
           <ScoreCalculator />
         </section>

@@ -90,12 +90,15 @@ agent-code-review score ls --missing                 # rows that were never scor
 ```
 
 A score has two parts. SIZE is a curve over added-plus-removed lines, peaking
-at `piece_lines` (50) points per line and at `size_points` (100) for one PR, so
+in points per line at `piece_lines` (50 changed lines), and paying at most
+`size_points` (100) for one PR before verdict and decay, so
 the same solve in fewer lines is worth more and a stack of well-sized PRs beats
 one enormous one; it is quadratic near zero, so atomising work into one-line
-PRs earns nothing. REMOVAL is `removal_points_per_100` (20) for every hundred
-NET removed lines, paid on top and independent of size, so removing more always
-earns more.
+PRs earns nothing at the defaults. REMOVAL is `removal_points_per_100` (20) for every hundred
+NET removed lines, paid on top. Deleting more never earns less at the defaults;
+tuned size rewards can decline faster than the removal component grows. Linear
+removal is split-neutral before rounding only across net-deleting pieces with
+the same verdict and revision multiplier.
 
 +100/-100 scores 100, +1000/-1000 scores 29, +100/-1000 scores 227,
 +1000/-100 scores 47, and -2000 scores 429.

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { changedFrom, curvePath, curveX, curveY, heatColor, policyJSON, policyOf, tierRanges, type Plot, type Policy } from './scoreshape';
+import { changedFrom, curvePath, curveX, curveY, heatColor, policyDoc, policyJSON, policyOf, probeTrend, tierRanges, type Plot, type Policy } from './scoreshape';
 import type { ConfigResponse } from './types';
 
 const live: Policy = { piece_lines: 50, size_points: 100, size_falloff: 3, removal_points_per_100: 20 };
+const config = { scoring: { ...live, approved: 2, commented: 0.1, requested_changes: -0.5, attempt_decay: 0.7 } } as ConfigResponse;
 const plot: Plot = { width: 720, height: 240, pad: { l: 46, r: 18, t: 16, b: 30 } };
 
 describe('a panel opens on what the daemon is running', () => {
@@ -12,7 +13,7 @@ describe('a panel opens on what the daemon is running', () => {
   });
 
   it('nests the block under the key it lives at, ready to paste', () => {
-    const parsed = JSON.parse(policyJSON(live));
+    const parsed = JSON.parse(policyJSON(live, config));
     expect(Object.keys(parsed)).toEqual(['scoring']);
     expect(parsed.scoring.piece_lines).toBe(50);
   });
@@ -67,11 +68,11 @@ describe('the tier labels read as ranges', () => {
       { name: 'large', up_to: 1000 },
       { name: 'huge' },
     ])).toEqual([
-      { name: 'tiny', range: 'up to 13' },
+      { name: 'tiny', range: 'up to 12' },
       { name: 'small', range: '13 to 50' },
-      { name: 'medium', range: '50 to 200' },
-      { name: 'large', range: '200 to 1000' },
-      { name: 'huge', range: '1000+' },
+      { name: 'medium', range: '51 to 200' },
+      { name: 'large', range: '201 to 1000' },
+      { name: 'huge', range: '1001+' },
     ]);
   });
 
@@ -91,5 +92,26 @@ describe('the heat ramp', () => {
     expect(heatColor(-5)).toEqual(heatColor(0));
     expect(heatColor(9)).toEqual(heatColor(1));
     expect(heatColor(NaN)).toEqual(heatColor(0));
+  });
+});
+
+describe('an untouched draft keeps configured outcome rewards', () => {
+  it('uses the same full reward policy for simulation and export', () => {
+    const policy = policyOf(config);
+    const doc = policyDoc(policy, config);
+    expect(doc).toMatchObject({ attempt_decay: 0.7, verdicts: { approved: 2, commented: 0.1, requested_changes: -0.5 } });
+    expect(JSON.parse(policyJSON(policy, config)).scoring).toEqual(doc);
+  });
+});
+
+describe('the comparison reports what the numbers say', () => {
+  it.each([
+    [[10, 9, 8], 'tighter wins'],
+    [[8, 9, 10], 'bigger wins'],
+    [[10, 10, 10], 'scores tie'],
+    [[9, 10, 10], 'mixed scores'],
+    [[9, 10, 9], 'mixed scores'],
+  ])('labels %j as %s', (scores, label) => {
+    expect(probeTrend(scores.map((score, lines) => ({ score, lines })))).toBe(label);
   });
 });

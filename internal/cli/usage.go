@@ -445,24 +445,27 @@ Every completed review earns the PR's AUTHOR points. The score comes from
 four things: how big the diff is, what the review concluded, whether the
 codebase grew or shrank, and how many revisions it took to get there.
 
-  score = base x (churn / churn_unit) x size x verdict x shrink
-                x decay^(revision-1)
-  churn = additions + (deletions x deletion_weight), generated and
-          vendored files excluded
+  changed = additions + deletions, generated and vendored files excluded
+  score = decay^(revision-1) x [verdict x size + max(verdict,0) x removal]
+  removal = removal_points_per_100 x max(deletions-additions,0) / 100
 
-Points scale with how much was reviewed, so the size multipliers set a RATE
-rather than a flat fee per PR. That is what bounds farming: with a flat fee,
-points track how many PRs you opened rather than how much was reviewed, and
-splitting a change into ever-smaller pieces multiplies the payout without
-limit. Scaling caps what any decomposition can gain at the spread between the
-best and worst rates, 7.5x at the defaults, and you get it by landing in
-"small".
+Size is a smooth curve, quadratic near zero and declining past its peak.
+scoring.piece_lines (50) sets the best size in points per LINE for a stack;
+scoring.size_points (100) sets the maximum size reward per PR, before verdict
+and decay. scoring.size_falloff (3) sets the decline and places the individual
+peak at piece_lines x (falloff-1) x 2 / (falloff-2), or 200 changed lines.
+scoring.removal_points_per_100 (20) separately rewards net codebase reduction.
 
-So a bigger PR earns more in total (it is more work) but at a worse rate per
-line. Splitting a large change into well-sized pieces earns more than shipping
-it whole; fragmenting it further earns less than either. Removing code beats
-adding it. A first-pass approval beats the same approval after two rounds of
-comments, because each revision decays.
+At the defaults, 2000 added lines earn 29 shipped whole, 2000 as forty
+50-line PRs, and 0 as two thousand one-line PRs. A balanced +100/-100 scores
+100 versus 29 for +1000/-1000. Mostly deleting (+100/-1000) scores 227
+versus 47 for mostly adding (+1000/-100).
+
+The removal component is split-neutral before rounding across net-deleting
+pieces with the same verdict and revision multiplier. Total deletion scores
+are nondecreasing at the defaults; tuning size and removal independently can
+change that. A first-pass approval beats comment rounds followed by approval
+at the defaults, because each revision decays.
 
   agent-code-review score leaderboard                  # who is winning
   agent-code-review score leaderboard --days 30        # this month

@@ -1,7 +1,10 @@
 package dashboard
 
 import (
+	"encoding/json"
+	"math"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -74,7 +77,7 @@ func TestSimulateAnswersTheTighterSolveQuestion(t *testing.T) {
 // different policy from the one they think they picked.
 func TestSimulateReportsWhatFragmentingPays(t *testing.T) {
 	_, resp := simulateReq(t, `{"scoring":{},"range":400,"cells":8}`)
-	if resp.Fragment.Gain <= 1 {
+	if resp.Fragment.Gain == nil || *resp.Fragment.Gain <= 1 {
 		t.Errorf("fragment = %+v, want splitting a big change to pay", resp.Fragment)
 	}
 	// And the size it points at is a real pull request rather than one line,
@@ -139,5 +142,56 @@ func TestSimulateRoundsMatchTheCalculator(t *testing.T) {
 	}
 	if two >= one {
 		t.Errorf("two rounds scored %d against one round's %d: getting it right first time must pay more", two, one)
+	}
+}
+
+func TestBestBalancedPRDoesNotStopAtTheOldScanLimit(t *testing.T) {
+	rules := score.DefaultRules()
+	rules.PieceLines, rules.SizeFalloff = 400, 2.1
+	best := peakBalanced(rules)
+	if best.Score != 100 {
+		t.Fatalf("best = %+v, want the reachable peak's 100 points", best)
+	}
+	if prev := roundsTotal(rules, best.Lines-1, best.Lines-1, 1); prev >= best.Score {
+		t.Fatalf("best = %+v, but a smaller PR also earns %d", best, prev)
+	}
+}
+
+func TestSplitPremiumDoesNotReportZeroWhenOnlyTheMonolithRoundsToZero(t *testing.T) {
+	code, resp := simulateReq(t, `{"scoring":{"size_falloff":8},"cells":2}`)
+	if code != http.StatusOK || resp.Fragment.Whole != 0 || resp.Fragment.Split <= 0 {
+		t.Fatalf("code %d: %+v no longer demonstrates the zero denominator", code, resp.Fragment)
+	}
+	// The wire value must be null: neither zero nor a JSON-unencodable infinity
+	// describes a ratio whose denominator earned nothing.
+	encoded, err := json.Marshal(resp.Fragment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"gain":null`) {
+		t.Errorf("fragment = %s, want a null gain", encoded)
+	}
+}
+
+func TestSplitComparisonCountsTheRemainderAtItsOwnRoundedScore(t *testing.T) {
+	rules := score.DefaultRules()
+	rules.PieceLines = 70
+	got := fragmentPayoff(rules)
+	// 28 pieces of 70 leave a real 40-line PR, not 40 discarded lines.
+	want := 28*roundsTotal(rules, 70, 0, 1) + roundsTotal(rules, 40, 0, 1)
+	if got.Lines != 70 || got.Split != want {
+		t.Fatalf("fragment = %+v, want 70-line pieces totaling %d", got, want)
+	}
+}
+
+func TestBestBalancedPRSearchStaysInsideTheCalculatorDomain(t *testing.T) {
+	rules := score.DefaultRules()
+	rules.SizeFalloff, rules.SizePoints = math.Nextafter(2, 3), 1e6
+	resp := simulate(rules, 400, 2)
+	if resp.BestPRLimit != maxPreviewLines || resp.BestPR.Lines > resp.BestPRLimit {
+		t.Fatalf("best PR escaped its declared limit: %+v", resp.BestPR)
+	}
+	if want := roundsTotal(rules, maxPreviewLines, maxPreviewLines, 1); resp.BestPR.Score != want {
+		t.Fatalf("best = %+v, want %d at the calculator limit", resp.BestPR, want)
 	}
 }

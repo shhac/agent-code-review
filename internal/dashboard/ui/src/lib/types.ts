@@ -225,7 +225,8 @@ export type ScoreSimulation = {
   max: number;
   probes: { lines: number; score: number }[];
   best_pr: { lines: number; score: number };
-  fragment: { lines: number; whole: number; split: number; gain: number };
+  best_pr_limit: number;
+  fragment: { lines: number; whole: number; split: number; gain: number | null };
 };
 
 export type ConfigResponse = {

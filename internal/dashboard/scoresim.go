@@ -61,13 +61,13 @@ type scoreSimResp struct {
 	// disagrees with the scorer is worse than no chart.
 	Curve  []scoreSimPoint `json:"curve"`
 	Probes []scoreSimProbe `json:"probes"`
-	// BestPR is the best-paid balanced PR found by scanning, which should land
-	// on Peak: a policy whose stated landmark and measured optimum disagree is
-	// one the page is explaining wrongly.
-	BestPR scoreSimProbe `json:"best_pr"`
+	// The limit travels with the best balanced PR so a bounded search cannot
+	// be presented as a global optimum when the peak is outside the calculator.
+	BestPR      scoreSimProbe `json:"best_pr"`
+	BestPRLimit int           `json:"best_pr_limit"`
 	// Fragment is what the policy pays somebody who chops their work up:
-	// the churn per piece that maximises points, and what 2000 lines earn
-	// split that way against shipped whole.
+	// the best unrounded size reward per line, and what a complete 2000-line
+	// addition earns split that way against shipped whole.
 	Fragment scoreSimFragment `json:"fragment"`
 }
 
@@ -93,10 +93,12 @@ type scoreSimFragment struct {
 	// Lines is the size of one piece, in lines: what somebody chopping their
 	// work up would aim for. A real pull request, or a sign the policy has a
 	// hole in it.
-	Lines int     `json:"lines"`
-	Whole int     `json:"whole"`
-	Split int     `json:"split"`
-	Gain  float64 `json:"gain"`
+	Lines int `json:"lines"`
+	Whole int `json:"whole"`
+	Split int `json:"split"`
+	// Null when division cannot express a premium, especially when only the
+	// monolith rounds to zero. Zero would say splitting earns nothing.
+	Gain *float64 `json:"gain"`
 }
 
 // handleScoreSimulate surveys a candidate ruleset.
@@ -165,6 +167,7 @@ func simulate(rules score.Rules, lineRange, cells int) scoreSimResp {
 		resp.Probes = append(resp.Probes, scoreSimProbe{Lines: n, Score: roundsTotal(rules, n, n, 1)})
 	}
 	resp.BestPR = peakBalanced(rules)
+	resp.BestPRLimit = maxPreviewLines
 	resp.Fragment = fragmentPayoff(rules)
 	return resp
 }
@@ -200,22 +203,31 @@ func roundsTotal(rules score.Rules, adds, dels, rounds int) int {
 	}).Score
 }
 
-// peakBalanced is the best-paid PR that neither grows nor shrinks the tree.
-// The shape a policy pays most for is the shape it is asking for, and it is
-// not always the one the operator thinks they configured.
-//
-// Scanned on the awarded (rounded) score, because this is what somebody would
-// actually earn. Rounding makes a plateau around the real peak, so the answer
-// is the SMALLEST PR that earns the maximum, which is the honest reading of
-// "how big does this need to be".
+// The calculator's domain bounds the search, not a fixed 3000-line scan that
+// misses reachable peaks under a softer falloff. Whole-point rounding creates
+// a plateau; find its smallest PR without visiting every line on the way there.
 func peakBalanced(rules score.Rules) scoreSimProbe {
-	best := scoreSimProbe{}
-	for n := 1; n <= 3000; n++ {
-		if v := roundsTotal(rules, n, n, 1); v > best.Score {
-			best = scoreSimProbe{Lines: n, Score: v}
+	at := func(lines int) scoreSimProbe {
+		return scoreSimProbe{Lines: lines, Score: roundsTotal(rules, lines, lines, 1)}
+	}
+	peak := min(max(rules.Peak()/2, 1), float64(maxPreviewLines))
+	best := at(int(math.Floor(peak)))
+	if next := at(int(math.Ceil(peak))); next.Score > best.Score {
+		best = next
+	}
+	if best.Score <= 0 {
+		return scoreSimProbe{}
+	}
+	lo, hi := 1, best.Lines
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		if at(mid).Score >= best.Score {
+			hi = mid
+		} else {
+			lo = mid + 1
 		}
 	}
-	return best
+	return at(lo)
 }
 
 // fragmentPayoff is what chopping work up is worth under this policy: the
@@ -249,7 +261,8 @@ func fragmentPayoff(rules score.Rules) scoreSimFragment {
 	}
 	out := scoreSimFragment{Lines: at, Whole: approved(lines), Split: split}
 	if out.Whole > 0 {
-		out.Gain = float64(split) / float64(out.Whole)
+		gain := float64(split) / float64(out.Whole)
+		out.Gain = &gain
 	}
 	return out
 }

@@ -64,8 +64,7 @@ type ScoringSettings struct {
 	// multiplier, where churn weighted deletions and a separate bonus paid for
 	// shrinking. None of those terms survive and there is no honest automatic
 	// translation, because the shapes they describe are not expressible here:
-	// the tier ladder could draw a curve where deleting more earned less, and
-	// this one cannot.
+	// the tier ladder could put arbitrary peaks and cliffs anywhere.
 	Base           *float64          `json:"base,omitempty"`
 	ChurnUnit      *float64          `json:"churn_unit,omitempty"`
 	ChurnExponent  *float64          `json:"churn_exponent,omitempty"`
@@ -290,14 +289,14 @@ func (c Config) CurrentRuleHashes() map[string]string {
 // nothing.
 func (c Config) ValidateScoring() []string {
 	var problems []string
-	problems = append(problems, scoringProblems("scoring", c.Scoring)...)
+	problems = append(problems, scoringProblems("scoring", c.Scoring, c.Scoring)...)
 	for _, repo := range sortedKeys(c.Scoring.Repos) {
 		over := c.Scoring.Repos[repo]
 		prefix := fmt.Sprintf("scoring.repos.%s", repo)
 		if len(over.Repos) > 0 {
 			problems = append(problems, prefix+".repos is nested inside a repo override and would never be read; move it to scoring.repos")
 		}
-		problems = append(problems, scoringProblems(prefix, mergeScoring(c.Scoring, over))...)
+		problems = append(problems, scoringProblems(prefix, mergeScoring(c.Scoring, over), over)...)
 	}
 	return problems
 }
@@ -328,9 +327,11 @@ func retiredKeys(s ScoringSettings) []string {
 	return found
 }
 
-func scoringProblems(prefix string, s ScoringSettings) []string {
+func scoringProblems(prefix string, s, written ScoringSettings) []string {
 	var problems []string
-	for _, retired := range retiredKeys(s) {
+	// Retired fields are diagnosed where written, not after inheritance:
+	// merging drops retired overrides and misattributes global ones to repos.
+	for _, retired := range retiredKeys(written) {
 		problems = append(problems, prefix+"."+retired)
 	}
 	if s.Mode != "" && !ValidScoringMode(s.Mode) {

@@ -67,10 +67,28 @@ export function policyOf(c: ConfigResponse): Policy {
   };
 }
 
-// policyJSON is what an operator pastes into config.json: the block, nested
-// under the key it lives at, so it can be dropped in whole.
-export function policyJSON(p: Policy): string {
-  return JSON.stringify({ scoring: p }, null, 2);
+// The four visible dials do not contain the outcome policy. Preserve it in
+// both the simulation and the export, or an untouched draft quietly reverts
+// configured verdicts and decay to the shipped defaults.
+export function policyDoc(p: Policy, c: ConfigResponse) {
+  const s = c.scoring;
+  return {
+    ...p,
+    attempt_decay: s.attempt_decay,
+    verdicts: { approved: s.approved, commented: s.commented, requested_changes: s.requested_changes },
+  };
+}
+
+export function policyJSON(p: Policy, c: ConfigResponse): string {
+  return JSON.stringify({ scoring: policyDoc(p, c) }, null, 2);
+}
+
+export function probeTrend(probes: ScoreSimulation['probes']): string {
+  const scores = probes.map((p) => p.score);
+  if (scores.every((s) => s === scores[0])) return 'scores tie';
+  if (scores.every((s, i) => i === 0 || s < scores[i - 1])) return 'tighter wins';
+  if (scores.every((s, i) => i === 0 || s > scores[i - 1])) return 'bigger wins';
+  return 'mixed scores';
 }
 
 // changedFrom names the dials this policy moves, so a panel can say whether it
@@ -112,9 +130,12 @@ export function tierRanges(tiers: { name: string; up_to?: number }[]): { name: s
   let from = 0;
   return tiers.map((t, i) => {
     const last = i === tiers.length - 1 || !t.up_to;
-    const to = Math.round(t.up_to ?? 0);
-    const range = last ? (from > 0 ? `${from}+` : 'any size') : from > 0 ? `${from} to ${to}` : `up to ${to}`;
-    from = to;
+    const to = Math.floor(t.up_to ?? 0);
+    const range = last ? (from > 0 ? `${from}+` : 'any size')
+      : to < from ? 'no whole-line sizes'
+      : from === to ? String(to)
+      : from > 0 ? `${from} to ${to}` : `up to ${to}`;
+    from = to + 1;
     return { name: t.name, range };
   });
 }

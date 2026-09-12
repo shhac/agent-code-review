@@ -112,6 +112,23 @@ func TestRetiredKeysAreReported(t *testing.T) {
 	}
 }
 
+func TestRetiredKeysAreReportedWhereTheyWereWritten(t *testing.T) {
+	var c Config
+	if err := json.Unmarshal([]byte(`{"scoring":{"base":100,"repos":{"owner/name":{"shrink_bonus":1.6,"buckets":[{}]}}}}`), &c); err != nil {
+		t.Fatal(err)
+	}
+	problems := c.ValidateScoring()
+	want := []string{"scoring.base ", "scoring.repos.owner/name.shrink_bonus ", "scoring.repos.owner/name.buckets "}
+	if len(problems) != len(want) {
+		t.Fatalf("problems = %v, want exactly %v", problems, want)
+	}
+	for i, prefix := range want {
+		if !strings.HasPrefix(problems[i], prefix) {
+			t.Errorf("problem = %q, want prefix %q", problems[i], prefix)
+		}
+	}
+}
+
 func TestRepoExcludePathsReplace(t *testing.T) {
 	c := Config{Scoring: ScoringSettings{
 		ExcludePaths: []string{"global/**"},

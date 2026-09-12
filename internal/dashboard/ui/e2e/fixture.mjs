@@ -42,6 +42,26 @@ VALUES
   repeat('e', 40),'REQUESTED_CHANGES','codex','gpt-5.6-terra','medium',now(),180,900000,0,0.31,
   'The cache is behind a flag, so weigh the **stale read** risk','octocat',now());
 
+-- Scored reviews, so the leaderboard has standings to lay out. Three authors
+-- at different magnitudes because the score column is a BAR: one row can only
+-- ever be full, and a bar that is always full proves nothing about a bar. The
+-- negative total is the case where there is no bar to draw at all, which is
+-- the one the colours have to get right on their own.
+INSERT INTO history
+ (repo,number,title,author,head_sha,verdict,engine,model,effort,reviewed_at,duration_secs,
+  additions,deletions,scored_additions,scored_deletions,changed_files,excluded_files,diff_sha,
+  score,score_source,score_rules,score_bucket,score_attempt,scored_at)
+VALUES
+ ('acme/widgets',31001,'refactor(core): delete the legacy importer','ada',repeat('1',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,20,900,20,900,6,0,repeat('1',40),
+  230,'derived','fixturehash00001','large',1,now()),
+ ('acme/widgets',31002,'feat(api): add the webhook retry queue','grace',repeat('2',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,100,100,100,100,4,0,repeat('2',40),
+  100,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',31003,'chore: bump the vendored client','octocat',repeat('3',40),'REQUESTED_CHANGES',
+  'codex','gpt-5.6-terra','medium',now(),120,1800,200,1800,200,30,0,repeat('3',40),
+  -7,'derived','fixturehash00001','huge',1,now());
+
 -- 600 rows, deliberately more than the 500 the page used to fetch. The search
 -- ran in the browser over that window, so a handle whose reviews had scrolled
 -- out of it returned nothing while looking like it had searched everywhere.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loopState, settingsGroups } from './configview';
+import { codeSpans, loopState, settingsGroups } from './configview';
 import type { ConfigResponse } from './types';
 
 const cfg = (over: Partial<ConfigResponse> = {}) =>
@@ -21,6 +21,11 @@ const cfg = (over: Partial<ConfigResponse> = {}) =>
       approved: 1, commented: 0.25, requested_changes: -0.25,
       shrink_bonus: 1.2, attempt_decay: 0.6,
       use_gitattributes: true, exclude_paths: 0,
+      buckets: [
+        { name: 'tiny', max_churn: 10, multiplier: 1 },
+        { name: 'small', max_churn: 50, multiplier: 1.5 },
+        { name: 'huge', max_churn: 0, multiplier: 0.2 },
+      ],
     },
     ...over,
   }) as ConfigResponse;
@@ -68,7 +73,7 @@ describe('settingsGroups', () => {
 
   it('falls back where the daemon could not answer', () => {
     const c = cells(settingsGroups(cfg({ version: '', reviewing_as: '' })));
-    expect(c['Version']).toBe('dev');
+    expect(c['Version']).toBe('`dev`');
     expect(c['Reviewing as']).toContain('gh not authenticated');
   });
 });
@@ -76,11 +81,15 @@ describe('settingsGroups', () => {
 describe('scoring cluster', () => {
   it('states the dials as a rate, which is the question people arrive with', () => {
     const c = cells(settingsGroups(cfg()));
-    expect(c['Base']).toBe('100 points per 50 lines');
-    expect(c['Deletion weight']).toContain('0.5x an added one');
-    expect(c['Verdicts']).toContain('approve 1x');
-    expect(c['Verdicts']).toContain('changes -0.25x');
-    expect(c['Revision decay']).toContain('0.6x');
+    // The per-line rate, not base-per-unit: the latter invites the reader to
+    // expect 50 lines to score 100, when 50 lines lands in a 1.5x tier.
+    expect(c['Base rate']).toBe('`2` points per line of churn, before the size multiplier');
+    expect(c['Size tiers']).toContain('small \u226450: `1.5x`');
+    expect(c['Size tiers']).toContain('huge: `0.2x`');
+    expect(c['Deletion weight']).toContain('`0.5x` an added one');
+    expect(c['Verdicts']).toContain('approve `1x`');
+    expect(c['Verdicts']).toContain('changes `-0.25x`');
+    expect(c['Revision decay']).toContain('`0.6x`');
   });
 
   // When scoring is off, every other dial is moot: showing eight rows that do
@@ -124,5 +133,56 @@ describe('completed clusters', () => {
     expect(c['Steering hold']).toBe('disabled');
     expect(c['Error backoff']).toBe('retire on first error');
     expect(c['Transcript retention']).toBe('kept forever');
+  });
+});
+
+describe('codeSpans', () => {
+  it('separates the machine value from the sentence around it', () => {
+    expect(codeSpans('hold `1h30m0s` after our review')).toEqual([
+      { text: 'hold ', code: false },
+      { text: '1h30m0s', code: true },
+      { text: ' after our review', code: false },
+    ]);
+  });
+
+  it('handles several values in one row', () => {
+    const spans = codeSpans('approve `1x` · comment `0.25x`');
+    expect(spans.filter((s) => s.code).map((s) => s.text)).toEqual(['1x', '0.25x']);
+  });
+
+  it('leaves a plain sentence alone', () => {
+    expect(codeSpans('kept forever')).toEqual([{ text: 'kept forever', code: false }]);
+  });
+
+  // A value that fills the whole row must not render an empty prose span
+  // either side of itself.
+  it('drops the empty edges around a bare value', () => {
+    expect(codeSpans('`codex`')).toEqual([{ text: 'codex', code: true }]);
+  });
+
+  it('has nothing to render for an empty value', () => {
+    expect(codeSpans('')).toEqual([]);
+  });
+});
+
+describe('settings values carry their machine parts as code', () => {
+  it('marks durations, counts and multipliers', () => {
+    const c = cells(settingsGroups(cfg()));
+    const coded = (row: string) => codeSpans(c[row]).filter((s) => s.code).map((s) => s.text);
+    expect(coded('Re-review cooldown')).toEqual(['90m']);
+    expect(coded('Max parallel')).toEqual(['4']);
+    expect(coded('Verdicts')).toEqual(['1x', '0.25x', '-0.25x']);
+    expect(coded('Base rate')).toEqual(['2']);
+  });
+
+  // "disabled" and "kept forever" are prose, not values: wrapping them would
+  // dress an explanation up as a setting.
+  it('leaves the off-states as plain prose', () => {
+    const c = cells(settingsGroups(cfg({
+      candidates: { ...cfg().candidates, rereview_cooldown: '0s' },
+      workspace_retention: '0s',
+    })));
+    expect(codeSpans(c['Re-review cooldown']).some((s) => s.code)).toBe(false);
+    expect(codeSpans(c['Transcript retention']).some((s) => s.code)).toBe(false);
   });
 });

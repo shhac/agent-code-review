@@ -163,8 +163,8 @@ describe('modelKey', () => {
 describe('versionSummary', () => {
   const row = (versions: { engine_version: string }[], reviews: number) =>
     ({ model: 'm', effort: 'high', reviews, fresh_tokens: 0, cache_read_tokens: 0,
-       median_duration_secs: 0, median_cost_usd: 0,
-       versions: versions.map((v) => ({ ...v, reviews: 1, fresh_tokens: 0, cache_read_tokens: 0, median_duration_secs: 0, median_cost_usd: 0 })) }) as any;
+       median_duration_secs: 0, median_cost_usd: 0, total_cost_usd: 0,
+       versions: versions.map((v) => ({ ...v, reviews: 1, fresh_tokens: 0, cache_read_tokens: 0, median_duration_secs: 0, median_cost_usd: 0, total_cost_usd: 0 })) }) as any;
 
   it('says nothing when there are no versions', () => {
     expect(versionSummary(row([], 0))).toBe('');

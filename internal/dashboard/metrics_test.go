@@ -352,3 +352,66 @@ func TestModelGroupsOrderingIsStableOnTies(t *testing.T) {
 		}
 	}
 }
+
+// Total and median answer different questions and must not be conflated: a
+// typical review costing $3.53 says nothing about whether 400 of them are
+// affordable. The column was previously labelled just "Cost" while showing a
+// median, which read as a total.
+func TestModelRowReportsTotalAndMedianCostSeparately(t *testing.T) {
+	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	mk := func(version string, cost float64) store.Review {
+		return store.Review{
+			Model: "m", Effort: "high", EngineVersion: version, Verdict: "APPROVED",
+			FreshTokens: 1, DurationSecs: 1, CostUSD: cost, ReviewedAt: at,
+		}
+	}
+	// Costs 1, 2, 9: median 2 (upper median of the sorted three), total 12.
+	got := metricsFor([]store.Review{mk("v1", 1), mk("v1", 2), mk("v2", 9)}, "", "")
+	row := got.Models[0]
+
+	if row.MedianCostUSD != 2 {
+		t.Errorf("median = %v, want 2", row.MedianCostUSD)
+	}
+	if row.TotalCostUSD != 12 {
+		t.Errorf("total = %v, want 12", row.TotalCostUSD)
+	}
+	// And the nested versions carry their own share of each.
+	byVersion := map[string]versionMetric{}
+	for _, v := range row.Versions {
+		byVersion[v.EngineVersion] = v
+	}
+	if byVersion["v1"].TotalCostUSD != 3 || byVersion["v2"].TotalCostUSD != 9 {
+		t.Errorf("version totals = %v / %v, want 3 / 9",
+			byVersion["v1"].TotalCostUSD, byVersion["v2"].TotalCostUSD)
+	}
+	// The versions must add up to the row, or the breakdown is lying.
+	if byVersion["v1"].TotalCostUSD+byVersion["v2"].TotalCostUSD != row.TotalCostUSD {
+		t.Error("version totals do not sum to the row total")
+	}
+}
+
+// An unpriced review adds nothing to the total and is excluded from the
+// median, rather than being counted as a free review that drags it down.
+func TestUnpricedReviewsDoNotDragTheMedian(t *testing.T) {
+	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	mk := func(cost float64) store.Review {
+		return store.Review{
+			Model: "m", Effort: "high", EngineVersion: "v1", Verdict: "APPROVED",
+			FreshTokens: 1, DurationSecs: 1, CostUSD: cost, ReviewedAt: at,
+		}
+	}
+	got := metricsFor([]store.Review{mk(0), mk(0), mk(4), mk(6)}, "", "")
+	row := got.Models[0]
+
+	if row.TotalCostUSD != 10 {
+		t.Errorf("total = %v, want 10", row.TotalCostUSD)
+	}
+	// Median over the two PRICED reviews (4, 6) is 6, not 4 as it would be if
+	// the two unpriced rows were folded in as zeros.
+	if row.MedianCostUSD != 6 {
+		t.Errorf("median = %v, want 6 over the priced reviews only", row.MedianCostUSD)
+	}
+	if row.Reviews != 4 {
+		t.Errorf("reviews = %d, want all 4 counted", row.Reviews)
+	}
+}

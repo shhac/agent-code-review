@@ -89,7 +89,7 @@
     <section class="surface metric-panel">
       <div class="section-head"><h2>Model + effort breakdown</h2><span>expand a row for its CLI versions</span></div>
       <div class="metric-table">
-        <p class="metric-table-head"><b></b><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Cached</b><b>Median</b><b>Cost</b></p>
+        <p class="metric-table-head"><b></b><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Cached</b><b>Median time</b><b>Median cost</b><b>Total cost</b></p>
         {#each data.models as row (modelKey(row))}
           {@const open = expandedModels.has(modelKey(row))}
           {@const splits = row.versions.length > 1}
@@ -112,6 +112,7 @@
             <span title={row.cache_read_tokens ? `${exact(row.cache_read_tokens)} tokens re-read from cache` : 'this engine reports no cache reads'}>{cacheShare(row)}</span>
             <span>{durSecs(row.median_duration_secs) || '–'}</span>
             <span>{usd(row.median_cost_usd) || '–'}</span>
+            <span>{usd(row.total_cost_usd) || '–'}</span>
           </p>
           {#if open}
             {#each row.versions as v (v.engine_version)}
@@ -124,6 +125,7 @@
                 <span title={v.cache_read_tokens ? `${exact(v.cache_read_tokens)} tokens re-read from cache` : 'this engine reports no cache reads'}>{cacheShare(v)}</span>
                 <span>{durSecs(v.median_duration_secs) || '–'}</span>
                 <span>{usd(v.median_cost_usd) || '–'}</span>
+                <span>{usd(v.total_cost_usd) || '–'}</span>
               </p>
             {/each}
           {/if}

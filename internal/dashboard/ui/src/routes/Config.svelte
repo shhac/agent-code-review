@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { settingsGroups } from '../lib/configview';
+  import { codeSpans, settingsGroups } from '../lib/configview';
   import { toggleIn } from '../lib/expandable';
   import { onMount } from 'svelte';
   import { getAuthors, getConfig } from '../lib/api';
@@ -104,7 +104,7 @@
           <div class="cluster">
             <h3>{group[0]}</h3>
             {#each group[1] as row}
-              <div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>
+              <div><dt>{row[0]}</dt><dd>{#each codeSpans(row[1]) as span}{#if span.code}<code>{span.text}</code>{:else}{span.text}{/if}{/each}</dd></div>
             {/each}
           </div>
         {/each}

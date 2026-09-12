@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/score"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -33,6 +34,18 @@ type configScoringResp struct {
 	AttemptDecay     float64 `json:"attempt_decay"`
 	UseGitattributes bool    `json:"use_gitattributes"`
 	ExcludePaths     int     `json:"exclude_paths"`
+	// Buckets is the size ladder, in match order. Sent because the base rate
+	// alone does not predict a score: the tier multiplies it, so a reader
+	// working out why their PR scored what it did needs to see where the
+	// boundaries fall.
+	Buckets []scoringBucketResp `json:"buckets"`
+}
+
+// scoringBucketResp is one size tier. MaxChurn 0 means the open-ended last one.
+type scoringBucketResp struct {
+	Name       string  `json:"name"`
+	MaxChurn   float64 `json:"max_churn"`
+	Multiplier float64 `json:"multiplier"`
 }
 
 // scoringResp resolves the scoring dials as reviews actually see them.
@@ -51,7 +64,16 @@ func scoringResp(cfg config.Config) configScoringResp {
 		AttemptDecay:       r.AttemptDecay,
 		UseGitattributes:   r.UseGitattributes,
 		ExcludePaths:       len(r.ExcludePaths),
+		Buckets:            scoringBuckets(r.Buckets),
 	}
+}
+
+func scoringBuckets(bs []score.Bucket) []scoringBucketResp {
+	out := make([]scoringBucketResp, 0, len(bs))
+	for _, b := range bs {
+		out = append(out, scoringBucketResp{Name: b.Name, MaxChurn: b.MaxChurn, Multiplier: b.Multiplier})
+	}
+	return out
 }
 
 type configRepoResp struct {

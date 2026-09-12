@@ -101,6 +101,13 @@ type usageMetric struct {
 	CacheReadTokens int     `json:"cache_read_tokens"`
 	MedianDuration  int     `json:"median_duration_secs"`
 	MedianCostUSD   float64 `json:"median_cost_usd"`
+	// TotalCostUSD is what this model or version has cost in aggregate, which
+	// is the question a median cannot answer: a typical review costing $3.53
+	// says nothing about whether 400 of them are worth it. Summed the same way
+	// as the page's headline total (EffectiveCostUSD, so a codex review
+	// contributes our own valuation rather than nothing), which is why the two
+	// agree when you add the rows up.
+	TotalCostUSD float64 `json:"total_cost_usd"`
 }
 
 // versionMetric is one CLI version's share of a model+effort row.
@@ -148,7 +155,12 @@ func (a *metricAcc) add(r store.Review) {
 	if r.DurationSecs > 0 {
 		a.durations = append(a.durations, r.DurationSecs)
 	}
-	if cost := r.EffectiveCostUSD(); cost > 0 {
+	// The total takes every review's figure; the median takes only the priced
+	// ones. A review with no figure must not drag the median toward zero, but
+	// it genuinely adds nothing to the total either, so both are correct.
+	cost := r.EffectiveCostUSD()
+	a.usage.TotalCostUSD += cost
+	if cost > 0 {
 		a.costs = append(a.costs, cost)
 	}
 }

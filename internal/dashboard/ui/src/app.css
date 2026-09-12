@@ -231,6 +231,14 @@ dl { display: grid; gap: 8px; }
 dl div, .settings .cluster > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; }
 dt, .settings dt { color: var(--faint); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
+/* The machine value inside a self-explaining row. The sentence says what the
+   setting DOES; this is the part the reader came for, so it gets the mono face
+   and a faint ground to lift it out of the prose around it. */
+.settings dd code {
+  padding: 1px 5px; border-radius: 5px;
+  background: var(--surface-warm); border: 1px solid var(--line);
+  color: var(--ink); font-size: 12px;
+}
 .review-history p { margin: 0 0 8px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 .context { display: grid; gap: 16px; }
@@ -407,7 +415,7 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 .engine-head span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
 .engine-head b { font-weight: 500; }
 .active-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
-.metric-table { display: grid; }.metric-table p { margin: 0; display: grid; grid-template-columns: 18px minmax(150px, 2fr) minmax(100px, 1fr) repeat(5, 90px); gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); align-items: center; font-size: 13px; }
+.metric-table { display: grid; }.metric-table p { margin: 0; display: grid; grid-template-columns: 18px minmax(140px, 2fr) minmax(90px, 1fr) repeat(6, 82px); gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); align-items: center; font-size: 13px; }
 /* Only a row that actually splits across CLI versions is interactive; the rest
    must not look clickable when nothing would happen. */
 .metric-table .metric-row.expandable { cursor: pointer; }
@@ -425,7 +433,7 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 .metric-table .metric-row.version { border-top: none; padding-top: 4px; padding-bottom: 4px; color: var(--dim); font-size: 12px; }
 .metric-table .metric-row.version .version-name { color: var(--faint); }
 .metric-table .metric-row.version + .metric-row:not(.version) { border-top: 1px solid var(--line); }.metric-table-head { color: var(--faint); font-size: 11px !important; letter-spacing: .08em; text-transform: uppercase; }
-@media (max-width: 860px) { .metrics-grid { grid-template-columns: 1fr; }.metric-table { overflow-x: auto; }.metric-table p { min-width: 820px; }.metrics-filters { width: 100%; }.metrics-filters label { flex: 1; }.metrics-filters select { width: 100%; } }
+@media (max-width: 860px) { .metrics-grid { grid-template-columns: 1fr; }.metric-table { overflow-x: auto; }.metric-table p { min-width: 900px; }.metrics-filters { width: 100%; }.metrics-filters label { flex: 1; }.metrics-filters select { width: 100%; } }
 @media (max-width: 600px) { .metric-kpis { grid-template-columns: 1fr; }.metrics-hero { align-items: start; }.scatter { height: 230px; } }
 .surface { border-radius: 12px; overflow: hidden; }
 .surface pre, .terminal {

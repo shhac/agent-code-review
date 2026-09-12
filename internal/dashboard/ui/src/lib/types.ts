@@ -119,7 +119,8 @@ export type MetricsResponse = {
     cache_read_tokens: number;
     median_duration_secs: number;
     median_cost_usd: number;
-    versions: { engine_version: string; reviews: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; median_cost_usd: number }[];
+    total_cost_usd: number;
+    versions: { engine_version: string; reviews: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; median_cost_usd: number; total_cost_usd: number }[];
   }[];
   scatter: { model: string; effort: string; verdict: string; fresh_tokens: number; duration_secs: number }[];
 };
@@ -207,6 +208,7 @@ export type ConfigResponse = {
     attempt_decay: number;
     use_gitattributes: boolean;
     exclude_paths: number;
+    buckets: { name: string; max_churn: number; multiplier: number }[];
   };
   workspace_retention: string;
   reviewing_as?: string;

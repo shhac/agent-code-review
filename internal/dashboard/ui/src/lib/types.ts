@@ -232,6 +232,7 @@ export type ConfigResponse = {
     exclude_paths: number;
     buckets: ScoreBucket[];
     anchors: ScoreAnchor[];
+    scoped_repos: string[];
   };
   workspace_retention: string;
   reviewing_as?: string;

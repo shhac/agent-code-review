@@ -1,6 +1,6 @@
 <script lang="ts">
   import { codeSpans, scoringDialsShown, settingsGroups } from '../lib/configview';
-  import { scoreCurve, tierRows } from '../lib/scorecurve';
+  import { tierRows } from '../lib/scorecurve';
   import { toggleIn } from '../lib/expandable';
   import { onMount } from 'svelte';
   import { getAuthors, getConfig } from '../lib/api';
@@ -63,7 +63,7 @@
     ['Effort', a.policy?.effort || 'inherits the engine default'],
   ];
   $: groups = settingsGroups(configData);
-  $: tiers = configData ? tierRows(scoreCurve(configData.scoring.buckets, configData.scoring.anchors, configData.scoring.curve)) : [];
+  $: tiers = tierRows(configData?.scoring.buckets ?? []);
 
   async function load() {
     const [cfg, au] = await Promise.all([getConfig(), getAuthors()]);
@@ -124,6 +124,12 @@
               : 'each rate applies flat across its whole tier'}
           </span>
         </div>
+        {#if configData.scoring.scoped_repos.length}
+          <p class="scoped-note">
+            The global policy. {configData.scoring.scoped_repos.join(', ')}
+            {configData.scoring.scoped_repos.length === 1 ? 'scores' : 'score'} under their own rules.
+          </p>
+        {/if}
         <div class="tier-panel">
           <ScoreCurve buckets={configData.scoring.buckets} anchors={configData.scoring.anchors} curve={configData.scoring.curve} />
           <table class="tier-table">

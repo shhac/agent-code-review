@@ -28,27 +28,32 @@
   $: verdicts = [...Array(Math.max(rounds - 1, 0)).fill(earlier), final];
 
   // Debounced, because these are number inputs and every keystroke is a new
-  // hypothesis. A stale reply must never overwrite a fresh one, so each run
-  // checks it is still the latest before assigning.
+  // hypothesis.
+  //
+  // The token is taken the moment the inputs CHANGE, not when the request
+  // goes out. Bumping it at send time left a 150ms window where an in-flight
+  // answer to the previous question still counted as current, so it landed
+  // under the new inputs: the one thing a calculator must never do is show a
+  // number that does not go with what is on screen beside it.
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let latest = 0;
-  $: schedule(additions, deletions, verdicts.join(','));
+  let asked = 0;
+  $: ask(additions, deletions, verdicts.join(','));
 
-  function schedule(..._deps: unknown[]) {
+  function ask(..._inputs: unknown[]) {
+    const mine = ++asked;
     clearTimeout(timer);
-    timer = setTimeout(run, 150);
+    timer = setTimeout(() => run(mine), 150);
   }
 
-  async function run() {
+  async function run(mine: number) {
     const seq = verdicts;
-    const mine = ++latest;
     try {
       const got = await getScorePreview({ additions, deletions, verdicts: seq });
-      if (mine !== latest) return;
+      if (mine !== asked) return;
       preview = got;
       error = '';
     } catch (e) {
-      if (mine !== latest) return;
+      if (mine !== asked) return;
       error = e instanceof Error ? e.message : String(e);
     }
   }

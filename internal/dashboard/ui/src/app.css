@@ -465,6 +465,7 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 /* The tier ladder beside its chart: the picture for the shape, the figures for
    the exact multiplier, which a chart cannot be read to. Stacks below the
    chart when there is no room for a column. */
+.scoped-note { margin: 0; padding: 14px 20px 0; color: var(--warn-ink); font-size: 12px; }
 .tier-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 260px); align-items: start; }
 .tier-table { margin: 22px 20px 18px 0; border-collapse: collapse; width: calc(100% - 20px); font-size: 13px; }
 .tier-table th {

@@ -530,6 +530,13 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
   padding: 2px 4px; border: 0; border-radius: 0; background: none; color: var(--faint); cursor: pointer;
 }
 .tier-edit .kill:hover { color: var(--bad-ink); transform: none; }
+/* The ladder's own mistakes, said next to the field that caused them. The
+   daemon reports them too, in the validator's words, at the top of the other
+   column. */
+.ladder-note {
+  margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  border: 1px solid var(--warn-ink); background: var(--surface-warm); color: var(--warn-ink);
+}
 .shape .add-tier {
   justify-self: start; padding: 5px 10px; font-size: 12px; border-radius: 6px;
   border: 1px solid var(--line); background: var(--surface-warm); color: var(--ink); cursor: pointer;
@@ -553,11 +560,30 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 .maps { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .map h4 { margin: 0 0 6px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .map h4 em { font-style: normal; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--faint); }
-.plot { display: grid; grid-template-columns: 34px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 18px; gap: 4px; }
-.plot canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; border: 1px solid var(--line); background: #12150f; }
+/* Each axis is named beside its own numbers rather than in a caption under
+   the pair. The vertical one is set in vertical-rl so it costs 13px of width
+   instead of a line of its own, and both maps carry the labels because they
+   are read one at a time. That the two share a scale needs no saying: the
+   axes are numbered. */
+.plot {
+  display: grid; gap: 4px;
+  grid-template-columns: 13px 30px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 14px 13px;
+}
+.plot canvas {
+  grid-column: 3; grid-row: 1;
+  width: 100%; height: auto; aspect-ratio: 1; display: block;
+  border: 1px solid var(--line); background: #12150f;
+}
 .plot .yaxis, .plot .xaxis { display: flex; font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums; }
-.plot .yaxis { flex-direction: column; justify-content: space-between; align-items: flex-end; padding-right: 2px; }
-.plot .xaxis { grid-column: 2; justify-content: space-between; }
+.plot .yaxis { grid-column: 2; grid-row: 1; flex-direction: column; justify-content: space-between; align-items: flex-end; padding-right: 2px; }
+.plot .xaxis { grid-column: 3; grid-row: 2; justify-content: space-between; }
+.axis-label {
+  color: var(--faint); font-size: 10px; letter-spacing: .06em;
+  display: flex; align-items: center; justify-content: center;
+}
+.axis-label.y { grid-column: 1; grid-row: 1; writing-mode: vertical-rl; transform: rotate(180deg); }
+.axis-label.x { grid-column: 3; grid-row: 3; }
 .ramp-bar { height: 9px; border: 1px solid var(--line); border-radius: 2px; }
 .ramp-ends { display: flex; justify-content: space-between; font-size: 10px; color: var(--faint); margin-top: 3px; }
 .facts { margin: 0; display: grid; }

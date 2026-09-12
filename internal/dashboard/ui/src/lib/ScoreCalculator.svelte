@@ -102,9 +102,13 @@
       <p class="calc-total" class:bad={preview.total < 0}>
         {signed(preview.total)}<em>points</em>
       </p>
+      <!-- The arithmetic, not just the total: churn is the one term this page
+           leans on everywhere and defines nowhere, and this is where somebody
+           is already asking where a number came from. -->
       <p class="calc-why">
-        <b>{preview.churn}</b> churn ({preview.additions} added, {preview.deletions} removed at the configured weight)
-        lands in <b>{preview.bucket}</b>, paid at <b>{preview.rate.toFixed(2)}x</b>.
+        <b>{preview.additions}</b> added plus <b>{preview.deletions}</b> removed at
+        <b>{preview.deletion_weight}x</b> is <b>{preview.churn}</b> churn, which lands in
+        <b>{preview.bucket}</b> and is paid at <b>{preview.rate.toFixed(2)}x</b>.
       </p>
       {#if preview.rounds.length > 1}
         <ol class="calc-rounds">

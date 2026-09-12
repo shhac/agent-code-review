@@ -221,6 +221,7 @@ export type ScoreSimulation = {
 export type ScorePreview = {
   additions: number;
   deletions: number;
+  deletion_weight: number;
   churn: number;
   bucket: string;
   rate: number;

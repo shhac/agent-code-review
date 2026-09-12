@@ -38,6 +38,11 @@ func TestScorePreviewMatchesTheScorer(t *testing.T) {
 	if resp.Churn != 55 {
 		t.Errorf("churn = %v, want 55: deletions weighed at the configured 1.5", resp.Churn)
 	}
+	// The weight rides along so the page can show the working. Churn is the
+	// one term on that page nothing else defines.
+	if resp.DeletionWeight != 1.5 {
+		t.Errorf("deletion weight = %v, want the 1.5 the churn was computed with", resp.DeletionWeight)
+	}
 	if resp.Rate < 1.46 || resp.Rate > 1.48 {
 		t.Errorf("rate = %v, want the interpolated ~1.47x rather than a tier's flat figure", resp.Rate)
 	}

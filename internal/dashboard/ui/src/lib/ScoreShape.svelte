@@ -1,7 +1,7 @@
 <script lang="ts">
   import { simulateScoring } from './api';
   import ScoreCurve from './ScoreCurve.svelte';
-  import { changedFrom, heatColor, policyDoc, policyJSON, policyOf, rampCSS, sortTiers, type Policy } from './scoreshape';
+  import { changedFrom, heatColor, ladderProblem, policyDoc, policyJSON, policyOf, rampCSS, sortTiers, type Policy } from './scoreshape';
   import type { ConfigResponse, ScoreSimulation } from './types';
 
   export let config: ConfigResponse;
@@ -17,6 +17,7 @@
   let error = '';
 
   $: changed = changedFrom(policy, live);
+  $: ladderNote = ladderProblem(policy.buckets);
   $: ordered = sim ? sim.probes.every((p, i) => i === 0 || sim!.probes[i - 1].score > p.score) : false;
 
   // Same contract as the calculator: the token is taken the moment the policy
@@ -115,9 +116,10 @@
     { key: 'churn_exponent', label: 'Size exponent', min: 0, max: 1, step: 0.05,
       hint: 'How much of a score follows sheer volume. At 1 a bigger PR always earns more. Below it, the same solve in fewer lines is worth more.' },
     { key: 'base', label: 'Base', min: 10, max: 600, step: 10, hint: 'Points for one full churn unit at 1x.' },
-    { key: 'churn_unit', label: 'Churn unit', min: 10, max: 200, step: 5 },
+    { key: 'churn_unit', label: 'Churn unit', min: 10, max: 200, step: 5,
+      hint: 'How many lines of churn the base pays for.' },
     { key: 'deletion_weight', label: 'Deletion weight', min: 0, max: 3, step: 0.1,
-      hint: 'What a removed line counts, against an added one.' },
+      hint: 'What a removed line counts, against an added one: churn = added + removed x this. Above 1 a removal counts for more, which moves a big deletion up the ladder into a worse rate.' },
     { key: 'shrink_bonus', label: 'Shrink bonus', min: 1, max: 2, step: 0.05, hint: 'Applied when the PR is net-negative.' },
     { key: 'attempt_decay', label: 'Revision decay', min: 0.05, max: 0.95, step: 0.05 },
   ];
@@ -195,10 +197,15 @@
       </tbody>
     </table>
     <button class="add-tier" on:click={addTier}>+ tier</button>
+    {#if ladderNote}
+      <p class="ladder-note">{ladderNote}</p>
+    {/if}
     <p class="hint">
       Tiers sort themselves by max churn when you leave the field, so a new one
-      lands where its bound puts it. The last is open-ended. A first tier paying
-      <code>0</code> is how you say a PR is too small to be worth points.
+      lands where its bound puts it. The last row is the catch-all: it has no
+      max churn, which is what <code>open</code> means, and only it may.
+      To say a PR is too small to be worth points, give the first tier a
+      <b>rate</b> of <code>0</code>.
     </p>
   </div>
 
@@ -228,9 +235,11 @@
           <div class="map">
             <h4>{g.rounds === 1 ? 'Approved first pass' : 'Comment, then approve'} <em>{g.rounds} round{g.rounds > 1 ? 's' : ''}</em></h4>
             <div class="plot">
+              <span class="axis-label y">lines removed</span>
               <div class="yaxis">{#each marks(range).slice().reverse() as m}<span>{m}</span>{/each}</div>
               <canvas width="384" height="384" bind:this={canvases[g.rounds]}></canvas>
               <div class="xaxis">{#each marks(range) as m}<span>{m}</span>{/each}</div>
+              <span class="axis-label x">lines added</span>
             </div>
           </div>
         {/each}
@@ -239,8 +248,6 @@
         <div class="ramp-bar" style={`background:${rampCSS()}`}></div>
         <div class="ramp-ends"><span>0 pts</span><span>{sim.max} pts</span></div>
       </div>
-      <p class="axis-name">x lines added &nbsp;·&nbsp; y lines removed &nbsp;·&nbsp; both maps share one scale</p>
-
       <ScoreCurve buckets={policy.buckets} anchors={sim.anchors} curve={policy.curve} />
 
       <dl class="facts" class:shape-stale={error}>
@@ -255,7 +262,7 @@
           <p class="note">
             Where points per line peak, so this is the piece size that maximises a split. 2000 lines earn
             {sim.fragment.whole} shipped whole against {sim.fragment.split} split that way ({fmt(sim.fragment.gain, 1)}x).
-            One line here means the ladder has no floor: give the first tier a rate of 0.
+            One line here means the ladder has no floor: give the first tier a <b>rate</b> of <code>0</code>.
           </p>
         </div>
         <div class="fact">

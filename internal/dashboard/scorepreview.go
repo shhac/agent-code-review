@@ -39,14 +39,19 @@ type scorePreviewResp struct {
 	// answer: a repo with its own scoring block is scored under that, and a
 	// preview that quietly used the global one would promise points that repo
 	// will never pay. Empty is the global policy.
-	Repo      string              `json:"repo"`
-	Additions int                 `json:"additions"`
-	Deletions int                 `json:"deletions"`
-	Churn     float64             `json:"churn"`
-	Bucket    string              `json:"bucket"`
-	Rate      float64             `json:"rate"`
-	Rounds    []scorePreviewRound `json:"rounds"`
-	Total     int                 `json:"total"`
+	Repo      string `json:"repo"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	// DeletionWeight travels with the counts so the page can show the
+	// ARITHMETIC rather than assert a total: "200 added plus 100 removed at
+	// 1.5x" is the definition of churn stated in the one place somebody is
+	// already asking where a number came from.
+	DeletionWeight float64             `json:"deletion_weight"`
+	Churn          float64             `json:"churn"`
+	Bucket         string              `json:"bucket"`
+	Rate           float64             `json:"rate"`
+	Rounds         []scorePreviewRound `json:"rounds"`
+	Total          int                 `json:"total"`
 }
 
 // scorePreviewRound is one review of that PR. Attempt is 1-based, matching
@@ -90,12 +95,13 @@ func (s *Server) scorePreview(q url.Values) (scorePreviewResp, error) {
 	rules := s.config().ResolveScoring(repo)
 	churn := rules.Churn(additions, deletions)
 	resp := scorePreviewResp{
-		Repo:      repo,
-		Additions: additions,
-		Deletions: deletions,
-		Churn:     churn,
-		Rate:      rules.Rate(churn),
-		Rounds:    make([]scorePreviewRound, 0, len(verdicts)),
+		Repo:           repo,
+		Additions:      additions,
+		Deletions:      deletions,
+		DeletionWeight: rules.DeletionWeight,
+		Churn:          churn,
+		Rate:           rules.Rate(churn),
+		Rounds:         make([]scorePreviewRound, 0, len(verdicts)),
 	}
 	for i, v := range verdicts {
 		got := score.Compute(rules, score.Input{

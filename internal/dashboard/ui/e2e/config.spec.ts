@@ -60,6 +60,9 @@ test.describe('score calculator', () => {
     await expect(page.locator('.calc-total')).toContainText('+110');
     await expect(page.locator('.calc-why')).toContainText('350');
     await expect(page.locator('.calc-why')).toContainText('large');
+    // Churn is the one term this tab leans on everywhere and defines nowhere,
+    // so the working is shown rather than just the total.
+    await expect(page.locator('.calc-why')).toContainText('1.5x');
   });
 
   test('turns negative when the verdict costs points', async ({ page }) => {

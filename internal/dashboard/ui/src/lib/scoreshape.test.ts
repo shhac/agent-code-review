@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changedFrom, heatColor, policyDoc, policyJSON, policyOf, sortTiers } from './scoreshape';
+import { changedFrom, heatColor, ladderProblem, policyDoc, policyJSON, policyOf, sortTiers } from './scoreshape';
 import type { ConfigResponse } from './types';
 import type { Policy } from './scoreshape';
 
@@ -102,5 +102,35 @@ describe('the ladder orders itself by the bounds it is given', () => {
   it('has nothing to do with a two-row ladder', () => {
     const two = [...ladder([50]), { name: 'open', max_churn: 0, multiplier: 0.2 }];
     expect(sortTiers(two)).toBe(two);
+  });
+});
+
+describe('a ladder the daemon will refuse says so next to the field', () => {
+  const tier = (name: string, max_churn: number) => ({ name, max_churn, multiplier: 1 });
+
+  it('is quiet about a ladder that resolves', () => {
+    expect(ladderProblem([tier('small', 50), tier('large', 500), tier('huge', 0)])).toBe('');
+  });
+
+  // The mistake this exists for. "A first tier paying 0" sat under a column
+  // headed Max churn, so the 0 went in the wrong field, and all the reader
+  // got was the validator's own words about stranded buckets.
+  it('names the tier left open in the middle of the ladder', () => {
+    const got = ladderProblem([tier('tiny', 10), tier('medium', 0), tier('huge', 0)]);
+    expect(got).toContain('Only the last tier can be open-ended');
+    expect(got).toContain('medium');
+  });
+
+  it('catches two tiers claiming the same bound', () => {
+    const got = ladderProblem([tier('tiny', 10), tier('small', 50), tier('medium', 50), tier('huge', 0)]);
+    expect(got).toContain('share a max churn');
+    expect(got).toContain('medium');
+  });
+
+  // Everything else is the daemon's to report: it validates the whole
+  // ruleset, and a second opinion here could only drift from it.
+  it('leaves the dials alone', () => {
+    expect(ladderProblem([tier('only', 0)])).toBe('');
+    expect(ladderProblem([])).toBe('');
   });
 });

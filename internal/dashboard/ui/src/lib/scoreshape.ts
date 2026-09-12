@@ -124,6 +124,28 @@ export function sortTiers(buckets: ScoreBucket[]): ScoreBucket[] {
   return [...sorted, last];
 }
 
+// ladderProblem states, in the words of the person editing, what is wrong
+// with a ladder the daemon will refuse.
+//
+// The daemon refuses it too, and says so, but it says so in the vocabulary of
+// the validator ("open-ended but is not last: it would match everything and
+// strand the 1 bucket(s) after it") in a banner at the top of the other
+// column. This is the same fact next to the field that caused it. It covers
+// only what the TABLE can get wrong; everything else is still the daemon's to
+// report.
+export function ladderProblem(buckets: ScoreBucket[]): string {
+  const open = buckets.findIndex((b, i) => !(b.max_churn > 0) && i !== buckets.length - 1);
+  if (open >= 0) {
+    return `Only the last tier can be open-ended. Give ${buckets[open].name || 'that tier'} a max churn, or remove the row.`;
+  }
+  for (let i = 1; i < buckets.length - 1; i++) {
+    if (buckets[i].max_churn === buckets[i - 1].max_churn) {
+      return `${buckets[i].name || 'A tier'} and ${buckets[i - 1].name || 'the one above it'} share a max churn, so one of them covers nothing.`;
+    }
+  }
+  return '';
+}
+
 // changedFrom names the dials this policy moves, so the panel can say whether
 // it is showing the daemon's policy or a draft. Buckets count as one.
 export function changedFrom(draft: Policy, live: Policy): string[] {

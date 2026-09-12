@@ -83,10 +83,11 @@ export const getMetrics = (range: string, model: string, effort: string) => {
   if (effort) params.set('effort', effort);
   return fetchJSON<MetricsResponse>(`/api/metrics?${params}`);
 };
-export const getLeaderboard = (days: number, repo: string) => {
+export const getLeaderboard = (days: number, repo: string, sort = '') => {
   const params = new URLSearchParams();
   if (days > 0) params.set('days', String(days));
   if (repo) params.set('repo', repo);
+  if (sort) params.set('sort', sort);
   const qs = params.toString();
   return fetchJSON<LeaderboardResponse>(`/api/leaderboard${qs ? `?${qs}` : ''}`);
 };

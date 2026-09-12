@@ -171,15 +171,24 @@ func scoreSetCmd() *cobra.Command {
 }
 
 func scoreLeaderboardCmd() *cobra.Command {
-	var repo string
+	var repo, sort string
 	var days, limit int
 	cmd := &cobra.Command{
 		Use:     "leaderboard",
 		Aliases: []string{"board"},
-		Short:   "Total score per author, highest first (NDJSON)",
-		Args:    cobra.NoArgs,
+		Short:   "Score per author, highest first (NDJSON)",
+		Long: "Score per author, highest first.\n\n" +
+			"--sort decides what leading MEANS. total is what somebody contributed;\n" +
+			"mean and median describe a typical pull request of theirs, which is the\n" +
+			"same question with volume normalised away. A median over one or two\n" +
+			"reviews is a single PR wearing a trend's clothes, so read it next to the\n" +
+			"review count rather than on its own.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			q := store.LeaderboardQuery{Repo: repo, Limit: limit}
+			if !store.ValidLeaderSort(sort) {
+				return fmt.Errorf("sort must be one of %s, got %q", strings.Join(store.LeaderSorts, ", "), sort)
+			}
+			q := store.LeaderboardQuery{Repo: repo, Limit: limit, Sort: sort}
 			if days > 0 {
 				q.Since = time.Now().AddDate(0, 0, -days)
 			}
@@ -201,7 +210,10 @@ func scoreLeaderboardCmd() *cobra.Command {
 	fs.StringVar(&repo, "repo", "", `Only this repo ("owner/name")`)
 	fs.IntVar(&days, "days", 0, "Only reviews from the last N days (0 = all history)")
 	fs.IntVar(&limit, "limit", 0, "Maximum authors to list (0 = no limit)")
+	fs.StringVar(&sort, "sort", store.LeaderTotal,
+		"What leading means: "+strings.Join(store.LeaderSorts, ", ")+" (mean and median normalise away volume)")
 	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
+	_ = cmd.RegisterFlagCompletionFunc("sort", completeStatic(store.LeaderSorts))
 	return cmd
 }
 

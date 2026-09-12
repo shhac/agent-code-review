@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { maxOf } from './format';
-import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, meanScore, medal, netLines } from './leaderboard';
+import { approvalRate, barWidth, columnFor, columns, displayName, emptyReason, frozenNotice, isThinSample, meanScore, medal, netLines, thinSample } from './leaderboard';
 import type { LeaderboardEntry } from './types';
 
 const entry = (over: Partial<LeaderboardEntry> = {}): LeaderboardEntry => ({
-  rank: 1, author: 'alice', total: 100, reviews: 2, approvals: 1, additions: 40, deletions: 10, ...over,
+  rank: 1, author: 'alice', total: 100, median: 40, reviews: 2, approvals: 1, additions: 40, deletions: 10, ...over,
 });
 
 describe('medal', () => {
@@ -112,3 +112,49 @@ describe('frozenNotice', () => {
   });
 });
 
+describe('the columns a board can rank by', () => {
+  it('reads each cell off the entry', () => {
+    const e = entry({ total: 300, median: 44, reviews: 10, approvals: 9, additions: 100, deletions: 900 });
+    const read = (sort: Parameters<typeof columnFor>[0]) => columnFor(sort).value(e);
+    expect(read('total')).toBe(300);
+    expect(read('reviews')).toBe(10);
+    expect(read('approved')).toBe(90);
+    expect(read('mean')).toBe(30);
+    expect(read('median')).toBe(44);
+    expect(read('net')).toBe(-800);
+  });
+
+  // Removing code is the good outcome, so the net board is ranked with the
+  // most negative first. A bar scaled on magnitude would draw the biggest
+  // ADDER exactly like the biggest remover, which is why that column has none.
+  it('offers no bar for the column whose best value is the smallest', () => {
+    expect(columnFor('net').bar).toBe(false);
+    expect(columns.filter((c) => !c.bar).map((c) => c.sort)).toEqual(['net']);
+  });
+
+  it('falls back to the total for a measure it does not know', () => {
+    expect(columnFor('nonsense' as never).sort).toBe('total');
+  });
+});
+
+describe('thin samples on a per-review board', () => {
+  // A single lucky change is a mean of itself. The row still ranks, because
+  // dropping somebody off a board they are on is worse than showing a number
+  // with a caveat, but it is drawn muted.
+  it('marks an author with too few reviews when the measure is per-review', () => {
+    const thin = entry({ reviews: thinSample - 1 });
+    expect(isThinSample(thin, 'mean')).toBe(true);
+    expect(isThinSample(thin, 'median')).toBe(true);
+  });
+
+  it('says nothing about thin samples on a board ranked by volume', () => {
+    const thin = entry({ reviews: 1 });
+    for (const sort of ['total', 'reviews', 'approved', 'net'] as const) {
+      expect(isThinSample(thin, sort)).toBe(false);
+    }
+  });
+
+  it('leaves an author with enough reviews alone', () => {
+    expect(isThinSample(entry({ reviews: thinSample }), 'median')).toBe(false);
+  });
+});

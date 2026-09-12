@@ -41,28 +41,42 @@ type leaderboardResp struct {
 	// so rather than render an empty board that looks like nobody has earned
 	// anything. Leaderboard-only mode leaves it true: the measuring has
 	// stopped, but the points already earned are still worth showing.
-	Enabled bool               `json:"enabled"`
-	Mode    string             `json:"mode"`
-	Days    int                `json:"days"`
-	Repo    string             `json:"repo,omitempty"`
+	Enabled bool   `json:"enabled"`
+	Mode    string `json:"mode"`
+	Days    int    `json:"days"`
+	Repo    string `json:"repo,omitempty"`
+	// Sort is the measure this board is ranked by, echoed back because the
+	// page draws its magnitude bar on that column and an unrecognised value
+	// falls back to the total rather than erroring.
+	Sort    string             `json:"sort"`
 	Entries []leaderboardEntry `json:"entries"`
 }
 
-// handleLeaderboard ranks authors by total score.
+// handleLeaderboard ranks authors by one of several measures.
 //
 // days=0 means all of history, which is the default: a leaderboard that
 // silently covered only the last day would flatter whoever shipped yesterday.
+//
+// The sort is applied in SQL, not in the page, because rank and the row limit
+// both depend on it. Re-sorting a top-100-by-total in the browser would show
+// the hundred biggest contributors arranged by median, which is a different
+// and much less interesting set of people than the hundred best medians.
 func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	serveGet(s, w, r, func(ctx context.Context) (leaderboardResp, error) {
 		q := r.URL.Query()
 		repo := q.Get("repo")
 		days, _ := strconv.Atoi(q.Get("days"))
+		sort := q.Get("sort")
+		if !store.ValidLeaderSort(sort) {
+			sort = store.LeaderTotal
+		}
 
 		resp := leaderboardResp{
 			Enabled: s.config().LeaderboardVisible(repo),
 			Mode:    s.config().ScoringMode(repo),
 			Days:    days,
 			Repo:    repo,
+			Sort:    sort,
 		}
 		// Nothing to serve for a board that is switched off. Returning
 		// standings alongside enabled=false said two things at once and left a
@@ -72,7 +86,7 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 			return resp, nil
 		}
 
-		lq := store.LeaderboardQuery{Repo: repo, Limit: 100}
+		lq := store.LeaderboardQuery{Repo: repo, Limit: 100, Sort: sort}
 		if days > 0 {
 			lq.Since = time.Now().AddDate(0, 0, -days)
 		}

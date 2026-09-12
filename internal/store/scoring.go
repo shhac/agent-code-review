@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Score provenance.
 const (
@@ -141,12 +144,38 @@ type ScoreQuery struct {
 	Limit         int
 }
 
-// LeaderboardQuery narrows the aggregate.
+// LeaderboardQuery narrows the aggregate and decides what "leading" means.
 type LeaderboardQuery struct {
 	Repo  string
 	Since time.Time
 	Limit int
+	// Sort is which measure ranks the board. Empty is LeaderTotal.
+	//
+	// Ordering happens in SQL rather than in the page, because rank and Limit
+	// both depend on it: a client that re-sorted a top-25 by total would be
+	// showing the top 25 by total arranged by median, which is a different
+	// and much less interesting set of people.
+	Sort string
 }
+
+// The measures a leaderboard can rank by. Total is what somebody contributed;
+// Mean and Median are what a typical PR of theirs is worth, which is the same
+// question asked with volume normalised away.
+const (
+	LeaderTotal    = "total"
+	LeaderReviews  = "reviews"
+	LeaderApproved = "approved"
+	LeaderMean     = "mean"
+	LeaderMedian   = "median"
+	LeaderNet      = "net"
+)
+
+// LeaderSorts are the valid values of LeaderboardQuery.Sort, in the order the
+// board presents them.
+var LeaderSorts = []string{LeaderTotal, LeaderReviews, LeaderApproved, LeaderMean, LeaderMedian, LeaderNet}
+
+// ValidLeaderSort reports whether s names a measure.
+func ValidLeaderSort(s string) bool { return slices.Contains(LeaderSorts, s) }
 
 // AuthorScore is one row of the leaderboard.
 //
@@ -154,10 +183,16 @@ type LeaderboardQuery struct {
 // review the author has ever had: an unscored row is absent from the sum, so
 // counting it here would make the mean lie.
 type AuthorScore struct {
-	Author    string `json:"author"`
-	Total     int    `json:"total"`
-	Reviews   int    `json:"reviews"`
-	Approvals int    `json:"approvals"`
-	Additions int    `json:"additions"`
-	Deletions int    `json:"deletions"`
+	Author string `json:"author"`
+	Total  int    `json:"total"`
+	// Median is the typical scored review, which the total and the mean both
+	// hide: one enormous deletion can carry either of them on its own, and the
+	// median is the number that says whether the rest of the work looks like
+	// it too. Computed in SQL because it needs every row, not an aggregate of
+	// two.
+	Median    float64 `json:"median"`
+	Reviews   int     `json:"reviews"`
+	Approvals int     `json:"approvals"`
+	Additions int     `json:"additions"`
+	Deletions int     `json:"deletions"`
 }

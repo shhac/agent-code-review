@@ -6,7 +6,7 @@
 // approval share — and it is separated from the component so it can be tested
 // without mounting one.
 
-import type { LeaderboardEntry, ScoringMode } from './types';
+import type { LeaderboardEntry, LeaderSort, ScoringMode } from './types';
 
 /** A medal for the top three, nothing below. */
 export function medal(rank: number): string {
@@ -51,6 +51,46 @@ export function meanScore(entry: LeaderboardEntry): number {
 /** Net lines: negative means the author removed more than they added. */
 export function netLines(entry: LeaderboardEntry): number {
   return entry.additions - entry.deletions;
+}
+
+// The columns, in the order the board shows them. `sort` is what the daemon is
+// asked to rank by; `value` is what the cell reads; `bar` says whether a
+// magnitude bar is meaningful for it.
+//
+// Net lines has no bar on purpose. Removing code is the good outcome, so its
+// board is ranked with the most negative first, and a bar scaled on magnitude
+// would draw the biggest ADDER exactly like the biggest remover. A column
+// where the best value is the smallest is a column a bar cannot describe.
+export const columns: {
+  sort: LeaderSort;
+  label: string;
+  value: (e: LeaderboardEntry) => number;
+  bar: boolean;
+  /** True for measures that describe a typical review rather than a total. */
+  perReview?: boolean;
+}[] = [
+  { sort: 'total', label: 'Total', value: (e) => e.total, bar: true },
+  { sort: 'reviews', label: 'Reviews', value: (e) => e.reviews, bar: true },
+  { sort: 'approved', label: 'Approved', value: approvalRate, bar: true },
+  { sort: 'mean', label: 'Mean', value: meanScore, bar: true, perReview: true },
+  { sort: 'median', label: 'Median', value: (e) => e.median, bar: true, perReview: true },
+  { sort: 'net', label: 'Net lines', value: netLines, bar: false },
+];
+
+export function columnFor(sort: LeaderSort) {
+  return columns.find((c) => c.sort === sort) ?? columns[0];
+}
+
+// Below this many scored reviews, a per-review measure is one or two PRs
+// wearing a trend's clothes: a single lucky change is a mean of itself. The
+// row still ranks, because dropping somebody off a board they are on is worse
+// than showing a number with a caveat, and the count is right there in its own
+// column. It is drawn muted instead, the way this dashboard already dims a
+// value that is inherited rather than set.
+export const thinSample = 3;
+
+export function isThinSample(entry: LeaderboardEntry, sort: LeaderSort): boolean {
+  return Boolean(columnFor(sort).perReview) && entry.reviews < thinSample;
 }
 
 

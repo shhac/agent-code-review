@@ -42,24 +42,62 @@ VALUES
   repeat('e', 40),'REQUESTED_CHANGES','codex','gpt-5.6-terra','medium',now(),180,900000,0,0.31,
   'The cache is behind a flag, so weigh the **stale read** risk','octocat',now());
 
--- Scored reviews, so the leaderboard has standings to lay out. Three authors
--- at different magnitudes because the score column is a BAR: one row can only
--- ever be full, and a bar that is always full proves nothing about a bar. The
--- negative total is the case where there is no bar to draw at all, which is
--- the one the colours have to get right on their own.
+-- Scored reviews, so the leaderboard has standings to rank.
+--
+-- The three authors are deliberately different SHAPES, because the board can
+-- now be ranked by any column and a fixture where every measure agrees would
+-- prove nothing about sorting. ada has volume (10 reviews, 300 points, a
+-- typical PR worth 30); grace has judgment (3 reviews, 270 points, a typical
+-- PR worth 90). Ranking by total puts ada first and by median puts grace
+-- first, which is the whole reason the other measures exist. octocat has one
+-- rejected review: a thin sample on any per-review measure, and a negative
+-- total with no bar to draw.
 INSERT INTO history
  (repo,number,title,author,head_sha,verdict,engine,model,effort,reviewed_at,duration_secs,
   additions,deletions,scored_additions,scored_deletions,changed_files,excluded_files,diff_sha,
   score,score_source,score_rules,score_bucket,score_attempt,scored_at)
 VALUES
- ('acme/widgets',31001,'refactor(core): delete the legacy importer','ada',repeat('1',40),'APPROVED',
-  'codex','gpt-5.6-terra','medium',now(),120,20,900,20,900,6,0,repeat('1',40),
-  230,'derived','fixturehash00001','large',1,now()),
- ('acme/widgets',31002,'feat(api): add the webhook retry queue','grace',repeat('2',40),'APPROVED',
-  'codex','gpt-5.6-terra','medium',now(),120,100,100,100,100,4,0,repeat('2',40),
-  100,'derived','fixturehash00001','medium',1,now()),
- ('acme/widgets',31003,'chore: bump the vendored client','octocat',repeat('3',40),'REQUESTED_CHANGES',
-  'codex','gpt-5.6-terra','medium',now(),120,1800,200,1800,200,30,0,repeat('3',40),
+ ('acme/widgets',32000,'feat(api): wire step 1','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32001,'feat(api): wire step 2','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32002,'feat(api): wire step 3','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32003,'feat(api): wire step 4','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32004,'feat(api): wire step 5','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32005,'feat(api): wire step 6','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32006,'feat(api): wire step 7','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32007,'feat(api): wire step 8','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32008,'feat(api): wire step 9','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32009,'feat(api): wire step 10','ada',repeat('a',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,60,20,60,20,3,0,repeat('a',40),
+  30,'derived','fixturehash00001','medium',1,now()),
+ ('acme/widgets',32100,'refactor(core): retire the legacy path 1','grace',repeat('b',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,20,400,20,400,5,0,repeat('b',40),
+  90,'derived','fixturehash00001','large',1,now()),
+ ('acme/widgets',32101,'refactor(core): retire the legacy path 2','grace',repeat('b',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,20,400,20,400,5,0,repeat('b',40),
+  90,'derived','fixturehash00001','large',1,now()),
+ ('acme/widgets',32102,'refactor(core): retire the legacy path 3','grace',repeat('b',40),'APPROVED',
+  'codex','gpt-5.6-terra','medium',now(),120,20,400,20,400,5,0,repeat('b',40),
+  90,'derived','fixturehash00001','large',1,now()),
+ ('acme/widgets',32200,'chore: bump the vendored client','octocat',repeat('c',40),'REQUESTED_CHANGES',
+  'codex','gpt-5.6-terra','medium',now(),120,1800,200,1800,200,30,0,repeat('c',40),
   -7,'derived','fixturehash00001','huge',1,now());
 
 -- 600 rows, deliberately more than the 500 the page used to fetch. The search

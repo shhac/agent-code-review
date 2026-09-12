@@ -198,6 +198,7 @@ func (d *duckDB) Leaderboard(ctx context.Context, q LeaderboardQuery) ([]AuthorS
 	// scores 0, so dropping it costs nothing either way.
 	sql := fmt.Sprintf(`SELECT author,
 	  sum(score)::BIGINT AS total,
+	  median(score)::DOUBLE AS median,
 	  count(*)::BIGINT AS reviews,
 	  sum(CASE WHEN verdict = %s THEN 1 ELSE 0 END)::BIGINT AS approvals,
 	  sum(COALESCE(scored_additions, 0))::BIGINT AS additions,
@@ -207,8 +208,8 @@ func (d *duckDB) Leaderboard(ctx context.Context, q LeaderboardQuery) ([]AuthorS
 	  QUALIFY row_number() OVER (PARTITION BY repo, number, head_sha ORDER BY reviewed_at) = 1
 	)
 	GROUP BY author
-	ORDER BY total DESC, reviews DESC, author ASC`,
-		nullText(VerdictApproved), strings.Join(where, " AND "))
+	ORDER BY %s`,
+		nullText(VerdictApproved), strings.Join(where, " AND "), leaderOrder(q.Sort))
 	if q.Limit > 0 {
 		sql += fmt.Sprintf(" LIMIT %d", q.Limit)
 	}
@@ -251,12 +252,47 @@ func scanAuthorScore(m map[string]any) (AuthorScore, error) {
 	a := AuthorScore{
 		Author:    r.str("author"),
 		Total:     r.int("total"),
+		Median:    r.float("median"),
 		Reviews:   r.int("reviews"),
 		Approvals: r.int("approvals"),
 		Additions: r.int("additions"),
 		Deletions: r.int("deletions"),
 	}
 	return a, r.err
+}
+
+// leaderOrder is the ORDER BY for one measure, with a stable tiebreak.
+//
+// Every clause ends in `reviews DESC, author ASC` so that a board is
+// reproducible: without it two authors tied on a measure swap places between
+// requests, which reads as the standings moving when nothing has changed.
+//
+// Net lines sorts ASCENDING, alone among these. Removing code is the good
+// outcome, so the most negative net is the top of that board; ranking it
+// descending would put the biggest adder first and call them the leader.
+func leaderOrder(sort string) string {
+	tie := "reviews DESC, author ASC"
+	switch sort {
+	case LeaderReviews:
+		return "reviews DESC, total DESC, author ASC"
+	case LeaderApproved:
+		// The RATE, not the count: ranking by approvals alone is ranking by
+		// volume again, which is the thing these measures exist to look past.
+		return "approvals::DOUBLE / reviews DESC, " + tie
+	case LeaderMean:
+		return "total::DOUBLE / reviews DESC, " + tie
+	case LeaderMedian:
+		return "median DESC, " + tie
+	case LeaderNet:
+		// Spelled out rather than "(additions - deletions)", which silently
+		// means something else: those output aliases share their names with
+		// real history columns, so the reference binds to the ROW's counts
+		// inside a grouped query and the whole clause stops discriminating.
+		// The board then falls through to the tiebreak and looks sorted.
+		return "(sum(COALESCE(scored_additions, 0)) - sum(COALESCE(scored_deletions, 0))) ASC, " + tie
+	default:
+		return "total DESC, " + tie
+	}
 }
 
 // marshalFiles renders the measured per-file detail for storage, capped.

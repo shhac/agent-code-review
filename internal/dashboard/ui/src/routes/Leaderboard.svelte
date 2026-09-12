@@ -4,21 +4,28 @@
   import { withFeed } from '../lib/feed';
   import { maxOf, signed } from '../lib/format';
   import { isViewer, viewer } from '../lib/viewer';
-  import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, meanScore, medal, netLines } from '../lib/leaderboard';
-  import type { LeaderboardResponse } from '../lib/types';
+  import { barWidth, columnFor, columns, displayName, emptyReason, frozenNotice, isThinSample, medal } from '../lib/leaderboard';
+  import type { LeaderboardResponse, LeaderSort } from '../lib/types';
 
   let days = 0;
+  // The sort is sent to the daemon rather than applied here, because rank and
+  // the row limit both depend on it: re-sorting a top-100-by-total in the
+  // browser would show the hundred biggest contributors arranged by median,
+  // which is a different set of people from the hundred best medians.
+  let sort: LeaderSort = 'total';
   let data: LeaderboardResponse | null = null;
 
   $: entries = data?.entries ?? [];
+  $: ranked = columnFor(sort);
   // Hoisted once per render rather than recomputed per row, matching how
-  // Metrics and ActivityChart feed their scales.
-  $: topScore = maxOf(entries, (e) => e.total, 0);
+  // Metrics and ActivityChart feed their scales. Scaled on the RANKED column,
+  // so the bar is always describing the thing the board is ordered by.
+  $: topScore = maxOf(entries, ranked.value, 0);
   $: empty = data ? emptyReason(data.enabled, entries, data.days) : '';
   $: frozen = frozenNotice(data?.mode);
 
   async function load() {
-    data = await getLeaderboard(days, '');
+    data = await getLeaderboard(days, '', sort);
     return 'leaderboard';
   }
   const reload = withFeed(load);
@@ -30,7 +37,7 @@
   <div>
     <p class="eyebrow">Author standings</p>
     <h1>Leaderboard</h1>
-    <p>Points scale with how much was reviewed. Well-sized PRs, fewer review rounds, and removing code all pay a better rate.</p>
+    <p>Well-sized PRs, fewer review rounds, and removing code all pay better. Rank by any column: totals reward volume, mean and median describe a typical pull request.</p>
   </div>
   <div class="metrics-filters">
     <label>Range
@@ -53,8 +60,25 @@
 {:else}
   <section class="panel board">
     <p class="board-head">
-      <span>Rank</span><span>Author</span><span>Score</span><span>Reviews</span>
-      <span>Approved</span><span>Mean</span><span>Net lines</span>
+      <span>Rank</span><span>Author</span>
+      {#each columns as c}
+        <!-- Toggle buttons, not ARIA columnheaders: this board is a CSS grid
+             of paragraphs, and claiming table semantics for one row of it
+             would promise a structure the rest of the markup does not have.
+             aria-pressed says the true thing, that this is the measure the
+             board is currently ranked by. -->
+        <span>
+          <button
+            class="sort"
+            class:on={sort === c.sort}
+            aria-pressed={sort === c.sort}
+            title={`Rank by ${c.label.toLowerCase()}`}
+            on:click={() => { sort = c.sort; changed(); }}
+          >
+            {c.label}{#if sort === c.sort}<em aria-hidden="true">&#9662;</em>{/if}
+          </button>
+        </span>
+      {/each}
     </p>
     {#each entries as e (e.author)}
       {@const mine = isViewer(e.author, $viewer)}
@@ -64,14 +88,21 @@
           <strong>{displayName(e)}</strong>
           {#if e.name}<em>@{e.author}</em>{/if}
         </span>
-        <span class="score">
-          <span class="bar" style="--w: {barWidth(e.total, topScore)}%"></span>
-          <b class="total" class:score-halo={mine && e.total > 0}>{e.total}</b>
-        </span>
-        <span>{e.reviews}</span>
-        <span>{approvalRate(e)}%</span>
-        <span>{meanScore(e)}</span>
-        <span class="net" class:shrink={netLines(e) < 0}>{signed(netLines(e))}</span>
+        {#each columns as c}
+          {@const v = c.value(e)}
+          {#if c.sort === sort}
+            <!-- The ranked column carries the bar and the emphasis: the score
+                 is whichever number this board is ordered by. -->
+            <span class="score" class:no-bar={!c.bar} class:thin={isThinSample(e, sort)}>
+              {#if c.bar}<span class="bar" style="--w: {barWidth(v, topScore)}%"></span>{/if}
+              <b class="total" class:score-halo={mine && v > 0}>{c.sort === 'approved' ? `${v}%` : c.sort === 'net' ? signed(v) : v}</b>
+            </span>
+          {:else}
+            <span class="stat" class:shrink={c.sort === 'net' && v < 0}>
+              {c.sort === 'approved' ? `${v}%` : c.sort === 'net' ? signed(v) : v}
+            </span>
+          {/if}
+        {/each}
       </p>
     {/each}
   </section>
@@ -82,7 +113,10 @@
   .board p {
     margin: 0;
     display: grid;
-    grid-template-columns: 56px minmax(160px, 2fr) minmax(120px, 1.4fr) repeat(4, 88px);
+    /* Six measures now, and the ranked one holds a bar, so it takes the wide
+       track. Every column is the same width whichever is ranked: a table whose
+       columns resize when you re-sort it is a table nobody can scan. */
+    grid-template-columns: 56px minmax(140px, 1.6fr) repeat(6, minmax(86px, 1fr));
     gap: 12px;
     align-items: center;
     padding: 12px 20px;
@@ -96,6 +130,19 @@
     text-transform: uppercase;
   }
   .rank { font-size: 16px; text-align: center; }
+  /* A header that re-ranks the board has to look like it does something, but
+     it is a label first: the base button rule is a filled pill, so its ground,
+     radius and hover lift are all reset. */
+  .sort {
+    padding: 0; border: 0; border-radius: 0; background: none; cursor: pointer;
+    font: inherit; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--faint);
+  }
+  .sort:hover { color: var(--ink); transform: none; }
+  .sort.on { color: var(--amber); }
+  .sort em { font-style: normal; margin-left: 3px; }
+  .stat { font-variant-numeric: tabular-nums; color: var(--dim); }
+  .stat.shrink { color: var(--accent); font-weight: 700; }
   .who { display: grid; gap: 1px; min-width: 0; }
   .who strong { font-size: 14px; }
   .who em { color: var(--faint); font-style: normal; font-size: 11px; }
@@ -144,12 +191,17 @@
   .board-row.negative .score { background: color-mix(in srgb, var(--bad-ink) 7%, transparent); }
   .board-row.negative .score b { color: var(--bad-ink); }
 
-  .net { font-variant-numeric: tabular-nums; color: var(--dim); }
+  /* A per-review measure over one or two reviews is a single PR wearing a
+     trend's clothes. The row still ranks: dropping somebody off a board they
+     are on is worse than a number with a caveat, and the review count is in
+     its own column. It is dimmed instead, which is how this dashboard already
+     draws a value that is inherited rather than chosen. */
+  .score.thin { opacity: .5; }
   /* Removing code is the good outcome, so it is the one that gets the accent.
      Strictly negative, not <= 0: a net of exactly zero is a pure move, or a PR
      whose every line was excluded as generated, and accenting those claims a
      reduction that did not happen. */
-  .net.shrink { color: var(--accent); font-weight: 700; }
+  .score.no-bar b, .stat.shrink { font-weight: 700; }
 
   .empty { margin: 0; padding: 24px 20px; color: var(--dim); }
 

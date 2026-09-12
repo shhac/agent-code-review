@@ -47,3 +47,59 @@ test.describe('the score column', () => {
     await expect(row.locator('.score b')).toHaveCSS('color', 'rgb(234, 132, 120)');
   });
 });
+
+// Ranking by a different column is the whole point of the board being a table
+// rather than a list. The fixture authors are deliberately different shapes:
+// ada has volume, grace has judgment, and the two orderings disagree.
+test.describe('ranking by a measure', () => {
+  const names = (page: import('@playwright/test').Page) =>
+    page.locator('.board-row .who strong').allTextContents();
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/leaderboard');
+    await expect(page.locator('.board-row').first()).toBeVisible();
+  });
+
+  test('opens on the total, where volume leads', async ({ page }) => {
+    expect(await names(page)).toEqual(['ada', 'grace', 'octocat']);
+    await expect(page.getByRole('button', { name: 'Total' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('re-ranks on the typical review, where judgment leads', async ({ page }) => {
+    await page.getByRole('button', { name: 'Median' }).click();
+    await expect.poll(() => names(page)).toEqual(['grace', 'ada', 'octocat']);
+    await expect(page.getByRole('button', { name: 'Median' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Total' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('moves the bar to whichever column it is ranked by', async ({ page }) => {
+    // The bar lives in the ranked cell, so exactly one per row, and the leader
+    // fills it whatever the measure.
+    await expect(page.locator('.board-row .score .bar')).toHaveCount(3);
+    await page.getByRole('button', { name: 'Mean' }).click();
+    await expect.poll(async () => (await page.locator('.board-row .score .bar').count())).toBe(3);
+
+    const cell = await page.locator('.board-row .score').first().boundingBox();
+    const bar = await page.locator('.board-row .score .bar').first().boundingBox();
+    if (!cell || !bar) throw new Error('ranked cell not laid out');
+    expect(bar.width).toBeGreaterThan(cell.width * 0.9);
+  });
+
+  // Removing code is the good outcome, so that board is ranked most-negative
+  // first and a magnitude bar would draw the biggest adder like the biggest
+  // remover. The column has none.
+  test('draws no bar on the column whose best value is the smallest', async ({ page }) => {
+    await page.getByRole('button', { name: 'Net lines' }).click();
+    await expect.poll(() => names(page)).toEqual(['grace', 'ada', 'octocat']);
+    await expect(page.locator('.board-row .score .bar')).toHaveCount(0);
+  });
+
+  // A single review is a mean of itself. The row still ranks; it is dimmed.
+  test('dims a thin sample only where the measure is per-review', async ({ page }) => {
+    await expect(page.locator('.score.thin')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Median' }).click();
+    await expect(page.locator('.score.thin')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Reviews' }).click();
+    await expect(page.locator('.score.thin')).toHaveCount(0);
+  });
+});

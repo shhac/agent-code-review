@@ -135,14 +135,21 @@ export type LeaderboardEntry = {
   author: string;
   name?: string;
   total: number;
+  median: number;
   reviews: number;
   approvals: number;
   additions: number;
   deletions: number;
 };
 
+// Which measure a board is ranked by. Total is what somebody contributed;
+// mean and median are what a typical PR of theirs is worth, which is the same
+// question with volume normalised away.
+export type LeaderSort = 'total' | 'reviews' | 'approved' | 'mean' | 'median' | 'net';
+
 export type LeaderboardResponse = {
   enabled: boolean;
+  sort: LeaderSort;
   mode: ScoringMode;
   days: number;
   repo?: string;

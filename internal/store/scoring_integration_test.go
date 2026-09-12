@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -475,5 +476,79 @@ func TestReviewFilesAbsentReadsAsNil(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("got %+v, want nil", got)
+	}
+}
+
+// Every measure the board offers must actually re-order it, against a real
+// database rather than a string comparison.
+//
+// The failure this exists for is the one a unit test cannot see: `additions`
+// and `deletions` are output aliases that SHADOW real history columns, so an
+// ORDER BY naming them binds to the row's own counts inside a grouped query,
+// stops discriminating entirely, and falls through to the tiebreak. The board
+// still comes back sorted-looking, by reviews, and nothing errors.
+func TestLeaderboardRanksByEachMeasure(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	base := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+
+	// Deliberately different SHAPES, so no two measures agree:
+	//   volume:    many modest reviews, most points, a typical PR worth least
+	//   judgment:  few reviews, fewer points, the best typical PR
+	//   remover:   one review, least points, by far the most code deleted
+	n := 0
+	add := func(author string, score, adds, dels int, verdict string) {
+		n++
+		completeScored(t, s, "o/r", n, author, verdict, base.Add(time.Duration(n)*time.Minute),
+			ScoreRecord{Score: ptr(score), Source: ScoreDerived, Rules: "h", Attempt: ptr(1)},
+			DiffStats{ScoredAdditions: adds, ScoredDeletions: dels, DiffSHA: fmt.Sprintf("sha-%d", n)})
+	}
+	for i := 0; i < 6; i++ {
+		add("volume", 30, 100, 10, VerdictApproved)
+	}
+	for i := 0; i < 2; i++ {
+		add("judgment", 80, 20, 30, VerdictCommented)
+	}
+	add("remover", 10, 5, 900, VerdictApproved)
+
+	for _, tc := range []struct {
+		sort string
+		want []string
+	}{
+		{LeaderTotal, []string{"volume", "judgment", "remover"}},    // 180, 160, 10
+		{LeaderReviews, []string{"volume", "judgment", "remover"}},  // 6, 2, 1
+		{LeaderApproved, []string{"volume", "remover", "judgment"}}, // 100%, 100%, 0%
+		{LeaderMean, []string{"judgment", "volume", "remover"}},     // 80, 30, 10
+		{LeaderMedian, []string{"judgment", "volume", "remover"}},   // 80, 30, 10
+		{LeaderNet, []string{"remover", "judgment", "volume"}},      // -895, -20, +540
+	} {
+		t.Run(tc.sort, func(t *testing.T) {
+			board, err := s.Leaderboard(ctx, LeaderboardQuery{Sort: tc.sort})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(board))
+			for _, e := range board {
+				got = append(got, e.Author)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("ranked %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+
+	// And the median is the daemon's own, not something the page could work
+	// out from a total and a count: judgment's two 80s and volume's six 30s.
+	board, err := s.Leaderboard(ctx, LeaderboardQuery{Sort: LeaderMedian})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if board[0].Median != 80 || board[1].Median != 30 {
+		t.Errorf("medians = %v / %v, want 80 and 30", board[0].Median, board[1].Median)
 	}
 }

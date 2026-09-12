@@ -154,6 +154,16 @@ internal/
   `.gitattributes` is not covered, and should not be: that is the repo changing
   its mind, not us changing our policy.
 
+- **Historical revisions cannot be re-measured, so there is no backfill.**
+  Measured against two weeks of real history: of the reviews whose head had
+  moved, 5 in 6 had been REBASED rather than merely added to, and a rebased
+  PR's old head is orphaned. GitHub will still serve the commit object by SHA,
+  but `compare` 404s on it, because a merge base cannot be computed against a
+  commit reachable from no ref, and the odds worsen as unreachable objects are
+  collected. A partial backfill is also worse than none: only PRs that were
+  never force-pushed would score, which silently ranks people by whether they
+  rebase. Scoring therefore starts when it is switched on.
+
 - **`refetch` is the only repair for an unmeasured row, and it needs the head
   to still match.** GitHub serves a pull request's file list only at its
   CURRENT head; measuring an older revision means REST `compare`, which bundles

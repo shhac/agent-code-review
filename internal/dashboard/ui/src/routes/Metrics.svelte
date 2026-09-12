@@ -1,12 +1,25 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getMetrics } from '../lib/api';
+  import { toggleIn } from '../lib/expandable';
   import { withFeed } from '../lib/feed';
   import { durSecs, exact, maxOf, modelLabel, statusLabel, tokens, usd } from '../lib/format';
-  import { cacheShare, costTitle, estimatedShare, metricFacets, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing } from '../lib/metrics';
+  import { cacheShare, costTitle, estimatedShare, metricFacets, modelKey, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing, versionSummary } from '../lib/metrics';
   import type { MetricsResponse } from '../lib/types';
 
   type ScatterPoint = MetricsResponse['scatter'][number];
+
+  // Which model+effort rows are expanded, keyed so a refresh that reorders
+  // rows (they sort by review count) cannot move one row's open state onto
+  // another.
+  let expandedModels = new Set<string>();
+
+  function toggleModel(row: MetricsResponse['models'][number]) {
+    // A single-version row has nothing to reveal: expanding it would restate
+    // the row it came from.
+    if (row.versions.length <= 1) return;
+    expandedModels = toggleIn(expandedModels, modelKey(row));
+  }
 
   let range = '30d';
   let model = '';
@@ -58,7 +71,8 @@
       <div title="Every recorded row, including precheck skips and errors. Reviews are the subset where the engine actually posted."><strong>{data.summary.outcomes}</strong><span>outcomes recorded</span></div>
       <div><strong>{tokens(data.summary.fresh_tokens) || '0'}</strong><span>tokens processed</span></div>
       <div><strong>{durSecs(data.summary.median_duration_secs) || '–'}</strong><span>median duration</span></div>
-      <div title={costTip}><strong>{usd(data.summary.median_cost_usd) || '–'}</strong><span>median cost{#if data.summary.max_cost_usd > 0} · peak {usd(data.summary.max_cost_usd)}{/if}{#if estShare} · {estShare} est.{/if}</span></div>
+      <div title={costTip}><strong>{usd(data.summary.median_cost_usd) || '–'}</strong><span>median cost{#if data.summary.max_cost_usd > 0}{' · peak '}{usd(data.summary.max_cost_usd)}{/if}</span></div>
+      <div title={costTip}><strong>{usd(data.summary.cost_usd) || '–'}</strong><span>total cost{#if estShare}{' · '}{estShare} est.{/if}</span></div>
     </section>
     <div class="metrics-grid">
       <section class="surface metric-panel activity-panel"><div class="section-head"><h2>Completed reviews + tokens processed</h2><span>daily</span></div><div class="activity-plot"><span class="activity-axis left title">reviews</span><span class="activity-axis left top">{maxReviews}</span><span class="activity-axis left bottom">0</span><span class="activity-axis right title">tokens</span><span class="activity-axis right top">{tokens(maxTokens) || '0'}</span><span class="activity-axis right bottom">0</span>{#each data.activity as day}<div class="activity-day" title={`${day.day}: ${day.reviews} reviews · ${day.fresh_tokens} tokens`}><i class="review-bar" style={`height:${Math.max(3, day.reviews / maxReviews * 100)}%`}></i></div>{/each}<svg class="token-trend" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Token spend trend"><polyline points={tokenPoints} /></svg></div><div class="legend"><span><i class="approved"></i>completed reviews</span><span><i class="commented"></i>tokens used</span></div></section>
@@ -72,6 +86,49 @@
       <span class="axis x">duration →</span><span class="axis y">tokens →</span>
     </div>
     <div class="legend">{#if colour === 'model'}{#each [...slots] as [name, slot]}<span><i class={`model-${slot}`}></i>{modelLabel(name)}</span>{/each}{:else}<span><i class="approved"></i>approved</span><span><i class="commented"></i>commented</span><span><i class="changes"></i>requested changes</span><span><i class="other"></i>skipped / error</span>{/if}</div></section>
-    <section class="surface metric-panel"><div class="section-head"><h2>Model + effort breakdown</h2><span>CLI version retained per review</span></div><div class="metric-table"><p class="metric-table-head"><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Cached</b><b>Median</b><b>Cost</b><b>Version</b></p>{#each data.models as row}<p><span>{modelLabel(row.model)}</span><span>{row.effort || 'model default'}</span><span>{row.reviews}</span><span>{tokens(row.fresh_tokens) || '–'}</span><span title={row.cache_read_tokens ? `${exact(row.cache_read_tokens)} tokens re-read from cache` : 'this engine reports no cache reads'}>{cacheShare(row)}</span><span>{durSecs(row.median_duration_secs) || '–'}</span><span>{usd(row.median_cost_usd) || '–'}</span><span class="mono">{row.engine_version || 'unavailable'}</span></p>{/each}</div></section>
+    <section class="surface metric-panel">
+      <div class="section-head"><h2>Model + effort breakdown</h2><span>expand a row for its CLI versions</span></div>
+      <div class="metric-table">
+        <p class="metric-table-head"><b></b><b>Model</b><b>Effort</b><b>Reviews</b><b>Tokens</b><b>Cached</b><b>Median</b><b>Cost</b></p>
+        {#each data.models as row (modelKey(row))}
+          {@const open = expandedModels.has(modelKey(row))}
+          {@const splits = row.versions.length > 1}
+          <p
+            class="metric-row"
+            class:open
+            class:expandable={splits}
+            role={splits ? 'button' : undefined}
+            tabindex={splits ? 0 : undefined}
+            aria-expanded={splits ? open : undefined}
+            title={versionSummary(row)}
+            on:click={() => toggleModel(row)}
+            on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleModel(row); } }}
+          >
+            <span class="chev" aria-hidden="true">{splits ? (open ? '▾' : '▸') : ''}</span>
+            <span>{modelLabel(row.model)}</span>
+            <span>{row.effort || 'model default'}</span>
+            <span>{row.reviews}</span>
+            <span>{tokens(row.fresh_tokens) || '–'}</span>
+            <span title={row.cache_read_tokens ? `${exact(row.cache_read_tokens)} tokens re-read from cache` : 'this engine reports no cache reads'}>{cacheShare(row)}</span>
+            <span>{durSecs(row.median_duration_secs) || '–'}</span>
+            <span>{usd(row.median_cost_usd) || '–'}</span>
+          </p>
+          {#if open}
+            {#each row.versions as v (v.engine_version)}
+              <p class="metric-row version">
+                <span></span>
+                <span class="mono version-name">{v.engine_version || 'version unavailable'}</span>
+                <span></span>
+                <span>{v.reviews}</span>
+                <span>{tokens(v.fresh_tokens) || '–'}</span>
+                <span title={v.cache_read_tokens ? `${exact(v.cache_read_tokens)} tokens re-read from cache` : 'this engine reports no cache reads'}>{cacheShare(v)}</span>
+                <span>{durSecs(v.median_duration_secs) || '–'}</span>
+                <span>{usd(v.median_cost_usd) || '–'}</span>
+              </p>
+            {/each}
+          {/if}
+        {/each}
+      </div>
+    </section>
   </div>
 {/if}

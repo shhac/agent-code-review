@@ -50,6 +50,15 @@ type historyReview struct {
 	// Absent means NOT RECORDED, not "not steered": rows written before
 	// history kept a copy read absent whatever they were given.
 	Steering *store.Steering `json:"steering,omitempty"`
+	// Score is what this review earned the PR's author, and Bucket the size
+	// tier it came from.
+	//
+	// A POINTER, and absent rather than 0 when unscored: zero is a legitimate
+	// score (a PR whose every line was generated earns nothing), so a page
+	// that rendered the two alike would report "0 points" for a review nobody
+	// has been able to measure.
+	Score       *int   `json:"score,omitempty"`
+	ScoreBucket string `json:"score_bucket,omitempty"`
 }
 
 func historyReviewsOf(reviews []store.Review) []historyReview {
@@ -64,6 +73,7 @@ func historyReviewsOf(reviews []store.Review) []historyReview {
 			TokensUsed: r.TokensUsed,
 			CostUSD:    r.EffectiveCostUSD(), CostEstimated: r.CostEstimated(),
 			Steering: r.Steering,
+			Score:    r.Score.Score, ScoreBucket: r.Score.Bucket,
 		})
 	}
 	return out

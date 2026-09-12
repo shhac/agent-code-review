@@ -87,3 +87,20 @@ export function frozenNotice(mode: ScoringMode | undefined): string {
   if (mode !== 'leaderboard-only') return '';
   return 'Scoring is paused (scoring.mode = leaderboard-only). These standings are final until it is turned back on.';
 }
+
+/** A review's points, signed so a penalty is never mistaken for a small gain. */
+export function scoreLabel(score: number): string {
+  return `${score > 0 ? '+' : ''}${score} pts`;
+}
+
+/**
+ * The hover explanation for a score.
+ *
+ * The bucket is the one fact a reader cannot infer from the number: the same
+ * diff scores very differently either side of a tier boundary, so a surprising
+ * total is usually explained by which tier it landed in.
+ */
+export function scoreTitle(score: number, bucket: string): string {
+  const base = `${score} points for the PR author`;
+  return bucket ? `${base} (${bucket} diff)` : base;
+}

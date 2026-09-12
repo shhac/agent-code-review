@@ -153,3 +153,25 @@ export function costTitle(s: Summary | undefined): string {
   const drift = Math.round(((s.check_estimated_usd - s.check_reported_usd) / s.check_reported_usd) * 100);
   return `${base}${est}. Cross-check over ${s.check_reviews} review(s) the engine also priced: our estimate runs ${drift >= 0 ? '+' : ''}${drift}% against theirs.`;
 }
+
+type ModelRow = MetricsResponse['models'][number];
+
+/**
+ * Stable identity for a model+effort row.
+ *
+ * Used both as the keyed-each key and as the expansion key, so a refresh that
+ * reorders rows (they sort by review count, which moves as reviews land)
+ * cannot transplant one row's open state onto another.
+ */
+export function modelKey(row: Pick<ModelRow, 'model' | 'effort'>): string {
+  return `${row.model} :: ${row.effort}`;
+}
+
+/** Hover text naming the CLI versions behind an aggregated row. */
+export function versionSummary(row: ModelRow): string {
+  if (row.versions.length === 0) return '';
+  if (row.versions.length === 1) {
+    return `all ${row.reviews} reviews on ${row.versions[0].engine_version || 'an unrecorded version'}`;
+  }
+  return `${row.reviews} reviews across ${row.versions.length} CLI versions, expand for the breakdown`;
+}

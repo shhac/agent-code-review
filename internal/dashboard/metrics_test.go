@@ -23,8 +23,12 @@ func TestMetricsForFiltersAndGroupsReviewProvenance(t *testing.T) {
 	if got.Verdicts["APPROVED"] != 1 || got.Verdicts["COMMENTED"] != 1 || got.Verdicts["REQUESTED_CHANGES"] != 0 {
 		t.Errorf("verdicts = %+v", got.Verdicts)
 	}
-	if len(got.Models) != 1 || got.Models[0].EngineVersion != "Codex CLI 0.144.0" || got.Models[0].MedianDuration != 40 {
+	if len(got.Models) != 1 || got.Models[0].MedianDuration != 40 {
 		t.Errorf("models = %+v", got.Models)
+	}
+	// The CLI version is a nested breakdown now, not part of the row's key.
+	if v := got.Models[0].Versions; len(v) != 1 || v[0].EngineVersion != "Codex CLI 0.144.0" || v[0].Reviews != 2 {
+		t.Errorf("versions = %+v", got.Models[0].Versions)
 	}
 	if len(got.Activity) != 1 || got.Activity[0].Reviews != 2 || len(got.Scatter) != 2 {
 		t.Errorf("activity/scatter = %+v / %+v", got.Activity, got.Scatter)
@@ -244,5 +248,64 @@ func TestMetricsCostUsesEstimatesWhereTheEngineReportedNone(t *testing.T) {
 	if got.Summary.CheckReviews != 1 || got.Summary.CheckReportedUSD != 4.00 || got.Summary.CheckEstimatedUSD != 3.60 {
 		t.Errorf("cross-check = %d reviews, reported %v vs estimated %v; want 1, 4.00, 3.60",
 			got.Summary.CheckReviews, got.Summary.CheckReportedUSD, got.Summary.CheckEstimatedUSD)
+	}
+}
+
+// The model+effort row's median must come from ALL its reviews, not from
+// averaging the per-version medians: a median of medians is not a median, and
+// the two disagree whenever the versions are unevenly used.
+func TestModelRowMedianIsNotAMedianOfMedians(t *testing.T) {
+	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	mk := func(version string, secs int) store.Review {
+		return store.Review{
+			Model: "m", Effort: "high", EngineVersion: version, Verdict: "APPROVED",
+			FreshTokens: 10, DurationSecs: secs, ReviewedAt: at,
+		}
+	}
+	// v1 has four fast reviews (median 10), v2 one slow one (median 1000).
+	// Averaging those medians gives 505; the true median over all five is 10.
+	got := metricsFor([]store.Review{
+		mk("v1", 10), mk("v1", 10), mk("v1", 10), mk("v1", 10), mk("v2", 1000),
+	}, "", "")
+
+	if len(got.Models) != 1 {
+		t.Fatalf("models = %+v, want one row for the single model+effort", got.Models)
+	}
+	row := got.Models[0]
+	if row.Reviews != 5 {
+		t.Errorf("reviews = %d, want all 5 on the one row", row.Reviews)
+	}
+	if row.MedianDuration != 10 {
+		t.Errorf("median = %d, want the true median of 10 (a median of medians would give 505)", row.MedianDuration)
+	}
+	if len(row.Versions) != 2 {
+		t.Fatalf("versions = %+v, want both nested", row.Versions)
+	}
+	// Busiest version first, each with its own real median.
+	if row.Versions[0].EngineVersion != "v1" || row.Versions[0].Reviews != 4 || row.Versions[0].MedianDuration != 10 {
+		t.Errorf("v1 = %+v", row.Versions[0])
+	}
+	if row.Versions[1].EngineVersion != "v2" || row.Versions[1].MedianDuration != 1000 {
+		t.Errorf("v2 = %+v", row.Versions[1])
+	}
+}
+
+// One model reviewed by several CLI versions is ONE row, which is the whole
+// point of the regrouping.
+func TestVersionsCollapseIntoOneModelRow(t *testing.T) {
+	at := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	var reviews []store.Review
+	for _, v := range []string{"v1", "v2", "v3", "v4"} {
+		reviews = append(reviews, store.Review{
+			Model: "m", Effort: "high", EngineVersion: v, Verdict: "APPROVED",
+			FreshTokens: 5, DurationSecs: 10, ReviewedAt: at,
+		})
+	}
+	got := metricsFor(reviews, "", "")
+	if len(got.Models) != 1 {
+		t.Fatalf("got %d rows, want 1: the version is a breakdown, not a key", len(got.Models))
+	}
+	if got.Models[0].FreshTokens != 20 || len(got.Models[0].Versions) != 4 {
+		t.Errorf("row = %+v, want the four versions summed and nested", got.Models[0])
 	}
 }

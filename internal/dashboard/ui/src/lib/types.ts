@@ -78,6 +78,11 @@ export type Review = {
   // messages are gone. Render it when present; never render its absence as
   // evidence that no instruction was given.
   steering?: Steering;
+  // What this review earned the PR's author, and the size tier it came from.
+  // ABSENT means unscored, which is not the same as 0: a PR whose every line
+  // was generated legitimately earns nothing. Render the two differently.
+  score?: number;
+  score_bucket?: string;
 };
 
 export type ReviewsResponse = {
@@ -103,7 +108,19 @@ export type MetricsResponse = {
   summary: { reviews: number; outcomes: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; cost_usd: number; median_cost_usd: number; max_cost_usd: number; priced_reviews: number; estimated_reviews: number; check_reported_usd: number; check_estimated_usd: number; check_reviews: number };
   verdicts: Record<string, number>;
   activity: { day: string; reviews: number; fresh_tokens: number }[];
-  models: { model: string; effort: string; engine_version: string; reviews: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; median_cost_usd: number }[];
+  // One row per model+effort, with each CLI version's share nested. The
+  // row's medians are computed over all its reviews, not averaged from the
+  // versions below: a median of medians is not a median.
+  models: {
+    model: string;
+    effort: string;
+    reviews: number;
+    fresh_tokens: number;
+    cache_read_tokens: number;
+    median_duration_secs: number;
+    median_cost_usd: number;
+    versions: { engine_version: string; reviews: number; fresh_tokens: number; cache_read_tokens: number; median_duration_secs: number; median_cost_usd: number }[];
+  }[];
   scatter: { model: string; effort: string; verdict: string; fresh_tokens: number; duration_secs: number }[];
 };
 

@@ -149,7 +149,7 @@
               on:click={() => toggle(r)}
               on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(r); } }}
             >
-              <span class="pr-cell"><PrIdentity repo={r.repo} number={r.number} title={r.title} author={r.author} /></span>
+              <span class="pr-cell"><PrIdentity repo={r.repo} number={r.number} title={r.title} author={r.author} score={r.score} bucket={r.score_bucket ?? ''} /></span>
               <StatusBadge status={r.verdict} />
               <span class="mono">{r.engine}</span>
               <span class="num">{durSecs(r.duration_secs)}{#if r.tokens_used}<small>{tokens(r.tokens_used)} tok</small>{/if}</span>

@@ -65,15 +65,36 @@ type metricsDay struct {
 }
 
 type modelMetric struct {
-	Model         string `json:"model"`
-	Effort        string `json:"effort"`
-	EngineVersion string `json:"engine_version"`
-	Reviews       int    `json:"reviews"`
-	FreshTokens   int    `json:"fresh_tokens"`
+	Model       string `json:"model"`
+	Effort      string `json:"effort"`
+	Reviews     int    `json:"reviews"`
+	FreshTokens int    `json:"fresh_tokens"`
 	// CacheReadTokens is context re-read rather than processed. Reported
 	// beside FreshTokens rather than as a ratio so the page can show the
 	// share without the API having to pick a denominator: a row with no
 	// cache read at all is a real answer, not a divide-by-zero.
+	CacheReadTokens int     `json:"cache_read_tokens"`
+	MedianDuration  int     `json:"median_duration_secs"`
+	MedianCostUSD   float64 `json:"median_cost_usd"`
+	// Versions breaks the same figures down by the CLI that produced them.
+	//
+	// Nested rather than another dimension on the key, because the question
+	// "what does this model cost me" is asked far more often than "what did
+	// v0.31.2 of the CLI cost me", and keying on the version split every model
+	// into a row per release nobody was comparing.
+	//
+	// The medians above are computed over ALL of this model's reviews, not
+	// averaged from the per-version medians below: a median of medians is not
+	// a median, and weighting it by review count would present an estimate as
+	// a measurement.
+	Versions []versionMetric `json:"versions"`
+}
+
+// versionMetric is one CLI version's share of a model+effort row.
+type versionMetric struct {
+	EngineVersion   string  `json:"engine_version"`
+	Reviews         int     `json:"reviews"`
+	FreshTokens     int     `json:"fresh_tokens"`
 	CacheReadTokens int     `json:"cache_read_tokens"`
 	MedianDuration  int     `json:"median_duration_secs"`
 	MedianCostUSD   float64 `json:"median_cost_usd"`
@@ -95,9 +116,15 @@ type metricsResp struct {
 	Scatter  []metricsPoint `json:"scatter"`
 }
 
-type metricGroupKey struct{ model, effort, version string }
+// metricGroupKey identifies one model + effort. The CLI version is
+// deliberately NOT part of it: keying on the version split every model into a
+// row per release, which nobody was comparing. It is a nested breakdown now.
+type metricGroupKey struct{ Model, Effort string }
+
+// metricGroup accumulates one CLI version's reviews. The durations and costs
+// are kept rather than folded so the median can be a real one.
 type metricGroup struct {
-	metric    modelMetric
+	version   versionMetric
 	durations []int
 	costs     []float64
 }
@@ -225,31 +252,82 @@ func activityByDay(reviews []store.Review) []metricsDay {
 	return activity
 }
 
+// modelGroups summarises reviews by model + effort, with each CLI version's
+// share nested inside.
+//
+// Both levels accumulate their own durations and costs so both medians are
+// real. Deriving the outer one from the inner ones would be a median of
+// medians, which is not a median.
 func modelGroups(reviews []store.Review) []modelMetric {
-	groups := map[metricGroupKey]*metricGroup{}
+	type group struct {
+		metric    modelMetric
+		durations []int
+		costs     []float64
+		versions  map[string]*metricGroup
+	}
+	groups := map[metricGroupKey]*group{}
 	for _, r := range reviews {
-		key := metricGroupKey{r.Model, r.Effort, r.EngineVersion}
+		key := metricGroupKey{Model: r.Model, Effort: r.Effort}
 		if groups[key] == nil {
-			groups[key] = &metricGroup{metric: modelMetric{Model: r.Model, Effort: r.Effort, EngineVersion: r.EngineVersion}}
+			groups[key] = &group{
+				metric:   modelMetric{Model: r.Model, Effort: r.Effort},
+				versions: map[string]*metricGroup{},
+			}
 		}
 		g := groups[key]
 		g.metric.Reviews++
 		g.metric.FreshTokens += r.FreshTokens
 		g.metric.CacheReadTokens += r.CacheReadTokens
+
+		if g.versions[r.EngineVersion] == nil {
+			g.versions[r.EngineVersion] = &metricGroup{}
+		}
+		v := g.versions[r.EngineVersion]
+		v.version.EngineVersion = r.EngineVersion
+		v.version.Reviews++
+		v.version.FreshTokens += r.FreshTokens
+		v.version.CacheReadTokens += r.CacheReadTokens
+
 		if r.DurationSecs > 0 {
 			g.durations = append(g.durations, r.DurationSecs)
+			v.durations = append(v.durations, r.DurationSecs)
 		}
 		if cost := r.EffectiveCostUSD(); cost > 0 {
 			g.costs = append(g.costs, cost)
+			v.costs = append(v.costs, cost)
 		}
 	}
+
 	models := make([]modelMetric, 0, len(groups))
 	for _, g := range groups {
 		g.metric.MedianDuration = medianDuration(g.durations)
 		g.metric.MedianCostUSD = medianCost(g.costs)
+		g.metric.Versions = make([]versionMetric, 0, len(g.versions))
+		for _, v := range g.versions {
+			v.version.MedianDuration = medianDuration(v.durations)
+			v.version.MedianCostUSD = medianCost(v.costs)
+			g.metric.Versions = append(g.metric.Versions, v.version)
+		}
+		// Busiest version first, matching the outer ordering, with the version
+		// string as a stable tiebreak so equal counts do not reshuffle between
+		// requests.
+		sort.Slice(g.metric.Versions, func(i, j int) bool {
+			if g.metric.Versions[i].Reviews != g.metric.Versions[j].Reviews {
+				return g.metric.Versions[i].Reviews > g.metric.Versions[j].Reviews
+			}
+			return g.metric.Versions[i].EngineVersion > g.metric.Versions[j].EngineVersion
+		})
 		models = append(models, g.metric)
 	}
-	sort.Slice(models, func(i, j int) bool { return models[i].Reviews > models[j].Reviews })
+	sort.Slice(models, func(i, j int) bool {
+		if models[i].Reviews != models[j].Reviews {
+			return models[i].Reviews > models[j].Reviews
+		}
+		if models[i].Model != models[j].Model {
+			return models[i].Model < models[j].Model
+		}
+		return models[i].Effort < models[j].Effort
+	})
 	return models
 }
 

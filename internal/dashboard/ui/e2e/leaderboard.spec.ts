@@ -77,7 +77,11 @@ test.describe('ranking by a measure', () => {
     // fills it whatever the measure.
     await expect(page.locator('.board-row .score .bar')).toHaveCount(3);
     await page.getByRole('button', { name: 'Mean' }).click();
-    await expect.poll(async () => (await page.locator('.board-row .score .bar').count())).toBe(3);
+    // Waited on the ORDER, not the bar count: the count is three before and
+    // after, so polling it passes instantly against the old rows and the
+    // geometry below gets measured on a board that has not re-ranked yet.
+    // That raced on CI and not here, which is the usual shape of it.
+    await expect.poll(() => names(page)).toEqual(['grace', 'ada', 'octocat']);
 
     const cell = await page.locator('.board-row .score').first().boundingBox();
     const bar = await page.locator('.board-row .score .bar').first().boundingBox();

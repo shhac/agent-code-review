@@ -51,6 +51,7 @@ internal/
     ├── reviewlog.go            # /api/review-log: live/postmortem agent-log tail
     ├── stats.go                # /api/stats: last-24h outcome buckets
     ├── leaderboard.go          # /api/leaderboard: author standings (SQL aggregate)
+    ├── scorepreview.go         # /api/score/preview: prices a hypothetical PR through score.Compute
     ├── ui/                     # Svelte + Vite source (npm; not embedded)
     └── assets/                 # BUILT bundle, committed + go:embed'd
 ```
@@ -136,7 +137,13 @@ internal/
   between them, so a plateau is expressible and the peak stays a range worth
   aiming at rather than a number worth hitting exactly. The bucket NAME still
   comes from the tier the churn falls in under either curve, because that is
-  what makes a score explainable.
+  what makes a score explainable. The Config page draws the ladder and prices
+  hypothetical PRs against it, both from the daemon: the anchors ride on
+  /api/config and the calculator calls score.Compute through
+  /api/score/preview. Every dial it needs is already on the page, so a
+  client-side version was available and would have been a second
+  implementation of the whole policy; a preview that disagrees with the scorer
+  is worse than none, because it is the number people plan against.
 
 - **Two scoring numbers that look arbitrary and are not.**
   `attempt_decay` is validated as strictly under 1, not

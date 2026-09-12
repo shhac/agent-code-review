@@ -203,6 +203,18 @@ export type ScoreCurveMode = 'step' | 'linear';
 // for the open-ended tier.
 export type ScoreAnchor = { churn: number; multiplier: number };
 
+// One hypothetical PR, priced by the daemon's own scorer. The arithmetic is
+// deliberately not repeated in the browser: see internal/dashboard/scorepreview.go.
+export type ScorePreview = {
+  additions: number;
+  deletions: number;
+  churn: number;
+  bucket: string;
+  rate: number;
+  rounds: { attempt: number; verdict: string; score: number }[];
+  total: number;
+};
+
 export type ConfigResponse = {
   scoring: {
     mode: ScoringMode;

@@ -2,11 +2,8 @@ package score
 
 import "testing"
 
-// rateAt is what a PR of this churn is paid at, read the way Compute reads it:
-// the tier resolved once, then asked what it is worth under the curve.
-func rateAt(r Rules, churn float64) float64 {
-	return sizeMultiplier(r, bucketFor(r.Buckets, churn), churn)
-}
+// rateAt reads the rate the way anything outside this package does.
+func rateAt(r Rules, churn float64) float64 { return r.Rate(churn) }
 
 // The curve exists because a step ladder puts a cliff at every boundary: one
 // line more than 1000 churn cost 60% of the rate. Interpolating removes the

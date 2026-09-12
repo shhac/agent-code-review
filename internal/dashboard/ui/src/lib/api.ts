@@ -11,6 +11,7 @@ import type {
   MetricsResponse,
   PromptResponse,
   PromptPreviewResponse,
+  ScorePreview,
   StatsResponse,
   Viewer,
   QueueAdd,
@@ -108,6 +109,17 @@ export const getPromptPreview = (p: {
   if (p.group) params.set('group', p.group);
   if (p.author) params.set('author', p.author);
   return fetchJSON<PromptPreviewResponse>(`/api/prompt/preview?${params.toString()}`);
+};
+// The score calculator asks the daemon rather than doing the arithmetic here:
+// one implementation of the policy, so a preview cannot promise points the
+// scorer would not pay.
+export const getScorePreview = (p: { additions: number; deletions: number; verdicts: string[] }) => {
+  const params = new URLSearchParams({
+    additions: String(p.additions),
+    deletions: String(p.deletions),
+    verdicts: p.verdicts.join(','),
+  });
+  return fetchJSON<ScorePreview>(`/api/score/preview?${params.toString()}`);
 };
 export const getLogs = () => fetchJSON<LogsResponse>('/api/logs');
 

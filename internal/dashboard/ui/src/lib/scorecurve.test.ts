@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { areaPoints, linePoints, plotX, plotY, rateLines, scoreCurve, type Plot, type ScoreCurve } from './scorecurve';
+import { areaPoints, linePoints, plotX, plotY, rateLines, scoreCurve, tierRows, type Plot, type ScoreCurve } from './scorecurve';
 import type { ScoreAnchor, ScoreBucket } from './types';
 
 // The shipped ladder and the anchors internal/score derives from it, as they
@@ -141,5 +141,23 @@ describe('a degenerate ladder still draws', () => {
   it('draws anything that is not step as the ramp', () => {
     const c = scoreCurve(buckets, anchors, 'wobbly' as never);
     expect(rateAt(c, 45)).toBeCloseTo(1.4673, 3);
+  });
+});
+
+describe('the ladder reads as a table', () => {
+  it('states each tier as a range and a rate', () => {
+    expect(tierRows(scoreCurve(buckets, anchors, 'linear'))).toEqual([
+      { name: 'tiny', range: 'up to 10', rate: '1x' },
+      { name: 'small', range: '10 to 50', rate: '1.5x' },
+      { name: 'medium', range: '50 to 250', rate: '1x' },
+      { name: 'large', range: '250 to 1000', rate: '0.5x' },
+      // The open-ended tier has no upper figure to quote, and the derived
+      // anchor that ends the CHART is not a boundary anybody can fall off.
+      { name: 'huge', range: '1000+', rate: '0.2x' },
+    ]);
+  });
+
+  it('has nothing to state when there are no tiers', () => {
+    expect(tierRows(scoreCurve([], [], 'linear'))).toEqual([]);
   });
 });

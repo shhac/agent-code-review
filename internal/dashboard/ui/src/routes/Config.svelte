@@ -1,10 +1,12 @@
 <script lang="ts">
   import { codeSpans, scoringDialsShown, settingsGroups } from '../lib/configview';
+  import { scoreCurve, tierRows } from '../lib/scorecurve';
   import { toggleIn } from '../lib/expandable';
   import { onMount } from 'svelte';
   import { getAuthors, getConfig } from '../lib/api';
   import { withFeed } from '../lib/feed';
   import PromptBox from '../lib/PromptBox.svelte';
+  import ScoreCalculator from '../lib/ScoreCalculator.svelte';
   import ScoreCurve from '../lib/ScoreCurve.svelte';
   import type { AllowedAuthor, ConfigResponse } from '../lib/types';
 
@@ -61,6 +63,7 @@
     ['Effort', a.policy?.effort || 'inherits the engine default'],
   ];
   $: groups = settingsGroups(configData);
+  $: tiers = configData ? tierRows(scoreCurve(configData.scoring.buckets, configData.scoring.anchors, configData.scoring.curve)) : [];
 
   async function load() {
     const [cfg, au] = await Promise.all([getConfig(), getAuthors()]);
@@ -115,9 +118,30 @@
       <section class="surface">
         <div class="section-head">
           <h2>Score tiers</h2>
-          <span>what a PR's size is worth</span>
+          <span>
+            {configData.scoring.curve === 'linear'
+              ? 'each rate applies at its own boundary, ramping between'
+              : 'each rate applies flat across its whole tier'}
+          </span>
         </div>
-        <ScoreCurve buckets={configData.scoring.buckets} anchors={configData.scoring.anchors} curve={configData.scoring.curve} />
+        <div class="tier-panel">
+          <ScoreCurve buckets={configData.scoring.buckets} anchors={configData.scoring.anchors} curve={configData.scoring.curve} />
+          <table class="tier-table">
+            <thead><tr><th>Tier</th><th>Churn</th><th>Rate</th></tr></thead>
+            <tbody>
+              {#each tiers as t}
+                <tr><td>{t.name}</td><td class="mono">{t.range}</td><td class="mono">{t.rate}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="surface">
+        <div class="section-head">
+          <h2>Score calculator</h2>
+          <span>scored by the daemon, not estimated here</span>
+        </div>
+        <ScoreCalculator />
       </section>
     {/if}
     <section class="surface">

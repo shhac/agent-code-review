@@ -115,6 +115,21 @@ export function areaPoints(c: ScoreCurve, plot: Plot): string {
   return `${first},${base} ${linePoints(c, plot)} ${last},${base}`;
 }
 
+// TierRow is one line of the ladder table beside the chart: the tier, the
+// churn it covers, and what that is worth.
+export type TierRow = { name: string; range: string; rate: string };
+
+// tierRows states the ladder in figures, because a chart cannot be read to two
+// decimal places and the exact multiplier is what somebody checking their own
+// PR came for.
+export function tierRows(c: ScoreCurve): TierRow[] {
+  return c.bands.map((b, i) => ({
+    name: b.name,
+    range: i === c.bands.length - 1 ? `${b.from}+` : i === 0 ? `up to ${b.to}` : `${b.from} to ${b.to}`,
+    rate: `${b.multiplier}x`,
+  }));
+}
+
 // rateLines are the horizontal gridlines: one per DISTINCT multiplier, because
 // those are the numbers in the config and so the ones worth reading off.
 export function rateLines(buckets: ScoreBucket[]): number[] {

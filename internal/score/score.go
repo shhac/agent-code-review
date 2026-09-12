@@ -138,7 +138,7 @@ type Result struct {
 // anything useful with one. Whether a verdict is scorable at all is decided
 // upstream, by the one canonical verdict list in store.
 func Compute(r Rules, in Input) Result {
-	churn := float64(in.Additions) + float64(in.Deletions)*r.DeletionWeight
+	churn := r.Churn(in.Additions, in.Deletions)
 	net := in.Additions - in.Deletions
 	bucket := bucketFor(r.Buckets, churn)
 
@@ -183,6 +183,24 @@ func Compute(r Rules, in Input) Result {
 
 	res.Score = roundHalfAway(points)
 	return res
+}
+
+// Churn is how much of a PR there is to read: added lines, plus removed ones
+// at whatever a removal is worth. It is the figure every other dial is
+// applied to, and the one a size tier is chosen by.
+//
+// Exported so that anything explaining a score (the dashboard's calculator)
+// weighs deletions the same way the scorer does, rather than restating
+// deletion_weight somewhere it can fall out of step.
+func (r Rules) Churn(additions, deletions int) float64 {
+	return float64(additions) + float64(deletions)*r.DeletionWeight
+}
+
+// Rate is what one unit of churn is paid at, at this size, under this curve.
+// The tier is resolved the way Compute resolves it, so a rate quoted to
+// somebody is the rate they will be paid.
+func (r Rules) Rate(churn float64) float64 {
+	return sizeMultiplier(r, bucketFor(r.Buckets, churn), churn)
 }
 
 // roundHalfAway rounds to a whole point, away from zero at the halfway mark.

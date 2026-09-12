@@ -84,8 +84,6 @@ describe('scoring cluster', () => {
     // The per-line rate, not base-per-unit: the latter invites the reader to
     // expect 50 lines to score 100, when 50 lines lands in a 1.5x tier.
     expect(c['Base rate']).toBe('`2` points per line of churn, before the size multiplier');
-    expect(c['Size tiers']).toContain('small \u226450: `1.5x`');
-    expect(c['Size tiers']).toContain('huge: `0.2x`');
     expect(c['Deletion weight']).toContain('`0.5x` an added one');
     expect(c['Verdicts']).toContain('approve `1x`');
     expect(c['Verdicts']).toContain('changes `-0.25x`');
@@ -201,28 +199,22 @@ describe('scoringDialsShown owns when there is a policy to explain', () => {
 
   it('is the same rule the settings table uses', () => {
     const c = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, mode: 'disabled' } })));
-    expect(Object.keys(c)).not.toContain('Curve');
+    expect(Object.keys(c)).not.toContain('Size curve');
   });
 });
 
-describe('the curve is named, because the ladder alone does not say', () => {
-  // The same five numbers mean two different things: rates at a boundary
-  // under "linear", flat rates across a tier under "step". A reader given
-  // only the ladder would mis-predict every PR not sitting on a boundary.
-  it('says the rate ramps under the shipped linear curve', () => {
-    expect(cells(settingsGroups(cfg()))['Curve']).toContain('ramps');
-  });
-
-  it('says every boundary is a cliff under step', () => {
-    const c = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, curve: 'step' } })));
-    expect(c['Curve']).toContain('cliff');
-  });
-
-  // The ladder row stays the plain list of configured figures either way.
-  it('keeps the ladder free of curve wording', () => {
+describe('the settings panel names the curve and leaves the ladder to the chart', () => {
+  // The ladder is a table beside its chart now. Restating it here as a run-on
+  // sentence made the reader compare two renderings of the same five numbers,
+  // and the settings cluster is 150px wide.
+  it('names which curve is in force, briefly', () => {
     for (const curve of ['linear', 'step'] as const) {
       const c = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, curve } })));
-      expect(c['Size tiers']).toBe('tiny \u226410: `1x` \u00b7 small \u226450: `1.5x` \u00b7 huge: `0.2x`');
+      expect(c['Size curve']).toBe(`\`${curve}\` (see Score tiers)`);
     }
+  });
+
+  it('no longer lists the tiers', () => {
+    expect(Object.keys(cells(settingsGroups(cfg())))).not.toContain('Size tiers');
   });
 });

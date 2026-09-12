@@ -3,7 +3,7 @@
 // rather than only reachable by rendering the page — which is how the rest of
 // this project's route logic is already organised (lib/metrics.ts, poll.ts).
 
-import type { ConfigResponse, ScoreBucket, ScoreCurveMode, ScoringMode } from './types';
+import type { ConfigResponse, ScoreCurveMode, ScoringMode } from './types';
 
 export type SettingsGroup = [string, [string, string][]];
 
@@ -41,26 +41,12 @@ function round2(n: number): string {
   return String(Math.round(n * 100) / 100);
 }
 
-// sizeLadder renders the tiers in match order, with the churn each covers.
-// The last tier is open-ended, which is what makes it the catch-all.
-//
-// What those numbers MEAN is the curve's business, not this row's: under
-// "step" each is a flat rate across its tier, under "linear" each is the rate
-// at that exact churn. The Curve row says which, and the chart shows it, so
-// the ladder itself stays the plain list of configured figures.
-function sizeLadder(buckets: ScoreBucket[]): string {
-  if (buckets.length === 0) return 'none configured';
-  return buckets
-    .map((b) => (b.max_churn > 0 ? `${b.name} \u2264${b.max_churn}: \`${b.multiplier}x\`` : `${b.name}: \`${b.multiplier}x\``))
-    .join(' \u00b7 ');
-}
-
-// curveWording says how the ladder is read, because the same five numbers mean
-// two different things under the two modes and nothing else on the page
-// distinguishes them.
+// How the ladder is read. Named, not explained: the tier table and the chart
+// sit together in their own panel, and they are where the difference between
+// the two curves is actually legible.
 const curveWording: Record<ScoreCurveMode, string> = {
-  linear: '`linear`, so the rate ramps between each tier\u2019s figure and one line never costs much',
-  step: '`step`, so each tier is one flat rate and every boundary is a cliff',
+  linear: '`linear` (see Score tiers)',
+  step: '`step` (see Score tiers)',
 };
 
 // scoringDialsShown reports whether the scoring policy is worth showing at
@@ -92,11 +78,10 @@ function scoringRows(c: ConfigResponse): [string, string][] {
     ['Mode', mode[s.mode]],
     // The per-line rate, not "base per churn_unit": a reader given the latter
     // reasonably expects 50 lines to score 100, and it scores 150 because 50
-    // lines lands in the tier that pays 1.5x. State the rate, then the ladder
-    // that modifies it.
+    // lines lands in the tier that pays 1.5x. State the rate; the Score tiers
+    // panel states what modifies it.
     ['Base rate', `\`${round2(s.base / s.churn_unit)}\` points per line of churn, before the size multiplier`],
-    ['Size tiers', sizeLadder(s.buckets)],
-    ['Curve', curveWording[s.curve] ?? `\`${s.curve}\``],
+    ['Size curve', curveWording[s.curve] ?? `\`${s.curve}\``],
     ['Deletion weight', `a removed line counts \`${s.deletion_weight}x\` an added one`],
     ['Verdicts', `approve \`${s.approved}x\` · comment \`${s.commented}x\` · changes \`${s.requested_changes}x\``],
     ['Shrink bonus', `\`${s.shrink_bonus}x\` when a PR is net-negative`],

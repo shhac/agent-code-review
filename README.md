@@ -310,6 +310,11 @@ moves smoothly between them, so no single line is worth 60% of a score. Set
 rate and every boundary is a cliff. The tier NAME comes from the tier the churn
 falls in either way, which is what makes a score explainable.
 
+The dashboard's Config page draws this ladder and will price a hypothetical
+PR against it: lines added and removed, how many rounds of review it takes,
+and how it ends. The figures come from the daemon's own scorer, so the
+preview is what the review would actually pay.
+
 Removing code beats adding the same amount of reviewing, and a first-pass
 approval beats the same approval after rounds of comments, because each
 revision decays. A second

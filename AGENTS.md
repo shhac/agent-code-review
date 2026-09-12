@@ -121,6 +121,23 @@ internal/
   fragments now earns less than either. The original guard test compared ONE
   tiny PR to ONE small PR, which is not the attack, and passed throughout.
 
+- **The size ladder is a curve, not a staircase.** `scoring.curve` reads each
+  bucket's `max_churn` either as an ANCHOR the multiplier moves between
+  (`linear`, the default, interpolated on log(churn) because the tiers are
+  spaced geometrically) or as a flat tier (`step`). Steps are legible but put a
+  cliff at every boundary: one line past 1000 churn costs 60% of the rate, and
+  adding more tiers only makes more, smaller cliffs. Interpolation takes the
+  worst single-line drop from 60% to 0.4% while leaving the farming bound at
+  7.5x, because that bound is best rate over worst rate and interpolation moves
+  neither end. It does move absolute numbers: a tier's multiplier is now the
+  rate at its own boundary rather than across its whole range, so the worked
+  examples in internal/score moved with it and only "medium" (250 churn, which
+  IS the medium anchor) is unchanged. Repeating a multiplier on two consecutive buckets holds it flat
+  between them, so a plateau is expressible and the peak stays a range worth
+  aiming at rather than a number worth hitting exactly. The bucket NAME still
+  comes from the tier the churn falls in under either curve, because that is
+  what makes a score explainable.
+
 - **Two scoring numbers that look arbitrary and are not.**
   `attempt_decay` is validated as strictly under 1, not
   "at most 1": at exactly 1 nothing decays and comment-comment-approve (225)

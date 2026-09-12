@@ -92,7 +92,8 @@ agent-code-review score ls --missing                 # rows that were never scor
 Points scale with how much was reviewed, so the bucket multipliers set a RATE
 rather than a flat fee per PR. Splitting a large change into well-sized pieces
 earns more than shipping it whole; fragmenting it into tiny ones earns less
-than either.
+than either. The ladder is read as a curve (`scoring.curve`, default `linear`),
+so the rate moves between tiers rather than jumping at each boundary.
 
 Scores are **frozen** when a review completes, alongside a hash of the rules
 that produced them, so retuning config changes what FUTURE reviews earn and

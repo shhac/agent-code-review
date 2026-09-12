@@ -94,6 +94,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"scoring.mode":                        "leaderboard-only",
 		"scoring.base":                        "200",
 		"scoring.churn_unit":                  "25",
+		"scoring.curve":                       "step",
 		"scoring.deletion_weight":             "0.25",
 		"scoring.shrink_bonus":                "1.5",
 		"scoring.attempt_decay":               "0.75",

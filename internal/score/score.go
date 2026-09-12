@@ -63,6 +63,14 @@ type Rules struct {
 	// reordering a list does not fake a policy change.
 	ExcludePaths     []string `json:"exclude_paths,omitempty"`
 	UseGitattributes bool     `json:"use_gitattributes"`
+	// Curve decides how a bucket's multiplier applies: as a STEP that holds
+	// across the whole tier, or as an ANCHOR the multiplier moves smoothly
+	// between. Empty means the shipped default, which is linear.
+	//
+	// So "" and "linear" score alike but hash differently. Harmless: only
+	// RESOLVED rules are hashed onto history rows, and resolution always
+	// starts from DefaultRules, which names the curve.
+	Curve string `json:"curve,omitempty"`
 }
 
 // DefaultRules is the shipped policy.
@@ -72,11 +80,17 @@ type Rules struct {
 // "small", which is the size worth encouraging; splitting a large change into
 // well-sized pieces therefore earns more than shipping it in one go, and
 // splitting it further into fragments earns less again.
+//
+// The ladder is read as a CURVE by default, so those multipliers are the
+// points the rate passes through rather than five plateaus with cliffs
+// between them. The tiers still name what a PR is, which is what makes a
+// score explainable; they just no longer decide it on their own.
 func DefaultRules() Rules {
 	return Rules{
 		Base:           100,
 		ChurnUnit:      50,
 		DeletionWeight: 0.5,
+		Curve:          CurveLinear,
 		Buckets: []Bucket{
 			{Name: "tiny", MaxChurn: 10, Multiplier: 1.0},
 			{Name: "small", MaxChurn: 50, Multiplier: 1.5},
@@ -158,7 +172,7 @@ func Compute(r Rules, in Input) Result {
 	// bucket multiplier a RATE, so the most any decomposition can gain is the
 	// spread between the best and worst rates: 7.5x at the shipped defaults,
 	// maximised by landing in "small", which is the behaviour worth paying for.
-	points := r.Base * (churn / r.ChurnUnit) * bucket.Multiplier * verdictMult
+	points := r.Base * (churn / r.ChurnUnit) * sizeMultiplier(r, bucket, churn) * verdictMult
 	// Only ever a bonus. Shrinking the codebase must not AMPLIFY a penalty:
 	// without the sign check a rejected deletion is punished 1.2x harder than
 	// a rejected addition, which rewards exactly the wrong thing.

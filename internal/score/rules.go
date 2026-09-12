@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 )
 
 // Hash identifies the ruleset a score was computed under.
@@ -69,6 +70,13 @@ func (r Rules) Validate() error {
 		if math.IsNaN(f.val) || math.IsInf(f.val, 0) {
 			return fmt.Errorf("%s must be a finite number, got %v", f.name, f.val)
 		}
+	}
+	// Empty is legal and means the default, like an unset multiplier. A
+	// MISSPELLED one is not: it would score under the default while the config
+	// file claims otherwise, and the point of naming a curve is to know which
+	// one you are on.
+	if r.Curve != "" && !ValidCurve(r.Curve) {
+		return fmt.Errorf("curve is %q; valid: %s", r.Curve, strings.Join(Curves, ", "))
 	}
 	return validateBuckets(r.Buckets)
 }

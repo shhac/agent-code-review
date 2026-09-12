@@ -8,6 +8,7 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
+	"github.com/shhac/agent-code-review/internal/score"
 )
 
 var (
@@ -161,6 +162,8 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *string { return &c.Scoring.Mode }, validateOneOf("scoring mode", config.ScoringModes)), config.ScoringModes),
 		plain(optionalFloatKey("scoring.base", "Points a mid-sized, first-pass approved PR is worth before multipliers (default 100)",
 			func(c *config.Config) **float64 { return &c.Scoring.Base }, 0.0001, 1e6)),
+		static(stringKey("scoring.curve", "How a size tier's multiplier applies: linear (the default: anchors the multiplier moves smoothly between) or step (one flat rate per tier, with a cliff at each boundary)",
+			func(c *config.Config) *string { return &c.Scoring.Curve }, validateOneOf("curve", score.Curves)), score.Curves),
 		plain(optionalFloatKey("scoring.churn_unit", "How many lines scoring.base pays for (default 50), so base is points per unit of work rather than a flat fee per PR",
 			func(c *config.Config) **float64 { return &c.Scoring.ChurnUnit }, 0.0001, 1e6)),
 		plain(optionalFloatKey("scoring.deletion_weight", "How much a removed line counts toward size vs an added one (default 0.5; removed code is cheaper to review)",

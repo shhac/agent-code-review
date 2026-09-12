@@ -110,8 +110,8 @@ func TestRecomputeWritesDerivedScores(t *testing.T) {
 	if !ok {
 		t.Fatal("nothing written")
 	}
-	if got.Points() != 135 {
-		t.Errorf("score = %d, want 135", got.Points())
+	if got.Points() != 132 {
+		t.Errorf("score = %d, want 132", got.Points())
 	}
 	if got.Source != store.ScoreDerived {
 		t.Errorf("source = %q, want derived", got.Source)

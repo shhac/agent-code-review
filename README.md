@@ -303,8 +303,16 @@ at the defaults). Splitting a large change into well-sized pieces still earns
 more than shipping it whole, which is the point; fragmenting it further earns
 less than either.
 
-Removing code beats adding it, and a first-pass approval beats the same
-approval after rounds of comments, because each revision decays. A second
+`size` comes from the tier ladder (`tiny` through `huge`), read as a *curve*
+by default: each tier's multiplier is the rate at its own boundary and the rate
+moves smoothly between them, so no single line is worth 60% of a score. Set
+`scoring.curve` to `step` for the older behaviour, where a tier is one flat
+rate and every boundary is a cliff. The tier NAME comes from the tier the churn
+falls in either way, which is what makes a score explainable.
+
+Removing code beats adding the same amount of reviewing, and a first-pass
+approval beats the same approval after rounds of comments, because each
+revision decays. A second
 review at the same commit scores 0: it is discussion, not new work.
 
 Which lines count is the repo's own business. Files its `.gitattributes` marks

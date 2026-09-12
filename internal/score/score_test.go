@@ -3,9 +3,15 @@ package score
 import "testing"
 
 // The worked examples from the design (.ai-cache/plan-pr-scoring.md), carried
-// here verbatim so the documented numbers and the code cannot drift. Each
-// scenario is a full PR history, because the interesting cases are about how
-// repeated rounds compose, not about one review in isolation.
+// here so the documented numbers and the code cannot drift. Each scenario is a
+// full PR history, because the interesting cases are about how repeated rounds
+// compose, not about one review in isolation.
+//
+// The figures moved once, when the shipped curve became linear: a tier's
+// multiplier is now the rate at its own boundary rather than a plateau across
+// the whole tier, so anything not sitting exactly on a boundary scores off the
+// ramp. "medium approved first pass" is unchanged because 250 churn IS the
+// medium anchor, which is the clearest illustration of the difference.
 func TestWorkedExamples(t *testing.T) {
 	r := DefaultRules()
 
@@ -23,8 +29,8 @@ func TestWorkedExamples(t *testing.T) {
 	}{
 		{
 			name: "small approved first pass", additions: 40, deletions: 10,
-			rounds:    []round{{verdictApproved, 135}},
-			wantTotal: 135, wantBucket: "small",
+			rounds:    []round{{verdictApproved, 132}},
+			wantTotal: 132, wantBucket: "small",
 		},
 		{
 			name: "medium approved first pass", additions: 200, deletions: 100,
@@ -33,28 +39,28 @@ func TestWorkedExamples(t *testing.T) {
 		},
 		{
 			name: "small, two comment rounds then approved", additions: 40, deletions: 10,
-			rounds:    []round{{verdictCommented, 34}, {verdictCommented, 20}, {verdictApproved, 49}},
-			wantTotal: 103, wantBucket: "small",
+			rounds:    []round{{verdictCommented, 33}, {verdictCommented, 20}, {verdictApproved, 48}},
+			wantTotal: 101, wantBucket: "small",
 		},
 		{
 			name: "huge, two comment rounds then approved", additions: 2000, deletions: 0,
-			rounds:    []round{{verdictCommented, 200}, {verdictCommented, 120}, {verdictApproved, 288}},
-			wantTotal: 608, wantBucket: "huge",
+			rounds:    []round{{verdictCommented, 350}, {verdictCommented, 210}, {verdictApproved, 504}},
+			wantTotal: 1064, wantBucket: "huge",
 		},
 		{
 			name: "pure deletion approved first pass", additions: 0, deletions: 800,
-			rounds:    []round{{verdictApproved, 480}},
-			wantTotal: 480, wantBucket: "large",
+			rounds:    []round{{verdictApproved, 797}},
+			wantTotal: 797, wantBucket: "large",
 		},
 		{
 			name: "small, rejected then approved", additions: 40, deletions: 10,
-			rounds:    []round{{verdictRequestedChanges, -34}, {verdictApproved, 81}},
-			wantTotal: 47, wantBucket: "small",
+			rounds:    []round{{verdictRequestedChanges, -33}, {verdictApproved, 79}},
+			wantTotal: 46, wantBucket: "small",
 		},
 		{
 			name: "small, rejected then abandoned", additions: 40, deletions: 10,
-			rounds:    []round{{verdictRequestedChanges, -34}},
-			wantTotal: -34, wantBucket: "small",
+			rounds:    []round{{verdictRequestedChanges, -33}},
+			wantTotal: -33, wantBucket: "small",
 		},
 	}
 
@@ -189,15 +195,26 @@ func TestBucketBoundariesAreInclusive(t *testing.T) {
 	}
 }
 
-// Deletions are discounted in churn (cheaper to read) AND earn the shrink
-// bonus when the PR is net-negative. Both express "removing code is good", so
-// a pure deletion must beat the same volume of additions.
-func TestDeletionsBeatAdditionsOfTheSameVolume(t *testing.T) {
+// Deletions are discounted in churn (cheaper to read) and earn the shrink
+// bonus when the PR is net-negative, so for the SAME amount of reviewing a
+// removal pays 1.2x what an addition does.
+//
+// Same churn, not the same line count. Those coincided under the step ladder
+// only by accident: 400 deleted lines measure as 200 churn, which landed a
+// tier better than 400 added lines and beat it on the multiplier jump alone.
+// Interpolation removed the jump, and with it an incentive that was really an
+// artefact of where a boundary happened to sit. What survives is the honest
+// version: half the reading earns half the points, and choosing to delete
+// rather than add earns the bonus.
+func TestDeletionsBeatAdditionsOfTheSameChurn(t *testing.T) {
 	r := DefaultRules()
-	added := Compute(r, Input{Additions: 400, Verdict: verdictApproved, Attempt: 1}).Score
-	removed := Compute(r, Input{Deletions: 400, Verdict: verdictApproved, Attempt: 1}).Score
-	if removed <= added {
-		t.Errorf("removing 400 lines scored %d, adding 400 scored %d: removal must score higher", removed, added)
+	added := Compute(r, Input{Additions: 200, Verdict: verdictApproved, Attempt: 1})
+	removed := Compute(r, Input{Deletions: 400, Verdict: verdictApproved, Attempt: 1})
+	if added.Bucket != removed.Bucket {
+		t.Fatalf("buckets differ (%q vs %q); the two are no longer the same amount of reviewing", added.Bucket, removed.Bucket)
+	}
+	if removed.Score <= added.Score {
+		t.Errorf("removing 400 lines scored %d, adding the same 200 churn scored %d: removal must score higher", removed.Score, added.Score)
 	}
 }
 

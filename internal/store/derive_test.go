@@ -22,8 +22,8 @@ func TestDeriveScoreFreezesTheRecord(t *testing.T) {
 	if !ok {
 		t.Fatal("a clean review should be scorable")
 	}
-	if got.Points() != 135 {
-		t.Errorf("score = %d, want 135", got.Points())
+	if got.Points() != 132 {
+		t.Errorf("score = %d, want 132", got.Points())
 	}
 	if got.Source != ScoreDerived || got.Rules != rules.Hash() {
 		t.Errorf("provenance = %+v, want derived under the current ruleset", got)

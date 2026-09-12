@@ -45,6 +45,9 @@ type ScoringSettings struct {
 	// units of this rather than being a flat fee per PR.
 	ChurnUnit      *float64 `json:"churn_unit,omitempty"`
 	DeletionWeight *float64 `json:"deletion_weight,omitempty"`
+	// Curve is how a bucket's multiplier applies across its range: "step"
+	// (a flat tier) or "linear" (anchors the multiplier moves between).
+	Curve string `json:"curve,omitempty"`
 	// Buckets is score.Bucket directly rather than a config-side twin: the
 	// twin was field-for-field and tag-for-tag identical, since buckets REPLACE
 	// wholesale and so have no optionality to express, and it cost a conversion
@@ -186,6 +189,9 @@ func mergeScoring(base, over ScoringSettings) ScoringSettings {
 	if over.DeletionWeight != nil {
 		out.DeletionWeight = over.DeletionWeight
 	}
+	if over.Curve != "" {
+		out.Curve = over.Curve
+	}
 	if over.ShrinkBonus != nil {
 		out.ShrinkBonus = over.ShrinkBonus
 	}
@@ -218,6 +224,9 @@ func applyScoring(r score.Rules, s ScoringSettings) score.Rules {
 	r.Base = floatOr(s.Base, r.Base)
 	r.ChurnUnit = floatOr(s.ChurnUnit, r.ChurnUnit)
 	r.DeletionWeight = floatOr(s.DeletionWeight, r.DeletionWeight)
+	if s.Curve != "" {
+		r.Curve = s.Curve
+	}
 	r.ShrinkBonus = floatOr(s.ShrinkBonus, r.ShrinkBonus)
 	r.AttemptDecay = floatOr(s.AttemptDecay, r.AttemptDecay)
 	r.Approved = floatOr(s.Verdicts.Approved, r.Approved)

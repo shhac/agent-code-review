@@ -45,7 +45,7 @@ func (s *Scheduler) runOne(ctx context.Context, p pending) error {
 		s.logf("review %s#%d: %v", p.candidate.Repo, p.candidate.Number, err)
 		return err
 	}
-	if err := s.reviewOne(ctx, p, p.cfg, engine); err != nil {
+	if err := s.reviewOne(ctx, p, engine); err != nil {
 		s.logf("review %s#%d: %v", p.candidate.Repo, p.candidate.Number, err)
 		return err
 	}
@@ -92,8 +92,9 @@ func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate, started 
 // completes it: every outcome (including SKIPPED/ERROR) is recorded in
 // history as the queue row is removed (atomically, SHA-gated; see
 // Store.Complete).
-func (s *Scheduler) reviewOne(ctx context.Context, p pending, cfg config.Config, engine review.Engine) error {
+func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engine) error {
 	c := p.candidate
+	cfg := p.cfg
 	// A work_dir already on the row is the previous claim's: this candidate is
 	// back in the queue because a daemon died mid-review. Read before the
 	// claim overwrites it, because its log is the only surviving record of the

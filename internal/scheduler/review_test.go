@@ -146,7 +146,8 @@ func reviewOne(s *Scheduler, fe *fakeEngine, c store.Candidate) error {
 	return s.reviewOne(context.Background(), pending{
 		candidate: c,
 		policy:    cfg.ResolvePolicy(c.Repo, c.Author, m),
-	}, cfg, fe)
+		cfg:       cfg,
+	}, fe)
 }
 
 // TestReviewOneCompletesEveryOutcome: every decision (real reviews, skips,
@@ -274,7 +275,7 @@ func TestReviewOneRecordsConfiguredCodexModelAndEffort(t *testing.T) {
 		provenance: &review.Provenance{Engine: "codex", Model: "gpt-5.6-terra", Effort: "high", EngineVersion: "Codex CLI 0.144.0"},
 	}
 	s := newTestScheduler(fs, fe)
-	if err := s.reviewOne(context.Background(), pending{candidate: store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}}, config.Config{}, fe); err != nil {
+	if err := s.reviewOne(context.Background(), pending{candidate: store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}}, fe); err != nil {
 		t.Fatal(err)
 	}
 	if len(fs.completed) != 1 {

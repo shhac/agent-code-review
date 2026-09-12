@@ -53,8 +53,8 @@ func runScored(t *testing.T, fs *scoringStore, diff discover.PRDiff, diffErr err
 		t.Fatal(err)
 	}
 	if err := s.reviewOne(context.Background(), pending{
-		candidate: c, policy: cfg.ResolvePolicy(c.Repo, c.Author, m),
-	}, cfg, fe); err != nil {
+		candidate: c, policy: cfg.ResolvePolicy(c.Repo, c.Author, m), cfg: cfg,
+	}, fe); err != nil {
 		t.Fatal(err)
 	}
 	fs.mu.Lock()

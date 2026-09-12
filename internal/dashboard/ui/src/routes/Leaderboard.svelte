@@ -3,7 +3,8 @@
   import { getLeaderboard } from '../lib/api';
   import { withFeed } from '../lib/feed';
   import { maxOf } from '../lib/format';
-  import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, meanScore, medal, netLines, signed } from '../lib/leaderboard';
+  import { viewer } from '../lib/viewer';
+  import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, isViewersScore, meanScore, medal, netLines, signed } from '../lib/leaderboard';
   import type { LeaderboardResponse } from '../lib/types';
 
   let days = 0;
@@ -56,7 +57,8 @@
       <span>Approved</span><span>Mean</span><span>Net lines</span>
     </p>
     {#each entries as e (e.author)}
-      <p class="board-row" class:negative={e.total < 0}>
+      {@const mine = isViewersScore(e.author, $viewer)}
+      <p class="board-row" class:negative={e.total < 0} class:mine>
         <span class="rank">{medal(e.rank) || e.rank}</span>
         <span class="who">
           <strong>{displayName(e)}</strong>
@@ -64,7 +66,7 @@
         </span>
         <span class="score">
           <span class="bar" style="--w: {barWidth(e.total, topScore)}%"></span>
-          <b>{e.total}</b>
+          <b class="total" class:mine={mine && e.total > 0}>{e.total}</b>
         </span>
         <span>{e.reviews}</span>
         <span>{approvalRate(e)}%</span>
@@ -101,15 +103,45 @@
   /* The bar sits behind the number rather than beside it, so the score stays
      readable at every width and a zero-width bar costs no column. */
   .score { position: relative; display: flex; align-items: center; }
+  /* The bar is gold too, not the interface green. A gold number sitting on a
+     green bar read as two unrelated things fighting; in one hue the bar is
+     plainly the magnitude OF that number. Contrast comes from lightness (full
+     gold text over a 20% wash) rather than from hue, so the glyphs stay hard
+     against it. */
   .score .bar {
     position: absolute;
     inset: 0 auto 0 0;
     width: var(--w);
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    background: color-mix(in srgb, var(--amber) 20%, transparent);
     border-radius: 3px;
   }
-  .score b { position: relative; font-size: 15px; font-variant-numeric: tabular-nums; }
-  .board-row.negative .score b { color: var(--bad, #e5534b); }
+  /* The same gold as a history row's points, so "points" reads one way
+     across the dashboard. The bar behind stays accent-green, which keeps the
+     number legible against it rather than gold-on-gold. */
+  .score b { position: relative; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--amber); }
+  .board-row.negative .score b { color: var(--bad-ink); }
+
+  /* The viewer's own standing gets the halo, and it pulses. Pale rather than
+     gold so the total keeps a hard edge, and reserved for one row so a board
+     of thirty people animates nothing. Same composited-opacity route the
+     history rows use. */
+  .score b.mine::before {
+    content: '';
+    position: absolute;
+    inset: -4px -9px;
+    border-radius: 999px;
+    background: radial-gradient(ellipse at center, rgba(255, 252, 240, 0.5), transparent 70%);
+    opacity: 0.2;
+    animation: board-pulse 3.2s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes board-pulse {
+    0%, 100% { opacity: 0.12; }
+    50% { opacity: 0.42; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .score b.mine::before { animation: none; opacity: 0.28; }
+  }
 
   .net { font-variant-numeric: tabular-nums; color: var(--dim); }
   /* Removing code is the good outcome, so it is the one that gets the accent.

@@ -9,6 +9,8 @@
   import { pagedSearch } from '../lib/pagedsearch';
   import { poll } from '../lib/poll';
   import PrIdentity from '../lib/PrIdentity.svelte';
+  import { isViewersScore } from '../lib/leaderboard';
+  import { viewer } from '../lib/viewer';
   import { reviewLogPathFromReview } from '../lib/reviewlog';
   import SteerAndQueue from '../lib/SteerAndQueue.svelte';
   import SteeringNote from '../lib/SteeringNote.svelte';
@@ -149,7 +151,7 @@
               on:click={() => toggle(r)}
               on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(r); } }}
             >
-              <span class="pr-cell"><PrIdentity repo={r.repo} number={r.number} title={r.title} author={r.author} score={r.score} bucket={r.score_bucket ?? ''} /></span>
+              <span class="pr-cell"><PrIdentity repo={r.repo} number={r.number} title={r.title} author={r.author} score={r.score} bucket={r.score_bucket ?? ''} mine={isViewersScore(r.author, $viewer)} /></span>
               <StatusBadge status={r.verdict} />
               <span class="mono">{r.engine}</span>
               <span class="num">{durSecs(r.duration_secs)}{#if r.tokens_used}<small>{tokens(r.tokens_used)} tok</small>{/if}</span>

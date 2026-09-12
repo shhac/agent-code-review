@@ -6,7 +6,7 @@
 // approval share — and it is separated from the component so it can be tested
 // without mounting one.
 
-import type { LeaderboardEntry, ScoringMode } from './types';
+import type { LeaderboardEntry, ScoringMode, Viewer } from './types';
 
 /** A medal for the top three, nothing below. */
 export function medal(rank: number): string {
@@ -103,4 +103,16 @@ export function scoreLabel(score: number): string {
 export function scoreTitle(score: number, bucket: string): string {
   const base = `${score} points for the PR author`;
   return bucket ? `${base} (${bucket} diff)` : base;
+}
+
+/**
+ * Whether these points belong to the person looking at the page.
+ *
+ * GitHub handles are case-insensitive, and the roster stores whatever case it
+ * was given, so comparing them raw would fail to recognise somebody by the
+ * capitalisation of their own name. An unidentified viewer owns nothing.
+ */
+export function isViewersScore(author: string, viewer: Viewer | null): boolean {
+  if (!viewer?.handle || !author) return false;
+  return author.toLowerCase() === viewer.handle.toLowerCase();
 }

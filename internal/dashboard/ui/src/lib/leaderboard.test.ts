@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { maxOf } from './format';
-import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, meanScore, medal, netLines, signed } from './leaderboard';
-import type { LeaderboardEntry } from './types';
+import { approvalRate, barWidth, displayName, emptyReason, frozenNotice, isViewersScore, meanScore, medal, netLines, signed } from './leaderboard';
+import type { LeaderboardEntry, Viewer } from './types';
 
 const entry = (over: Partial<LeaderboardEntry> = {}): LeaderboardEntry => ({
   rank: 1, author: 'alice', total: 100, reviews: 2, approvals: 1, additions: 40, deletions: 10, ...over,
@@ -115,5 +115,34 @@ describe('frozenNotice', () => {
 
   it('survives an unknown mode', () => {
     expect(frozenNotice(undefined)).toBe('');
+  });
+});
+
+describe('isViewersScore', () => {
+  const v = (handle?: string): Viewer | null => (handle ? { state: 'author', handle } : null);
+
+  it('recognises the viewer', () => {
+    expect(isViewersScore('alice', v('alice'))).toBe(true);
+  });
+
+  // GitHub handles are case-insensitive and the roster keeps whatever case it
+  // was given, so a raw comparison would fail to recognise somebody by the
+  // capitalisation of their own name.
+  it('ignores case', () => {
+    expect(isViewersScore('Alice', v('alice'))).toBe(true);
+    expect(isViewersScore('alice', v('ALICE'))).toBe(true);
+  });
+
+  it('does not claim somebody else', () => {
+    expect(isViewersScore('bob', v('alice'))).toBe(false);
+  });
+
+  // An unidentified viewer owns nothing: without this the empty handle would
+  // match every unrecorded author and glow the whole page.
+  it('owns nothing when unidentified', () => {
+    expect(isViewersScore('alice', null)).toBe(false);
+    expect(isViewersScore('alice', { state: 'anonymous' })).toBe(false);
+    expect(isViewersScore('', v('alice'))).toBe(false);
+    expect(isViewersScore('', { state: 'unmapped', handle: '' })).toBe(false);
   });
 });

@@ -468,12 +468,24 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 /* The Config page's tabs: the user's roster, what the reviewer is set to do,
    and the tools for working out what it SHOULD do. Three pages' worth of
    panels that were one long scroll. */
-.page-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
-.page-tabs button {
-  padding: 9px 16px; border: 0; border-bottom: 2px solid transparent; background: transparent;
-  color: var(--dim); font-size: 13px; font-weight: 650; cursor: pointer;
+/* Matched to the page head's own rule, which stops at 900px: two horizontal
+   lines 40px apart with different lengths read as a mistake rather than as a
+   hierarchy. The head's is 2px of --ink and this one is 1px of --line, which
+   is the hierarchy. */
+.page-tabs {
+  display: flex; flex-wrap: wrap; gap: 2px; max-width: 900px;
+  border-bottom: 1px solid var(--line); margin-bottom: 18px;
 }
-.page-tabs button:hover { color: var(--ink); }
+.page-tabs button {
+  padding: 9px 16px; background: transparent; color: var(--dim);
+  font-size: 13px; font-weight: 650; cursor: pointer;
+  /* The base button rule is a filled pill: its radius curled the underline
+     into a smile and its hover lifted the whole tab off the rule it sits on.
+     A tab is a label on a line, so both are reset here rather than worked
+     around with a more specific selector. */
+  border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+}
+.page-tabs button:hover { color: var(--ink); transform: none; }
 .page-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* The tuning panel. Controls on the left, the policy's consequences on the
@@ -484,7 +496,13 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 .shape-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .shape-state { font-size: 12px; color: var(--faint); }
 .shape-state.draft { color: var(--warn-ink); }
-.shape-error { margin: 0; color: var(--bad-ink); font-size: 13px; }
+.shape-error {
+  margin: 0; padding: 9px 12px; border-radius: 8px; font-size: 12px;
+  border: 1px solid var(--bad-ink); background: var(--surface-warm); color: var(--bad-ink);
+}
+/* A draft that will not resolve leaves the last good survey on screen, dimmed:
+   blanking the panel mid-edit loses the picture you are editing against. */
+.shape-stale { opacity: .45; }
 .shape .dial { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
 .shape .dial label { color: var(--faint); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .shape .dial output { font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -508,8 +526,10 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
 }
 .tier-edit input:hover:enabled { border-color: var(--line); }
 .tier-edit input:disabled { color: var(--faint); }
-.tier-edit .kill { padding: 2px 4px; border: 0; background: none; color: var(--faint); cursor: pointer; }
-.tier-edit .kill:hover { color: var(--bad-ink); }
+.tier-edit .kill {
+  padding: 2px 4px; border: 0; border-radius: 0; background: none; color: var(--faint); cursor: pointer;
+}
+.tier-edit .kill:hover { color: var(--bad-ink); transform: none; }
 .shape .add-tier {
   justify-self: start; padding: 5px 10px; font-size: 12px; border-radius: 6px;
   border: 1px solid var(--line); background: var(--surface-warm); color: var(--ink); cursor: pointer;

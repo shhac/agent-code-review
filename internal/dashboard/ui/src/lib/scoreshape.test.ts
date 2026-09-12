@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changedFrom, heatColor, policyDoc, policyJSON, policyOf } from './scoreshape';
+import { changedFrom, heatColor, policyDoc, policyJSON, policyOf, sortTiers } from './scoreshape';
 import type { ConfigResponse } from './types';
 import type { Policy } from './scoreshape';
 
@@ -70,5 +70,37 @@ describe('the heat ramp', () => {
     expect(heatColor(-5)).toEqual(heatColor(0));
     expect(heatColor(9)).toEqual(heatColor(1));
     expect(heatColor(NaN)).toEqual(heatColor(0));
+  });
+});
+
+describe('the ladder orders itself by the bounds it is given', () => {
+  const ladder = (bounds: number[]) =>
+    bounds.map((max_churn, i) => ({ name: `t${i}`, max_churn, multiplier: 1 }));
+
+  // A tier added to the end with a bound of 120 belongs between 50 and 250.
+  // Asking somebody to drag it there would be asking for the same fact twice.
+  it('moves a new tier to where its bound puts it', () => {
+    const got = sortTiers([...ladder([10, 50, 250]), { name: 'new', max_churn: 120, multiplier: 1 }, { name: 'open', max_churn: 0, multiplier: 0.2 }]);
+    expect(got.map((b) => b.max_churn)).toEqual([10, 50, 120, 250, 0]);
+  });
+
+  // The open-ended tier has no bound to sort by and must stay last, or the
+  // ladder stops resolving: it would match everything and strand the rest.
+  it('pins the open-ended tier at the end', () => {
+    const got = sortTiers([...ladder([250, 10, 50]), { name: 'open', max_churn: 0, multiplier: 0.2 }]);
+    expect(got.map((b) => b.name).at(-1)).toBe('open');
+    expect(got.map((b) => b.max_churn)).toEqual([10, 50, 250, 0]);
+  });
+
+  // A bound cleared mid-ladder is an error for the daemon to report, not
+  // something to quietly shuffle into a second catch-all.
+  it('leaves an unbounded middle row where the operator left it', () => {
+    const got = sortTiers([...ladder([10, 0, 250]), { name: 'open', max_churn: 0, multiplier: 0.2 }]);
+    expect(got.map((b) => b.max_churn)).toEqual([10, 0, 250, 0]);
+  });
+
+  it('has nothing to do with a two-row ladder', () => {
+    const two = [...ladder([50]), { name: 'open', max_churn: 0, multiplier: 0.2 }];
+    expect(sortTiers(two)).toBe(two);
   });
 });

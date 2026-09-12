@@ -1,7 +1,7 @@
 <script lang="ts">
   import { simulateScoring } from './api';
   import ScoreCurve from './ScoreCurve.svelte';
-  import { changedFrom, heatColor, policyDoc, policyJSON, policyOf, rampCSS, type Policy } from './scoreshape';
+  import { changedFrom, heatColor, policyDoc, policyJSON, policyOf, rampCSS, sortTiers, type Policy } from './scoreshape';
   import type { ConfigResponse, ScoreSimulation } from './types';
 
   export let config: ConfigResponse;
@@ -40,8 +40,17 @@
       error = '';
     } catch (e) {
       if (mine !== asked) return;
+      // The last good survey stays on screen, dimmed. Half-typed numbers pass
+      // through states the daemon will not resolve, and blanking the panel
+      // every time takes away the picture being edited against.
       error = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  // Committed, not on every keystroke: sorting as the digits arrive would send
+  // a row intended for 150 to the top of the ladder the moment it read 1.
+  function commitTiers() {
+    policy = { ...policy, buckets: sortTiers(policy.buckets) };
   }
 
   // Painting is the only thing this panel does with the numbers. Every one of
@@ -84,7 +93,7 @@
       max_churn: Math.round(prev * 2) || 20,
       multiplier: tiers[tiers.length - 1].multiplier * 2,
     });
-    policy = { ...policy, buckets: tiers };
+    policy = { ...policy, buckets: sortTiers(tiers) };
   }
 
   function dropTier(i: number) {
@@ -168,9 +177,10 @@
                   id={`tier-max-${i}`}
                   aria-label="max churn"
                   type="number"
-                  min="0"
+                  min="1"
                   bind:value={b.max_churn}
                   on:input={() => (policy = policy)}
+                  on:change={commitTiers}
                 />
               {/if}
             </td>
@@ -185,14 +195,19 @@
       </tbody>
     </table>
     <button class="add-tier" on:click={addTier}>+ tier</button>
-    <p class="hint">The last tier is open-ended. A first tier paying <code>0</code> is how you say a PR is too small to be worth points.</p>
+    <p class="hint">
+      Tiers sort themselves by max churn when you leave the field, so a new one
+      lands where its bound puts it. The last is open-ended. A first tier paying
+      <code>0</code> is how you say a PR is too small to be worth points.
+    </p>
   </div>
 
   <div class="shape-output">
     {#if error}
       <p class="shape-error">{error}</p>
-    {:else if sim}
-      <div class="probe-row">
+    {/if}
+    {#if sim}
+      <div class="probe-row" class:shape-stale={error}>
         {#each sim.probes as p, i}
           {#if i > 0}<span class="probe-arrow">{sim.probes[i - 1].score > p.score ? '>' : '<'}</span>{/if}
           <div class="probe" class:best={p.score === Math.max(...sim.probes.map((q) => q.score))}>
@@ -208,7 +223,7 @@
         {/each}
       </div>
 
-      <div class="maps">
+      <div class="maps" class:shape-stale={error}>
         {#each sim.grids as g}
           <div class="map">
             <h4>{g.rounds === 1 ? 'Approved first pass' : 'Comment, then approve'} <em>{g.rounds} round{g.rounds > 1 ? 's' : ''}</em></h4>
@@ -228,7 +243,7 @@
 
       <ScoreCurve buckets={policy.buckets} anchors={sim.anchors} curve={policy.curve} />
 
-      <dl class="facts">
+      <dl class="facts" class:shape-stale={error}>
         <div class="fact">
           <dt>Best-paid pull request</dt>
           <dd>+{sim.peak.lines} / -{sim.peak.lines} &rarr; {sim.peak.score} pts</dd>
@@ -255,7 +270,7 @@
         <button on:click={copyJSON}>{copied ? 'copied' : 'copy'}</button>
       </div>
       <pre class="policy-json">{policyJSON(policy)}</pre>
-    {:else}
+    {:else if !error}
       <p class="hint">Surveying the policy&hellip;</p>
     {/if}
   </div>

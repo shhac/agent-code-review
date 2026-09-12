@@ -121,3 +121,48 @@ test.describe('score shape', () => {
     expect(json.scoring.buckets.at(-1)).not.toHaveProperty('max_churn');
   });
 });
+
+// The tab strip is a label on a line, and the base button rule in app.css is
+// a filled pill. Inheriting it curled the active tab's underline into a smile
+// and lifted the tab off the rule on hover; both are geometry, so both are
+// checked as geometry.
+test.describe('the tab strip', () => {
+  test.beforeEach(async ({ page }) => await page.goto('/config'));
+
+  test('underlines the active tab with a straight rule', async ({ page }) => {
+    const active = page.getByRole('tab', { selected: true });
+    await expect(active).toHaveCSS('border-bottom-left-radius', '0px');
+    await expect(active).toHaveCSS('border-bottom-right-radius', '0px');
+  });
+
+  test('lines its rule up with the one above it', async ({ page }) => {
+    const head = await page.locator('.page-head').boundingBox();
+    const tabs = await page.locator('.page-tabs').boundingBox();
+    if (!head || !tabs) throw new Error('not laid out');
+    // Two horizontal rules 40px apart with different lengths read as a
+    // mistake. They share a left edge already; this is the right one.
+    expect(Math.abs(head.x + head.width - (tabs.x + tabs.width))).toBeLessThan(2);
+  });
+});
+
+// Where a tier sits is decided by its bound, so the table orders itself and
+// nobody has to drag anything.
+test('a new tier lands where its bound puts it', async ({ page }) => {
+  await page.goto('/config');
+  await page.getByRole('tab', { name: 'Score tuning' }).click();
+  await expect(page.locator('.tier-edit tbody tr')).toHaveCount(5);
+
+  await page.getByRole('button', { name: '+ tier' }).click();
+  await expect(page.locator('.tier-edit tbody tr')).toHaveCount(6);
+
+  // 120 belongs between small (50) and medium (250), not at the end where it
+  // was added.
+  const added = page.locator('.tier-edit tbody tr').nth(4).locator('input[type=number]').first();
+  await added.fill('120');
+  await added.blur();
+
+  const order = await page.locator('.tier-edit tbody tr').evaluateAll((rows) =>
+    rows.map((r) => (r.querySelectorAll('input')[1] as HTMLInputElement).value),
+  );
+  expect(order).toEqual(['10', '50', '120', '250', '1000', 'open']);
+});

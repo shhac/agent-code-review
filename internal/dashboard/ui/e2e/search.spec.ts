@@ -55,10 +55,14 @@ test.describe('history search', () => {
   });
 
   test('an empty search shows the whole history again', async ({ page }) => {
+    await expect(page.locator(count)).toContainText('outcomes');
+    // Other specs add fixture rows for their own regressions. Clearing a
+    // filter must restore this view, whatever unrelated rows they need.
+    const unfiltered = await page.locator(count).innerText();
     await page.locator(search).fill('deepsearch-hank');
     await expect(page.locator(rows)).toHaveCount(3);
     await page.locator(search).fill('');
-    await expect(page.locator(count)).toContainText('606 outcomes');
+    await expect(page.locator(count)).toHaveText(unfiltered, { useInnerText: true });
     await expect(page.locator(rows)).toHaveCount(25);
   });
 });

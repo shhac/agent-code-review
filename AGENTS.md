@@ -461,13 +461,16 @@ internal/
   once at boot and passes them to `StartGraceful` as explicit parameters, so
   a config edit can't resurrect a loop this boot disabled.
 - **Candidacy has three gates, and only one of them is a dial.** Not a draft,
-  not already approved, and (by default) an outstanding review request. The
-  third is `candidates.require_review_request`, because a review request means
-  opposite things in different repos: where reviewers are assigned it names
-  exactly the PRs that want attention, and where nobody assigns anybody it
-  rejects everything (62 of the 100 most recently updated open PRs on one
-  watched repo). The other two are not dials and must not become them: a draft
-  is unfinished whoever asked for a review, and an approved PR is already
+  not already approved, and optionally an outstanding review request. The third
+  is `candidates.require_review_request`, and it defaults to FALSE: a PR that
+  is open and not a draft is already saying it is ready, and requiring somebody
+  to also name a reviewer asks the author to do a second thing before this tool
+  will look (on one watched repo that hid 62 of the 100 most recently updated
+  open PRs). Set it true where a team does assign reviewers and means something
+  by it. The next question it raises is WHOSE request counts, which needs a
+  list of handles and teams rather than a toggle; until that exists, true means
+  "anyone asked". The other two gates are not dials and must not become them: a
+  draft is unfinished whoever asked for a review, and an approved PR is already
   unblocked. Draft is checked FIRST so the recorded reason names what actually
   stopped the PR. `candidacyGate` is shared by discovery's `classify` and the
   scheduler's pre-review recheck (`StillCandidate`), and the knob is threaded

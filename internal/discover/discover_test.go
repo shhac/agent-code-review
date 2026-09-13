@@ -94,11 +94,16 @@ func TestClassifyDraftRejected(t *testing.T) {
 	}
 }
 
-func TestClassifyNoReviewRequestRejected(t *testing.T) {
+// Only where the repo has said a review request is what it goes by. The
+// default is the other way round (see TestRequireReviewRequestDefaultsToOff),
+// so this drives classify with the knob set rather than with the zero config.
+func TestClassifyNoReviewRequestRejectedWhenRequired(t *testing.T) {
 	d := newDiscoverer(&fakeStore{})
+	cfg := d.cfg()
+	cfg.Candidates.RequireReviewRequest = config.Bool(true)
 	pr := ghPR{Number: 1, CreatedAt: fixedNow()} // no review requested
-	if _, ok, _ := d.classify(context.Background(), d.cfg(), "o/r", pr); ok {
-		t.Error("PR without an open review request should not be a candidate")
+	if _, ok, _ := d.classify(context.Background(), cfg, "o/r", pr); ok {
+		t.Error("PR without an open review request should not be a candidate when one is required")
 	}
 }
 
@@ -1045,9 +1050,13 @@ func TestRequireReviewRequestRelaxesOnlyItsOwnGate(t *testing.T) {
 	}
 }
 
-func TestRequireReviewRequestDefaultsToRequiring(t *testing.T) {
-	if !(config.Config{}).RequireReviewRequest() {
-		t.Fatal("default must require a review request: turning this off changes what every watched repo discovers")
+// Open and not a draft is the default statement that a PR is ready. Requiring
+// somebody to also name a reviewer asks the author to do a second thing before
+// this tool will look, and on one watched repo hid 62 of the 100 most recently
+// updated open PRs.
+func TestRequireReviewRequestDefaultsToOff(t *testing.T) {
+	if (config.Config{}).RequireReviewRequest() {
+		t.Fatal("default must NOT require a review request")
 	}
 }
 

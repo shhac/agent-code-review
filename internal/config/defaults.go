@@ -278,19 +278,26 @@ func (c Config) DiscoverInterval() time.Duration {
 }
 
 // RequireReviewRequest reports whether a PR must have an outstanding review
-// request to be discovered (default true).
+// request to be discovered (default false).
 //
-// A repo where reviewers are assigned is telling us exactly which PRs want
-// attention, and honouring that is right. A repo where nobody assigns anybody
-// is telling us the same thing by opening the PR at all, and there the
-// requirement rejects everything: on one watched repo it hid 62 of the 100
-// most recently updated open PRs. Which of those a repo is, is not something
-// this tool can infer, so it is a dial.
+// The default is false because a PR that is open and not a draft is already
+// saying it is ready; requiring somebody to also name a reviewer asks the
+// author to do a second thing before this tool will look. On one watched repo
+// that requirement hid 62 of the 100 most recently updated open PRs, which is
+// not a queue of work nobody wanted reviewed.
+//
+// Set it true where a review request is meaningful: a repo whose team does
+// assign reviewers is naming exactly the PRs that want attention, and that is
+// a better signal than "open and not a draft" rather than a worse one.
+//
+// This is deliberately one bit, and the next question it raises is WHOSE
+// request counts. Answering that needs a list of handles and teams to listen
+// for, not a toggle; until it exists, true means "anyone asked".
 func (c Config) RequireReviewRequest() bool {
 	if c.Candidates.RequireReviewRequest != nil {
 		return *c.Candidates.RequireReviewRequest
 	}
-	return true
+	return false
 }
 
 // DiscoveryListLimit bounds one repo's PR listing (default 300). gh pages at

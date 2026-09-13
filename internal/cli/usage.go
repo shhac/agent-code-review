@@ -383,8 +383,8 @@ KEYS:
                                        has less than this % remaining (default 10, 0 off)
   schedule.usage_floor.weekly_percent  same for the weekly window (default 10, 0 off)
   candidates.require_review_request    true|false: require an outstanding review
-                                       request to discover a PR (default true;
-                                       false treats any non-draft PR as ready)
+                                       request to discover a PR (default false:
+                                       any open non-draft PR counts as ready)
   candidates.new_max_age_days          New candidate window (default 14)
   candidates.refreshed_max_age_days    Refreshed candidate window (default 21)
   candidates.discussion_max_age_days   Discussion candidate window (default 14)

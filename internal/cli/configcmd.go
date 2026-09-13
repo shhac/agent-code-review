@@ -123,7 +123,7 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *string { return &c.Candidates.QuietPeriod }, validateHoldDuration)),
 		plain(stringKey("candidates.steering_hold", "How long an open steering editor defers the PR being edited, as a Go duration (default 5m, 0s disables)",
 			func(c *config.Config) *string { return &c.Candidates.SteeringHold }, validateHoldDuration)),
-		static(optionalBoolKey("candidates.require_review_request", "Whether a PR needs an outstanding review request to be discovered (default true; false treats any non-draft PR as ready)",
+		static(optionalBoolKey("candidates.require_review_request", "Whether a PR needs an outstanding review request to be discovered (default false: any open non-draft PR is ready; true requires somebody to have asked)",
 			func(c *config.Config) **bool { return &c.Candidates.RequireReviewRequest }), boolValues),
 		plain(stringKey("candidates.error_backoff", "How long a PR waits after a failed engine attempt before one retry, as a Go duration (default 15m, 0s retires it on the first error)",
 			func(c *config.Config) *string { return &c.Candidates.ErrorBackoff }, validateHoldDuration)),

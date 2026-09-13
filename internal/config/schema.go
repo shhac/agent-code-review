@@ -90,10 +90,9 @@ type CandidateSettings struct {
 	SteeringHold         string `json:"steering_hold,omitempty"`           // Go duration, default "5m"; "0s" disables
 	ErrorBackoff         string `json:"error_backoff,omitempty"`           // Go duration, default "15m"; "0s" retires on the first error
 	// RequireReviewRequest gates candidacy on somebody having asked for a
-	// review. True (the default) is the conservative reading of "this PR wants
-	// a reviewer": an explicit request. False takes not-a-draft as the signal
-	// instead, which is what a team that opens PRs ready to review and lets
-	// people pick them up actually means by "ready".
+	// review. False (the default) takes open-and-not-a-draft as the signal that
+	// a PR is ready. True is the stricter reading, for a repo whose team does
+	// assign reviewers and means something by it.
 	RequireReviewRequest *bool `json:"require_review_request,omitempty"`
 }
 

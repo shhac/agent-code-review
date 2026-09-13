@@ -196,28 +196,28 @@ func CurrentUser(ctx context.Context) (string, error) {
 // scheduler calls this just before spending an engine invocation on a
 // DISCOVERED candidate; the window between discovery and review is long
 // enough for someone else to have approved, merged, or closed the PR.
-func StillCandidate(ctx context.Context, repo string, number int) (bool, string, error) {
-	return StillCandidateAt(ctx, repo, number, "", "")
+func StillCandidate(ctx context.Context, repo string, number int, requireReviewRequest bool) (bool, string, error) {
+	return StillCandidateAt(ctx, repo, number, "", "", requireReviewRequest)
 }
 
 // StillCandidateAt is StillCandidate plus the already-reviewed guard: when
 // login and head are supplied, a PR this login has already reviewed at that
 // exact head is no longer a candidate. Used on a re-claim, where the previous
 // attempt may have posted its review and then died before recording anything.
-func StillCandidateAt(ctx context.Context, repo string, number int, login, head string) (bool, string, error) {
+func StillCandidateAt(ctx context.Context, repo string, number int, login, head string, requireReviewRequest bool) (bool, string, error) {
 	out, err := runGH(ctx, "pr", "view", fmt.Sprintf("%d", number),
 		"--repo", repo,
 		"--json", "number,isDraft,state,reviewRequests,reviewDecision,reviews,headRefOid")
 	if err != nil {
 		return false, "", err
 	}
-	return stillCandidateFromJSON(out, login, head)
+	return stillCandidateFromJSON(out, login, head, requireReviewRequest)
 }
 
 // stillCandidateFromJSON applies the live-state gate plus the shared
 // candidacy gates to a `gh pr view` payload. Pure: the state and gate
 // branches are table-tested from canned JSON, mirroring candidateFromView.
-func stillCandidateFromJSON(out []byte, login, head string) (bool, string, error) {
+func stillCandidateFromJSON(out []byte, login, head string, requireReviewRequest bool) (bool, string, error) {
 	var pr ghPR
 	if err := json.Unmarshal(out, &pr); err != nil {
 		return false, "", fmt.Errorf("parse gh pr view: %w", err)
@@ -230,7 +230,7 @@ func stillCandidateFromJSON(out []byte, login, head string) (bool, string, error
 	if pr.AlreadyReviewedBy(login, head) {
 		return false, "already reviewed at this revision", nil
 	}
-	ok, reason := candidacyGate(pr)
+	ok, reason := candidacyGate(pr, requireReviewRequest)
 	return ok, reason, nil
 }
 

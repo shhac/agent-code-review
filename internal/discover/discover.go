@@ -361,11 +361,11 @@ func (d *Discoverer) ghListPRs(ctx context.Context, repo string) ([]ghPR, error)
 // draft, an outstanding review request, not currently approved. classify and
 // the scheduler's pre-review recheck (StillCandidate) both use it, so the two
 // decisions cannot drift. The returned reason names the failed gate.
-func candidacyGate(pr ghPR) (bool, string) {
+func candidacyGate(pr ghPR, requireReviewRequest bool) (bool, string) {
 	if pr.IsDraft {
 		return false, "draft"
 	}
-	if !pr.hasOpenReviewRequest() {
+	if requireReviewRequest && !pr.hasOpenReviewRequest() {
 		return false, "no open review request"
 	}
 	// An approved PR is already unblocked: nothing for this tool to do.
@@ -379,7 +379,7 @@ func candidacyGate(pr ghPR) (bool, string) {
 // cfg is the sweep's snapshot, threaded from Discover so every PR in one
 // sweep is judged against one coherent config.
 func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo string, pr ghPR) (store.Candidate, bool, error) {
-	if ok, _ := candidacyGate(pr); !ok {
+	if ok, _ := candidacyGate(pr, cfg.RequireReviewRequest()); !ok {
 		return store.Candidate{}, false, nil
 	}
 	// The author's group decides whether their PRs are ours to look at. An

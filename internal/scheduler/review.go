@@ -58,7 +58,7 @@ func (s *Scheduler) runOne(ctx context.Context, p pending) error {
 // check; explicit re-review requests and draft reviews must always go
 // through. A recheck error propagates with nothing recorded; the claim stays,
 // and the stale lease retries next cycle.
-func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate, started time.Time) (bool, error) {
+func (s *Scheduler) skipIfStale(ctx context.Context, cfg config.Config, c store.Candidate, started time.Time) (bool, error) {
 	if c.Source == store.SourceManual {
 		return false, nil
 	}
@@ -77,7 +77,7 @@ func (s *Scheduler) skipIfStale(ctx context.Context, c store.Candidate, started 
 	if c.Type == store.TypeDiscussion {
 		head = ""
 	}
-	ok, reason, err := s.stillCandidate(ctx, c.Repo, c.Number, s.ghUser, head)
+	ok, reason, err := s.stillCandidate(ctx, c.Repo, c.Number, s.ghUser, head, cfg.RequireReviewRequest())
 	if err != nil {
 		return false, fmt.Errorf("candidacy recheck: %w", err)
 	}
@@ -141,7 +141,7 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engi
 		_ = os.Remove(workDir)
 		return nil
 	}
-	skipped, err := s.skipIfStale(ctx, c, claimedAt)
+	skipped, err := s.skipIfStale(ctx, cfg, c, claimedAt)
 	if err != nil {
 		// Release the claim rather than let it age out. The recheck is one gh
 		// call, so a network blip or a GitHub 5xx lands here, and holding the

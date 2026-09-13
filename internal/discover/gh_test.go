@@ -71,7 +71,7 @@ func TestStillCandidateFromJSON(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ok, reason, err := stillCandidateFromJSON([]byte(tc.json), "", "")
+			ok, reason, err := stillCandidateFromJSON([]byte(tc.json), "", "", true)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected parse error")
@@ -100,7 +100,7 @@ func TestStillCandidateSkipsWhatWeAlreadyReviewedAtThisHead(t *testing.T) {
 	  "headRefOid":"headsha",
 	  "reviews":[{"state":"COMMENTED","author":{"login":"bot"},"commit":{"oid":"headsha"}}]}`
 
-	ok, reason, err := stillCandidateFromJSON([]byte(payload), "bot", "headsha")
+	ok, reason, err := stillCandidateFromJSON([]byte(payload), "bot", "headsha", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestStillCandidateSkipsWhatWeAlreadyReviewedAtThisHead(t *testing.T) {
 	}
 
 	// New commits since our review: a different head, so there is real work.
-	ok, _, err = stillCandidateFromJSON([]byte(payload), "bot", "newersha")
+	ok, _, err = stillCandidateFromJSON([]byte(payload), "bot", "newersha", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestStillCandidateSkipsWhatWeAlreadyReviewedAtThisHead(t *testing.T) {
 	  "reviewRequests":[{"login":"bot"}],"reviewDecision":"REVIEW_REQUIRED",
 	  "headRefOid":"headsha",
 	  "reviews":[{"state":"COMMENTED","author":{"login":"someone-else"},"commit":{"oid":"headsha"}}]}`
-	ok, _, err = stillCandidateFromJSON([]byte(other), "bot", "headsha")
+	ok, _, err = stillCandidateFromJSON([]byte(other), "bot", "headsha", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestStillCandidateSkipsWhatWeAlreadyReviewedAtThisHead(t *testing.T) {
 
 	// Without an identity to compare against, the guard must not fire at all
 	// rather than guess.
-	ok, _, err = stillCandidateFromJSON([]byte(payload), "", "headsha")
+	ok, _, err = stillCandidateFromJSON([]byte(payload), "", "headsha", true)
 	if err != nil {
 		t.Fatal(err)
 	}

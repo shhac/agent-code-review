@@ -131,7 +131,7 @@ type EngineFactory func(config.Config, config.Policy) (review.Engine, error)
 
 // CandidacyFn re-checks a PR's candidacy just before the engine spend, so a PR
 // approved, merged or closed while it waited in the queue is not reviewed.
-type CandidacyFn func(ctx context.Context, repo string, number int, login, head string) (bool, string, error)
+type CandidacyFn func(ctx context.Context, repo string, number int, login, head string, requireReviewRequest bool) (bool, string, error)
 
 // LivenessFn reports whether a pid is a live process on THIS host. Reconcile
 // uses it to tell a crashed daemon's leftovers from a sibling instance's

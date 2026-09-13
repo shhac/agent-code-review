@@ -387,7 +387,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 	t.Run("stale discovered candidate records a precheck skip", func(t *testing.T) {
 		fs := &fakeSchedStore{}
 		fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionApproved}}
-		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string) (bool, string, error) {
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string, bool) (bool, string, error) {
 			return false, "already approved", nil
 		}})
 		c := store.Candidate{Repo: "o/r", Number: 7, HeadSHA: "sha1", Source: store.SourceDiscovered}
@@ -412,7 +412,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 		var called bool
 		fs := &fakeSchedStore{}
 		fe := commented()
-		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(_ context.Context, _ string, _ int, login, head string) (bool, string, error) {
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(_ context.Context, _ string, _ int, login, head string, _ bool) (bool, string, error) {
 			called, gotHead = true, head
 			return true, "", nil
 		}})
@@ -437,7 +437,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 		var gotHead string
 		fs := &fakeSchedStore{}
 		fe := commented()
-		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(_ context.Context, _ string, _ int, login, head string) (bool, string, error) {
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(_ context.Context, _ string, _ int, login, head string, _ bool) (bool, string, error) {
 			gotHead = head
 			return true, "", nil
 		}})
@@ -453,7 +453,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 	t.Run("manual candidates bypass the recheck", func(t *testing.T) {
 		fs := &fakeSchedStore{}
 		fe := commented()
-		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string) (bool, string, error) {
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string, bool) (bool, string, error) {
 			t.Error("manual candidate must not be rechecked")
 			return false, "", nil
 		}})
@@ -469,7 +469,7 @@ func TestReviewOnePrecheck(t *testing.T) {
 	t.Run("recheck error propagates and records nothing", func(t *testing.T) {
 		fs := &fakeSchedStore{}
 		fe := &fakeEngine{}
-		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string) (bool, string, error) {
+		s := newReviewScheduler(fs, fe, Deps{StillCandidate: func(context.Context, string, int, string, string, bool) (bool, string, error) {
 			return false, "", errors.New("gh unavailable")
 		}})
 		c := store.Candidate{Repo: "o/r", Number: 9, HeadSHA: "sha1", Source: store.SourceDiscovered}

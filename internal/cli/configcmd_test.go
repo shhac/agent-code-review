@@ -75,6 +75,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"candidates.quiet_period":             "0s",
 		"candidates.steering_hold":            "3m",
 		"candidates.error_backoff":            "5m",
+		"candidates.require_review_request":   "false",
 		"review.engine":                       "codex",
 		"codex.bin":                           "codex",
 		"codex.model":                         "some-model",

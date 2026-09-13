@@ -1004,3 +1004,142 @@ func stubRunGHOnce(fn func(args []string) ([]byte, error)) func() {
 	runGHOnce = func(_ context.Context, args ...string) ([]byte, error) { return fn(args) }
 	return func() { runGHOnce, ghRetryDelay = old, oldDelay }
 }
+
+// --- candidates.require_review_request ---
+
+// readyPR is a PR nobody has been assigned to: open, not a draft, no review
+// requested. The default gate rejects it; the knob is what a team that opens
+// PRs ready and lets people pick them up needs.
+func readyPR() ghPR {
+	return ghPR{
+		Number:     7,
+		Author:     ghActor{Login: "alice"},
+		HeadRefOID: "sha",
+		CreatedAt:  fixedNow().Add(-24 * time.Hour),
+		UpdatedAt:  fixedNow().Add(-24 * time.Hour),
+	}
+}
+
+func TestRequireReviewRequestGate(t *testing.T) {
+	pr := readyPR()
+	if ok, reason := candidacyGate(pr, true); ok || reason != "no open review request" {
+		t.Errorf("required: gate = (%v, %q), want (false, no open review request)", ok, reason)
+	}
+	if ok, reason := candidacyGate(pr, false); !ok || reason != "" {
+		t.Errorf("not required: gate = (%v, %q), want (true, \"\")", ok, reason)
+	}
+}
+
+// The knob relaxes ONE gate. A draft is still not ready, and an approved PR is
+// still nothing for this tool to do, whichever way it is set.
+func TestRequireReviewRequestRelaxesOnlyItsOwnGate(t *testing.T) {
+	draft := readyPR()
+	draft.IsDraft = true
+	if ok, reason := candidacyGate(draft, false); ok || reason != "draft" {
+		t.Errorf("draft = (%v, %q), want (false, draft) even with the request gate off", ok, reason)
+	}
+	approved := readyPR()
+	approved.ReviewDecision = "APPROVED"
+	if ok, reason := candidacyGate(approved, false); ok || reason != "already approved" {
+		t.Errorf("approved = (%v, %q), want (false, already approved) even with the request gate off", ok, reason)
+	}
+}
+
+func TestRequireReviewRequestDefaultsToRequiring(t *testing.T) {
+	if !(config.Config{}).RequireReviewRequest() {
+		t.Fatal("default must require a review request: turning this off changes what every watched repo discovers")
+	}
+}
+
+// End to end through classify: the same unassigned PR is invisible by default
+// and a NEW candidate once the knob is off.
+func TestUnassignedPRDiscoveredOnlyWhenKnobIsOff(t *testing.T) {
+	for _, tc := range []struct {
+		require bool
+		want    int
+	}{{true, 0}, {false, 1}} {
+		fs := &fakeStore{}
+		cfg := config.Config{Repos: []string{"o/a"}}
+		cfg.Candidates.RequireReviewRequest = config.Bool(tc.require)
+		d := New(staticConfig(cfg), fs, nil)
+		d.now = fixedNow
+		d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) { return time.Time{}, nil }
+		d.listPRs = func(context.Context, string) ([]ghPR, error) { return []ghPR{readyPR()}, nil }
+
+		found, err := d.Discover(context.Background())
+		if err != nil {
+			t.Fatalf("require=%v: %v", tc.require, err)
+		}
+		if len(found) != tc.want {
+			t.Errorf("require=%v: discovered %d candidate(s), want %d", tc.require, len(found), tc.want)
+		}
+		if tc.want == 1 && found[0].Type != store.TypeNew {
+			t.Errorf("require=%v: type = %q, want %q", tc.require, found[0].Type, store.TypeNew)
+		}
+	}
+}
+
+// The recheck just before the engine spend has to agree with discovery, or a
+// PR found with the knob off is claimed and then immediately skipped.
+func TestRecheckHonoursTheSameKnob(t *testing.T) {
+	payload := `{"number":7,"state":"OPEN","isDraft":false,"reviewRequests":[],"reviewDecision":"","reviews":[],"headRefOid":"sha"}`
+	if ok, reason, _ := stillCandidateFromJSON([]byte(payload), "", "", true); ok || reason != "no open review request" {
+		t.Errorf("required: recheck = (%v, %q), want (false, no open review request)", ok, reason)
+	}
+	if ok, _, _ := stillCandidateFromJSON([]byte(payload), "", "", false); !ok {
+		t.Error("not required: recheck must pass, or discovery and the recheck disagree and every such PR is claimed then skipped")
+	}
+}
+
+// A draft with no review request is the combination the knob makes it easiest
+// to get wrong: relaxing the request gate must not let an unfinished PR
+// through. Pinned at the gate, through classify, and through the pre-review
+// recheck, because all three have to agree.
+func TestDraftWithNoReviewRequestIsNeverQueued(t *testing.T) {
+	draft := readyPR()
+	draft.IsDraft = true
+
+	for _, require := range []bool{true, false} {
+		if ok, reason := candidacyGate(draft, require); ok || reason != "draft" {
+			t.Errorf("require=%v: gate = (%v, %q), want (false, draft)", require, ok, reason)
+		}
+
+		fs := &fakeStore{}
+		cfg := config.Config{Repos: []string{"o/a"}}
+		cfg.Candidates.RequireReviewRequest = config.Bool(require)
+		d := New(staticConfig(cfg), fs, nil)
+		d.now = fixedNow
+		d.lastHumanActivity = func(context.Context, string, int) (time.Time, error) { return time.Time{}, nil }
+		d.listPRs = func(context.Context, string) ([]ghPR, error) { return []ghPR{draft}, nil }
+
+		found, err := d.Discover(context.Background())
+		if err != nil {
+			t.Fatalf("require=%v: %v", require, err)
+		}
+		if len(found) != 0 {
+			t.Errorf("require=%v: discovered %d draft(s), want 0", require, len(found))
+		}
+		if len(fs.enqueued) != 0 {
+			t.Errorf("require=%v: enqueued %d draft(s), want 0", require, len(fs.enqueued))
+		}
+
+		payload := `{"number":7,"state":"OPEN","isDraft":true,"reviewRequests":[],"reviewDecision":"","reviews":[],"headRefOid":"sha"}`
+		if ok, reason, _ := stillCandidateFromJSON([]byte(payload), "", "", require); ok || reason != "draft" {
+			t.Errorf("require=%v: recheck = (%v, %q), want (false, draft)", require, ok, reason)
+		}
+	}
+}
+
+// A draft that DOES have a reviewer assigned is still a draft. The request
+// gate and the draft gate are independent, and draft is checked first so the
+// reason names what actually stopped it.
+func TestDraftWithAReviewRequestIsStillNotQueued(t *testing.T) {
+	draft := readyPR()
+	draft.IsDraft = true
+	draft.ReviewRequests = []ghActor{{Login: "bob"}}
+	for _, require := range []bool{true, false} {
+		if ok, reason := candidacyGate(draft, require); ok || reason != "draft" {
+			t.Errorf("require=%v: gate = (%v, %q), want (false, draft)", require, ok, reason)
+		}
+	}
+}

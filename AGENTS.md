@@ -460,6 +460,19 @@ internal/
   switches are NOT config: serve resolves config defaults + `--no-*` flags
   once at boot and passes them to `StartGraceful` as explicit parameters, so
   a config edit can't resurrect a loop this boot disabled.
+- **Candidacy has three gates, and only one of them is a dial.** Not a draft,
+  not already approved, and (by default) an outstanding review request. The
+  third is `candidates.require_review_request`, because a review request means
+  opposite things in different repos: where reviewers are assigned it names
+  exactly the PRs that want attention, and where nobody assigns anybody it
+  rejects everything (62 of the 100 most recently updated open PRs on one
+  watched repo). The other two are not dials and must not become them: a draft
+  is unfinished whoever asked for a review, and an approved PR is already
+  unblocked. Draft is checked FIRST so the recorded reason names what actually
+  stopped the PR. `candidacyGate` is shared by discovery's `classify` and the
+  scheduler's pre-review recheck (`StillCandidate`), and the knob is threaded
+  to both from the same snapshot: if they disagreed, a PR found under one
+  setting would be claimed and then immediately skipped under the other.
 - **A sweep degrades, it does not stop.** Discovery lists by
   `sort:updated-desc`, never gh's default created-desc: every candidate type is
   a claim about RECENT ACTIVITY (New has an age window, Refreshed a moved SHA,

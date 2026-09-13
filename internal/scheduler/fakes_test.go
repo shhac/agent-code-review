@@ -182,7 +182,7 @@ func fixedEngine(fe review.Engine) EngineFactory {
 
 // stillACandidate is the default candidacy recheck: yes, review it. Tests about
 // the precheck itself pass their own.
-func stillACandidate(context.Context, string, int, string, string) (bool, string, error) {
+func stillACandidate(context.Context, string, int, string, string, bool) (bool, string, error) {
 	return true, "", nil
 }
 

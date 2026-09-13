@@ -277,6 +277,22 @@ func (c Config) DiscoverInterval() time.Duration {
 	return durationOr(c.Discovery.Interval, 5*time.Minute)
 }
 
+// RequireReviewRequest reports whether a PR must have an outstanding review
+// request to be discovered (default true).
+//
+// A repo where reviewers are assigned is telling us exactly which PRs want
+// attention, and honouring that is right. A repo where nobody assigns anybody
+// is telling us the same thing by opening the PR at all, and there the
+// requirement rejects everything: on one watched repo it hid 62 of the 100
+// most recently updated open PRs. Which of those a repo is, is not something
+// this tool can infer, so it is a dial.
+func (c Config) RequireReviewRequest() bool {
+	if c.Candidates.RequireReviewRequest != nil {
+		return *c.Candidates.RequireReviewRequest
+	}
+	return true
+}
+
 // DiscoveryListLimit bounds one repo's PR listing (default 300). gh pages at
 // 100 per request, so this is the per-repo page budget too: three requests,
 // not the six a 500-PR repo would otherwise cost every cycle.

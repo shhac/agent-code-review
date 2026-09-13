@@ -277,6 +277,27 @@ func (c Config) DiscoverInterval() time.Duration {
 	return durationOr(c.Discovery.Interval, 5*time.Minute)
 }
 
+// DiscoveryListLimit bounds one repo's PR listing (default 300). gh pages at
+// 100 per request, so this is the per-repo page budget too: three requests,
+// not the six a 500-PR repo would otherwise cost every cycle.
+func (c Config) DiscoveryListLimit() int {
+	if c.Discovery.ListLimit != nil && *c.Discovery.ListLimit > 0 {
+		return *c.Discovery.ListLimit
+	}
+	return 300
+}
+
+// DiscoverySweepBudget caps one sweep's wall time. It defaults to the
+// discovery interval so a sweep that pages slowly stops at its own next tick
+// instead of overlapping it; the sweep resumes at the repo it did not reach,
+// so a budget this tight starves nothing.
+func (c Config) DiscoverySweepBudget() time.Duration {
+	if d := durationOr(c.Discovery.SweepBudget, 0); d > 0 {
+		return d
+	}
+	return c.DiscoverInterval()
+}
+
 // WatchesRepo reports whether repo is on the watch list (case-insensitive,
 // matching GitHub's semantics). Discovery, the dashboard add gate, and the
 // repos command all share this predicate.

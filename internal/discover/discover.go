@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -33,6 +35,14 @@ type candidateStore interface {
 	AuthorGroup(ctx context.Context, repo, handle string) (config.Membership, error)
 }
 
+// repoBackoff is one repo's consecutive-failure state, held across sweeps so
+// a repo GitHub is failing on is skipped outright rather than re-attempted
+// (and re-logged) every cycle.
+type repoBackoff struct {
+	failures int
+	until    time.Time
+}
+
 // Discoverer turns config + gh + store into fresh queue entries. Config is a
 // getter so watched repos, author scoping, and age windows apply live.
 type Discoverer struct {
@@ -40,6 +50,15 @@ type Discoverer struct {
 	store candidateStore
 	now   Clock
 	logf  Logf
+	// warnf is logf's severity-carrying sibling, used for the failure and
+	// backoff lines. Discovery skipping a repo is the one thing in this
+	// package somebody grepping a log actually needs to find.
+	warnf Logf
+	// mu guards backoff and resume: sweeps are serialised by the scheduler,
+	// but the Discoverer outlives any one of them.
+	mu      sync.Mutex
+	backoff map[string]repoBackoff
+	resume  string
 	// listPRs fetches one repo's open PRs (gh in production; injected in
 	// tests so the sweep's per-repo resilience is testable without gh).
 	listPRs func(ctx context.Context, repo string) ([]ghPR, error)
@@ -55,10 +74,20 @@ func New(cfg func() config.Config, s candidateStore, logf Logf) *Discoverer {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	d := &Discoverer{cfg: cfg, store: s, now: time.Now, logf: logf}
+	d := &Discoverer{cfg: cfg, store: s, now: time.Now, logf: logf, warnf: logf, backoff: map[string]repoBackoff{}}
 	d.listPRs = d.ghListPRs
 	d.lastHumanActivity = func(ctx context.Context, repo string, number int) (time.Time, error) {
 		return LastHumanActivity(ctx, repo, number, d.selfLogin)
+	}
+	return d
+}
+
+// WithWarnf routes the failure and backoff lines to a severity-carrying sink.
+// Without it they fall back to logf, so a caller that has only one sink keeps
+// the previous behaviour.
+func (d *Discoverer) WithWarnf(warnf Logf) *Discoverer {
+	if warnf != nil {
+		d.warnf = warnf
 	}
 	return d
 }
@@ -79,15 +108,41 @@ func (d *Discoverer) WithSelfLogin(login string) *Discoverer {
 func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 	var found []store.Candidate
 	var lastErr error
-	failed := 0
+	failed, backedOff := 0, 0
 	cfg := d.cfg()
-	for _, repo := range cfg.Repos {
+
+	// One sweep may not outlast the gap before the next one. The repo list is
+	// walked from wherever the last sweep ran out of budget, so a repo that
+	// pages slowly delays its neighbours by a cycle instead of starving them
+	// forever. See resumeAt.
+	budget := cfg.DiscoverySweepBudget()
+	deadline := d.now().Add(budget)
+	repos := d.rotate(cfg.Repos)
+
+	for i, repo := range repos {
+		if now := d.now(); now.After(deadline) {
+			d.resumeAt(cfg.Repos, repo)
+			d.warnf("discover: sweep budget %s spent after %d of %d repo(s), resuming at %s next cycle",
+				budget, i, len(repos), repo)
+			break
+		}
+		if until, fails, held := d.inBackoff(repo, d.now()); held {
+			d.warnf("discover %s: in backoff after %d consecutive failure(s), skipping until %s (%s left)",
+				repo, fails, until.UTC().Format(time.RFC3339), until.Sub(d.now()).Round(time.Second))
+			backedOff++
+			continue
+		}
 		prs, err := d.listPRs(ctx, repo)
 		if err != nil {
-			d.logf("discover %s: %v, skipping repo this cycle", repo, err)
+			fails, wait := d.noteFailure(repo, d.now())
+			d.warnf("discover %s: %v, skipping repo this cycle (consecutive failure %d, backing off %s)",
+				repo, err, fails, wait)
 			failed++
 			lastErr = err
 			continue
+		}
+		if fails := d.noteSuccess(repo); fails > 0 {
+			d.logf("discover %s: recovered after %d consecutive failure(s)", repo, fails)
 		}
 		for _, pr := range prs {
 			cand, ok, err := d.classify(ctx, cfg, repo, pr)
@@ -103,29 +158,203 @@ func (d *Discoverer) Discover(ctx context.Context) ([]store.Candidate, error) {
 			found = append(found, cand)
 		}
 	}
-	if failed > 0 && failed == len(cfg.Repos) {
-		return nil, fmt.Errorf("discovery failed for all %d repos: %w", failed, lastErr)
+	// An error means "gh itself is broken", so it needs every repo to be
+	// unusable AND at least one of them to have proved it this cycle. Repos
+	// skipped because they are already in backoff do not re-prove anything:
+	// counting them would turn one outage into an error on every subsequent
+	// cycle, which is the cascade backoff exists to prevent.
+	if failed > 0 && failed+backedOff == len(cfg.Repos) {
+		return nil, fmt.Errorf("discovery failed for all %d repos: %w", len(cfg.Repos), lastErr)
 	}
 	return found, nil
 }
 
+// Backoff bounds, deliberately not configurable: they are a property of how
+// GitHub misbehaves, not of any one deployment. Doubling from 2m caps at 30m,
+// so a repo that is genuinely down costs two sweeps an hour rather than twelve,
+// and a single transient blip (already absorbed by runGH's retries) expires
+// before the next cycle would have run anyway.
+const (
+	backoffBase = 2 * time.Minute
+	backoffMax  = 30 * time.Minute
+)
+
+func backoffFor(failures int) time.Duration {
+	d := backoffBase
+	for i := 1; i < failures; i++ {
+		if d >= backoffMax {
+			break
+		}
+		d *= 2
+	}
+	if d > backoffMax {
+		d = backoffMax
+	}
+	return d
+}
+
+// inBackoff reports whether repo is still inside the window a previous
+// failure opened, with the failure count and expiry for the log line.
+func (d *Discoverer) inBackoff(repo string, now time.Time) (time.Time, int, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	b, ok := d.backoff[repo]
+	if !ok || !now.Before(b.until) {
+		return time.Time{}, 0, false
+	}
+	return b.until, b.failures, true
+}
+
+// noteFailure records one failed listing and returns the new consecutive
+// failure count and the window it opens.
+func (d *Discoverer) noteFailure(repo string, now time.Time) (int, time.Duration) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.backoff == nil {
+		d.backoff = map[string]repoBackoff{}
+	}
+	b := d.backoff[repo]
+	b.failures++
+	wait := backoffFor(b.failures)
+	b.until = now.Add(wait)
+	d.backoff[repo] = b
+	return b.failures, wait
+}
+
+// noteSuccess clears any backoff and returns how many failures it forgave, so
+// the caller can log a recovery exactly once.
+func (d *Discoverer) noteSuccess(repo string) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	b, ok := d.backoff[repo]
+	if !ok {
+		return 0
+	}
+	delete(d.backoff, repo)
+	return b.failures
+}
+
+// rotate returns the watch list starting at the repo a budget-truncated sweep
+// stopped on, so the tail of the list is not permanently unreachable. A repo
+// that has since left the config drops the resume point rather than skipping
+// the sweep.
+func (d *Discoverer) rotate(repos []string) []string {
+	d.mu.Lock()
+	resume := d.resume
+	d.mu.Unlock()
+	if resume == "" {
+		return repos
+	}
+	for i, r := range repos {
+		if r == resume {
+			return append(append([]string{}, repos[i:]...), repos[:i]...)
+		}
+	}
+	return repos
+}
+
+// resumeAt remembers where the next sweep should start. Clearing it when repo
+// is the head of the list keeps a sweep that always runs out of budget on its
+// first repo from pinning the rotation there.
+func (d *Discoverer) resumeAt(repos []string, repo string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(repos) > 0 && repos[0] == repo {
+		d.resume = ""
+		return
+	}
+	d.resume = repo
+}
+
+// Page-size ladder for one repo's listing. GitHub answers an expensive
+// GraphQL query with a 502 when it runs out of budget building the response,
+// and the honest reply to that is to ask for less rather than to ask again
+// for the same thing. listMinLimit is the floor: below it the listing is too
+// shallow to be worth the call.
+const (
+	listAttempts = 3
+	listMinLimit = 25
+)
+
+// listLimits is the descending ladder tried within one sweep of one repo,
+// halving from the configured depth. It stops early once halving stops moving,
+// so a already-small configured limit costs one attempt, not three identical ones.
+func listLimits(full int) []int {
+	if full < listMinLimit {
+		return []int{full}
+	}
+	limits := []int{full}
+	for len(limits) < listAttempts {
+		next := limits[len(limits)-1] / 2
+		if next < listMinLimit {
+			next = listMinLimit
+		}
+		if next == limits[len(limits)-1] {
+			break
+		}
+		limits = append(limits, next)
+	}
+	return limits
+}
+
 // ghListPRs fetches open PRs for one repo with the fields we classify on:
 // the production listPRs.
+//
+// Sorted by most recently updated, not by gh's default of most recently
+// created, because the limit truncates and the two orderings truncate
+// differently. Every candidate type we recognise is a statement about recent
+// activity: NEW is bounded by an age window, REFRESHED by a head SHA that
+// moved, DISCUSSION by somebody having just spoken. A PR that qualifies has,
+// by definition, been updated recently, while its NUMBER says only when it was
+// opened. Under created-desc, one repo with 528 open PRs hid 12 PRs with open
+// review requests behind 100 newer ones that were mostly drafts.
+//
+// The ordering is also what makes the page-size ladder cheap. A degraded
+// listing drops the LEAST recently active PRs, which are the least likely to
+// be candidates, so half a listing is far more than half the value. Depth
+// returns to full on the next cycle: the ladder is a way through one bad
+// moment, not a new setting.
+//
+// This is the one gh call that does not use runGH's retry. Retrying an
+// exhausted query unchanged is the thing that does not work; the ladder is the
+// retry, and it is a better one.
 func (d *Discoverer) ghListPRs(ctx context.Context, repo string) ([]ghPR, error) {
-	out, err := runGH(ctx, "pr", "list",
-		"--repo", repo,
-		"--state", "open",
-		"--limit", "100",
-		"--json", prListFields,
-	)
-	if err != nil {
-		return nil, err
+	full := d.cfg().DiscoveryListLimit()
+	limits := listLimits(full)
+	var lastErr error
+	for i, limit := range limits {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(ghRetryDelay):
+			}
+		}
+		out, err := runGHOnce(ctx, "pr", "list",
+			"--repo", repo,
+			"--state", "open",
+			"--limit", strconv.Itoa(limit),
+			"--search", "sort:updated-desc",
+			"--json", prListFields,
+		)
+		if err != nil {
+			lastErr = err
+			if !transient(err.Error()) {
+				return nil, err
+			}
+			continue
+		}
+		var prs []ghPR
+		if err := json.Unmarshal(out, &prs); err != nil {
+			return nil, err
+		}
+		if limit < full {
+			d.warnf("discover %s: degraded to limit %d (from %d) after %d exhaustion(s), listed %d PR(s); full depth resumes next cycle",
+				repo, limit, full, i, len(prs))
+		}
+		return prs, nil
 	}
-	var prs []ghPR
-	if err := json.Unmarshal(out, &prs); err != nil {
-		return nil, err
-	}
-	return prs, nil
+	return nil, lastErr
 }
 
 // candidacyGate is the shared "is this PR reviewable work?" predicate: not a

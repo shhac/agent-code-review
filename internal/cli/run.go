@@ -45,7 +45,7 @@ func registerRun(root *cobra.Command) {
 			warnf := func(notice, hint string) { output.WriteNotice(os.Stderr, notice, hint) }
 			reportConfigProblems(cfg, warnf)
 			usageFn := runUsageFn(ctx, cfg, ignoreFloor)
-			sched, err := buildScheduler(ctx, config.Read, s, stderrLogf, warnf, usageFn)
+			sched, err := buildScheduler(ctx, config.Read, s, logSinks{infof: stderrLogf, warnf: stderrWarnf}, warnf, usageFn)
 			if err != nil {
 				return err
 			}

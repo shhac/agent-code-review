@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
 	output "github.com/shhac/lib-agent-output"
@@ -51,10 +52,50 @@ func emit(v any) error {
 	return libcli.EmitItem(os.Stdout, format, v)
 }
 
-// stderrLogf is the daemon/run log sink: human-readable, on stderr, so
-// stdout stays clean for any NDJSON a command emits.
-func stderrLogf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
+// logLine is one daemon log record. The timestamp is the point: a log full of
+// "skipping repo this cycle" cannot answer when it started, how often it
+// repeats, or whether it ever stopped, and that is exactly the question a
+// stalled sweep raises. Level is the other: the lines worth grepping for are
+// the ones where discovery gave up on a repo.
+//
+// msg stays a formatted sentence rather than named fields. Every call site is
+// Printf-shaped today; giving the ones that earn it real fields is a later
+// change this shape leaves room for.
+type logLine struct {
+	TS    string `json:"ts"`
+	Level string `json:"level"`
+	Msg   string `json:"msg"`
+}
+
+// stderrLog writes the daemon's log to stderr as NDJSON, so stdout stays clean
+// for any records a command emits and the daemon's own output obeys the same
+// family contract (and colouring) as everything else.
+var stderrLog = output.NewNDJSONWriter(os.Stderr)
+
+func stderrLogAt(level, format string, args ...any) {
+	_ = stderrLog.WriteItem(logLine{
+		TS:    time.Now().UTC().Format(time.RFC3339),
+		Level: level,
+		Msg:   fmt.Sprintf(format, args...),
+	})
+}
+
+// stderrLogf is the daemon/run log sink.
+func stderrLogf(format string, args ...any) { stderrLogAt("info", format, args...) }
+
+// stderrWarnf is its severity-carrying sibling, for the things somebody
+// reading a log is actually looking for.
+func stderrWarnf(format string, args ...any) { stderrLogAt("warn", format, args...) }
+
+// logSinks is the severity-tagged log pair the scheduler and discoverer write
+// through. One value rather than two parameters because the two are always
+// chosen together: a one-shot run sends both straight to stderr, while the
+// daemon tees both into the dashboard's ring, and splitting them has already
+// meant every warning in the daemon arriving as an info line that happened to
+// start with the word "warning".
+type logSinks struct {
+	infof func(string, ...any)
+	warnf func(string, ...any)
 }
 
 // emitEach emits one record per item, stopping at the first write error:
@@ -173,7 +214,7 @@ func fetchUsage(ctx context.Context, cfg config.Config) func(string) (usage.Snap
 // it into the daemon log (and thus the dashboard's log ring). usageFn feeds
 // the usage-floor hold; nil bypasses the floor entirely, which only
 // `run --ignore-usage-floor` asks for.
-func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Store, logf func(string, ...any), warnf func(notice, hint string), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
+func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Store, logs logSinks, warnf func(notice, hint string), usageFn scheduler.UsageFn) (*scheduler.Scheduler, error) {
 	cfg := cfgFn()
 	// Every engine a group or override can route to, not just the configured
 	// one: an engine is now chosen per candidate, so a typo in a rarely-used
@@ -193,7 +234,7 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 		}
 	}
 
-	disc := discover.New(cfgFn, s, logf).WithSelfLogin(ghUser)
+	disc := discover.New(cfgFn, s, logs.infof).WithWarnf(logs.warnf).WithSelfLogin(ghUser)
 
 	// Pricing is read from the cache dir, never fetched here: `run`
 	// and the daemon both value reviews from whatever the last refresh left on
@@ -205,7 +246,7 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 		Config:  cfgFn,
 		Sweeper: disc,
 		GHUser:  ghUser,
-		Logf:    logf,
+		Logf:    logs.infof,
 		Usage:   usageFn,
 		Price:   estimator(prices),
 	}), nil

@@ -373,6 +373,11 @@ KEYS:
   schedule.dispatch_cooldown           pause between dispatches, e.g. 5s (0s disables)
   discovery.enabled                    true|false: daemon scrapes for candidates
   discovery.interval                   scrape cadence, e.g. 5m (gh only, no LLM)
+  discovery.list_limit                 open PRs pulled per repo, most recently
+                                       updated first (default 300)
+  discovery.sweep_budget               wall-time cap on one sweep (default: the
+                                       discovery interval); the next sweep resumes
+                                       at the repo this one could not reach
   schedule.max_parallel                1..32 concurrent reviews
   schedule.usage_floor.5h_percent      pause reviews when the engine's 5h usage window
                                        has less than this % remaining (default 10, 0 off)

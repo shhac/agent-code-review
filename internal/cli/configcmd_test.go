@@ -65,6 +65,8 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"schedule.dispatch_cooldown":          "10s",
 		"discovery.enabled":                   "true",
 		"discovery.interval":                  "5m",
+		"discovery.list_limit":                "250",
+		"discovery.sweep_budget":              "4m",
 		"schedule.max_parallel":               "8",
 		"candidates.new_max_age_days":         "7",
 		"candidates.refreshed_max_age_days":   "30",

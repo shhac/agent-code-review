@@ -460,6 +460,37 @@ internal/
   switches are NOT config: serve resolves config defaults + `--no-*` flags
   once at boot and passes them to `StartGraceful` as explicit parameters, so
   a config edit can't resurrect a loop this boot disabled.
+- **A sweep degrades, it does not stop.** Discovery lists by
+  `sort:updated-desc`, never gh's default created-desc: every candidate type is
+  a claim about RECENT ACTIVITY (New has an age window, Refreshed a moved SHA,
+  Discussion a new comment), so the most-recently-updated N is the right N to
+  truncate to. Under created-desc one repo with 528 open PRs hid 12 PRs with
+  open review requests behind 100 newer drafts. Three layers then keep one bad
+  GitHub moment from becoming a stalled loop, each answering a different
+  failure: `runGH` retries a TRANSIENT error (5xx and friends, never a 4xx,
+  which answers the same at every attempt); `ghListPRs` answers an EXHAUSTED
+  query by halving `--limit` rather than re-asking (300 -> 150 -> 75, floor 25),
+  because the 502 means the response was too expensive to build and asking
+  again unchanged cannot help; and a per-repo BACKOFF (2m doubling to 30m,
+  held on the Discoverer across sweeps) stops a repo that is genuinely down
+  from being re-attempted, and re-logged, every cycle. Degradation never
+  persists: depth returns to full and backoff clears on the next success. A
+  sweep also has a wall-clock budget (default: the discovery interval) and
+  resumes at the repo it could not reach, so a slow repo delays its neighbours
+  by a cycle instead of starving them. The loop itself has no failure counter
+  and no circuit breaker: `loop` logs and ticks on, and `Discover` returns an
+  error only when every repo failed AND at least one proved it this cycle
+  (repos merely waiting out backoff do not re-prove anything, or one outage
+  would error on every subsequent cycle).
+- **The daemon log is NDJSON on stderr**, one `{ts, level, msg}` record per
+  line through `lib-agent-output`, so it colourises like every other family
+  output and stdout stays clean for the records commands emit. The timestamp
+  is the point: a log full of "skipping repo this cycle" cannot otherwise
+  answer whether discovery stopped or is merely repeating itself. `logSinks`
+  carries the info/warn pair together because callers always choose both at
+  once (a one-shot run sends both to stderr; the daemon tees both into the
+  dashboard's ring). `msg` stays a formatted sentence: every call site is
+  Printf-shaped, and named fields are a later change this shape leaves room for.
 - **Queue row ⇔ pending work.** Completion moves a candidate into append-only
   history atomically (SHA-gated `Complete`); "reviewing" is derived from a
   claim lease (`ClaimActive`, window `LeaseWindow()`), never stored as a

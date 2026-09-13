@@ -85,6 +85,10 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		stderrLogf(format, args...)
 		logs.Addf(format, args...)
 	}
+	warnLogf := func(format string, args ...any) {
+		stderrWarnf(format, args...)
+		logs.Addf(format, args...)
+	}
 	logf("serve: starting (pid %d)", os.Getpid())
 	if opts.readOnly {
 		logf("serve: read-only mode: store opened read-only, both loops disabled")
@@ -160,7 +164,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	// The cache was already keyed by engine so the dashboard could show both;
 	// the floor now reads it the same way, because either engine can run.
-	schedDone, err := startScheduler(ctx, running, config.Read, s, logf, usageCache.Get, shutdown)
+	schedDone, err := startScheduler(ctx, running, config.Read, s, logSinks{infof: logf, warnf: warnLogf}, usageCache.Get, shutdown)
 	if err != nil {
 		return err
 	}
@@ -220,15 +224,15 @@ func startDashboard(addr string, dash *dashboard.Server, logf scheduler.Logf, st
 	return srv, nil
 }
 
-func startScheduler(ctx context.Context, running dashboard.Running, cfg func() config.Config, s store.Store, logf scheduler.Logf, usageFn scheduler.UsageFn, shutdown shutdownController) (<-chan error, error) {
+func startScheduler(ctx context.Context, running dashboard.Running, cfg func() config.Config, s store.Store, sinks logSinks, usageFn scheduler.UsageFn, shutdown shutdownController) (<-chan error, error) {
 	if !running.Discovery && !running.Review {
-		logf("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
+		sinks.infof("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
 		return nil, nil
 	}
 	// Warnings fold into the daemon log so they reach stderr AND the
 	// dashboard's log ring, unlike run's structured-notice route.
-	warnf := func(notice, hint string) { logf("warning: %s (%s)", notice, hint) }
-	sched, err := buildScheduler(ctx, cfg, s, logf, warnf, usageFn)
+	warnf := func(notice, hint string) { sinks.warnf("%s (%s)", notice, hint) }
+	sched, err := buildScheduler(ctx, cfg, s, sinks, warnf, usageFn)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +240,7 @@ func startScheduler(ctx context.Context, running dashboard.Running, cfg func() c
 	go func() {
 		err := sched.StartGraceful(shutdown.stopCtxs, running.Discovery, running.Review)
 		if err != nil && !errors.Is(err, context.Canceled) {
-			logf("scheduler stopped: %v", err)
+			sinks.warnf("scheduler stopped: %v", err)
 		}
 		done <- err
 	}()

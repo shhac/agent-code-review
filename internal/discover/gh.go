@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -93,8 +94,61 @@ func splitRepo(repo string) (owner, name string, err error) {
 	return owner, name, nil
 }
 
+// ghAttempts is how many times runGH will try a call whose failure looks
+// transient, and ghRetryDelay the base wait between those tries (linear:
+// 1x then 2x). Both are vars so tests can drive the retry path without
+// sleeping.
+var (
+	ghAttempts    = 3
+	ghRetryDelay  = 1500 * time.Millisecond
+	transientHTTP = regexp.MustCompile(`HTTP 5\d\d`)
+)
+
+// transient reports whether a gh failure is worth trying again. GitHub's
+// GraphQL endpoint answers an expensive query with a 502 often enough that
+// treating one as fatal costs a repo its whole discovery cycle, and the same
+// query succeeds on the next attempt. Anything else (404, bad auth, a malformed
+// query) will fail identically however many times we ask, so it returns at once.
+func transient(msg string) bool {
+	if transientHTTP.MatchString(msg) {
+		return true
+	}
+	for _, s := range []string{"Bad Gateway", "Service Unavailable", "Gateway Timeout", "connection reset by peer", "unexpected EOF", "TLS handshake timeout"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // runGH executes the gh CLI and returns stdout, surfacing stderr on failure.
+// Transient failures are retried; see transient for what counts.
 func runGH(ctx context.Context, args ...string) ([]byte, error) {
+	var lastErr error
+	for attempt := 1; attempt <= ghAttempts; attempt++ {
+		if attempt > 1 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt-1) * ghRetryDelay):
+			}
+		}
+		out, err := runGHOnce(ctx, args...)
+		if err == nil {
+			return out, nil
+		}
+		lastErr = err
+		if !transient(err.Error()) {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+// runGHOnce is one execution of the gh CLI, with no retry policy of its own.
+// A var so tests can drive the retry and page-size ladders without a stub
+// binary on PATH.
+var runGHOnce = func(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

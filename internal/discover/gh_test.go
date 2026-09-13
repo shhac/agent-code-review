@@ -1,7 +1,9 @@
 package discover
 
 import (
+	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -140,4 +142,103 @@ func TestStillCandidateSkipsWhatWeAlreadyReviewedAtThisHead(t *testing.T) {
 	if !ok {
 		t.Error("no login means the guard cannot apply, not that everything is already reviewed")
 	}
+}
+
+// --- transient-failure retry ---
+
+func TestTransientClassification(t *testing.T) {
+	retry := []string{
+		"gh pr list: HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)",
+		"gh api: HTTP 503: Service Unavailable",
+		"gh pr list: HTTP 504: Gateway Timeout",
+		"gh api: read tcp: connection reset by peer",
+		"gh api: net/http: TLS handshake timeout",
+	}
+	for _, msg := range retry {
+		if !transient(msg) {
+			t.Errorf("transient(%q) = false, want true", msg)
+		}
+	}
+	// A 4xx, a bad query, or a missing repo fails identically however many
+	// times we ask; retrying only delays the error.
+	permanent := []string{
+		"gh pr list: HTTP 404: Not Found",
+		"gh pr list: HTTP 401: Bad credentials",
+		"gh api: GraphQL: Field 'nope' doesn't exist",
+		"gh pr list: could not resolve to a Repository",
+	}
+	for _, msg := range permanent {
+		if transient(msg) {
+			t.Errorf("transient(%q) = true, want false", msg)
+		}
+	}
+}
+
+func TestRunGHRetriesTransientThenSucceeds(t *testing.T) {
+	restore := fakeGH(t, `
+if [ ! -f "$STATE" ]; then echo 1 > "$STATE"; echo "HTTP 502: 502 Bad Gateway" >&2; exit 1; fi
+echo '[]'
+`)
+	defer restore()
+
+	out, err := runGH(context.Background(), "pr", "list")
+	if err != nil {
+		t.Fatalf("runGH after one 502 = %v, want success on the retry", err)
+	}
+	if strings.TrimSpace(string(out)) != "[]" {
+		t.Fatalf("runGH returned %q, want the retry's output", out)
+	}
+}
+
+func TestRunGHGivesUpAfterAttempts(t *testing.T) {
+	restore := fakeGH(t, `echo "HTTP 502: 502 Bad Gateway" >&2; exit 1`)
+	defer restore()
+
+	if _, err := runGH(context.Background(), "pr", "list"); err == nil {
+		t.Fatal("runGH with a permanently 502ing gh = nil, want the last error")
+	}
+	if got := attempts(t); got != ghAttempts {
+		t.Fatalf("gh invoked %d times, want %d", got, ghAttempts)
+	}
+}
+
+func TestRunGHDoesNotRetryPermanentFailure(t *testing.T) {
+	restore := fakeGH(t, `echo "HTTP 404: Not Found" >&2; exit 1`)
+	defer restore()
+
+	if _, err := runGH(context.Background(), "pr", "list"); err == nil {
+		t.Fatal("runGH on a 404 = nil, want an error")
+	}
+	if got := attempts(t); got != 1 {
+		t.Fatalf("gh invoked %d times on a 404, want 1 (no retries)", got)
+	}
+}
+
+// fakeGH puts a stub `gh` on PATH running body, with $STATE pointing at a
+// scratch file the body may use to vary its behaviour between invocations,
+// and $COUNT at a tally of invocations. It zeroes the retry delay so the
+// retry path costs the suite nothing.
+func fakeGH(t *testing.T, body string) func() {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\nSTATE=" + dir + "/state\nprintf x >> " + dir + "/count\n" + body + "\n"
+	if err := os.WriteFile(dir+"/gh", []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldDelay := ghRetryDelay
+	ghRetryDelay = 0
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ghDir = dir
+	return func() { ghRetryDelay = oldDelay }
+}
+
+var ghDir string
+
+func attempts(t *testing.T) int {
+	t.Helper()
+	b, err := os.ReadFile(ghDir + "/count")
+	if err != nil {
+		return 0
+	}
+	return len(b)
 }

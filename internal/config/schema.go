@@ -121,6 +121,15 @@ type UsageFloorLimits struct {
 type DiscoverySettings struct {
 	Enabled  *bool  `json:"enabled,omitempty"`
 	Interval string `json:"interval,omitempty"` // e.g. "5m"
+	// ListLimit bounds how many open PRs one repo's sweep pulls. gh pages
+	// internally at 100 per request, so this doubles as the per-repo page
+	// budget: a sweep's cost is set by config, not by how many PRs the repo
+	// happens to have open.
+	ListLimit *int `json:"list_limit,omitempty"`
+	// SweepBudget caps the wall time one sweep may spend before it stops and
+	// resumes at the repo it did not reach on the next cycle. Empty means the
+	// discovery interval, so a slow sweep can never run into its own tick.
+	SweepBudget string `json:"sweep_budget,omitempty"`
 }
 
 // EngineCommon is the set of dials every engine has, whatever it is: which

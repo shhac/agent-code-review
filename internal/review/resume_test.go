@@ -72,15 +72,11 @@ func TestReviewResumesTheGivenSessionInsteadOfStartingFresh(t *testing.T) {
 	t.Run("codex", func(t *testing.T) {
 		e := newCodex(config.CodexSettings{}, "keep going")
 		var argv [][]string
+		workDir := t.TempDir()
 		e.runCmd = func(_ context.Context, args []string, sink io.Writer) error {
 			argv = append(argv, args)
 			_, _ = io.WriteString(sink, `{"type":"turn.completed","usage":{"input_tokens":10}}`+"\n")
-			return nil
-		}
-		workDir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(workDir, "verdict.json"),
-			[]byte(`{"decision":"APPROVED","summary":"finished after the interruption"}`), 0o600); err != nil {
-			t.Fatal(err)
+			return os.WriteFile(filepath.Join(workDir, "verdict.json"), []byte(`{"decision":"APPROVED","summary":"finished after the interruption"}`), 0600)
 		}
 		v, err := e.Review(context.Background(), Request{
 			Prompt: "THE FULL PROMPT", WorkDir: workDir, ResumeSession: "prev-session"})

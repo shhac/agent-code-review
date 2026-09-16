@@ -1,16 +1,12 @@
 package review
 
 import (
-	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"io"
-	"os/exec"
-	"strconv"
-	"strings"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/lib-agent-harness/native"
 )
 
 // claudeEngine invokes `claude -p` non-interactively with the assembled
@@ -141,14 +137,7 @@ func newClaude(c config.ClaudeSettings, resumePrompt string) *claudeEngine {
 // workDir, stdout into the transcoder, stderr into the log sink verbatim
 // (claude prints plain warnings there, not JSON).
 func (e *claudeEngine) execClaude(ctx context.Context, args []string, workDir string, stream, sink io.Writer) error {
-	cmd := exec.CommandContext(ctx, e.bin, args...)
-	cmd.Dir = workDir // claude has no --cd; the workdir IS the process cwd
-	cmd.Stdout = stream
-	cmd.Stderr = sink
-	// Out of the terminal's process group, so a graceful Ctrl-C cannot kill a
-	// review mid-run. Only reviewCtx (the SECOND signal) ends this.
-	detachFromTerminalSignals(cmd)
-	return cmd.Run()
+	return native.Execute(ctx, e.harnessConfig(), args, workDir, stream, sink)
 }
 
 func (e *claudeEngine) Name() string { return "claude" }
@@ -162,11 +151,8 @@ func (e *claudeEngine) Provenance(ctx context.Context) Provenance {
 // review takes minutes, so one cheap exec keeps the recorded version accurate
 // across a mid-cycle upgrade. "" on a failed probe.
 func (e *claudeEngine) claudeVersion(ctx context.Context) string {
-	out, err := exec.CommandContext(ctx, e.bin, "--version").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	version, _ := native.Version(ctx, e.harnessConfig())
+	return version
 }
 
 func (e *claudeEngine) Review(ctx context.Context, req Request) (Verdict, error) {
@@ -181,7 +167,15 @@ func (e *claudeEngine) Review(ctx context.Context, req Request) (Verdict, error)
 	// One transcoder spans every invocation of the review, so a resumed run
 	// keeps appending to the same transcript and its token totals accumulate
 	// the way codex's repeated trailers do.
-	stream := newStreamTranscoder(sink)
+	stream, _ := native.NewStream("claude", sink, native.StreamOptions{Structured: true})
+	var latest native.Result
+	invoke := func(r native.Request) error {
+		cfg := e.harnessConfig()
+		cfg.RunCommand = e.runCmd
+		var err error
+		latest, err = native.Run(ctx, cfg, r, stream)
+		return err
+	}
 
 	return resumableRun{
 		engine: "claude -p",
@@ -190,85 +184,36 @@ func (e *claudeEngine) Review(ctx context.Context, req Request) (Verdict, error)
 			// An interrupted attempt left a live session; continuing it costs
 			// the nudge instead of the whole review again.
 			if req.ResumeSession != "" {
-				stream.userPrompt(e.resumePrompt)
-				return e.run(ctx, e.buildResumeArgs(req.ResumeSession), workDir, stream, sink)
+				return invoke(native.Request{WorkDir: workDir, ResumeSession: req.ResumeSession, Schema: verdictSchema, Prompt: e.resumePrompt})
 			}
-			stream.userPrompt(req.Prompt)
-			return e.run(ctx, e.buildArgs(req.Prompt), workDir, stream, sink)
+			return invoke(native.Request{WorkDir: workDir, Schema: verdictSchema, Prompt: req.Prompt + reportingInstruction})
 		},
 		resume: func(id string) error {
-			stream.userPrompt(e.resumePrompt)
-			return e.run(ctx, e.buildResumeArgs(id), workDir, stream, sink)
+			return invoke(native.Request{WorkDir: workDir, ResumeSession: id, Schema: verdictSchema, Prompt: e.resumePrompt})
 		},
-		report:   stream.verdict,
-		session:  func() string { return stream.sessionID },
+		report: func() (Verdict, error) {
+			if len(latest.Report) == 0 {
+				_, err := stream.Report()
+				return Verdict{}, err
+			}
+			return parseVerdict(latest.Report)
+		},
+		session:  func() string { return stream.Snapshot().SessionID },
 		raw:      buf.String,
-		cost:     func() float64 { return stream.costUSD },
-		usage:    func() TokenUsage { return stream.usage },
-		rawUsage: func() string { return joinRawUsage(stream.rawUsage) },
+		cost:     func() float64 { return stream.Snapshot().CostUSD },
+		usage:    func() TokenUsage { return stream.Snapshot().Usage },
+		rawUsage: func() string { return stream.Snapshot().RawUsage },
 	}.do()
 }
 
-// run drives one invocation and flushes the transcoder's trailing line, so a
-// stream that ended without a final newline still renders before the report
-// is read back.
-func (e *claudeEngine) run(ctx context.Context, args []string, workDir string, stream *streamTranscoder, sink io.Writer) error {
-	err := e.runCmd(ctx, args, workDir, stream, sink)
-	stream.Close()
-	return err
+func (e *claudeEngine) harnessConfig() native.Config {
+	return native.Config{Engine: "claude", Binary: e.bin, Model: e.model, Effort: e.effort, PermissionMode: e.permissionMode, AllowedTools: e.allowedTools, MaxBudgetUSD: e.maxBudgetUSD, Args: e.args}
 }
-
-// inlineVerdictSchema is the shared schema on one line: --json-schema takes
-// the schema itself, where codex's --output-schema takes a path to it.
-var inlineVerdictSchema = jsonCompact(verdictSchema)
-
-// buildArgs assembles the claude invocation. Pure, and pinned by table tests
-// rather than live runs, exactly like the codex driver's.
 func (e *claudeEngine) buildArgs(prompt string) []string {
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--json-schema", inlineVerdictSchema}
-	args = append(args, e.commonArgs()...)
-	return appendPositionals(args, prompt+reportingInstruction)
+	args, _ := native.Args(e.harnessConfig(), native.Request{Prompt: prompt + reportingInstruction, Schema: verdictSchema})
+	return args
 }
-
-// buildResumeArgs assembles the invocation that nudges a session which ended
-// without a final report. --resume restores the session's own context, so
-// only the run-shaping flags are repeated.
 func (e *claudeEngine) buildResumeArgs(sessionID string) []string {
-	args := []string{"-p", "--resume", sessionID, "--output-format", "stream-json", "--verbose", "--json-schema", inlineVerdictSchema}
-	args = append(args, e.commonArgs()...)
-	return appendPositionals(args, e.resumePrompt)
-}
-
-// commonArgs are the flags both the initial and resumed invocations carry.
-func (e *claudeEngine) commonArgs() []string {
-	var args []string
-	if e.model != "" {
-		args = append(args, "--model", e.model)
-	}
-	if e.effort != "" {
-		args = append(args, "--effort", e.effort)
-	}
-	if e.permissionMode != "" {
-		args = append(args, "--permission-mode", e.permissionMode)
-	}
-	if len(e.allowedTools) > 0 {
-		args = append(args, "--allowedTools", strings.Join(e.allowedTools, ","))
-	}
-	if e.maxBudgetUSD > 0 {
-		// A hard per-invocation ceiling with no codex equivalent. On a
-		// subscription the figure is the notional API-rate valuation of the
-		// run, so this bounds runaway reviews rather than literal spend.
-		args = append(args, "--max-budget-usd", strconv.FormatFloat(e.maxBudgetUSD, 'f', -1, 64))
-	}
-	return append(args, e.args...)
-}
-
-// jsonCompact keeps the inline schema on one argv entry regardless of how the
-// constant is formatted in source.
-func jsonCompact(s string) string {
-	var buf bytes.Buffer
-	if err := json.Compact(&buf, []byte(s)); err != nil {
-		return s
-	}
-	return buf.String()
+	args, _ := native.Args(e.harnessConfig(), native.Request{Prompt: e.resumePrompt, ResumeSession: sessionID, Schema: verdictSchema})
+	return args
 }

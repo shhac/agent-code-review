@@ -13,6 +13,7 @@ import (
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/lib-agent-harness/native"
 )
 
 // Verdict is the agent's report of what it actually did for one PR. The agent
@@ -44,22 +45,7 @@ type Verdict struct {
 // fresh input and a sixtieth of output, so a figure that blends them cannot be
 // priced, and one that includes CacheRead cannot be compared between engines
 // that report it and engines that don't.
-type TokenUsage struct {
-	Input      int // fresh input, never including cached reads
-	Output     int
-	CacheWrite int // context written to cache, which the model did process
-	CacheRead  int // context re-read from cache, which it did not
-	// Reasoning is part of Output, not an addition to it. Recorded because
-	// it is worth analysing on its own; never summed into a total.
-	Reasoning int
-}
-
-// Total is every token the run moved, cached re-reads included.
-func (t TokenUsage) Total() int { return t.Input + t.Output + t.CacheWrite + t.CacheRead }
-
-// Fresh is what the run actually processed: everything except context re-read
-// from cache. The only token figure comparable across engines.
-func (t TokenUsage) Fresh() int { return t.Input + t.Output + t.CacheWrite }
+type TokenUsage = native.TokenUsage
 
 // Verdict decisions, aliased from the store's canonical vocabulary (the
 // layer both packages import, so the two sets cannot drift). The first four

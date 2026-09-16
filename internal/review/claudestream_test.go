@@ -3,6 +3,7 @@ package review
 import (
 	"bytes"
 	"flag"
+	"github.com/shhac/lib-agent-harness/native"
 	"os"
 	"strings"
 	"testing"
@@ -20,11 +21,10 @@ func fixedClock(step time.Duration) func() time.Time {
 	}
 }
 
-func transcode(t *testing.T, lines ...string) (string, *streamTranscoder) {
+func transcode(t *testing.T, lines ...string) (string, *native.Stream) {
 	t.Helper()
 	var out bytes.Buffer
-	tr := newStreamTranscoder(&out)
-	tr.now = fixedClock(500 * time.Millisecond)
+	tr, _ := native.NewStream("claude", &out, native.StreamOptions{Structured: true, Clock: fixedClock(500 * time.Millisecond)})
 	for _, l := range lines {
 		if _, err := tr.Write([]byte(l + "\n")); err != nil {
 			t.Fatal(err)
@@ -61,11 +61,11 @@ func TestTranscodeRendersMarkerFormat(t *testing.T) {
 			t.Errorf("transcript missing %q\n--- got ---\n%s", want, got)
 		}
 	}
-	if tr.sessionID != "abc-123" {
-		t.Errorf("sessionID = %q", tr.sessionID)
+	if tr.Snapshot().SessionID != "abc-123" {
+		t.Errorf("sessionID = %q", tr.Snapshot().SessionID)
 	}
-	if tr.usage.Total() != 1234 {
-		t.Errorf("tokens = %d, want every usage field summed", tr.usage.Total())
+	if tr.Snapshot().Usage.Total() != 1234 {
+		t.Errorf("tokens = %d, want every usage field summed", tr.Snapshot().Usage.Total())
 	}
 }
 
@@ -78,8 +78,8 @@ func TestTranscodeSplitsUsageFreshFromCached(t *testing.T) {
 		`{"type":"result","subtype":"success","structured_output":{"decision":"APPROVED","summary":"ok"},`+
 			`"usage":{"input_tokens":1000,"output_tokens":200,"cache_creation_input_tokens":30,"cache_read_input_tokens":400000}}`,
 	)
-	if want := (TokenUsage{Input: 1000, Output: 200, CacheWrite: 30, CacheRead: 400000}); tr.usage != want {
-		t.Errorf("usage = %+v, want %+v (cache writes are work done, cache reads are not)", tr.usage, want)
+	if want := (TokenUsage{Input: 1000, Output: 200, CacheWrite: 30, CacheRead: 400000}); tr.Snapshot().Usage != want {
+		t.Errorf("usage = %+v, want %+v (cache writes are work done, cache reads are not)", tr.Snapshot().Usage, want)
 	}
 }
 
@@ -93,8 +93,8 @@ func TestTranscodeAccumulatesUsageAcrossInvocations(t *testing.T) {
 		`{"type":"result","subtype":"success","structured_output":{"decision":"APPROVED","summary":"ok"},`+
 			`"usage":{"input_tokens":20,"output_tokens":3,"cache_read_input_tokens":7000}}`,
 	)
-	if want := (TokenUsage{Input: 120, Output: 13, CacheRead: 12000}); tr.usage != want {
-		t.Errorf("usage = %+v, want %+v (both invocations summed)", tr.usage, want)
+	if want := (TokenUsage{Input: 120, Output: 13, CacheRead: 12000}); tr.Snapshot().Usage != want {
+		t.Errorf("usage = %+v, want %+v (both invocations summed)", tr.Snapshot().Usage, want)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestTranscodeRendersNonBashTool(t *testing.T) {
 // still render exactly once.
 func TestTranscodeReassemblesSplitLines(t *testing.T) {
 	var out bytes.Buffer
-	tr := newStreamTranscoder(&out)
+	tr, _ := native.NewStream("claude", &out, native.StreamOptions{Structured: true})
 	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}` + "\n"
 	if _, err := tr.Write([]byte(line[:30])); err != nil {
 		t.Fatal(err)
@@ -176,17 +176,13 @@ func TestTranscodeIgnoresUnknownEvents(t *testing.T) {
 	if strings.Contains(got, "try this") {
 		t.Errorf("unknown events must not render:\n%s", got)
 	}
-	v, err := tr.verdict()
+	data, err := tr.Report()
+	v, parseErr := parseVerdict(data)
+	if err == nil {
+		err = parseErr
+	}
 	if err != nil || v.Decision != DecisionSkipped {
 		t.Errorf("verdict = %+v, err = %v", v, err)
-	}
-}
-
-func TestWithThousands(t *testing.T) {
-	for in, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 192575: "192,575", 1234567: "1,234,567"} {
-		if got := withThousands(in); got != want {
-			t.Errorf("withThousands(%d) = %q, want %q", in, got, want)
-		}
 	}
 }
 
@@ -209,9 +205,8 @@ var updateGolden = flag.Bool("update-golden", false, "rewrite the cross-language
 // writing a final message, so the report reaches the log via the result event.
 func TestTranscodeGoldenTranscript(t *testing.T) {
 	var out bytes.Buffer
-	tr := newStreamTranscoder(&out)
-	tr.now = fixedClock(500 * time.Millisecond)
-	tr.userPrompt("Review pull request owner/repo#42.")
+	tr, _ := native.NewStream("claude", &out, native.StreamOptions{Structured: true, Clock: fixedClock(500 * time.Millisecond)})
+	tr.UserPrompt("Review pull request owner/repo#42.")
 	for _, line := range []string{
 		`{"type":"system","subtype":"init","session_id":"9f1c2d3e-0000-4444-8888-abcdefabcdef"}`,
 		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Read the diff, then check it against the linked issue."}]}}`,
@@ -253,8 +248,8 @@ func TestTranscodeSumsCostAcrossInvocations(t *testing.T) {
 		`{"type":"result","subtype":"success","structured_output":{"decision":"WORKING","summary":"w"},"usage":{"input_tokens":10},"total_cost_usd":0.25}`,
 		`{"type":"result","subtype":"success","structured_output":{"decision":"COMMENTED","summary":"c"},"usage":{"input_tokens":10},"total_cost_usd":0.5}`,
 	)
-	if tr.costUSD != 0.75 {
-		t.Errorf("costUSD = %v, want both invocations summed", tr.costUSD)
+	if tr.Snapshot().CostUSD != 0.75 {
+		t.Errorf("costUSD = %v, want both invocations summed", tr.Snapshot().CostUSD)
 	}
 	if !strings.Contains(got, "~ $0.7500 at API rates") {
 		t.Errorf("transcript must show the running cost:\n%s", got)
@@ -267,8 +262,8 @@ func TestTranscodeOmitsCostWhenUnreported(t *testing.T) {
 	got, tr := transcode(t,
 		`{"type":"result","subtype":"success","structured_output":{"decision":"SKIPPED","summary":"s"},"usage":{"input_tokens":5}}`,
 	)
-	if tr.costUSD != 0 {
-		t.Errorf("costUSD = %v, want 0", tr.costUSD)
+	if tr.Snapshot().CostUSD != 0 {
+		t.Errorf("costUSD = %v, want 0", tr.Snapshot().CostUSD)
 	}
 	if strings.Contains(got, "API rates") {
 		t.Errorf("an unreported cost must not render:\n%s", got)
@@ -320,7 +315,7 @@ func TestTranscodeRendersFailureReason(t *testing.T) {
 		t.Errorf("failure must render under the error marker:\n%s", got)
 	}
 	// And the driver's error names it, rather than saying "no structured output".
-	if _, err := tr.verdict(); err == nil || !strings.Contains(err.Error(), "exited with code 1") {
+	if _, err := tr.Report(); err == nil || !strings.Contains(err.Error(), "exited with code 1") {
 		t.Errorf("verdict error = %v, want the CLI's own reason", err)
 	}
 }
@@ -342,5 +337,18 @@ func TestTranscodeRendersBareMissingReport(t *testing.T) {
 	got, _ := transcode(t, `{"type":"result","subtype":"success","usage":{"input_tokens":0}}`)
 	if !strings.Contains(got, "error\nthe run ended without a report") {
 		t.Errorf("a report-less run must still explain itself:\n%s", got)
+	}
+}
+
+// Interrupted Claude output may carry placeholder zero counters even after
+// producing text. The shared harness must not render those as a free review.
+func TestTranscodeInterruptedPlaceholderUsageIsUnknown(t *testing.T) {
+	got, tr := transcode(t,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Review in progress"}]}}`,
+		`{"type":"result","is_error":true,"subtype":"error_during_execution","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}`,
+	)
+	r := tr.Snapshot()
+	if r.UsageKnown || r.CostKnown || !strings.Contains(got, "usage unavailable") || strings.Contains(got, "tokens used\n0") {
+		t.Fatalf("interrupted usage presented as known: %+v\n%s", r, got)
 	}
 }

@@ -296,20 +296,19 @@ internal/
   engine's CLI; skills and extra CLIs are user-prompt territory. See
   `design-docs/2026-07-architecture.md`.
 
-- **Engines differ only in how they spawn a CLI.** `review/driver.go` holds
-  everything engine-agnostic: the verdict schema, the reporting instruction,
-  the agent-log sink, and the bounded resume policy (`resumableRun`). A driver
-  supplies just its argv builders and how to read a session id, a token split,
-  and a report back out. Both engines are driven in JSON mode and both render
-  their own stream into the SAME marker transcript (`codexstream.go`,
-  `claudestream.go`), so `agent.log` stays one format and the dashboard needs
-  one parser. They differ in how the report comes back: `codex exec` writes it
-  to a file (`--output-last-message`), while `claude -p` reports in-stream
-  (`--json-schema`, delivered as a forced `StructuredOutput` tool call). That
-  cross-language contract is pinned by a golden fixture per engine
-  (`review/testdata/{codex,claude}-transcript.golden`) written by the Go tests
-  and read by `ui/src/lib/agentlog.test.ts`; regenerate with
-  `go test ./internal/review -update-golden`.
+- **Harness mechanics live in `lib-agent-harness`.** `review/driver.go` owns
+  the verdict schema, reporting instruction, agent-log sink, and bounded
+  WORKING-resume policy. The two drivers map application configuration into
+  `lib-agent-harness/native.Run`, which owns CLI arguments, invocation, resume
+  transport, transcript rendering, and usage normalization. Do not reintroduce
+  provider protocol parsers here. `lib-agent-harness/process` owns Unix process
+  groups and Windows suspended-start job containment. Codex final output files
+  are cleared before every invocation, including resume, so a failed turn cannot
+  reuse an old verdict. Both engines still render the SAME marker transcript,
+  with fixtures in `review/testdata/{codex,claude}-transcript.golden` consumed by
+  `ui/src/lib/agentlog.test.ts`; regenerate with
+  `go test ./internal/review -update-golden`. Use published library versions,
+  never committed sibling-directory replace directives.
 
 - **The engine subprocess must leave our process group, or Ctrl-C is not
   graceful.** A terminal delivers SIGINT to the whole FOREGROUND PROCESS

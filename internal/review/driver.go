@@ -5,8 +5,8 @@ package review
 // reporting instruction appended to the prompt), tees its transcript into the
 // same workdir log, and yields to the same bounded resume policy when a run
 // ends before reporting a real outcome. codex.go and claude.go supply only
-// what genuinely differs: how to spawn the CLI, and how to read a session id
-// and a report back out of its output.
+// their application configuration. lib-agent-harness/native owns invocation,
+// stream decoding, session identifiers and token accounting.
 
 import (
 	"bytes"
@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
 )
 
 // verdictSchema constrains the agent's report. codex applies the schema to
@@ -53,33 +52,6 @@ Every message you emit matches the provided output schema. While you are still w
 // agentLogName is the live log file every engine tees its output into inside
 // the review workdir; consumers locate it through LogPath.
 const agentLogName = "agent.log"
-
-// engineWaitDelay bounds how long a forced shutdown waits after killing the
-// engine's process group before giving up on draining its output. Generous,
-// because the normal path never reaches it: it only applies once cancellation
-// has already killed the group, and exists so one wedged descendant still
-// holding the transcript pipe cannot hang the daemon's exit.
-const engineWaitDelay = 10 * time.Second
-
-// appendPositionals adds a command's positional arguments behind a "--"
-// terminator. Both drivers end their argv this way.
-//
-// This is load-bearing, not decoration. claude's `--allowedTools` is VARIADIC
-// (`<tools...>`), so it keeps consuming argv until the next flag: with the
-// prompt appended plainly it was swallowed as one more tool name and every
-// review in a static permission mode died on "Input must be provided either
-// through stdin or as a prompt argument".
-//
-// A terminator rather than a reordering, because ordering only fixes the flags
-// we ship today. Both drivers end their flag list with the user's own
-// codex.args / claude.args, which may hold any flag at all, including another
-// variadic one (codex has `-i/--image` today). After "--" nothing downstream
-// can claim a positional, and a prompt starting with "-" stops being
-// ambiguous too. Verified against both live CLIs: `codex exec`, `codex exec
-// resume` and `claude -p` all parse identically with and without it.
-func appendPositionals(args []string, positionals ...string) []string {
-	return append(append(args, "--"), positionals...)
-}
 
 // LogPath locates the review agent's live log inside its workspace. The
 // engine tees its output there as the run progresses; the CLI's `queue log`
@@ -230,20 +202,6 @@ func (r resumableRun) costUSD() float64 {
 		return 0
 	}
 	return r.cost()
-}
-
-// joinRawUsage renders the collected per-invocation usage payloads as one
-// JSON array. "" when the engine reported none, so an absent value stays
-// absent in the store rather than becoming a misleading empty array.
-func joinRawUsage(payloads []json.RawMessage) string {
-	if len(payloads) == 0 {
-		return ""
-	}
-	out, err := json.Marshal(payloads)
-	if err != nil {
-		return ""
-	}
-	return string(out)
 }
 
 // prepareWorkspace resolves the review's workspace, creating a temp one when

@@ -2,14 +2,11 @@ package review
 
 import (
 	"context"
-	"encoding/json"
 	"io"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/lib-agent-harness/native"
 )
 
 // codexEngine invokes `codex exec` non-interactively with the assembled prompt.
@@ -52,13 +49,7 @@ func newCodex(c config.CodexSettings, resumePrompt string) *codexEngine {
 // execCodex is the production runCmd: one codex subprocess, stdout+stderr
 // teed into sink.
 func (e *codexEngine) execCodex(ctx context.Context, args []string, sink io.Writer) error {
-	cmd := exec.CommandContext(ctx, e.bin, args...)
-	cmd.Stdout = sink
-	cmd.Stderr = sink
-	// Out of the terminal's process group, so a graceful Ctrl-C cannot kill a
-	// review mid-run. Only reviewCtx (the SECOND signal) ends this.
-	detachFromTerminalSignals(cmd)
-	return cmd.Run()
+	return native.Execute(ctx, e.harnessConfig(), args, "", sink, sink)
 }
 
 func (e *codexEngine) Name() string { return "codex" }
@@ -73,11 +64,8 @@ func (e *codexEngine) Provenance(ctx context.Context) Provenance {
 // at review end stays accurate across a mid-cycle codex upgrade). "" on a
 // failed probe.
 func (e *codexEngine) codexVersion(ctx context.Context) string {
-	out, err := exec.CommandContext(ctx, e.bin, "--version").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	version, _ := native.Version(ctx, e.harnessConfig())
+	return version
 }
 
 func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) {
@@ -93,7 +81,17 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 
 	sink, buf, closeSink := newAgentSink(workDir)
 	defer closeSink()
-	stream := newCodexTranscoder(sink)
+	stream, _ := native.NewStream("codex", sink, native.StreamOptions{Structured: true})
+	var latest native.Result
+	invoke := func(r native.Request) error {
+		cfg := e.harnessConfig()
+		cfg.RunCommand = func(ctx context.Context, args []string, _ string, stdout, stderr io.Writer) error {
+			return e.runCmd(ctx, args, stdout)
+		}
+		var err error
+		latest, err = native.Run(ctx, cfg, r, stream)
+		return err
+	}
 
 	// codex reports its verdict through a file (--output-last-message); the
 	// session id and the token split come off the --json event stream, which
@@ -105,99 +103,29 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 			// An interrupted attempt left a live session; continuing it costs
 			// the nudge instead of the whole review again.
 			if req.ResumeSession != "" {
-				stream.userPrompt(e.resumePrompt)
-				return e.run(ctx, e.buildResumeArgs(req.ResumeSession, schemaPath, lastMsgPath), stream)
+				return invoke(native.Request{ResumeSession: req.ResumeSession, SchemaPath: schemaPath, OutputPath: lastMsgPath, Prompt: e.resumePrompt})
 			}
-			stream.userPrompt(req.Prompt)
-			return e.run(ctx, e.buildArgs(workDir, schemaPath, lastMsgPath, req.Prompt), stream)
+			return invoke(native.Request{WorkDir: workDir, SchemaPath: schemaPath, OutputPath: lastMsgPath, Prompt: req.Prompt + reportingInstruction})
 		},
 		resume: func(id string) error {
-			stream.userPrompt(e.resumePrompt)
-			return e.run(ctx, e.buildResumeArgs(id, schemaPath, lastMsgPath), stream)
+			return invoke(native.Request{ResumeSession: id, SchemaPath: schemaPath, OutputPath: lastMsgPath, Prompt: e.resumePrompt})
 		},
-		report:   func() (Verdict, error) { return parseVerdictFile(lastMsgPath) },
-		session:  func() string { return stream.threadID },
+		report:   func() (Verdict, error) { return parseVerdict(latest.Report) },
+		session:  func() string { return stream.Snapshot().SessionID },
 		raw:      buf.String,
-		usage:    func() TokenUsage { return stream.usage },
-		rawUsage: func() string { return joinRawUsage(stream.rawUsage) },
+		usage:    func() TokenUsage { return stream.Snapshot().Usage },
+		rawUsage: func() string { return stream.Snapshot().RawUsage },
 	}.do()
 }
 
-// run drives one invocation and flushes the transcoder's trailing line, so a
-// stream that ended without a final newline still renders before the report
-// is read back. Mirrors the claude driver's seam of the same name.
-func (e *codexEngine) run(ctx context.Context, args []string, stream *codexTranscoder) error {
-	err := e.runCmd(ctx, args, stream)
-	stream.Close()
-	return err
+func (e *codexEngine) harnessConfig() native.Config {
+	return native.Config{Engine: "codex", Binary: e.bin, Model: e.model, Effort: e.effort, Sandbox: e.sandbox, Args: e.args}
 }
-
-// buildArgs assembles the codex exec invocation. Pure. The CLI contract
-// (flag set, extra args, reporting instruction appended to the prompt) is
-// pinned by table tests instead of live codex runs.
 func (e *codexEngine) buildArgs(workDir, schemaPath, lastMsgPath, prompt string) []string {
-	args := append([]string{"exec"}, e.modelArgs()...)
-	args = append(args,
-		"--json", // events, not prose: the prose trailer has no cache line
-		"--sandbox", e.sandbox,
-		"--cd", workDir,
-		"--skip-git-repo-check", // the per-PR workdir is scratch space, not a repo
-		"--output-schema", schemaPath,
-		"--output-last-message", lastMsgPath,
-	)
-	args = append(args, e.args...)
-	args = append(args, e.effortArgs()...)
-	return appendPositionals(args, prompt+reportingInstruction)
+	args, _ := native.Args(e.harnessConfig(), native.Request{WorkDir: workDir, SchemaPath: schemaPath, OutputPath: lastMsgPath, Prompt: prompt + reportingInstruction})
+	return args
 }
-
-// buildResumeArgs assembles the codex exec resume invocation that nudges a
-// session which ended on a WORKING report. resume has no --sandbox/--cd
-// flags: the session's cwd is restored from its rollout, and the sandbox
-// mode is re-asserted through its config key so the resumed turns keep the
-// same write scope. Pure, pinned by table tests like buildArgs.
 func (e *codexEngine) buildResumeArgs(sessionID, schemaPath, lastMsgPath string) []string {
-	args := append([]string{"exec", "resume"}, e.modelArgs()...)
-	// JSON string syntax is valid TOML basic-string syntax (see effortArgs).
-	sandbox, _ := json.Marshal(e.sandbox)
-	args = append(args,
-		"--json",
-		"--skip-git-repo-check",
-		"-c", "sandbox_mode="+string(sandbox),
-		"--output-schema", schemaPath,
-		"--output-last-message", lastMsgPath,
-	)
-	args = append(args, e.args...)
-	args = append(args, e.effortArgs()...)
-	return appendPositionals(args, sessionID, e.resumePrompt)
-}
-
-// modelArgs and effortArgs are the flags both invocations share. Kept as two
-// helpers rather than one because they sit at different positions in the argv
-// (model right after the subcommand, effort after the caller's extra args),
-// which is why a single commonArgs like claude.go's does not fit here.
-func (e *codexEngine) modelArgs() []string {
-	if e.model == "" {
-		return nil
-	}
-	return []string{"--model", e.model}
-}
-
-// effortArgs encodes the reasoning effort as a `-c` config override. JSON
-// string syntax is valid TOML basic-string syntax, which keeps this safe even
-// when a future effort name contains punctuation.
-func (e *codexEngine) effortArgs() []string {
-	if e.effort == "" {
-		return nil
-	}
-	effort, _ := json.Marshal(e.effort)
-	return []string{"-c", "model_reasoning_effort=" + string(effort)}
-}
-
-// parseVerdictFile reads and validates the agent's final-message report.
-func parseVerdictFile(path string) (Verdict, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Verdict{}, err
-	}
-	return parseVerdict(data)
+	args, _ := native.Args(e.harnessConfig(), native.Request{ResumeSession: sessionID, SchemaPath: schemaPath, OutputPath: lastMsgPath, Prompt: e.resumePrompt})
+	return args
 }

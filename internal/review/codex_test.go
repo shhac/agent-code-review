@@ -363,3 +363,27 @@ func TestNewAgentSink(t *testing.T) {
 		}
 	})
 }
+
+// A failed resumed invocation cannot inherit an earlier attempt's successful
+// report. The library clears the Codex output file before every invocation.
+func TestCodexDoesNotAcceptStaleReport(t *testing.T) {
+	for _, resume := range []string{"", "old-session"} {
+		t.Run(resume, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "verdict.json"), []byte(`{"decision":"APPROVED","summary":"old"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			e := newCodex(config.CodexSettings{}, "continue")
+			calls := 0
+			e.runCmd = func(_ context.Context, _ []string, w io.Writer) error {
+				calls++
+				io.WriteString(w, `{"type":"turn.completed","usage":{"input_tokens":10}}`+"\n")
+				return nil
+			}
+			v, err := e.Review(context.Background(), Request{WorkDir: dir, Prompt: "new", ResumeSession: resume})
+			if err == nil || v.Decision != DecisionError || calls != 1 {
+				t.Fatalf("verdict=%+v err=%v calls=%d", v, err, calls)
+			}
+		})
+	}
+}

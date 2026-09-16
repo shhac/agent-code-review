@@ -2,6 +2,7 @@ package review
 
 import (
 	"encoding/json"
+	"github.com/shhac/lib-agent-harness/native"
 	"os"
 	"strings"
 	"testing"
@@ -10,15 +11,10 @@ import (
 
 // transcodeCodex drives a canned event stream through the transcoder with a
 // clock that advances 500ms per reading, so rendered durations are stable.
-func transcodeCodex(t *testing.T, lines ...string) (string, *codexTranscoder) {
+func transcodeCodex(t *testing.T, lines ...string) (string, *native.Stream) {
 	t.Helper()
 	var out strings.Builder
-	tr := newCodexTranscoder(&out)
-	tick := time.Unix(0, 0)
-	tr.now = func() time.Time {
-		tick = tick.Add(500 * time.Millisecond)
-		return tick
-	}
+	tr, _ := native.NewStream("codex", &out, native.StreamOptions{Clock: fixedClock(500 * time.Millisecond)})
 	for _, l := range lines {
 		if _, err := tr.Write([]byte(l + "\n")); err != nil {
 			t.Fatal(err)
@@ -55,8 +51,8 @@ func TestCodexTranscodeRendersMarkerFormat(t *testing.T) {
 			t.Errorf("transcript missing %q\n--- got ---\n%s", want, got)
 		}
 	}
-	if tr.threadID != "019fa991-ec65-7ba0-b058-47e2eac11a4f" {
-		t.Errorf("threadID = %q", tr.threadID)
+	if tr.Snapshot().SessionID != "019fa991-ec65-7ba0-b058-47e2eac11a4f" {
+		t.Errorf("threadID = %q", tr.Snapshot().SessionID)
 	}
 }
 
@@ -70,14 +66,14 @@ func TestCodexUsageTreatsInputAsCacheInclusive(t *testing.T) {
 		`{"type":"turn.completed","usage":{"input_tokens":18389,"cached_input_tokens":10496,"output_tokens":209,"reasoning_output_tokens":32}}`,
 	)
 	want := TokenUsage{Input: 7893, Output: 209, CacheRead: 10496, Reasoning: 32}
-	if tr.usage != want {
-		t.Errorf("usage = %+v, want %+v", tr.usage, want)
+	if tr.Snapshot().Usage != want {
+		t.Errorf("usage = %+v, want %+v", tr.Snapshot().Usage, want)
 	}
 	// Fresh excludes the cached read; reasoning is inside output, not added.
-	if got := tr.usage.Fresh(); got != 8102 {
+	if got := tr.Snapshot().Usage.Fresh(); got != 8102 {
 		t.Errorf("fresh = %d, want 8102 (input-cached + output, reasoning not added)", got)
 	}
-	if got := tr.usage.Total(); got != 18598 {
+	if got := tr.Snapshot().Usage.Total(); got != 18598 {
 		t.Errorf("total = %d, want 18598", got)
 	}
 }
@@ -96,8 +92,8 @@ func TestCodexUsageReplacesRatherThanSums(t *testing.T) {
 		`{"type":"turn.completed","usage":{"input_tokens":74619,"cached_input_tokens":54528,"output_tokens":251,"reasoning_output_tokens":32}}`,
 	)
 	want := TokenUsage{Input: 20091, Output: 251, CacheRead: 54528, Reasoning: 32}
-	if tr.usage != want {
-		t.Errorf("usage = %+v, want the LAST turn's cumulative figure %+v", tr.usage, want)
+	if tr.Snapshot().Usage != want {
+		t.Errorf("usage = %+v, want the LAST turn's cumulative figure %+v", tr.Snapshot().Usage, want)
 	}
 }
 
@@ -108,7 +104,7 @@ func TestCodexKeepsRawUsagePayloads(t *testing.T) {
 		`{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":2,"service_tier":"flex"}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":20,"cached_input_tokens":5,"output_tokens":3,"service_tier":"flex"}}`,
 	)
-	raw := joinRawUsage(tr.rawUsage)
+	raw := tr.Snapshot().RawUsage
 	var payloads []map[string]any
 	if err := json.Unmarshal([]byte(raw), &payloads); err != nil {
 		t.Fatalf("raw usage must be a JSON array: %v (%s)", err, raw)
@@ -158,10 +154,8 @@ const goldenCodexTranscript = "testdata/codex-transcript.golden"
 // `codex exec --json` run as observed live.
 func TestCodexTranscodeGoldenTranscript(t *testing.T) {
 	var out strings.Builder
-	tr := newCodexTranscoder(&out)
-	tick := time.Unix(0, 0)
-	tr.now = func() time.Time { tick = tick.Add(500 * time.Millisecond); return tick }
-	tr.userPrompt("Review pull request owner/repo#42.")
+	tr, _ := native.NewStream("codex", &out, native.StreamOptions{Clock: fixedClock(500 * time.Millisecond)})
+	tr.UserPrompt("Review pull request owner/repo#42.")
 	for _, line := range []string{
 		`{"type":"thread.started","thread_id":"019f6f77-3c3d-7ce3-966d-d4b2083f4459"}`,
 		`{"type":"turn.started"}`,

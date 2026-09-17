@@ -885,10 +885,15 @@ func TestListLimitsHalvesToAFloor(t *testing.T) {
 		// The default depth: the ladder must reach the floor, not stall at a
 		// rung the repo that needs it is still too big to answer.
 		{300, []int{300, 150, 75, 37, 25}},
+		// A depth deeper than the default reaches the floor too. A ladder
+		// whose length was a hand-set count stopped here at 31, which is the
+		// same failure as stopping at 75, one config change away.
+		{500, []int{500, 250, 125, 62, 31, 25}},
 		{100, []int{100, 50, 25}},
 		{60, []int{60, 30, 25}},
 		// At or below the floor there is nothing to give up: one attempt,
-		// not several identical ones.
+		// not several identical ones. Halving from here would clamp back up
+		// to the floor and ask for MORE than the rung before it.
 		{25, []int{25}},
 		{10, []int{10}},
 	} {

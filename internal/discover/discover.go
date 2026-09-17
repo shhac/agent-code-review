@@ -271,34 +271,35 @@ func (d *Discoverer) resumeAt(repos []string, repo string) {
 // and the honest reply to that is to ask for less rather than to ask again
 // for the same thing. listMinLimit is the floor: below it the listing is too
 // shallow to be worth the call.
-//
-// listAttempts is 5 so the ladder actually REACHES that floor from the default
-// depth of 300: 300, 150, 75, 37, 25. At 3 it stopped at 75, which a repo with
-// hundreds of open PRs is still too big to answer, so the ladder spent three
-// attempts without ever asking a question GitHub could serve.
-const (
-	listAttempts = 5
-	listMinLimit = 25
-)
+const listMinLimit = 25
 
-// listLimits is the descending ladder tried within one sweep of one repo,
-// halving from the configured depth. It stops early once halving stops moving,
-// so an already-small configured limit costs one attempt, not several
-// identical ones.
+// listLimits is the descending ladder tried within one sweep of one repo:
+// halve the configured depth until it lands on the floor.
+//
+// How MANY rungs that takes is a consequence of the depth and the floor, not a
+// dial of its own. A hand-set attempt count is a promise that the ladder
+// reaches the floor, and it is a promise kept only for the depths it happens
+// to be large enough for: at 3 the ladder stopped at 75 from the default depth
+// of 300, and the repo whose 502s justified the ladder -- hundreds of open
+// PRs, an expensive stitched listing -- cannot answer a 75-wide query either.
+// Raising the count to 5 bought the default depth its floor and left any
+// deployment configuring 500 stranded at 31. Deriving it means the ladder
+// reaches the floor at every depth, by construction.
 func listLimits(full int) []int {
-	if full < listMinLimit {
+	// Below the floor there is nothing to give up, and halving would clamp
+	// back UP to it: an ascending ladder that asks for more after asking for
+	// less is not a retreat.
+	if full <= listMinLimit {
 		return []int{full}
 	}
 	limits := []int{full}
-	for len(limits) < listAttempts {
-		next := limits[len(limits)-1] / 2
+	for last := full; last > listMinLimit; {
+		next := last / 2
 		if next < listMinLimit {
 			next = listMinLimit
 		}
-		if next == limits[len(limits)-1] {
-			break
-		}
 		limits = append(limits, next)
+		last = next
 	}
 	return limits
 }

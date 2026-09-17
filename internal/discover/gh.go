@@ -127,10 +127,8 @@ func runGH(ctx context.Context, args ...string) ([]byte, error) {
 	var lastErr error
 	for attempt := 1; attempt <= ghAttempts; attempt++ {
 		if attempt > 1 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(time.Duration(attempt-1) * ghRetryDelay):
+			if err := sleepOrCancel(ctx, time.Duration(attempt-1)*ghRetryDelay); err != nil {
+				return nil, err
 			}
 		}
 		out, err := runGHOnce(ctx, args...)
@@ -143,6 +141,19 @@ func runGH(ctx context.Context, args ...string) ([]byte, error) {
 		}
 	}
 	return nil, lastErr
+}
+
+// sleepOrCancel waits out a retry delay, or gives up early if the caller has
+// already stopped caring. Both of this package's retry shapes need it -- the
+// same-request retry here and the page-size ladder in discover.go -- and a
+// sweep that is out of budget should not spend its last seconds asleep.
+func sleepOrCancel(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
 }
 
 // runGHOnce is one execution of the gh CLI, with no retry policy of its own.

@@ -331,10 +331,8 @@ func (d *Discoverer) ghListPRs(ctx context.Context, repo string) ([]ghPR, error)
 	var lastErr error
 	for i, limit := range limits {
 		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(ghRetryDelay):
+			if err := sleepOrCancel(ctx, ghRetryDelay); err != nil {
+				return nil, err
 			}
 		}
 		out, err := runGHOnce(ctx, "pr", "list",

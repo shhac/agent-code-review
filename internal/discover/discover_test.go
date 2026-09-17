@@ -981,6 +981,84 @@ func TestListPRsReturnsToFullDepth(t *testing.T) {
 	}
 }
 
+// The ladder is only worth having if it is walked to the bottom. Every rung
+// must be asked, in descending order, and the error the caller sees must be
+// the FLOOR's -- an operator reading "backing off" needs to know the cheapest
+// question also failed, not the most expensive one.
+func TestListPRsExhaustsEveryRungBeforeGivingUp(t *testing.T) {
+	var asked []string
+	restore := stubRunGHOnce(func(args []string) ([]byte, error) {
+		limit := flagValue(args, "--limit")
+		asked = append(asked, limit)
+		// Distinct per rung: an implementation that kept the FIRST error
+		// would otherwise pass this test unnoticed.
+		return nil, fmt.Errorf("gh pr list: HTTP 502: 502 Bad Gateway at limit %s", limit)
+	})
+	defer restore()
+
+	d := New(staticConfig(config.Config{Repos: []string{"o/a"}}), &fakeStore{}, nil)
+	d.warnf = func(string, ...any) {}
+
+	_, err := d.ghListPRs(context.Background(), "o/a")
+	if err == nil {
+		t.Fatal("want an error when every rung fails")
+	}
+	want := []string{"300", "150", "75", "37", "25"}
+	if len(asked) != len(want) {
+		t.Fatalf("limits asked = %v, want %v", asked, want)
+	}
+	for i := range want {
+		if asked[i] != want[i] {
+			t.Fatalf("limits asked = %v, want %v", asked, want)
+		}
+	}
+	if !strings.Contains(err.Error(), "at limit 25") {
+		t.Errorf("error = %q, want the floor rung's failure: the last question asked is the one worth reporting", err)
+	}
+}
+
+// An exhausted ladder is ONE repo failure, not five. The ladder is how a repo
+// spends a single cycle's attempt; if each rung counted, a repo would be
+// thrown into deep backoff by its first bad moment.
+func TestLadderExhaustionCountsAsOneRepoFailure(t *testing.T) {
+	calls := map[string]int{}
+	restore := stubRunGHOnce(func(args []string) ([]byte, error) {
+		repo := flagValue(args, "--repo")
+		calls[repo]++
+		if repo == "o/sick" {
+			return nil, errors.New("gh pr list: HTTP 502: 502 Bad Gateway")
+		}
+		return []byte(`[]`), nil
+	})
+	defer restore()
+
+	cfg := config.Config{Repos: []string{"o/sick", "o/well"}}
+	cfg.Discovery.Interval = "5m"
+	// The production wiring, deliberately not stubbed: this is the one test
+	// that holds the real ladder and the sweep's failure accounting together.
+	d := New(staticConfig(cfg), &fakeStore{}, nil)
+	now := fixedNow()
+	d.now = func() time.Time { return now }
+	d.warnf = func(string, ...any) {}
+
+	if _, err := d.Discover(context.Background()); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if calls["o/sick"] != 5 {
+		t.Errorf("sick repo made %d gh calls, want 5 (the whole ladder, within one cycle)", calls["o/sick"])
+	}
+	if calls["o/well"] != 1 {
+		t.Errorf("healthy repo made %d gh calls, want 1: one repo's bad cycle must not cost another repo anything", calls["o/well"])
+	}
+	_, fails, held := d.inBackoff("o/sick", now)
+	if !held || fails != 1 {
+		t.Errorf("after an exhausted ladder: held=%v fails=%d, want held=true fails=1", held, fails)
+	}
+	if _, _, held := d.inBackoff("o/well", now); held {
+		t.Error("healthy repo is in backoff")
+	}
+}
+
 // A permanent failure gets one attempt at each size only if it looks
 // transient; a 404 is the same answer at every depth.
 func TestListPRsDoesNotLadderPermanentFailure(t *testing.T) {

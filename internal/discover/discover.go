@@ -271,14 +271,20 @@ func (d *Discoverer) resumeAt(repos []string, repo string) {
 // and the honest reply to that is to ask for less rather than to ask again
 // for the same thing. listMinLimit is the floor: below it the listing is too
 // shallow to be worth the call.
+//
+// listAttempts is 5 so the ladder actually REACHES that floor from the default
+// depth of 300: 300, 150, 75, 37, 25. At 3 it stopped at 75, which a repo with
+// hundreds of open PRs is still too big to answer, so the ladder spent three
+// attempts without ever asking a question GitHub could serve.
 const (
-	listAttempts = 3
+	listAttempts = 5
 	listMinLimit = 25
 )
 
 // listLimits is the descending ladder tried within one sweep of one repo,
 // halving from the configured depth. It stops early once halving stops moving,
-// so a already-small configured limit costs one attempt, not three identical ones.
+// so an already-small configured limit costs one attempt, not several
+// identical ones.
 func listLimits(full int) []int {
 	if full < listMinLimit {
 		return []int{full}

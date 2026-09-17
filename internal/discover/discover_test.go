@@ -882,11 +882,13 @@ func TestListLimitsHalvesToAFloor(t *testing.T) {
 		full int
 		want []int
 	}{
-		{300, []int{300, 150, 75}},
+		// The default depth: the ladder must reach the floor, not stall at a
+		// rung the repo that needs it is still too big to answer.
+		{300, []int{300, 150, 75, 37, 25}},
 		{100, []int{100, 50, 25}},
 		{60, []int{60, 30, 25}},
 		// At or below the floor there is nothing to give up: one attempt,
-		// not three identical ones.
+		// not several identical ones.
 		{25, []int{25}},
 		{10, []int{10}},
 	} {

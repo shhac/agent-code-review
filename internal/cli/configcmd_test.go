@@ -171,3 +171,60 @@ func assertPersistedKeyUnset(t *testing.T, key string) {
 	}
 	t.Errorf("%s remains in persisted config after unset: %s", key, data)
 }
+
+// A key that is in the FILE but not in the schema must still be readable and
+// removable: it is exactly what the boot warning points at, and the one
+// command that could show what it held otherwise answers "unknown config
+// key" -- true of the schema, unhelpful about the document.
+func TestConfigGetAndUnsetReachUnknownKeys(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	doc := `{"repos":["o/r"],"schedule":{"usage_floor":{"5h_percent":30}}}`
+	if err := os.WriteFile(config.Path(), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) error {
+		root := newRootCmd("test")
+		root.SetArgs(args)
+		return root.Execute()
+	}
+
+	if err := run("config", "get", "schedule.usage_floor"); err != nil {
+		t.Errorf("get on a key the document holds: %v", err)
+	}
+	// A genuine typo still gets the library's error and its list of valid
+	// names; falling through to "unset" would hide the mistake.
+	if err := run("config", "get", "schedule.nonsense"); err == nil {
+		t.Error("a key in neither the schema nor the document must error")
+	}
+	if err := run("config", "unset", "schedule.usage_floor"); err != nil {
+		t.Errorf("unset on a key the document holds: %v", err)
+	}
+	if got := config.UnknownKeys(); len(got) != 0 {
+		t.Errorf("the key survived the unset: %+v", got)
+	}
+	// The write must not have gone through the struct, which would drop
+	// nothing here but does drop annotations elsewhere.
+	if cfg := config.Read(); len(cfg.Repos) != 1 {
+		t.Errorf("known settings did not survive: %+v", cfg)
+	}
+}
+
+// `set` is deliberately not extended to unknown keys: writing a key nothing
+// reads would manufacture the state the warning exists to clear.
+func TestConfigSetRefusesUnknownKeys(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.Path(), []byte(`{"schedule":{"usage_floor":{"5h_percent":30}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := newRootCmd("test")
+	root.SetArgs([]string{"config", "set", "schedule.usage_floor", "20"})
+	if err := root.Execute(); err == nil {
+		t.Error("set on an unknown key must fail even when the document holds it")
+	}
+}

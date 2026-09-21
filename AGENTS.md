@@ -637,6 +637,20 @@ internal/
   Preflight runs per distinct settings combination, because a group's own model
   is exactly what introduces a pairing the base config does not have.
 
+  `config.UnknownKeys` is the one check that reads the FILE rather than the
+  parsed `Config`, because the parsed config is exactly the subset that cannot
+  see an unknown key. It stays out of `ConfigProblems`, which is a pure
+  function of the config it is handed, and reports as its own NON-blocking
+  `config-keys` check: reviews run exactly as they would without the key,
+  which is the problem, not a broken install. The walk skips `//` annotation
+  keys (the starter config is full of them) and descends into map VALUES
+  rather than treating map keys as field names. `renamedKeys` turns a key we
+  retired into a migration hint, keyed by the path actually reported: the walk
+  stops at the outermost unknown key, so a hint on one of its leaves would
+  never fire. Unknown keys are not inert -- `Write` marshals the struct, so the
+  next write of anything drops them -- which is why the warning quotes the
+  value and why `UnsetUnknown` rewrites the raw document instead.
+
 - **An author resolves to a group, and the group IS the policy.** An author
   belongs to one group per repo; the group carries the review level (an ordered
   ladder: `ignore` < `comment` < `approve`), the engine/model/effort, and a

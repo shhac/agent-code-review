@@ -120,6 +120,14 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	for _, c := range doctor.Blocking(doctor.Run(shutdown.reviewCtx(), cfg)) {
 		logf("preflight: %s FAILED: %s (%s)", c.Name, c.Detail, c.Hint)
 	}
+	// Keys nothing reads, warned separately because they are not blocking:
+	// reviews run exactly as they would without them. Said at boot because a
+	// key that is not in effect is otherwise indistinguishable from one that
+	// is, and because the next config write drops it from the file -- this
+	// line may be the last record of what it held.
+	for _, problem := range config.UnknownKeyProblems(config.UnknownKeys()) {
+		logf("config: %s", problem)
+	}
 
 	// Poll every engine's usage in the background so the dashboard can show
 	// remaining quota without a round trip per request, and so both engines

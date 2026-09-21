@@ -55,6 +55,11 @@ func Run(ctx context.Context, cfg config.Config) []Check {
 		checks = append(checks, engineChecks(ctx, engine, cfg)...)
 	}
 	checks = append(checks, pricingCheck(config.PricingCacheDir()))
+	// Unknown keys come from the FILE, not from cfg: cfg is exactly the parsed
+	// subset that cannot see them. Kept out of ConfigProblems, which stays a
+	// pure function of the config it is handed and so tests without a
+	// filesystem.
+	checks = append(checks, configKeysCheck(config.UnknownKeyProblems(config.UnknownKeys())))
 	return append(checks, configCheck(ConfigProblems(cfg)))
 }
 
@@ -148,6 +153,22 @@ func configCheck(problems []string) Check {
 		Name: "engine-config", OK: false, Blocking: true,
 		Detail: strings.Join(problems, "; "),
 		Hint:   "agent-code-review config set ...",
+	}
+}
+
+// configKeysCheck reports keys the schema has no home for. NOT blocking:
+// reviews run exactly as they would without the key, which is the whole
+// problem -- the setting is simply not in effect and nothing else says so.
+// Blocking is reserved for "reviews would fail on this machine right now",
+// and overstating this here would make a typo look like a broken install.
+func configKeysCheck(problems []string) Check {
+	if len(problems) == 0 {
+		return Check{Name: "config-keys", OK: true, Detail: "every key is one this version reads"}
+	}
+	return Check{
+		Name: "config-keys", OK: false,
+		Detail: strings.Join(problems, "; "),
+		Hint:   "agent-code-review config unset ... (the next write drops them anyway)",
 	}
 }
 

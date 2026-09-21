@@ -91,6 +91,14 @@ cause is buried in the engine transcript; `doctor` exits non-zero on a
 blocking failure, and `serve` runs the same checks at boot and logs them.
 - Optional: **`tailscale`** for `--tailscale serve|funnel`.
 
+`doctor` and `serve` also name any key in your config that this version does
+not read: a typo, or one that moved. Such a key is not an error (reviews run
+exactly as they would without it) but it is not in effect either, and nothing
+else would say so. The warning quotes the value, because the next `config set`
+of anything rewrites the file from the schema and drops it. `config get` and
+`config unset` reach these keys too, marked `"known_key": false`; `config set`
+does not, since writing a key nothing reads only recreates the problem.
+
 These are the tool's ONLY assumptions. Anything your prompts reference beyond
 them (skills, `agent-*` CLIs, team tooling) is your prompts' business; the
 tool neither requires nor mentions it.

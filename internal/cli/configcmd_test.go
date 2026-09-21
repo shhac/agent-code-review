@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 )
@@ -226,5 +228,49 @@ func TestConfigSetRefusesUnknownKeys(t *testing.T) {
 	root.SetArgs([]string{"config", "set", "schedule.usage_floor", "20"})
 	if err := root.Execute(); err == nil {
 		t.Error("set on an unknown key must fail even when the document holds it")
+	}
+}
+
+// The fallback must be decided by the REGISTRY, not by the library's error
+// class. libcli returns FixableByAgent both for a key it cannot resolve and
+// for a known key whose Unset fails, so classifying the error routed a failed
+// unset of a known key -- one whose CLI name equals its file path, like
+// store.path or schedule.max_parallel -- into the raw-document path, which
+// deleted it and reported the write the library had just refused as success.
+func TestUnknownKeyFallbackIsDecidedByTheRegistry(t *testing.T) {
+	known := map[string]bool{"schedule.max_parallel": true}
+	libCalled, handled := 0, ""
+	lib := func(*cobra.Command, []string) error { libCalled++; return nil }
+	handle := func(key, _ string) error { handled = key; return nil }
+	run := withUnknownKeyFallback(lib, known, handle)
+
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Both keys are IN the document; only one is in the registry.
+	doc := `{"schedule":{"max_parallel":4,"usage_floor":{"5h_percent":30}}}`
+	if err := os.WriteFile(config.Path(), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run(nil, []string{"schedule.max_parallel"}); err != nil {
+		t.Fatal(err)
+	}
+	if libCalled != 1 || handled != "" {
+		t.Errorf("a registered key must run the library's path, got lib=%d handled=%q", libCalled, handled)
+	}
+	if err := run(nil, []string{"schedule.usage_floor"}); err != nil {
+		t.Fatal(err)
+	}
+	if handled != "schedule.usage_floor" {
+		t.Errorf("an unregistered key present in the document must take the fallback, got %q", handled)
+	}
+	// In neither: the library answers, so a typo still gets its key list.
+	if err := run(nil, []string{"schedule.nonsense"}); err != nil {
+		t.Fatal(err)
+	}
+	if libCalled != 2 {
+		t.Errorf("a key in neither the registry nor the document must run the library's path, got %d calls", libCalled)
 	}
 }

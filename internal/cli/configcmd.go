@@ -2,9 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
-
-	output "github.com/shhac/lib-agent-output"
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
 	"github.com/spf13/cobra"
@@ -46,7 +43,7 @@ func registerConfig(root *cobra.Command) {
 	specs := configKeySpecs()
 	keys := configKeysFromSpecs(specs)
 	cmd := libcli.ConfigCommand(globals, keys)
-	allowUnknownKeys(cmd)
+	allowUnknownKeys(cmd, keys)
 	attachConfigCompletions(cmd, specs)
 	cmd.Short = "Get and set configuration (also: init, path, show)"
 	cmd.AddCommand(
@@ -81,59 +78,6 @@ func registerConfig(root *cobra.Command) {
 	)
 	registerGroupUsage(cmd, "config", configUsageText)
 	root.AddCommand(cmd)
-}
-
-// allowUnknownKeys lets `get` and `unset` reach a key that is in the FILE but
-// not in the schema. The registry resolves against a fixed list, so without
-// this the one command that could show you what a warned-about key held
-// answers "unknown config key" -- true of the schema, and unhelpful about the
-// document. `set` is deliberately NOT extended: writing a key nothing reads
-// would manufacture the very state the warning exists to clear.
-//
-// Wrapping the generated RunE rather than replacing it keeps known keys on
-// the library's exact path, including its error text and output shape.
-func allowUnknownKeys(cmd *cobra.Command) {
-	fallback := map[string]func(string) error{"get": getUnknownKey, "unset": unsetUnknownKey}
-	for _, sub := range cmd.Commands() {
-		handle, ok := fallback[sub.Name()]
-		if !ok {
-			continue
-		}
-		known := sub.RunE
-		sub.RunE = func(c *cobra.Command, args []string) error {
-			err := known(c, args)
-			if err == nil || len(args) == 0 || !isUnknownKeyErr(err) {
-				return err
-			}
-			// Only when the document actually holds it: an outright typo
-			// deserves the library's "unknown config key" with its list of
-			// valid names, not a report that the key is unset.
-			if _, found := config.ReadUnknown(args[0]); !found {
-				return err
-			}
-			return handle(args[0])
-		}
-	}
-}
-
-// isUnknownKeyErr recognises the library's structured unknown-key error
-// without matching on its wording, which is not ours to depend on.
-func isUnknownKeyErr(err error) bool {
-	var e *output.Error
-	return errors.As(err, &e) && e.FixableBy == output.FixableByAgent
-}
-
-func getUnknownKey(key string) error {
-	value, _ := config.ReadUnknown(key)
-	return emit(map[string]any{"key": key, "set": true, "value": value, "known_key": false})
-}
-
-func unsetUnknownKey(key string) error {
-	removed, err := config.UnsetUnknown(key)
-	if err != nil {
-		return err
-	}
-	return emit(map[string]any{"key": key, "unset": removed, "known_key": false})
 }
 
 func configKeysFromSpecs(specs []configKeySpec) []libcli.ConfigKey {

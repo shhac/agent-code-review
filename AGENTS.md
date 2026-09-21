@@ -658,14 +658,22 @@ internal/
   see an unknown key. It stays out of `ConfigProblems`, which is a pure
   function of the config it is handed, and reports as its own NON-blocking
   `config-keys` check: reviews run exactly as they would without the key,
-  which is the problem, not a broken install. The walk skips `//` annotation
-  keys (the starter config is full of them) and descends into map VALUES
-  rather than treating map keys as field names. `renamedKeys` turns a key we
-  retired into a migration hint, keyed by the path actually reported: the walk
-  stops at the outermost unknown key, so a hint on one of its leaves would
-  never fire. Unknown keys are not inert -- `Write` marshals the struct, so the
-  next write of anything drops them -- which is why the warning quotes the
-  value and why `UnsetUnknown` rewrites the raw document instead.
+  which is the problem, not a broken install.
+
+  The walk itself is `creds.Store.UnknownKeys`, and the writer that stops a
+  save destroying those keys is `creds.Store{Overlay: true}` — both in
+  lib-agent-cli, because every tool in the family keeping an annotated config
+  in that store had the same bug. What stays here is the only part that is
+  ours: `renamedKeys`, which turns a key WE retired into a migration hint
+  rather than a shrug. It is keyed by the path actually reported, since the
+  walk stops at the outermost unknown key and a hint on one of its leaves
+  would never fire.
+
+  `config get`/`unset` reach those keys through `libcli.WithDocument`, and
+  `libcli.SectionKey` registers a section (`codex.usage_floor`) so a group of
+  keys can go back to defaults in one command. Clearing a section goes through
+  the struct: deleting it from the document alone would last until the next
+  save wrote it back.
 
 - **An author resolves to a group, and the group IS the policy.** An author
   belongs to one group per repo; the group carries the review level (an ordered

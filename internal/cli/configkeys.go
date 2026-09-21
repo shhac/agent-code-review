@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -199,4 +200,38 @@ func validateOneOf(label string, values []string) func(string) error {
 		}
 		return output.New("Invalid "+label+": "+v+". Valid: "+strings.Join(values, ", "), output.FixableByAgent)
 	}
+}
+
+// usageFloorKey registers one engine's floor SECTION, so the pair of windows
+// can go back to defaults in one command rather than two unsets that have to
+// be remembered as a pair. `set` on it explains that a section is not a
+// value; the clearing has to go through the struct, because deleting the
+// section from the document alone would last until the next save wrote it
+// back.
+func usageFloorKey(engine string, floor func(*config.Config) *config.UsageFloorLimits) libcli.ConfigKey {
+	return libcli.SectionKey(engine+".usage_floor",
+		"Both of "+engine+"'s headroom floors; unset restores the defaults (10 each)",
+		func() (string, bool) {
+			cfg := config.Read()
+			return describeFloor(*floor(&cfg))
+		},
+		func() error {
+			return config.Update(func(cfg *config.Config) error {
+				*floor(cfg) = config.UsageFloorLimits{}
+				return nil
+			})
+		})
+}
+
+// describeFloor renders what a floor section actually states, so `config get`
+// on it answers with the windows rather than a bare "set".
+func describeFloor(f config.UsageFloorLimits) (string, bool) {
+	var parts []string
+	if f.FiveHourPercent != nil {
+		parts = append(parts, fmt.Sprintf("5h_percent=%d", *f.FiveHourPercent))
+	}
+	if f.OneWeekPercent != nil {
+		parts = append(parts, fmt.Sprintf("1w_percent=%d", *f.OneWeekPercent))
+	}
+	return strings.Join(parts, " "), len(parts) > 0
 }

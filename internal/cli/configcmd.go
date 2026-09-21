@@ -42,8 +42,11 @@ type configKeySpec struct {
 func registerConfig(root *cobra.Command) {
 	specs := configKeySpecs()
 	keys := configKeysFromSpecs(specs)
-	cmd := libcli.ConfigCommand(globals, keys)
-	allowUnknownKeys(cmd, keys)
+	// WithDocument: this config outlives the release that wrote it, so it can
+	// hold a key we renamed or never knew. get and unset reach those; set
+	// deliberately does not. The library decides by the registry, so a plain
+	// typo still gets its list of valid names.
+	cmd := libcli.ConfigCommand(globals, keys, libcli.WithDocument(config.Store(), config.Config{}))
 	attachConfigCompletions(cmd, specs)
 	cmd.Short = "Get and set configuration (also: init, path, show)"
 	cmd.AddCommand(
@@ -144,6 +147,7 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) **int { return &c.Review.Codex.UsageFloor.FiveHourPercent }, 0, 100)),
 		plain(optionalIntKey("codex.usage_floor.1w_percent", "Hold codex's candidates when its weekly window has less than this % remaining (default 10, 0 disables)",
 			func(c *config.Config) **int { return &c.Review.Codex.UsageFloor.OneWeekPercent }, 0, 100)),
+		plain(usageFloorKey("codex", func(c *config.Config) *config.UsageFloorLimits { return &c.Review.Codex.UsageFloor })),
 		plain(stringKey("claude.bin", "Claude Code binary (default claude)",
 			func(c *config.Config) *string { return &c.Review.Claude.Bin }, nil)),
 		static(stringKey("claude.model", "Model passed to claude --model (alias or full id; default claude-opus-5)",
@@ -160,6 +164,7 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) **int { return &c.Review.Claude.UsageFloor.FiveHourPercent }, 0, 100)),
 		plain(optionalIntKey("claude.usage_floor.1w_percent", "Hold claude's candidates when its weekly window has less than this % remaining (default 10, 0 disables)",
 			func(c *config.Config) **int { return &c.Review.Claude.UsageFloor.OneWeekPercent }, 0, 100)),
+		plain(usageFloorKey("claude", func(c *config.Config) *config.UsageFloorLimits { return &c.Review.Claude.UsageFloor })),
 		plain(stringKey("dashboard.addr", "Dashboard listen address (default 127.0.0.1:8330; bind wider only deliberately, the dashboard has no auth of its own)",
 			func(c *config.Config) *string { return &c.Dashboard.Addr }, nil)),
 		static(stringKey("dashboard.tailscale.mode", `Tailscale exposure: "", "serve", or "funnel"`,

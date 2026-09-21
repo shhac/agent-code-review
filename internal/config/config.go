@@ -37,11 +37,15 @@ func Dir() string { return xdg.ConfigDir(appName) }
 
 func filePath() string { return filepath.Join(Dir(), "config.json") }
 
-// Overlay: this is a config a person reads and edits, not a credentials file.
-// It carries the "//" annotations config init ships and may hold a key only a
-// newer release understands, and a plain Save -- which marshals the struct --
-// would drop both on the next write of anything at all. See creds/document.go
-// for the convention and the merge rules.
+// Store is the backing store, exported for the config command: reaching a key
+// the schema has no field for means going to the document, not the struct.
+func Store() creds.Store { return store() }
+
+// Overlay, because this is a config a person reads and edits rather than a
+// credentials file. It carries the "//" annotations config init ships and may
+// hold a key only a newer release understands; a plain Save marshals the
+// struct, which would drop both on the next write of anything at all. See
+// creds/document.go for the convention and the merge rules.
 func store() creds.Store { return creds.Store{Path: filePath(), Overlay: true} }
 
 // Read returns the parsed config, or a zero Config when the file is missing or

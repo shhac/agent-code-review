@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
+	libcli "github.com/shhac/lib-agent-cli/cli"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
@@ -114,6 +114,13 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 		"scoring.use_gitattributes":          "false",
 	}
 	for _, key := range configKeysFromSpecs(configKeySpecs()) {
+		// A section key has no value to round-trip: its set refuses on
+		// purpose. It still has to CLEAR, which is the whole reason it is
+		// registered, so it gets the second half of this check.
+		if _, ok := samples[key.Name]; !ok && key.Set("anything") != nil {
+			assertSectionClears(t, key)
+			continue
+		}
 		sample, ok := samples[key.Name]
 		if !ok {
 			t.Errorf("no sample value for key %q: add one so it stays covered", key.Name)
@@ -174,10 +181,9 @@ func assertPersistedKeyUnset(t *testing.T, key string) {
 	t.Errorf("%s remains in persisted config after unset: %s", key, data)
 }
 
-// A key that is in the FILE but not in the schema must still be readable and
-// removable: it is exactly what the boot warning points at, and the one
-// command that could show what it held otherwise answers "unknown config
-// key" -- true of the schema, unhelpful about the document.
+// The wiring, not the mechanism: libcli.WithDocument owns the fallback and is
+// tested there. What matters here is that this command passes it, against the
+// real schema -- drop the option and these fail.
 func TestConfigGetAndUnsetReachUnknownKeys(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
@@ -231,46 +237,28 @@ func TestConfigSetRefusesUnknownKeys(t *testing.T) {
 	}
 }
 
-// The fallback must be decided by the REGISTRY, not by the library's error
-// class. libcli returns FixableByAgent both for a key it cannot resolve and
-// for a known key whose Unset fails, so classifying the error routed a failed
-// unset of a known key -- one whose CLI name equals its file path, like
-// store.path or schedule.max_parallel -- into the raw-document path, which
-// deleted it and reported the write the library had just refused as success.
-func TestUnknownKeyFallbackIsDecidedByTheRegistry(t *testing.T) {
-	known := map[string]bool{"schedule.max_parallel": true}
-	libCalled, handled := 0, ""
-	lib := func(*cobra.Command, []string) error { libCalled++; return nil }
-	handle := func(key, _ string) error { handled = key; return nil }
-	run := withUnknownKeyFallback(lib, known, handle)
-
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
-		t.Fatal(err)
+// assertSectionClears is the round-trip a section key can support: set the
+// keys inside it, then unset the section and find them gone. Without this a
+// section key would be registered and never exercised.
+func assertSectionClears(t *testing.T, key libcli.ConfigKey) {
+	t.Helper()
+	inner := key.Name + ".5h_percent"
+	for _, spec := range configKeySpecs() {
+		if spec.key.Name != inner {
+			continue
+		}
+		if err := spec.key.Set("30"); err != nil {
+			t.Fatalf("%s: %v", inner, err)
+		}
 	}
-	// Both keys are IN the document; only one is in the registry.
-	doc := `{"schedule":{"max_parallel":4,"usage_floor":{"5h_percent":30}}}`
-	if err := os.WriteFile(config.Path(), []byte(doc), 0o600); err != nil {
-		t.Fatal(err)
+	if got, set := key.Get(); !set || !strings.Contains(got, "30") {
+		t.Errorf("%s: get = (%q, %v), want the windows it holds", key.Name, got, set)
 	}
-
-	if err := run(nil, []string{"schedule.max_parallel"}); err != nil {
-		t.Fatal(err)
+	if err := key.Unset(); err != nil {
+		t.Fatalf("%s: unset: %v", key.Name, err)
 	}
-	if libCalled != 1 || handled != "" {
-		t.Errorf("a registered key must run the library's path, got lib=%d handled=%q", libCalled, handled)
+	if got, set := key.Get(); set || got != "" {
+		t.Errorf("%s: after unset get = (%q, %v), want cleared", key.Name, got, set)
 	}
-	if err := run(nil, []string{"schedule.usage_floor"}); err != nil {
-		t.Fatal(err)
-	}
-	if handled != "schedule.usage_floor" {
-		t.Errorf("an unregistered key present in the document must take the fallback, got %q", handled)
-	}
-	// In neither: the library answers, so a typo still gets its key list.
-	if err := run(nil, []string{"schedule.nonsense"}); err != nil {
-		t.Fatal(err)
-	}
-	if libCalled != 2 {
-		t.Errorf("a key in neither the registry nor the document must run the library's path, got %d calls", libCalled)
-	}
+	assertPersistedKeyUnset(t, inner)
 }

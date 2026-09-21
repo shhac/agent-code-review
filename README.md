@@ -94,10 +94,15 @@ blocking failure, and `serve` runs the same checks at boot and logs them.
 `doctor` and `serve` also name any key in your config that this version does
 not read: a typo, or one that moved. Such a key is not an error (reviews run
 exactly as they would without it) but it is not in effect either, and nothing
-else would say so. The warning quotes the value, because the next `config set`
-of anything rewrites the file from the schema and drops it. `config get` and
-`config unset` reach these keys too, marked `"known_key": false`; `config set`
-does not, since writing a key nothing reads only recreates the problem.
+else would say so. `config get` and `config unset` reach these keys, marked
+`"known_key": false`; `config set` does not, since writing a key nothing reads
+only recreates the problem.
+
+Your config keeps what it holds. The comments `config init` writes, and any
+key from a newer release, survive every write — editing one setting will not
+strip the rest of the file, and a comment moves next to the key it documents
+on the next save. A whole section can go back to its defaults in one command:
+`config unset codex.usage_floor` clears both of that engine's floors.
 
 These are the tool's ONLY assumptions. Anything your prompts reference beyond
 them (skills, `agent-*` CLIs, team tooling) is your prompts' business; the

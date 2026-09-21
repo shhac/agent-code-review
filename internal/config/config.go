@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/shhac/lib-agent-cli/creds"
 	"github.com/shhac/lib-agent-cli/xdg"
@@ -49,8 +50,28 @@ func Read() Config {
 	return cfg
 }
 
-// Write persists the config (0600 file, 0700 dirs, via creds.Store).
-func Write(cfg Config) error { return store().Save(cfg) }
+// Write persists the config (0600 file, 0700 dirs, via creds.Store), laying
+// the struct's view over what is already on disk rather than replacing it.
+//
+// The difference is everything the struct cannot see. Marshalling the struct
+// alone dropped the "//note" annotations config init ships and any key from
+// another version, so editing one unrelated setting quietly stripped the lot.
+// See overlay in rawdoc.go for how a genuine unset is told apart from a key
+// the schema never claimed, and document.go for the order it comes back in.
+//
+// A stored document that will not parse is treated as absent, matching Read:
+// a corrupt file behaves like an empty one rather than wedging every write.
+func Write(cfg Config) error {
+	fresh, err := structDoc(cfg)
+	if err != nil {
+		return err
+	}
+	stored, err := readDoc()
+	if err != nil {
+		stored = nil
+	}
+	return store().Save(document(overlay(stored, fresh, reflect.TypeOf(Config{}))))
+}
 
 // Update applies mutate to one current config snapshot, then persists it, with
 // the whole read-mutate-write held under the store's exclusive lock so

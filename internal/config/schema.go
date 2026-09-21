@@ -131,6 +131,38 @@ type UsageFloorLimits struct {
 	OneWeekPercent  *int `json:"1w_percent,omitempty"`
 }
 
+// floorWindow pairs one window's config key with the field that holds its
+// floor. Slot is a **int so a caller can both read the floor and write it.
+type floorWindow struct {
+	Key  string
+	Slot **int
+}
+
+// windows states the key/field pairing ONCE, in trace order. Everything that
+// fans out over both windows -- the cascade merge, the policy trace, a future
+// third window -- walks this instead of re-deriving which field a window name
+// means. The shape it replaced took the name as a string and branched on it,
+// so any name that was not the one it tested for silently wrote the other
+// window's floor.
+func (f *UsageFloorLimits) windows() []floorWindow {
+	return []floorWindow{
+		{"5h_percent", &f.FiveHourPercent},
+		{"1w_percent", &f.OneWeekPercent},
+	}
+}
+
+// merge writes src's stated windows over f's, leaving the rest as they were.
+// An unset window inherits, exactly as an empty scalar field does everywhere
+// else in the cascade.
+func (f *UsageFloorLimits) merge(src UsageFloorLimits) {
+	into, from := f.windows(), src.windows()
+	for i := range into {
+		if set := *from[i].Slot; set != nil {
+			*into[i].Slot = set
+		}
+	}
+}
+
 // DiscoverySettings drives the candidate-scraping loop: cheap, deterministic
 // gh calls (no LLM, hence no parallelism dial) with its own on/off switch so
 // scraping can run without reviews (or vice versa).

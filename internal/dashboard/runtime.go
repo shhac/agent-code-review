@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
@@ -107,7 +108,8 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 // rules table-test without an HTTP round trip or a poller; the handler keeps
 // only the two store reads and the transport. A nil snapshot map is the
 // no-poller case (one-shot runs, --read-only), which reports unavailable
-// rather than pretending to headroom it never measured.
+// rather than pretending to headroom it never measured: a missing snapshot is
+// the zero value, and both OK() and BelowFloor already answer no to that.
 func usageView(cfg config.Config, snaps map[string]usage.Snapshot, freshTotal, fresh24h int64) usageResp {
 	active := cfg.Engine()
 	resp := usageResp{
@@ -116,18 +118,16 @@ func usageView(cfg config.Config, snaps map[string]usage.Snapshot, freshTotal, f
 		FreshTotal: freshTotal,
 		Fresh24h:   fresh24h,
 	}
-	if snaps == nil {
-		return resp
-	}
-	// The top-level verdict is the ACTIVE engine's, read back off its row
-	// rather than recomputed: that is the account reviews spend from by
+	// The top-level state is the ACTIVE engine's, lifted off its row rather
+	// than recomputed from the map: that is the account reviews spend from by
 	// default, and it is what the page header reports. Every engine's own
-	// verdict travels on its row.
-	resp.Available = snaps[active].OK()
-	for _, row := range resp.Engines {
-		if row.Active {
-			resp.ReviewPaused, resp.PausedReason = row.Paused, row.PausedReason
-		}
+	// verdict travels on its row. Exactly one row is active, so this is a
+	// find, not a fold -- and with no poller at all that row carries a zero
+	// snapshot, which already reports unavailable and unpaused without a
+	// special case for it.
+	if i := slices.IndexFunc(resp.Engines, func(e engineUsage) bool { return e.Active }); i >= 0 {
+		row := resp.Engines[i]
+		resp.Available, resp.ReviewPaused, resp.PausedReason = row.Available, row.Paused, row.PausedReason
 	}
 	return resp
 }

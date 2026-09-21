@@ -6,7 +6,10 @@
 //
 // The package is split by concern: schema.go (the on-disk structs), defaults.go
 // (resolved getters that fill in zero values), validate.go (value validators +
-// enums), and this file (locating and reading/writing the document).
+// enums), authors.go (the group cascade), scoring.go (the points rules),
+// rawdoc.go (the document as a raw map, for what the structs cannot see),
+// unknown.go (keys the schema has no field for), and this file (locating and
+// reading/writing the document).
 package config
 
 import (

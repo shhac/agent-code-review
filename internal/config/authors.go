@@ -281,34 +281,31 @@ func setField(steps []PolicyStep, dst *string, value, field, source string) []Po
 // unset scalar field inherits.
 func (p *Policy) patchFloors(steps []PolicyStep, floors map[string]UsageFloorLimits, source string) []PolicyStep {
 	for _, engine := range sortedKeys(floors) { // sorted: the trace is read by humans
-		f := floors[engine]
-		steps = p.setFloor(steps, engine, f.FiveHourPercent, "5h_percent", source)
-		steps = p.setFloor(steps, engine, f.OneWeekPercent, "1w_percent", source)
+		src := floors[engine]
+		var stated bool
+		for _, w := range src.windows() {
+			if *w.Slot == nil {
+				continue // unset: inherit whatever the layer beneath wrote
+			}
+			stated = true
+			steps = append(steps, PolicyStep{
+				Field:  "usage_floor." + engine + "." + w.Key,
+				Value:  strconv.Itoa(**w.Slot),
+				Source: source,
+			})
+		}
+		if !stated {
+			continue // an empty limit is not a layer, so it leaves no trace
+		}
+		if p.UsageFloor == nil {
+			p.UsageFloor = map[string]UsageFloorLimits{}
+		}
+		// Map values are not addressable, so merge into a copy and write back.
+		merged := p.UsageFloor[engine]
+		merged.merge(src)
+		p.UsageFloor[engine] = merged
 	}
 	return steps
-}
-
-// setFloor writes one window's floor and records the step that decided it. A
-// nil pointer writes nothing, which is what makes an unset window inherit.
-func (p *Policy) setFloor(steps []PolicyStep, engine string, value *int, window, source string) []PolicyStep {
-	if value == nil {
-		return steps
-	}
-	if p.UsageFloor == nil {
-		p.UsageFloor = map[string]UsageFloorLimits{}
-	}
-	f := p.UsageFloor[engine]
-	if window == "5h_percent" {
-		f.FiveHourPercent = value
-	} else {
-		f.OneWeekPercent = value
-	}
-	p.UsageFloor[engine] = f
-	return append(steps, PolicyStep{
-		Field:  "usage_floor." + engine + "." + window,
-		Value:  strconv.Itoa(*value),
-		Source: source,
-	})
 }
 
 // matches reports whether this override applies to handle on repo. Handles
@@ -362,21 +359,26 @@ func (r ReviewSettings) WithPolicy(p Policy) ReviewSettings {
 	if p.Engine != "" {
 		r.Engine = p.Engine
 	}
-	// Floors patch EVERY engine the policy names, not just the resolved one --
-	// the deliberate opposite of how model and effort are treated above. A
-	// cohort's floor is keyed by engine precisely so that moving the cohort
-	// between engines does not change how much headroom it leaves on either.
-	for engine, f := range p.UsageFloor {
-		target := &r.EngineCommon(engine).UsageFloor
-		if f.FiveHourPercent != nil {
-			target.FiveHourPercent = f.FiveHourPercent
-		}
-		if f.OneWeekPercent != nil {
-			target.OneWeekPercent = f.OneWeekPercent
-		}
+	applyFloors(&r, p.UsageFloor)
+	applyDials(&r, p)
+	return r
+}
+
+// applyFloors patches EVERY engine the policy names, not just the resolved
+// one -- the deliberate opposite of applyDials below. A cohort's floor is
+// keyed by engine precisely so that moving the cohort between engines does
+// not change how much headroom it leaves on either.
+func applyFloors(r *ReviewSettings, floors map[string]UsageFloorLimits) {
+	for engine, f := range floors {
+		r.EngineCommon(engine).UsageFloor.merge(f)
 	}
+}
+
+// applyDials patches only the RESOLVED engine's model and effort, so a policy
+// naming claude cannot leave a stray model on the codex settings.
+func applyDials(r *ReviewSettings, p Policy) {
 	if p.Model == "" && p.Effort == "" {
-		return r
+		return
 	}
 	e := r.EngineCommon(r.ResolvedEngine())
 	if p.Model != "" {
@@ -385,7 +387,6 @@ func (r ReviewSettings) WithPolicy(p Policy) ReviewSettings {
 	if p.Effort != "" {
 		e.Effort = p.Effort
 	}
-	return r
 }
 
 // EngineFor is the engine that will actually review a candidate whose author

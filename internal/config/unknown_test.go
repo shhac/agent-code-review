@@ -68,7 +68,7 @@ func TestUnknownKeysToleratesAnUnparseableDocument(t *testing.T) {
 // setting went, and carry the value, because the next write drops it.
 func TestUnknownKeyProblemsExplainARename(t *testing.T) {
 	doc := []byte(`{"schedule": {"usage_floor": {"5h_percent": 30, "weekly_percent": 25}}}`)
-	problems := UnknownKeyProblems(unknownKeysIn(doc))
+	problems := unknownKeyProblems(unknownKeysIn(doc))
 	if len(problems) != 1 {
 		t.Fatalf("want one problem for the parent object, got %v", problems)
 	}
@@ -83,7 +83,7 @@ func TestUnknownKeyProblemsExplainARename(t *testing.T) {
 // went, and what it was, since the next write drops it from the file.
 func TestUnknownKeyProblemsNameTheReplacementKeys(t *testing.T) {
 	doc := []byte(`{"schedule": {"usage_floor": {"5h_percent": 30, "weekly_percent": 25}}}`)
-	got := UnknownKeyProblems(unknownKeysIn(doc))[0]
+	got := unknownKeyProblems(unknownKeysIn(doc))[0]
 	for _, want := range []string{"not a config key", "30", "codex.usage_floor", "claude.usage_floor", "1w_percent"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("problem %q is missing %q", got, want)
@@ -95,7 +95,7 @@ func TestUnknownKeyProblemsNameTheReplacementKeys(t *testing.T) {
 // object. It still reports, because the key is still gone, but there is no
 // value to claim was lost.
 func TestUnknownKeyProblemsOmitAnEmptyValue(t *testing.T) {
-	got := UnknownKeyProblems(unknownKeysIn([]byte(`{"schedule": {"usage_floor": {}}}`)))
+	got := unknownKeyProblems(unknownKeysIn([]byte(`{"schedule": {"usage_floor": {}}}`)))
 	if len(got) != 1 || strings.Contains(got[0], "is not in effect") {
 		t.Errorf("problems = %v, want one line with no value clause", got)
 	}

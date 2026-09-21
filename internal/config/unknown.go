@@ -67,11 +67,21 @@ func UnknownKeys() []UnknownKey {
 	return unknownKeysIn(data)
 }
 
+// UnknownKeyProblems reports the config file's unknown keys already phrased
+// as problems, in the voice doctor and the boot preflight report everything
+// else in. One exported call rather than two, because both callers compose
+// exactly this pair and the []UnknownKey between them buys nothing outside
+// the package. A key with a value says what that value was: the next write
+// drops it from the file, so this line may be the last record of it.
+func UnknownKeyProblems() []string {
+	return unknownKeyProblems(UnknownKeys())
+}
+
 // unknownKeysIn is UnknownKeys against bytes, so the walk tests without a
 // filesystem.
 func unknownKeysIn(data []byte) []UnknownKey {
-	var doc map[string]any
-	if json.Unmarshal(data, &doc) != nil {
+	doc, err := decodeDoc(data)
+	if err != nil {
 		return nil
 	}
 	var found []UnknownKey
@@ -182,11 +192,9 @@ func render(v any) string {
 	return string(out)
 }
 
-// UnknownKeyProblems phrases the unknown keys as config problems, in the
-// voice doctor and the boot preflight report everything else in. A key with a
-// value says what that value was: the next write drops it from the file, so
-// this line may be the last record of it.
-func UnknownKeyProblems(keys []UnknownKey) []string {
+// unknownKeyProblems is UnknownKeyProblems over keys already read, so the
+// phrasing tests without a filesystem.
+func unknownKeyProblems(keys []UnknownKey) []string {
 	problems := make([]string, 0, len(keys))
 	for _, k := range keys {
 		var b strings.Builder
@@ -203,82 +211,4 @@ func UnknownKeyProblems(keys []UnknownKey) []string {
 		problems = append(problems, b.String())
 	}
 	return problems
-}
-
-// ReadUnknown returns the raw value at a dotted path, for a key the schema
-// has no field for. The registry's get cannot answer for these: it resolves
-// against a fixed list of known keys, so a key that is in the FILE but not in
-// the schema reports as if it were never written.
-func ReadUnknown(path string) (string, bool) {
-	data, err := os.ReadFile(filePath())
-	if err != nil {
-		return "", false
-	}
-	var doc map[string]any
-	if json.Unmarshal(data, &doc) != nil {
-		return "", false
-	}
-	value, ok := lookupPath(doc, strings.Split(path, "."))
-	if !ok {
-		return "", false
-	}
-	return render(value), true
-}
-
-// UnsetUnknown removes a dotted path from the config document, reporting
-// whether it was there. It rewrites the RAW document rather than the parsed
-// struct, so everything the schema cannot see -- the "//note" annotations,
-// and any other unknown key -- survives having one of them removed. Held
-// under the store lock, like every other write.
-func UnsetUnknown(path string) (bool, error) {
-	var removed bool
-	err := store().WithLock(func() error {
-		data, err := os.ReadFile(filePath())
-		if err != nil {
-			return err
-		}
-		var doc map[string]any
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return err
-		}
-		if removed = deletePath(doc, strings.Split(path, ".")); !removed {
-			return nil
-		}
-		return store().Save(doc)
-	})
-	return removed, err
-}
-
-// lookupPath walks a dotted path through nested objects.
-func lookupPath(doc map[string]any, path []string) (any, bool) {
-	value, ok := doc[path[0]]
-	if !ok {
-		return nil, false
-	}
-	if len(path) == 1 {
-		return value, true
-	}
-	child, ok := value.(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	return lookupPath(child, path[1:])
-}
-
-// deletePath removes a dotted path, leaving its parents in place: an object
-// that is empty afterwards was still written deliberately, and pruning it
-// would delete more than was asked for.
-func deletePath(doc map[string]any, path []string) bool {
-	if len(path) == 1 {
-		if _, ok := doc[path[0]]; !ok {
-			return false
-		}
-		delete(doc, path[0])
-		return true
-	}
-	child, ok := doc[path[0]].(map[string]any)
-	if !ok {
-		return false
-	}
-	return deletePath(child, path[1:])
 }

@@ -59,7 +59,7 @@ func Run(ctx context.Context, cfg config.Config) []Check {
 	// subset that cannot see them. Kept out of ConfigProblems, which stays a
 	// pure function of the config it is handed and so tests without a
 	// filesystem.
-	checks = append(checks, configKeysCheck(config.UnknownKeyProblems(config.UnknownKeys())))
+	checks = append(checks, configKeysCheck(config.UnknownKeyProblems()))
 	return append(checks, configCheck(ConfigProblems(cfg)))
 }
 

@@ -125,7 +125,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// key that is not in effect is otherwise indistinguishable from one that
 	// is, and because the next config write drops it from the file -- this
 	// line may be the last record of what it held.
-	for _, problem := range config.UnknownKeyProblems(config.UnknownKeys()) {
+	for _, problem := range config.UnknownKeyProblems() {
 		logf("config: %s", problem)
 	}
 

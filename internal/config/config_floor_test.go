@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func pct(n int) *int { return &n }
 
@@ -116,5 +119,61 @@ func TestLeaseWindowFloor(t *testing.T) {
 	c.Schedule.Interval = "1h30m"
 	if got := c.LeaseWindow(); got.Hours() != 6 {
 		t.Errorf("1h30m interval lease window = %v, want 6h", got)
+	}
+}
+
+// An engine name nothing recognises must be REPORTED, not silently applied to
+// the default engine. EngineCommon's fallback is right for BinFor and wrong
+// for a gate on spend: a cohort writing "Claude" would otherwise move codex's
+// floor, and the pause reason would name an engine the author never mentioned.
+func TestValidateReportsUnrecognisedFloorEngine(t *testing.T) {
+	c := Config{}
+	c.Authors.Groups = map[string]Group{"core": {
+		UsageFloor: map[string]UsageFloorLimits{"Claude": {OneWeekPercent: pct(90)}},
+	}}
+	problems := strings.Join(c.ValidateAuthors(), "; ")
+	if !strings.Contains(problems, `"Claude"`) || !strings.Contains(problems, "authors.groups.core.usage_floor") {
+		t.Errorf("an unrecognised engine section must be reported, got %q", problems)
+	}
+}
+
+// BelowFloor gates on `floor > 0`, so a negative percentage disables the
+// window rather than being rejected -- the quota gate silently off, which is
+// one of the two failure modes this feature exists to prevent. Cohort floors
+// have no CLI bound, so this validator is the only thing that says it.
+func TestValidateReportsOutOfRangeFloor(t *testing.T) {
+	for _, bad := range []int{-5, 101} {
+		c := Config{}
+		c.Authors.Groups = map[string]Group{"core": {
+			UsageFloor: map[string]UsageFloorLimits{"codex": {FiveHourPercent: pct(bad)}},
+		}}
+		problems := strings.Join(c.ValidateAuthors(), "; ")
+		if !strings.Contains(problems, "usage_floor.codex.5h_percent") {
+			t.Errorf("floor %d must be reported, got %q", bad, problems)
+		}
+	}
+	// The two meaningful ends stay legal: 0 disables, 100 always holds.
+	for _, ok := range []int{0, 100} {
+		c := Config{}
+		c.Authors.Groups = map[string]Group{"core": {
+			UsageFloor: map[string]UsageFloorLimits{"codex": {FiveHourPercent: pct(ok)}},
+		}}
+		if problems := c.ValidateAuthors(); len(problems) != 0 {
+			t.Errorf("floor %d must be accepted, got %v", ok, problems)
+		}
+	}
+}
+
+// An override is a group patch, so it carries the same dial and needs the
+// same check; nothing else validates it.
+func TestValidateReportsOverrideFloorProblems(t *testing.T) {
+	c := Config{}
+	c.Authors.Overrides = []AuthorOverride{{
+		Handle: "ada",
+		Group:  Group{UsageFloor: map[string]UsageFloorLimits{"gemini": {OneWeekPercent: pct(5)}}},
+	}}
+	problems := strings.Join(c.ValidateAuthors(), "; ")
+	if !strings.Contains(problems, "authors.overrides[0].usage_floor") {
+		t.Errorf("an override's floors must be validated too, got %q", problems)
 	}
 }

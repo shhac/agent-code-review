@@ -637,6 +637,17 @@ internal/
   Preflight runs per distinct settings combination, because a group's own model
   is exactly what introduces a pairing the base config does not have.
 
+  A cohort's `usage_floor` is the one engine-name namespace that does NOT
+  reach `EngineCommon` through a validated field, so `floorProblems`
+  (validate.go) checks its section names and its percentages. Both failures it
+  catches are silent and both are money: `EngineCommon` falls back to the
+  default engine's block for a name it does not know, so a section spelled
+  "Claude" moves codex's floor instead, and `BelowFloor` gates on `floor > 0`,
+  so a negative percentage switches the window off rather than being rejected.
+  The engine-level keys are bounded by `config set`; a cohort's are hand-edited
+  JSON with no CLI, which is why the validator is the only thing standing in
+  front of them.
+
   `config.UnknownKeys` is the one check that reads the FILE rather than the
   parsed `Config`, because the parsed config is exactly the subset that cannot
   see an unknown key. It stays out of `ConfigProblems`, which is a pure

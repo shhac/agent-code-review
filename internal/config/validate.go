@@ -56,6 +56,7 @@ func (c Config) ValidateAuthors() []string {
 				name, g.Review, strings.Join(ReviewLevels, ", ")))
 		}
 		problems = append(problems, engineProblem("authors.groups."+name, g.Engine)...)
+		problems = append(problems, floorProblems("authors.groups."+name, g.UsageFloor)...)
 	}
 	for _, repo := range sortedKeys(c.Authors.Unlisted) {
 		if repo != WildcardRepo && !ValidRepoName(repo) {
@@ -80,6 +81,7 @@ func (c Config) ValidateAuthors() []string {
 				where, o.Review, strings.Join(ReviewLevels, ", ")))
 		}
 		problems = append(problems, engineProblem(where, o.Engine)...)
+		problems = append(problems, floorProblems(where, o.UsageFloor)...)
 		for _, repo := range o.Repos {
 			if repo != WildcardRepo && !ValidRepoName(repo) {
 				problems = append(problems, fmt.Sprintf(
@@ -95,6 +97,40 @@ func engineProblem(where, engine string) []string {
 		return nil
 	}
 	return []string{fmt.Sprintf("%s.engine is %q; valid: %s", where, engine, strings.Join(EngineNames, ", "))}
+}
+
+// floorProblems reports a cohort's usage_floor entries that would not do what
+// they say. Both failures are silent and both are money: EngineCommon falls
+// back to the DEFAULT engine's block for a name it does not recognise (right
+// for BinFor, wrong for a gate on spend), so usage_floor keyed "Claude" or
+// "claud" quietly moves codex's floor instead; and BelowFloor tests
+// `floor > 0`, so a negative percentage switches the window's gate off
+// altogether rather than being rejected.
+//
+// The engine-level keys are bounded by the CLI (`config set` takes 0..100),
+// but a cohort's floors have no CLI at all -- they are hand-edited JSON that
+// reaches BelowFloor unexamined, which is exactly why they are checked here.
+func floorProblems(where string, floors map[string]UsageFloorLimits) []string {
+	var problems []string
+	for _, engine := range sortedKeys(floors) {
+		if !slices.Contains(EngineNames, engine) {
+			problems = append(problems, fmt.Sprintf(
+				"%s.usage_floor has a %q section, which is not an engine; valid: %s",
+				where, engine, strings.Join(EngineNames, ", ")))
+		}
+		limits := floors[engine]
+		for _, w := range limits.windows() {
+			if *w.Slot == nil {
+				continue
+			}
+			if pct := **w.Slot; pct < 0 || pct > 100 {
+				problems = append(problems, fmt.Sprintf(
+					"%s.usage_floor.%s.%s is %d; it is a percentage remaining, so 0 (off) to 100",
+					where, engine, w.Key, pct))
+			}
+		}
+	}
+	return problems
 }
 
 func sortedKeys[T any](m map[string]T) []string {

@@ -71,7 +71,8 @@ func Run(ctx context.Context, cfg config.Config) []Check {
 //
 // Exported so boot validation reports the same problems `doctor` does.
 func ConfigProblems(cfg config.Config) []string {
-	problems := cfg.ValidateAuthors()
+	problems := cfg.ValidateReview()
+	problems = append(problems, cfg.ValidateAuthors()...)
 	// Scoring resolves a bad ruleset to the shipped defaults rather than
 	// failing a review, which is right at review time and wrong as the only
 	// signal: an inverted bucket ladder would otherwise score every PR at

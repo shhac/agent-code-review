@@ -99,6 +99,20 @@ func engineProblem(where, engine string) []string {
 	return []string{fmt.Sprintf("%s.engine is %q; valid: %s", where, engine, strings.Join(EngineNames, ", "))}
 }
 
+// ValidateReview checks the base review settings that no other layer does.
+//
+// A cohort's engine and an override's engine are both checked below, but the
+// engine they all fall back to was not. An unwired name there parses, writes
+// and loads fine, then fails only once a review is actually attempted, as
+// `Unknown review engine` on an ERROR history row. Doctor did notice --
+// ReachableEngines includes the base engine, so it probes a binary by that
+// name and fails to find one -- but "engine:gemini FAILED: binary not found"
+// sends you looking for a missing install rather than a typo. This says which
+// it is.
+func (c Config) ValidateReview() []string {
+	return engineProblem("review", c.Review.Engine)
+}
+
 // floorProblems reports a cohort's usage_floor entries that would not do what
 // they say. Both failures are silent and both are money: EngineCommon falls
 // back to the DEFAULT engine's block for a name it does not recognise (right

@@ -637,6 +637,11 @@ internal/
   Preflight runs per distinct settings combination, because a group's own model
   is exactly what introduces a pairing the base config does not have.
 
+  `ValidateReview` covers the base `review.engine`, which every cohort falls
+  back to and which nothing checked: doctor's engine probe already reported an
+  unwired name, but only as a failing probe, and the one-shot `review` path
+  runs `ConfigProblems` without those probes at all, so there it said nothing.
+
   A cohort's `usage_floor` is the one engine-name namespace that does NOT
   reach `EngineCommon` through a validated field, so `floorProblems`
   (validate.go) checks its section names and its percentages. Both failures it

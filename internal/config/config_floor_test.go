@@ -177,3 +177,24 @@ func TestValidateReportsOverrideFloorProblems(t *testing.T) {
 		t.Errorf("an override's floors must be validated too, got %q", problems)
 	}
 }
+
+// The base engine is the one every cohort falls back to, and it was the only
+// engine name nothing checked: a typo there parsed, saved and loaded, then
+// surfaced as a missing binary rather than as a bad name.
+func TestValidateReportsUnwiredBaseEngine(t *testing.T) {
+	c := Config{Review: ReviewSettings{Engine: "gemini"}}
+	problems := strings.Join(c.ValidateReview(), "; ")
+	if !strings.Contains(problems, "review.engine") || !strings.Contains(problems, "gemini") {
+		t.Errorf("an unwired base engine must be reported, got %q", problems)
+	}
+	// Empty means "use the default", which is not a typo.
+	if problems := (Config{}).ValidateReview(); len(problems) != 0 {
+		t.Errorf("an unset engine must be accepted, got %v", problems)
+	}
+	for _, wired := range EngineNames {
+		c := Config{Review: ReviewSettings{Engine: wired}}
+		if problems := c.ValidateReview(); len(problems) != 0 {
+			t.Errorf("%s is wired: %v", wired, problems)
+		}
+	}
+}

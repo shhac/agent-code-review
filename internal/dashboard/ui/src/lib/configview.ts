@@ -99,8 +99,6 @@ export function settingsGroups(c: ConfigResponse | null): SettingsGroup[] {
       ['Interval', `\`${c.schedule.interval}\``],
       ['Max parallel', `\`${c.schedule.max_parallel}\``],
       ['Dispatch cooldown', c.schedule.dispatch_cooldown === '0s' ? 'none' : `\`${c.schedule.dispatch_cooldown}\` between hand-offs`],
-      ['Usage floor (5h)', c.schedule.usage_floor_5h_percent ? `hold below \`${c.schedule.usage_floor_5h_percent}%\` remaining, per engine` : 'disabled'],
-      ['Usage floor (weekly)', c.schedule.usage_floor_weekly_percent ? `hold below \`${c.schedule.usage_floor_weekly_percent}%\` remaining, per engine` : 'disabled'],
     ]],
     ['Discovery', [
       ['State (this daemon)', loopState(c.discovery_running, c.discovery.enabled)],

@@ -192,10 +192,11 @@ example config.
   survive for the next cycle. "Reviewing" is derived from a claim lease
   (`ClaimActive`, window `max(4×interval, 2h)`: the floor stops short
   intervals from shrinking the lease under a long review), never stored.
-- **Usage floors**: the review loop pauses itself when a Codex rate-limit
-  window has under `schedule.usage_floor.*` percent remaining (default 10,
-  0 disables; fail-open on missing snapshots), checked before the run-lock so
-  paused cycles record nothing.
+- **Usage floors**: an engine's candidates are held when one of its rate-limit
+  windows has under `review.<engine>.usage_floor.{5h,1w}_percent` remaining
+  (default 10, 0 disables; fail-open on missing snapshots), checked before the
+  run-lock so held candidates record nothing. Per engine, and overridable per
+  cohort keyed by engine.
 - **Pre-review candidacy recheck**: discovered candidates are re-validated
   just before the engine spend (approved/closed/merged while queued →
   precheck SKIPPED); manual adds bypass it, so explicit requests always run.

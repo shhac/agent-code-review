@@ -27,6 +27,9 @@
   // skips, so this card could report "last review 9m" while the 24h count
   // beside it (which sums real-verdict buckets) had not moved for hours.
   $: lastReview = reviews.find((r) => isReview(r.verdict));
+  // The ACTIVE engine's verdict, which is what the header speaks for: the
+  // engine reviews spend from unless a cohort names another. Each engine's
+  // own verdict is on its row in the panel below.
   $: usagePaused = !!usageResp?.review_paused;
   // Every metered engine, active one first, so the engine in use reads first
   // but the alternative is visible without interaction: the panel exists to
@@ -140,15 +143,17 @@
 
     <section>
       <div class="section-head compact"><h2>Engine usage</h2><span>{engineUsages.length} engines</span></div>
-      {#if usagePaused}
-        <p class="status warn wraps"><i></i>reviews paused: {usageResp?.paused_reason}</p>
-      {/if}
       {#each engineUsages as eu (eu.engine)}
         <div class="engine-usage" class:inactive={!eu.active}>
           <p class="engine-head">
             <span>{eu.engine}{#if eu.active}<i class="active-dot" title="the configured review engine"></i>{/if}</span>
             {#if eu.usage?.plan}<b>plan {eu.usage.plan}</b>{/if}
           </p>
+          <!-- Per engine, not per panel: each is judged against its own floor,
+               so one engine being held says nothing about the other. -->
+          {#if eu.paused}
+            <p class="status warn wraps"><i></i>paused: {eu.paused_reason}</p>
+          {/if}
           {#if !eu.available}
             <p class="muted">unavailable{#if eu.error}: {eu.error}{/if}</p>
           {:else}

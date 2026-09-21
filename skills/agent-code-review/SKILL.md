@@ -157,10 +157,11 @@ hardcodes repos or GitHub handles; everything is config.
 - Most config edits reload live within ~30s (cadence, parallelism, usage
   floors, repos, prompts); only the loop switches and dashboard/Tailscale
   settings need a daemon restart. A candidate is HELD when the engine that
-  would review it drops below `schedule.usage_floor.*` percent remaining. The
-  floor is per engine, since a group can name its own: one engine being out of
-  headroom does not hold candidates bound for the other. A held candidate is
-  never claimed or recorded, so it runs when the window refills.
+  would review it drops below `<engine>.usage_floor.{5h,1w}_percent`
+  remaining. Both the meter and the floor are per engine, so one engine being
+  out of headroom does not hold candidates bound for the other; a cohort can
+  set its own under `authors.groups.<name>.usage_floor.<engine>`. A held
+  candidate is never claimed or recorded, so it runs when the window refills.
 - The agent does the actual review and GitHub actions, then reports back what
   it did (APPROVED|COMMENTED|REQUESTED_CHANGES|SKIPPED). The assembled prompt
   carries a built-in approval directive that defaults to comment-only; approval

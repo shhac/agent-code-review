@@ -92,12 +92,10 @@ type configCandidateResp struct {
 }
 
 type configScheduleResp struct {
-	Enabled                 bool   `json:"enabled"`
-	Interval                string `json:"interval"`
-	MaxParallel             int    `json:"max_parallel"`
-	DispatchCooldown        string `json:"dispatch_cooldown"`
-	UsageFloor5hPercent     int    `json:"usage_floor_5h_percent"`
-	UsageFloorWeeklyPercent int    `json:"usage_floor_weekly_percent"`
+	Enabled          bool   `json:"enabled"`
+	Interval         string `json:"interval"`
+	MaxParallel      int    `json:"max_parallel"`
+	DispatchCooldown string `json:"dispatch_cooldown"`
 }
 
 type configDiscoveryResp struct {
@@ -171,13 +169,14 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			ErrorBackoff:         cfg.ErrorBackoff().String(),
 		},
 		Scoring: scoringResp(cfg),
+		// No usage floor here: it is per engine now, so there is no one
+		// schedule-wide number to publish. The Engine usage panel reports
+		// each engine's own floor when it trips.
 		Schedule: configScheduleResp{
-			Enabled:                 cfg.ScheduleEnabled(),
-			Interval:                cfg.Interval().String(),
-			MaxParallel:             cfg.MaxParallel(),
-			DispatchCooldown:        cfg.DispatchCooldown().String(),
-			UsageFloor5hPercent:     cfg.UsageFloor5h(),
-			UsageFloorWeeklyPercent: cfg.UsageFloorWeekly(),
+			Enabled:          cfg.ScheduleEnabled(),
+			Interval:         cfg.Interval().String(),
+			MaxParallel:      cfg.MaxParallel(),
+			DispatchCooldown: cfg.DispatchCooldown().String(),
 		},
 		Discovery: configDiscoveryResp{
 			Enabled:  cfg.DiscoveryEnabled(),

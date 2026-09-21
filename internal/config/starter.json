@@ -23,12 +23,7 @@
     "enabled": true,
     "interval": "30s",
     "max_parallel": 4,
-    "dispatch_cooldown": "5s",
-    "//usage_floor_note": "Hold a candidate when the engine that would review it has less than this % remaining in its 5h or weekly window; it runs when that window refills. Applied PER ENGINE, since a group can name its own: codex being out of headroom does not hold candidates bound for claude. A held candidate is never claimed or recorded, exactly like a cooldown hold. 0 disables a floor. Omit for the default of 10.",
-    "usage_floor": {
-      "5h_percent": 10,
-      "weekly_percent": 10
-    }
+    "dispatch_cooldown": "5s"
   },
   "discovery": {
     "enabled": true,
@@ -59,10 +54,15 @@
         "-c",
         "sandbox_workspace_write.network_access=true"
       ],
+      "//usage_floor_note": "Hold this engine's candidates while its account is low on headroom: when the 5 hourly or weekly window has less than this % remaining, they wait for that window to refill. Per engine, because headroom belongs to the account the engine bills against: codex running dry says nothing about claude's week. A held candidate is never claimed or recorded, exactly like a cooldown hold. 0 disables a floor; omit for the default of 10. A cohort can override both under authors.groups.<name>.usage_floor.codex.",
+      "usage_floor": {
+        "5h_percent": 10,
+        "1w_percent": 10
+      },
       "//max_resumes_note": "How many times to resume a session that ended on a WORKING report before recording an ERROR. Unset means 2; 0 disables resuming.",
       "max_resumes": 2
     },
-    "//claude_note": "Applies only when engine is \"claude\". Requires an authenticated Claude Code CLI (`claude auth login`); the tool never handles credentials. Reviews draw on that account's subscription, and schedule.usage_floor meters it the same way it meters codex.",
+    "//claude_note": "Applies only when engine is \"claude\". Requires an authenticated Claude Code CLI (`claude auth login`); the tool never handles credentials. Reviews draw on that account's subscription, metered by its own usage_floor below.",
     "claude": {
       "bin": "claude",
       "//model_note": "Defaults to claude-opus-5 when empty. Pinned rather than inherited from your account's session default, so a review's depth and cost do not change under you when that default moves. Override with an alias (opus, sonnet, haiku, fable) or a full id. NOTE: the default 'auto' permission mode requires Opus 4.6+, Sonnet 4.6+, or Fable 5; haiku and older models are unsupported there and would fail every review, so pair them with a static permission_mode.",
@@ -77,6 +77,11 @@
       "max_budget_usd": 0,
       "//args_note": "Extra args appended to `claude -p`, for anything not covered above (--mcp-config, --add-dir, --agents).",
       "args": [],
+      "//usage_floor_note": "The claude account's own headroom floor, independent of codex's above: hold this engine's candidates when its 5 hourly or weekly window has less than this % remaining. 0 disables a floor; omit for the default of 10.",
+      "usage_floor": {
+        "5h_percent": 10,
+        "1w_percent": 10
+      },
       "//max_resumes_note": "How many times to resume a session that ended without a final report before recording an ERROR. Unset means 2; 0 disables resuming.",
       "max_resumes": 2
     }

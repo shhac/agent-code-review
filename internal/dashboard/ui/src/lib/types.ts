@@ -179,6 +179,11 @@ export type EngineUsage = {
   available: boolean;
   error?: string;
   usage?: UsageSnapshot;
+  // Judged against this engine's OWN floor. A cohort that overrides the floor
+  // can be held while its engine reads as running here; that hold explains
+  // itself on the candidate rather than in this panel.
+  paused?: boolean;
+  paused_reason?: string;
 };
 
 export type UsageResponse = {
@@ -268,8 +273,6 @@ export type ConfigResponse = {
     enabled: boolean;
     interval: string;
     max_parallel: number; dispatch_cooldown: string;
-    usage_floor_5h_percent: number;
-    usage_floor_weekly_percent: number;
   };
   discovery: {
     enabled: boolean;

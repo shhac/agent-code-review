@@ -15,12 +15,19 @@ import (
 // snapshot alone cannot: a failed poll still stamps FetchedAt. Error carries
 // the reason so an unavailable engine explains itself instead of showing a
 // blank meter.
+//
+// Paused is judged against this engine's BASE floor. A cohort that overrides
+// the floor can be held while the panel shows the engine as fine; that hold
+// explains itself on the candidate, where it applies, rather than being
+// averaged into a panel-wide verdict that is true for nobody.
 type engineUsage struct {
-	Engine    string          `json:"engine"`
-	Active    bool            `json:"active"`
-	Available bool            `json:"available"`
-	Error     string          `json:"error,omitempty"`
-	Usage     *usage.Snapshot `json:"usage,omitempty"`
+	Engine       string          `json:"engine"`
+	Active       bool            `json:"active"`
+	Available    bool            `json:"available"`
+	Error        string          `json:"error,omitempty"`
+	Usage        *usage.Snapshot `json:"usage,omitempty"`
+	Paused       bool            `json:"paused,omitempty"`
+	PausedReason string          `json:"paused_reason,omitempty"`
 }
 
 type usageResp struct {
@@ -39,9 +46,10 @@ type usageResp struct {
 }
 
 // engineUsages renders every engine's cached snapshot in a stable order, with
-// the configured one marked. Engines that were never polled still appear, as
-// unavailable: a missing slot would read as "this engine does not exist".
-func engineUsages(snaps map[string]usage.Snapshot, active string) []engineUsage {
+// the configured one marked and each judged against its OWN floor. Engines
+// that were never polled still appear, as unavailable: a missing slot would
+// read as "this engine does not exist".
+func engineUsages(cfg config.Config, snaps map[string]usage.Snapshot, active string) []engineUsage {
 	out := make([]engineUsage, 0, len(review.Engines))
 	for _, engine := range review.Engines {
 		snap := snaps[engine]
@@ -52,6 +60,8 @@ func engineUsages(snaps map[string]usage.Snapshot, active string) []engineUsage 
 		if !row.Available && row.Error == "" {
 			row.Error = "no usage reported yet"
 		}
+		fiveH, oneW := cfg.Review.UsageFloors(engine)
+		row.Paused, row.PausedReason = usage.BelowFloor(snap, fiveH, oneW)
 		out = append(out, row)
 	}
 	return out
@@ -102,19 +112,23 @@ func usageView(cfg config.Config, snaps map[string]usage.Snapshot, freshTotal, f
 	active := cfg.Engine()
 	resp := usageResp{
 		Engine:     active,
-		Engines:    engineUsages(snaps, active),
+		Engines:    engineUsages(cfg, snaps, active),
 		FreshTotal: freshTotal,
 		Fresh24h:   fresh24h,
 	}
 	if snaps == nil {
 		return resp
 	}
-	// The floor applies to the ACTIVE engine only: that is the account
-	// reviews spend from, so another engine's headroom must not pause or
-	// unpause the loop.
-	snap := snaps[active]
-	resp.Available = snap.OK()
-	resp.ReviewPaused, resp.PausedReason = usage.BelowFloor(snap, cfg.UsageFloor5h(), cfg.UsageFloorWeekly())
+	// The top-level verdict is the ACTIVE engine's, read back off its row
+	// rather than recomputed: that is the account reviews spend from by
+	// default, and it is what the page header reports. Every engine's own
+	// verdict travels on its row.
+	resp.Available = snaps[active].OK()
+	for _, row := range resp.Engines {
+		if row.Active {
+			resp.ReviewPaused, resp.PausedReason = row.Paused, row.PausedReason
+		}
+	}
 	return resp
 }
 

@@ -43,9 +43,10 @@ const weeklyThresholdMins = 10080
 
 // BelowFloor reports whether review work should pause because a usage
 // window's REMAINING percentage has dropped below its floor, and names the
-// window that tripped. A floor of 0 disables that window's check. Fail-open
-// by design: an empty or errored snapshot never pauses, because review
-// availability must not depend on the usage meter working.
+// window that tripped. The floors are the engine's own (see
+// config.ReviewSettings.UsageFloors); a floor of 0 disables that window's
+// check. Fail-open by design: an empty or errored snapshot never pauses,
+// because review availability must not depend on the usage meter working.
 func BelowFloor(s Snapshot, floor5h, floorWeekly int) (bool, string) {
 	if s.FetchedAt.IsZero() || s.Error != "" {
 		return false, ""
@@ -54,7 +55,10 @@ func BelowFloor(s Snapshot, floor5h, floorWeekly int) (bool, string) {
 		if w == nil {
 			continue
 		}
-		floor, name := floor5h, "5h"
+		// Prose, not the config's key names ("5h_percent", "1w_percent"):
+		// this string is read in a log line and a dashboard badge, where a
+		// sentence reads better than an identifier.
+		floor, name := floor5h, "5 hourly"
 		if w.WindowMins >= weeklyThresholdMins {
 			floor, name = floorWeekly, "weekly"
 		}

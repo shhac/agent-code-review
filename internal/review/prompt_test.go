@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestDeriveFacts(t *testing.T) {
 			}
 			// The policy travels through untouched: DeriveFacts resolves
 			// self-authorship and nothing else.
-			if f.Policy != tc.policy {
+			if !reflect.DeepEqual(f.Policy, tc.policy) {
 				t.Errorf("Policy = %+v, want %+v", f.Policy, tc.policy)
 			}
 		})

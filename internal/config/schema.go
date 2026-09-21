@@ -48,6 +48,12 @@ type Group struct {
 	Model  string `json:"model,omitempty"`  // overrides the resolved engine's model
 	Effort string `json:"effort,omitempty"` // overrides the resolved engine's reasoning effort
 	Prompt string `json:"prompt,omitempty"` // appended to the review instructions
+	// UsageFloor overrides how much headroom this cohort leaves, keyed by
+	// ENGINE NAME rather than applying to whichever engine the group resolves
+	// to. A cohort worth spending the last of the week on is worth it on
+	// either engine, and moving the group onto the other engine should not
+	// silently change how much it leaves behind for interactive work.
+	UsageFloor map[string]UsageFloorLimits `json:"usage_floor,omitempty"`
 }
 
 // AuthorOverride narrows a policy below the group: the same patchable fields,
@@ -105,19 +111,24 @@ type ScheduleSettings struct {
 	// looking again after a pull found nothing dispatchable. It is no longer
 	// a batch cadence: a freed slot dispatches the next candidate without
 	// waiting for it.
-	Interval         string           `json:"interval,omitempty"`          // idle poll, e.g. "30m"
-	MaxParallel      int              `json:"max_parallel,omitempty"`      // default 4
-	DispatchCooldown string           `json:"dispatch_cooldown,omitempty"` // Go duration, default "5s"; "0s" disables
-	UsageFloor       UsageFloorLimits `json:"usage_floor,omitempty"`
+	Interval         string `json:"interval,omitempty"`          // idle poll, e.g. "30m"
+	MaxParallel      int    `json:"max_parallel,omitempty"`      // default 4
+	DispatchCooldown string `json:"dispatch_cooldown,omitempty"` // Go duration, default "5s"; "0s" disables
 }
 
 // UsageFloorLimits holds a candidate back while its engine's usage headroom
 // is low: when a window's remaining percentage drops below its floor, that
 // engine's candidates are not dispatched until the window refills. nil means
 // the default (10); an explicit 0 disables that window's floor.
+//
+// The keys name the window in the config's own vocabulary ("5h", "1w") and say
+// what the number is; the user-facing pause reason says "5 hourly" and
+// "weekly", because a sentence is not a key. Windows are matched to a floor by
+// DURATION (see usage.weeklyThresholdMins), so neither name has to match what
+// a vendor calls its window.
 type UsageFloorLimits struct {
 	FiveHourPercent *int `json:"5h_percent,omitempty"`
-	WeeklyPercent   *int `json:"weekly_percent,omitempty"`
+	OneWeekPercent  *int `json:"1w_percent,omitempty"`
 }
 
 // DiscoverySettings drives the candidate-scraping loop: cheap, deterministic
@@ -157,6 +168,11 @@ type EngineCommon struct {
 	Effort     string   `json:"effort,omitempty"`      // reasoning effort; empty = model default
 	Args       []string `json:"args,omitempty"`        // extra args appended to the engine's invocation
 	MaxResumes *int     `json:"max_resumes,omitempty"` // resumes when a run ends unfinished; nil = default 2, 0 disables
+	// UsageFloor pauses THIS engine's candidates while its account is low on
+	// headroom. Per engine because headroom is a property of the account the
+	// engine bills against: codex running dry says nothing about claude's
+	// week, and the two plans refill on their own schedules.
+	UsageFloor UsageFloorLimits `json:"usage_floor,omitempty"`
 }
 
 // CodexSettings configures the default review engine (codex exec).

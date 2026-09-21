@@ -62,7 +62,7 @@ func TestClaudeWindowsSatisfyTheFloorSplit(t *testing.T) {
 		t.Fatal(err)
 	}
 	paused, reason := BelowFloor(snap, 10, 10)
-	if !paused || !strings.Contains(reason, "5h") {
+	if !paused || !strings.Contains(reason, "5 hourly") {
 		t.Errorf("a 95%%-used session window must trip the 5h floor, got paused=%v reason=%q", paused, reason)
 	}
 }

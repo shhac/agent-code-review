@@ -843,3 +843,95 @@ func TestDispatchUsesTheInjectedClock(t *testing.T) {
 		t.Errorf("once the injected clock passes the hold the candidate must be reviewed, got %+v", fs.completed)
 	}
 }
+
+// The floor itself is per engine, not just the snapshot it is measured
+// against. Both engines sit at exactly the same usage here, so the only thing
+// that can separate them is how much headroom each is configured to leave --
+// which is what moving the floor off schedule.usage_floor bought.
+func TestDispatchFloorsDifferPerEngine(t *testing.T) {
+	cfg := config.Config{
+		Review: config.ReviewSettings{Engine: "codex", MainPrompt: "MAIN"},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{
+				"claude-cohort": {Review: config.ReviewComment, Engine: "claude"},
+				"codex-cohort":  {Review: config.ReviewComment, Engine: "codex"},
+			},
+		},
+	}
+	// 40% of a window that has 25% left: codex holds. claude keeps the
+	// default 10 and runs on the identical numbers.
+	floor := 40
+	cfg.Review.Codex.UsageFloor.FiveHourPercent = &floor
+
+	fs := &fakeDispatchStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, Author: "bob", HeadSHA: "s2"},
+	}}
+	fs.byHandle = map[string]string{"alice": "claude-cohort", "bob": "codex-cohort"}
+	same := usage.Snapshot{FetchedAt: time.Now(), Primary: &usage.Window{UsedPercent: 75, WindowMins: 300}}
+
+	cfg.Schedule = config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}
+	s := newScheduler(Deps{
+		Store:     fs,
+		Config:    func() config.Config { return cfg },
+		GHUser:    "u",
+		Usage:     func(string) usage.Snapshot { return same },
+		NewEngine: fixedEngine(commented()),
+	})
+
+	if err := drain(t, s); err != nil {
+		t.Fatal(err)
+	}
+	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
+		t.Fatalf("only alice's PR (claude, floor 10) should complete, got %+v", fs.completed)
+	}
+}
+
+// A cohort can set its own floor, keyed by engine so that moving the cohort
+// between engines does not change how much headroom it leaves. Here the
+// cohort leaves far more than the engine's base floor, and is held on numbers
+// that let everyone else through.
+func TestDispatchGroupUsageFloorOverride(t *testing.T) {
+	cfg := config.Config{
+		Review: config.ReviewSettings{Engine: "codex", MainPrompt: "MAIN"},
+		Authors: config.AuthorSettings{
+			Groups: map[string]config.Group{
+				"thrifty": {
+					Review:     config.ReviewComment,
+					UsageFloor: map[string]config.UsageFloorLimits{"codex": {FiveHourPercent: ptrInt(40)}},
+				},
+				"spendy": {Review: config.ReviewComment},
+			},
+		},
+	}
+	fs := &fakeDispatchStore{queue: []store.Candidate{
+		{Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "s1"},
+		{Repo: "o/r", Number: 2, Author: "bob", HeadSHA: "s2"},
+	}}
+	fs.byHandle = map[string]string{"alice": "spendy", "bob": "thrifty"}
+	same := usage.Snapshot{FetchedAt: time.Now(), Primary: &usage.Window{UsedPercent: 75, WindowMins: 300}}
+
+	cfg.Schedule = config.ScheduleSettings{Interval: "1ms", DispatchCooldown: "0s"}
+	s := newScheduler(Deps{
+		Store:     fs,
+		Config:    func() config.Config { return cfg },
+		GHUser:    "u",
+		Usage:     func(string) usage.Snapshot { return same },
+		NewEngine: fixedEngine(commented()),
+	})
+
+	if err := drain(t, s); err != nil {
+		t.Fatal(err)
+	}
+	// Same engine, same snapshot, different cohort: only the thrifty one waits.
+	if len(fs.completed) != 1 || fs.completed[0].Number != 1 {
+		t.Fatalf("only the spendy cohort's PR should complete, got %+v", fs.completed)
+	}
+	for _, r := range fs.completed {
+		if r.Number == 2 {
+			t.Errorf("the thrifty cohort's candidate must be held, not completed: %+v", r)
+		}
+	}
+}
+
+func ptrInt(n int) *int { return &n }

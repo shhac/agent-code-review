@@ -426,6 +426,10 @@ select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px;
   font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .engine-head span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
 .engine-head b { font-weight: 500; }
+/* The per-engine pause note sits under that engine's head, reading as a
+   property of the engine rather than of the panel: same indent as the meters
+   it explains, and quieter than the uppercase head above it. */
+.engine-usage > .status { margin: 0 0 8px; font-size: 12px; }
 .active-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
 .metric-table { display: grid; }.metric-table p { margin: 0; display: grid; grid-template-columns: 18px minmax(140px, 2fr) minmax(90px, 1fr) repeat(6, 82px); gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); align-items: center; font-size: 13px; }
 /* Only a row that actually splits across CLI versions is interactive; the rest

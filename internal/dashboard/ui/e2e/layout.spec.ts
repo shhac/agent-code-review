@@ -211,6 +211,8 @@ test.describe('engine usage panel', () => {
         engine: 'codex',
         active: true,
         available: true,
+        paused: true,
+        paused_reason: 'weekly window has 9% remaining, floor is 15%',
         usage: {
           plan: 'pro',
           primary: { window_mins: 10080, used_percent: 91, resets_at: 1790000000 },
@@ -260,8 +262,17 @@ test.describe('engine usage panel', () => {
   });
 
   test('the paused reason is readable in full', async ({ page }) => {
-    const line = page.locator('.context .status.warn');
+    const line = page.locator('.engine-usage .status.warn');
     await expect(line).toContainText('floor is 15%');
-    expect(await overflowing(page, '.context .status.warn')).toEqual([]);
+    expect(await overflowing(page, '.engine-usage .status.warn')).toEqual([]);
+  });
+
+  // Each engine answers for itself: the panel-level line this replaced could
+  // only ever speak for the active engine, so a held cohort on the OTHER
+  // engine was invisible here.
+  test('only the paused engine shows a pause note', async ({ page }) => {
+    const blocks = page.locator('.engine-usage');
+    await expect(blocks.filter({ hasText: 'codex' }).locator('.status.warn')).toHaveCount(1);
+    await expect(blocks.filter({ hasText: 'claude' }).locator('.status.warn')).toHaveCount(0);
   });
 });

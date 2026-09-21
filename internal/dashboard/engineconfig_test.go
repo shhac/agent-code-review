@@ -31,7 +31,7 @@ func TestEngineConfigFollowsConfiguredEngine(t *testing.T) {
 // stamps FetchedAt, so "available" cannot be derived from that alone.
 func TestEngineUsagesReportsEveryEngine(t *testing.T) {
 	now := time.Now()
-	rows := engineUsages(map[string]usage.Snapshot{
+	rows := engineUsages(config.Config{}, map[string]usage.Snapshot{
 		"codex":  {Error: `exec: "codex": executable file not found in $PATH`, FetchedAt: now},
 		"claude": {Plan: "max", Primary: &usage.Window{UsedPercent: 8, WindowMins: 300}, FetchedAt: now},
 	}, "claude")
@@ -54,7 +54,7 @@ func TestEngineUsagesReportsEveryEngine(t *testing.T) {
 // An engine that was never polled must still appear: a missing slot would
 // read as "this engine does not exist" rather than "no data yet".
 func TestEngineUsagesKeepsUnpolledEngines(t *testing.T) {
-	rows := engineUsages(nil, "codex")
+	rows := engineUsages(config.Config{}, nil, "codex")
 	if len(rows) != len(review.Engines) {
 		t.Fatalf("got %d rows, want %d", len(rows), len(review.Engines))
 	}
@@ -62,5 +62,33 @@ func TestEngineUsagesKeepsUnpolledEngines(t *testing.T) {
 		if r.Available || r.Error == "" {
 			t.Errorf("%s = %+v, want unavailable with an explanation", r.Engine, r)
 		}
+	}
+}
+
+// Each engine is judged against its OWN floor, so two engines at the same
+// usage can disagree about being paused. The panel-level verdict this
+// replaced could only ever speak for the active one.
+func TestEngineUsagesJudgesEachEngineAgainstItsOwnFloor(t *testing.T) {
+	now := time.Now()
+	var cfg config.Config
+	floor := 40
+	cfg.Review.Codex.UsageFloor.FiveHourPercent = &floor
+	// claude keeps the default 10.
+
+	same := func() *usage.Window { return &usage.Window{UsedPercent: 75, WindowMins: 300} }
+	rows := engineUsages(cfg, map[string]usage.Snapshot{
+		"codex":  {Primary: same(), FetchedAt: now},
+		"claude": {Primary: same(), FetchedAt: now},
+	}, "claude")
+
+	byEngine := map[string]engineUsage{}
+	for _, r := range rows {
+		byEngine[r.Engine] = r
+	}
+	if c := byEngine["codex"]; !c.Paused || c.PausedReason == "" {
+		t.Errorf("codex row = %+v, want paused: 25%% left is under its floor of 40", c)
+	}
+	if c := byEngine["claude"]; c.Paused {
+		t.Errorf("claude row = %+v, want running: 25%% left clears its default floor of 10", c)
 	}
 }

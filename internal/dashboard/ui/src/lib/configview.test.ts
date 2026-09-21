@@ -7,7 +7,7 @@ const cfg = (over: Partial<ConfigResponse> = {}) =>
     version: 'dev', reviewing_as: 'paul-gh', engine: 'codex',
     engine_config: { model: '', effort: '' },
     review_running: true, discovery_running: true,
-    schedule: { enabled: true, interval: '30s', max_parallel: 4, dispatch_cooldown: '5s', usage_floor_5h_percent: 0, usage_floor_weekly_percent: 10 },
+    schedule: { enabled: true, interval: '30s', max_parallel: 4, dispatch_cooldown: '5s' },
     discovery: { enabled: true, interval: '5m' },
     candidates: {
       new_max_age_days: 14, refreshed_max_age_days: 21, discussion_max_age_days: 14,
@@ -63,14 +63,6 @@ describe('settingsGroups', () => {
     const c = cells(settingsGroups(cfg()));
     expect(c['Re-review cooldown']).toContain('90m');
     expect(c['Quiet period']).toContain('15m');
-  });
-
-  it('distinguishes a disabled usage floor from a set one', () => {
-    // Money gate: 0 means the floor is off, and reading it as "hold below 0%"
-    // would suggest a protection that is not there.
-    const c = cells(settingsGroups(cfg()));
-    expect(c['Usage floor (5h)']).toBe('disabled');
-    expect(c['Usage floor (weekly)']).toContain('10%');
   });
 
   it('falls back where the daemon could not answer', () => {

@@ -20,6 +20,7 @@ package config
 import (
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -89,6 +90,11 @@ type Policy struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 	Prompt string `json:"prompt,omitempty"`
+	// UsageFloor is the cohort's headroom override, keyed by engine name and
+	// merged window by window down the cascade, so an override can raise one
+	// engine's weekly floor without clearing what the group said about the
+	// other's.
+	UsageFloor map[string]UsageFloorLimits `json:"usage_floor,omitempty"`
 }
 
 // MayApprove reports whether the policy permits an APPROVE. It is a necessary
@@ -247,6 +253,7 @@ func (p *Policy) patch(g Group, source string) []PolicyStep {
 	steps = setField(steps, &p.Engine, g.Engine, "engine", source)
 	steps = setField(steps, &p.Model, g.Model, "model", source)
 	steps = setField(steps, &p.Effort, g.Effort, "effort", source)
+	steps = p.patchFloors(steps, g.UsageFloor, source)
 	if fragment := strings.TrimSpace(g.Prompt); fragment != "" {
 		if p.Prompt != "" {
 			p.Prompt += "\n\n"
@@ -266,6 +273,42 @@ func setField(steps []PolicyStep, dst *string, value, field, source string) []Po
 	}
 	*dst = value
 	return append(steps, PolicyStep{Field: field, Value: value, Source: source})
+}
+
+// patchFloors merges one layer's per-engine floors into the policy. Window by
+// window, not engine by engine: a layer that sets only claude's weekly floor
+// must leave claude's 5h floor as the layer beneath wrote it, exactly as an
+// unset scalar field inherits.
+func (p *Policy) patchFloors(steps []PolicyStep, floors map[string]UsageFloorLimits, source string) []PolicyStep {
+	for _, engine := range sortedKeys(floors) { // sorted: the trace is read by humans
+		f := floors[engine]
+		steps = p.setFloor(steps, engine, f.FiveHourPercent, "5h_percent", source)
+		steps = p.setFloor(steps, engine, f.OneWeekPercent, "1w_percent", source)
+	}
+	return steps
+}
+
+// setFloor writes one window's floor and records the step that decided it. A
+// nil pointer writes nothing, which is what makes an unset window inherit.
+func (p *Policy) setFloor(steps []PolicyStep, engine string, value *int, window, source string) []PolicyStep {
+	if value == nil {
+		return steps
+	}
+	if p.UsageFloor == nil {
+		p.UsageFloor = map[string]UsageFloorLimits{}
+	}
+	f := p.UsageFloor[engine]
+	if window == "5h_percent" {
+		f.FiveHourPercent = value
+	} else {
+		f.OneWeekPercent = value
+	}
+	p.UsageFloor[engine] = f
+	return append(steps, PolicyStep{
+		Field:  "usage_floor." + engine + "." + window,
+		Value:  strconv.Itoa(*value),
+		Source: source,
+	})
 }
 
 // matches reports whether this override applies to handle on repo. Handles
@@ -318,6 +361,19 @@ func lookupRepo[T any](m map[string]T, repo string) (T, string, bool) {
 func (r ReviewSettings) WithPolicy(p Policy) ReviewSettings {
 	if p.Engine != "" {
 		r.Engine = p.Engine
+	}
+	// Floors patch EVERY engine the policy names, not just the resolved one --
+	// the deliberate opposite of how model and effort are treated above. A
+	// cohort's floor is keyed by engine precisely so that moving the cohort
+	// between engines does not change how much headroom it leaves on either.
+	for engine, f := range p.UsageFloor {
+		target := &r.EngineCommon(engine).UsageFloor
+		if f.FiveHourPercent != nil {
+			target.FiveHourPercent = f.FiveHourPercent
+		}
+		if f.OneWeekPercent != nil {
+			target.OneWeekPercent = f.OneWeekPercent
+		}
 	}
 	if p.Model == "" && p.Effort == "" {
 		return r

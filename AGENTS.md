@@ -425,12 +425,19 @@ internal/
   every review; and under `-p` there is nobody to prompt, so repeated
   classifier blocks abort the run rather than falling back.
 
-- **Usage metering covers every engine; the floor follows the configured one.** `usage.Source` picks the
+- **Usage metering and its floor are both per engine.** `usage.Source` picks the
   reader: codex speaks JSON-RPC to `codex app-server`; claude reads the
   account's OAuth usage endpoint, since Claude Code exposes no usage command
   and reports no headroom in its run output. Both map onto the same
-  `Snapshot`, so `schedule.usage_floor` and the dashboard panel are engine-
-  agnostic. Every path fails open: an errored snapshot never pauses reviews,
+  `Snapshot`, but each is judged against its OWN floor
+  (`review.<engine>.usage_floor`, resolved by `ReviewSettings.UsageFloors`):
+  headroom is a property of the account the engine bills against, so there is
+  no engine-agnostic number to compare against. A cohort may override the
+  floors, keyed by engine (`Group.UsageFloor`), and `WithPolicy` patches every
+  engine the cohort names rather than only the resolved one -- deliberately
+  unlike model and effort, so switching a cohort's engine does not silently
+  change how much headroom it leaves. Every path fails open: an errored
+  snapshot never pauses reviews,
   because review availability must not depend on the meter working. The
   claude reader touches a stored credential; it must never log it, copy it
   into a Snapshot, or include it in an error string.

@@ -23,7 +23,7 @@ func TestBelowFloor(t *testing.T) {
 		wantWindow   string
 	}{
 		{"plenty of headroom", snap(50, 50), 10, 10, false, ""},
-		{"5h window trips", snap(95, 50), 10, 10, true, "5h"},
+		{"5h window trips", snap(95, 50), 10, 10, true, "5 hourly"},
 		{"weekly window trips", snap(50, 95), 10, 10, true, "weekly"},
 		{"exactly at floor does not trip", snap(90, 90), 10, 10, false, ""},
 		{"zero disables the 5h floor", snap(99, 50), 0, 10, false, ""},

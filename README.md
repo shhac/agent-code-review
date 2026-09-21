@@ -34,12 +34,15 @@ you can expose over Tailscale.
   usage floors, repos, prompts, engine settings) reload live within ~30s; only
   the loop on/off switches and the listen/Tailscale settings need a restart.
 - **Usage floors**: a candidate is held when the engine that would review it
-  has less than `schedule.usage_floor.*` percent remaining in its rate-limit
-  window (default 10), and runs when that window refills. Applied **per
-  engine**, since a group can name its own: one engine being out of headroom
-  holds only its own candidates while the other's keep running. Nothing pauses
-  globally. The dashboard meters every engine side by side so you can see
-  whether the one you're not using has more headroom before switching.
+  has less than `<engine>.usage_floor.{5h,1w}_percent` remaining in that
+  rate-limit window (default 10), and runs when the window refills. The floor
+  is **configured per engine**, because headroom belongs to the account the
+  engine bills against: codex running dry says nothing about claude's week,
+  and each holds only its own candidates. Nothing pauses globally. A cohort
+  can set its own floors under `authors.groups.<name>.usage_floor.<engine>`,
+  keyed by engine so moving the cohort between engines does not change how
+  much it leaves behind. The dashboard meters every engine side by side so you
+  can see whether the one you're not using has more headroom before switching.
 - **Per-review spend**: every review records its token count, and its
   API-rate cost where the engine reports one, so a per-review budget can be
   set from your own data rather than guessed.

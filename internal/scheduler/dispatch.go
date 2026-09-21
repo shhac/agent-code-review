@@ -197,7 +197,11 @@ func (s *Scheduler) pullNext(ctx context.Context, cfg config.Config, state *disp
 			cfg:       cfg,
 		}
 		engine := cfg.EngineFor(p.policy)
-		paused, reason := usage.BelowFloor(s.usageFn(engine), cfg.UsageFloor5h(), cfg.UsageFloorWeekly())
+		// Through the policy, so a cohort's own floor decides its candidates:
+		// the base floor is what the dashboard panel reports, not necessarily
+		// what holds THIS one.
+		fiveH, oneW := cfg.Review.WithPolicy(p.policy).UsageFloors(engine)
+		paused, reason := usage.BelowFloor(s.usageFn(engine), fiveH, oneW)
 		if paused {
 			// A HOLD, not a skip: the candidate is never claimed, completed
 			// or recorded, so it simply waits like a cooldown hold and runs

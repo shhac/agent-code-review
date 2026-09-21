@@ -117,14 +117,21 @@ func (c Config) ScheduleEnabled() bool { return boolOr(c.Schedule.Enabled, true)
 // DiscoveryEnabled reports whether the discovery loop runs (default true).
 func (c Config) DiscoveryEnabled() bool { return boolOr(c.Discovery.Enabled, true) }
 
-// UsageFloor5h and UsageFloorWeekly are the remaining-percentage floors below
-// which the review loop pauses (default 10; explicit 0 disables).
-func (c Config) UsageFloor5h() int {
-	return intOr(c.Schedule.UsageFloor.FiveHourPercent, 10)
-}
+// defaultUsageFloor is the headroom every engine leaves for interactive work
+// unless its block says otherwise: pause at 90% used.
+const defaultUsageFloor = 10
 
-func (c Config) UsageFloorWeekly() int {
-	return intOr(c.Schedule.UsageFloor.WeeklyPercent, 10)
+// UsageFloors are the remaining-percentage floors for one engine's two
+// windows, below which that engine's candidates are held (default 10 each; an
+// explicit 0 disables that window's floor).
+//
+// On ReviewSettings rather than Config so the policy cascade reaches it for
+// free: cfg.Review.UsageFloors(engine) is the base floor a panel reports, and
+// cfg.Review.WithPolicy(p).UsageFloors(engine) is the one a candidate is
+// actually held against.
+func (r ReviewSettings) UsageFloors(engine string) (fiveH, oneW int) {
+	f := r.EngineCommon(engine).UsageFloor
+	return intOr(f.FiveHourPercent, defaultUsageFloor), intOr(f.OneWeekPercent, defaultUsageFloor)
 }
 
 func intOr(v *int, def int) int {

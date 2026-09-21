@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -97,7 +98,9 @@ func TestResolvePolicyCascade(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := cfg.ResolvePolicy(tt.repo, tt.handle, tt.m); got != tt.want {
+			// reflect.DeepEqual, not ==: Policy carries the per-engine floor
+			// map, and a struct holding a map is not comparable.
+			if got := cfg.ResolvePolicy(tt.repo, tt.handle, tt.m); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ResolvePolicy(%q, %q, %+v)\n got %+v\nwant %+v", tt.repo, tt.handle, tt.m, got, tt.want)
 			}
 		})

@@ -379,9 +379,10 @@ KEYS:
                                        discovery interval); the next sweep resumes
                                        at the repo this one could not reach
   schedule.max_parallel                1..32 concurrent reviews
-  schedule.usage_floor.5h_percent      pause reviews when the engine's 5h usage window
-                                       has less than this % remaining (default 10, 0 off)
-  schedule.usage_floor.weekly_percent  same for the weekly window (default 10, 0 off)
+  <engine>.usage_floor.5h_percent      hold that engine's candidates when its 5 hourly
+                                       usage window has less than this % remaining
+                                       (default 10, 0 off); <engine> is codex or claude
+  <engine>.usage_floor.1w_percent      same for its weekly window (default 10, 0 off)
   candidates.require_review_request    true|false: require an outstanding review
                                        request to discover a PR (default false:
                                        any open non-draft PR counts as ready)

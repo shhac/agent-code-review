@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
@@ -95,6 +96,11 @@ type fakeDispatchStore struct {
 	queue    []store.Candidate
 	queueErr error
 	pulls    int
+	// pullTimes stamps each ListQueue. Pulls happen ON the dispatch loop, one
+	// per hand-off, so they are the only clock that measures the loop's own
+	// rhythm: anything recorded inside a review instead measures when the Go
+	// runtime got round to that goroutine.
+	pullTimes []time.Time
 	// onList runs inside ListQueue, so a test can change the world (request a
 	// shutdown, say) while a pull is in flight.
 	onList func()
@@ -109,6 +115,7 @@ func (f *fakeDispatchStore) ListQueue(context.Context, string) ([]store.Candidat
 	f.qmu.Lock()
 	defer f.qmu.Unlock()
 	f.pulls++
+	f.pullTimes = append(f.pullTimes, time.Now())
 	if f.onList != nil {
 		f.onList()
 	}
@@ -124,6 +131,14 @@ func (f *fakeDispatchStore) pullCount() int {
 	f.qmu.Lock()
 	defer f.qmu.Unlock()
 	return f.pulls
+}
+
+// pullsAt reports when each pull happened, for the tests that measure the
+// dispatcher's pacing rather than just its progress.
+func (f *fakeDispatchStore) pullsAt() []time.Time {
+	f.qmu.Lock()
+	defer f.qmu.Unlock()
+	return append([]time.Time(nil), f.pullTimes...)
 }
 
 func (f *fakeDispatchStore) enqueue(c store.Candidate) {

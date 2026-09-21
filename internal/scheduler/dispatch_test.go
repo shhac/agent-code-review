@@ -718,6 +718,15 @@ func TestDispatchAllEnginesFloored(t *testing.T) {
 // path. Every other dispatch test sets the cooldown to 0s, so only sleepCtx's
 // zero shortcut ran and the real timer — which ships defaulted to 5s — was
 // never taken.
+//
+// Timed on the PULLS, not on the reviews. The dispatcher hands a candidate to
+// a goroutine and then sleeps, so a timestamp taken inside a review measures
+// when the Go runtime scheduled that goroutine, which under load can be long
+// after the hand-off and in any order: three reviews starting back-to-back
+// after a shared delay once collapsed the observed spread to 284µs and failed
+// a test the cooldown had honoured. Pulls happen on the dispatch loop itself,
+// one per hand-off, so they measure the loop's own rhythm — which is what the
+// cooldown paces.
 func TestDispatchSpacesHandOffsByTheCooldown(t *testing.T) {
 	const cooldown = 30 * time.Millisecond
 	fs := &fakeDispatchStore{queue: []store.Candidate{
@@ -748,13 +757,20 @@ func TestDispatchSpacesHandOffsByTheCooldown(t *testing.T) {
 		t.Fatal(err)
 	}
 	mu.Lock()
-	defer mu.Unlock()
-	if len(starts) != 3 {
-		t.Fatalf("started %d reviews, want 3", len(starts))
+	started := len(starts)
+	mu.Unlock()
+	if started != 3 {
+		t.Fatalf("started %d reviews, want 3", started)
 	}
-	// Allow generous slack: the assertion is that a cooldown happened at all,
-	// not that the timer is precise.
-	if gap := starts[2].Sub(starts[0]); gap < cooldown {
+	// Three hand-offs, so at least two cooldowns separate the first pull from
+	// the third. Asserting one cooldown over that span keeps generous slack:
+	// the claim is that the dispatcher waited at all, not that the timer is
+	// precise.
+	pulls := fs.pullsAt()
+	if len(pulls) < 3 {
+		t.Fatalf("dispatcher pulled %d times, want at least one per hand-off", len(pulls))
+	}
+	if gap := pulls[2].Sub(pulls[0]); gap < cooldown {
 		t.Errorf("three hand-offs spanned %s, want at least one cooldown (%s) between them", gap, cooldown)
 	}
 }

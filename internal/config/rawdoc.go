@@ -13,7 +13,6 @@ package config
 import (
 	"encoding/json"
 	"os"
-	"reflect"
 	"strings"
 )
 
@@ -106,94 +105,4 @@ func deletePath(doc map[string]any, path []string) bool {
 		return false
 	}
 	return deletePath(child, path[1:])
-}
-
-// Writing: the struct's view laid OVER the stored document, rather than in
-// place of it.
-//
-// Write used to marshal the struct and be done, which meant every write threw
-// away everything the struct could not see: the "//note" annotations
-// config init ships, and any key from another version. Editing one unrelated
-// setting silently stripped all of it -- a config init file lost its entire
-// documentation the first time anyone ran config set.
-//
-// The overlay keeps them. What makes it precise rather than a guess is
-// knowing which keys the SCHEMA owns (see jsonFields): a schema key missing
-// from the struct's view was unset and must go, while a key the schema has no
-// field for was never ours to remove.
-
-// overlay merges the struct's view of one object over what is stored there.
-// stored may be nil, which is simply a first write.
-func overlay(stored, fresh map[string]any, t reflect.Type) map[string]any {
-	fields := jsonFields(t)
-	out := make(map[string]any, len(fresh)+len(stored))
-
-	// Everything the struct cannot speak for, kept as found. A schema key is
-	// deliberately not copied: whether it survives is decided below, by
-	// whether the struct still states it.
-	for key, value := range stored {
-		if _, isSchema := fields[key]; isSchema && !strings.HasPrefix(key, notePrefix) {
-			continue
-		}
-		out[key] = value
-	}
-
-	for key, value := range fresh {
-		field, known := fields[key]
-		child, freshIsObject := value.(map[string]any)
-		prior, storedIsObject := stored[key].(map[string]any)
-		if !known || !freshIsObject || !storedIsObject {
-			// A scalar, an array, or a fresh object with nothing under it to
-			// preserve. Arrays replace wholesale: their elements have no
-			// identity to merge on, so "the struct's list" is the answer.
-			out[key] = value
-			continue
-		}
-		switch next := deref(field); next.Kind() {
-		case reflect.Struct:
-			out[key] = overlay(prior, child, next)
-		case reflect.Map:
-			out[key] = overlayEntries(prior, child, deref(next.Elem()))
-		default:
-			out[key] = value
-		}
-	}
-	return out
-}
-
-// overlayEntries merges a map-typed field, where the KEYS are data rather than
-// schema: a cohort may be called anything. The struct round-trips the whole
-// map, so an entry it no longer lists was deleted and does not survive --
-// unlike an unknown key in a struct, which the schema never claimed. Inside an
-// entry the element's own schema applies again, so a stray key there lives on.
-func overlayEntries(stored, fresh map[string]any, elem reflect.Type) map[string]any {
-	out := make(map[string]any, len(fresh))
-	for key, value := range fresh {
-		child, freshIsObject := value.(map[string]any)
-		prior, storedIsObject := stored[key].(map[string]any)
-		if freshIsObject && storedIsObject && elem.Kind() == reflect.Struct {
-			out[key] = overlay(prior, child, elem)
-			continue
-		}
-		out[key] = value
-	}
-	// Annotations sit beside the entries they describe, and the struct has no
-	// field for them, so they are not entries the struct dropped.
-	for key, value := range stored {
-		if strings.HasPrefix(key, notePrefix) {
-			if _, taken := out[key]; !taken {
-				out[key] = value
-			}
-		}
-	}
-	return out
-}
-
-// structDoc is the config as the struct sees it: the subset that has fields.
-func structDoc(cfg Config) (map[string]any, error) {
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return decodeDoc(data)
 }

@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+// These cover the ADOPTION, not the mechanism: creds.Store{Overlay: true}
+// owns the merge and its rules, and tests them against a toy schema. What is
+// worth asserting here is that THIS schema survives it -- an embedded
+// EngineCommon, a cohort map, a rules array, and the 34 annotations config
+// init ships -- and that the store is still opted in. Flip Overlay off and
+// these fail, which is the point of keeping them.
+
 // roundTrip writes cfg over doc and returns the stored file, which is what
 // every one of these is really asserting about.
 func roundTrip(t *testing.T, doc string, mutate func(*Config)) map[string]any {
@@ -134,15 +141,6 @@ func TestWriteReplacesArraysWholesale(t *testing.T) {
 	rules := stored["review"].(map[string]any)["rules"].([]any)
 	if _, present := rules[0].(map[string]any)["stray"]; present {
 		t.Error("array elements are replaced, so this documents a change in behaviour")
-	}
-}
-
-// A corrupt file behaves like an empty one rather than wedging every write,
-// matching Read's long-standing tolerance.
-func TestWriteToleratesAnUnparseableDocument(t *testing.T) {
-	stored := roundTrip(t, "{not json", func(c *Config) { c.GHUser = "ada" })
-	if stored["gh_user"] != "ada" {
-		t.Errorf("a corrupt file must not block the write: %+v", stored)
 	}
 }
 

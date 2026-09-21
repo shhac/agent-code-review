@@ -141,7 +141,7 @@
     <section>
       <div class="section-head compact"><h2>Engine usage</h2><span>{engineUsages.length} engines</span></div>
       {#if usagePaused}
-        <p class="status warn"><i></i>reviews paused: {usageResp?.paused_reason}</p>
+        <p class="status warn wraps"><i></i>reviews paused: {usageResp?.paused_reason}</p>
       {/if}
       {#each engineUsages as eu (eu.engine)}
         <div class="engine-usage" class:inactive={!eu.active}>

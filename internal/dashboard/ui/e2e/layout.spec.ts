@@ -192,3 +192,76 @@ test.describe('score reward curve', () => {
     expect(rate.x + rate.width).toBeLessThanOrEqual(panel.x + panel.width + 1);
   });
 });
+
+// The engine usage panel. Its one unbounded string is the paused reason, whose
+// length the daemon decides ("weekly window has 9% remaining, floor is 15%")
+// and the layout cannot. Stubbed rather than seeded: usage comes from polling
+// the codex and claude CLIs, which the fixture daemon is started with
+// --no-reviews precisely to avoid.
+test.describe('engine usage panel', () => {
+  const PAUSED = {
+    available: true,
+    engine: 'codex',
+    review_paused: true,
+    paused_reason: 'weekly window has 9% remaining, floor is 15%',
+    fresh_tokens_total: 468_000_000,
+    fresh_tokens_24h: 0,
+    engines: [
+      {
+        engine: 'codex',
+        active: true,
+        available: true,
+        usage: {
+          plan: 'pro',
+          primary: { window_mins: 10080, used_percent: 91, resets_at: 1790000000 },
+        },
+      },
+      {
+        engine: 'claude',
+        active: false,
+        available: true,
+        usage: {
+          plan: 'max',
+          primary: { window_mins: 300, used_percent: 12 },
+          secondary: { window_mins: 10080, used_percent: 40, resets_at: 1790400000 },
+        },
+      },
+    ],
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/usage', (route) => route.fulfill({ json: PAUSED }));
+    await page.goto('/');
+    await expect(page.locator('.engine-usage').first()).toBeVisible();
+  });
+
+  // The bug: the reason renders in a <p class="status warn">, and .status is
+  // nowrap so the inline badges in table rows keep their dot beside their
+  // label. As a paragraph that nowrap made the sentence's min-content width
+  // the aside's, the aside's auto track grew past the 370px column holding
+  // it, and the whole PAGE gained a horizontal scrollbar -- pushing the Now
+  // grid and the meters off the right edge of the window.
+  test('the page does not scroll sideways', async ({ page }) => {
+    const doc = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(doc.scrollWidth, 'the page scrolls horizontally').toBeLessThanOrEqual(doc.clientWidth + 1);
+  });
+
+  test('the panels stay inside their column', async ({ page }) => {
+    const spills = await page.evaluate(() => {
+      const column = document.querySelector('.context')!.getBoundingClientRect();
+      return [...document.querySelectorAll('.context section')]
+        .filter((e) => e.getBoundingClientRect().right > column.right + 1)
+        .map((e) => `${e.querySelector('h2')?.textContent}: ${Math.round(e.getBoundingClientRect().width)}px in ${Math.round(column.width)}px`);
+    });
+    expect(spills).toEqual([]);
+  });
+
+  test('the paused reason is readable in full', async ({ page }) => {
+    const line = page.locator('.context .status.warn');
+    await expect(line).toContainText('floor is 15%');
+    expect(await overflowing(page, '.context .status.warn')).toEqual([]);
+  });
+});

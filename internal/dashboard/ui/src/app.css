@@ -213,6 +213,14 @@ a.ticket-pr:hover { text-decoration: underline; }
 .status.warn { color: var(--warn-ink); }
 .status.bad { color: var(--bad-ink); }
 .status.live i { animation: pulse 2s infinite; }
+/* A status used as a SENTENCE, not a badge. nowrap above keeps a badge's dot
+   beside its label in a table row; on the paused-reason line, whose text the
+   daemon writes and the layout cannot bound, it made the sentence's
+   min-content width the aside's -- blowing the sidebar past its column and
+   giving the whole page a horizontal scrollbar. The dot stays on the first
+   line rather than centring itself against a wrapped block. */
+.status.wraps { white-space: normal; align-items: baseline; }
+.status.wraps i { flex: none; align-self: flex-start; margin-top: 6px; }
 a.status-link { text-decoration: none; }
 a.status-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ticket-actions { display: flex; align-items: center; gap: 7px; padding: 0 16px 0 0; }
@@ -241,7 +249,11 @@ dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
 }
 .review-history p { margin: 0 0 8px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
-.context { display: grid; gap: 16px; }
+/* minmax(0, 1fr), not the implicit auto track: an auto column takes its
+   minimum from its content, so ONE unwrappable child (a long status line, a
+   plan name, a SHA) widens the whole sidebar past the 370px column .overview
+   gave it. Bounding the track makes an oversized child that child's bug. */
+.context { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .context section { border-radius: 12px; padding: 18px; }
 .now-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 14px 0; }
 .now-grid div { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-warm); }

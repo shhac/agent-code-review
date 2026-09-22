@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -55,5 +56,36 @@ func TestReconcile(t *testing.T) {
 	}
 	if len(fs.cleared) != 2 || fs.cleared[0] != 1 || fs.cleared[1] != 5 {
 		t.Errorf("cleared claims = %v, want [1 5]", fs.cleared)
+	}
+}
+
+// TestPIDAlive covers the production probe TestReconcile swaps out. Getting it
+// wrong either way is costly: calling a live pid dead releases a sibling's
+// in-flight claim, and calling a dead one alive parks a crashed review for the
+// whole lease window.
+func TestPIDAlive(t *testing.T) {
+	if !pidAlive(os.Getpid()) {
+		t.Error("this process is alive")
+	}
+	for _, pid := range []int{0, -1} {
+		if pidAlive(pid) {
+			t.Errorf("pidAlive(%d) = true, want missing data to read as dead", pid)
+		}
+	}
+
+	// A child that has exited AND been reaped: a pid that was real a moment
+	// ago, which is exactly what a crashed daemon leaves on its claims. The
+	// child is this test binary running no tests, so nothing outside the Go
+	// toolchain is assumed to exist.
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command(self, "-test.run=^$")
+	if err := child.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if pidAlive(child.Process.Pid) {
+		t.Errorf("pidAlive(%d) = true for a child that has exited and been waited on", child.Process.Pid)
 	}
 }

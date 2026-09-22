@@ -1,0 +1,56 @@
+prompts rules: Conditional prompt fragments (stored in config.json)
+
+A rule adds EXTRA instructions to the assembled prompt when its condition
+matches the candidate. Comment-only vs approval is a separate built-in
+directive; you never need a rule for it.
+
+Without an --outcome the fragment appends to the prompt body (fires for any
+outcome). WITH an --outcome it attaches under that post-outcome section
+(approve / comment / reject) alongside the base on_* slot, so behaviour can
+branch deterministically, e.g. on the author's group, without relying on
+prompt phrasing. Fragments are ADDITIVE: the base slot is the shared part, the
+rule carries the conditional part.
+
+An UNCONDITIONAL per-cohort instruction belongs on the group itself
+(authors.groups.<name>.prompt), not here. Rules are for what a flat group
+prompt cannot express: a fragment for one cohort only on refreshed PRs, or
+only under one outcome, or only on one repo.
+
+CONDITIONS (unset = wildcard; all set must hold):
+  --group <name>           author's resolved group (repeatable, any-of)
+  --author <handle>        author handle (repeatable, any-of, case-insensitive)
+  --author-allowed         the resolved policy PERMITS approval
+  --author-not-allowed     the resolved policy FORBIDS it (mutually exclusive)
+  --author-is-gh-user      self-authored (author == our gh user)
+  --author-not-gh-user     NOT self-authored (mutually exclusive with above)
+  --candidate-type new|refreshed|discussion
+  --repo owner/name        repeatable, any-of
+Note: --author-allowed means "the policy permits approval," not "was
+approvable": a self-authored PR by an approve-level author is still
+comment-only, yet still counts as author-allowed. To split self-review out,
+add --author-not-gh-user to those rules and give self-authored PRs their own
+--author-is-gh-user rule.
+
+COMMANDS:
+  prompts rules ls         One record per rule, in config order (NDJSON)
+  prompts rules add --name N --prompt TEXT [--outcome approve|comment|reject] [conditions]
+    Append a rule. Name must be unique; a rule with both approval flags, or
+    naming an undefined group, is rejected (it could never match).
+  prompts rules rm <name>  Remove rule(s) with this name (case-insensitive)
+
+EXAMPLES:
+  # On comment, branch the notification reaction on approvability (the
+  # channels, emoji, and tooling here are examples; use your own conventions):
+  agent-code-review prompts rules add --name comment-not-allowed --outcome comment \
+    --author-not-allowed --prompt "React :eyes: on the PR's Slack message."
+  agent-code-review prompts rules add --name comment-allowed --outcome comment \
+    --author-allowed --prompt "React :memo: on the PR's Slack message."
+  # One cohort, only on re-reviews:
+  agent-code-review prompts rules add --name contractor-refresh \
+    --group contractor --candidate-type refreshed \
+    --prompt "Check the previous review's comments were addressed before anything else."
+  agent-code-review prompts rules ls
+
+NOTES: put the shared part (e.g. locating the Slack message) in the on-comment
+slot via 'prompts set', and the branch-specific part in these rules. See exactly
+how they assemble with 'prompts preview [--group <name>] [--explain]'.

@@ -1,0 +1,51 @@
+authors: The author roster, i.e. who is in which group (stored in DuckDB)
+
+We are the reviewer. An author belongs to ONE group per repo, and the group is
+a complete review policy defined in config under authors.groups:
+
+  review   ignore  | never discovered (a manual queue add still reviews)
+           comment | reviewed, never approved
+           approve | approvable when the review warrants it
+  engine   which agent CLI reviews their PRs (overrides review.engine)
+  model    the engine's model for their PRs
+  effort   the engine's reasoning effort for their PRs
+  prompt   an extra instruction appended to their reviews
+
+approver / commenter / ignored exist without being declared. Only the resolved
+policy for the PR under review reaches the engine, never the roster.
+
+RESOLUTION (most specific wins; "authors who" shows which layer decided what):
+  1. the roster row for this repo, else the row for "*"
+  2. else authors.unlisted[<repo>], else authors.unlisted["*"]
+  3. then every matching authors.overrides entry patches it, field by field,
+     in config order. Empty inherits; prompt fragments accumulate.
+
+COMMANDS:
+  authors ls [--repo <owner/repo|*>] [--group <group>]
+    Roster entries with the policy each resolves to. A row naming a group that
+    config no longer defines shows up here, resolved as comment-only.
+
+  authors set <owner/repo|*> <github-handle> <group> [--name N] [--email E] [--slack-id S]
+    Put an author in a group for a repo (upserts metadata). An undefined group
+    is refused here rather than silently resolving to comment-only later.
+
+  authors rm <owner/repo|*> <github-handle>
+    Remove a roster entry; the author falls back to authors.unlisted.
+
+  authors groups
+    The defined groups, what each grants, and which repos send their unlisted
+    authors to it.
+
+  authors who <github-handle> --repo <owner/repo>
+    Resolve one author's policy for one repo, with the deciding layer per
+    field. This is the answer to "why did that PR get approved / ignored".
+
+EXAMPLES:
+  agent-code-review authors set example-org/example-repo example-handle core --name "Example Engineer"
+  agent-code-review authors set '*' example-handle contractor   # that group on every repo
+  agent-code-review authors who example-handle --repo example-org/example-repo
+  agent-code-review authors rm '*' example-handle
+
+NOTES: handles and repos match case-insensitively, as GitHub treats them; group
+names match exactly, since they are yours and are validated when you set them.
+Self-authored PRs are always comment-only whatever the group grants.

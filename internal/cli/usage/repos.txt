@@ -1,0 +1,22 @@
+repos: The watched repos (stored in config.json)
+
+Discovery, the dashboard add-PR form, and the scheduler only operate on repos
+in this list. Ships empty: nothing is watched until you add it.
+
+COMMANDS:
+  repos ls                 One record per watched repo, with the group its
+                           unlisted authors resolve to
+  repos add <owner/repo> [--unlisted <group>] [--allowed-authors-only]
+    Add a repo (idempotent). --unlisted names the group an author with no
+    roster row falls into here, which decides whether strangers are discovered
+    at all (a group whose review level is "ignore") and how they are reviewed
+    if they are. Left off, an existing setting is preserved.
+    --allowed-authors-only is the pre-groups shorthand for "only discover
+    rostered authors here". It still works and still reconciles, but --unlisted
+    supersedes it and can say more than on/off.
+  repos rm <owner/repo>    Stop watching a repo (clears its unlisted setting)
+
+EXAMPLES:
+  agent-code-review repos add example-org/example-repo
+  agent-code-review repos add example-org/example-repo --unlisted ignored
+  agent-code-review repos ls

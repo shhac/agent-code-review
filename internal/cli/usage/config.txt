@@ -1,0 +1,68 @@
+config: Persisted settings (stored in config.json)
+
+COMMANDS:
+  config init            Write the annotated starter config (refuses to overwrite)
+  config path            Print the config file location
+  config show            Print the whole resolved config
+  config list            All keys with values and descriptions
+  config get <key>       Show one value
+  config set <key> <v>   Set one value (validated)
+  config unset <key>     Reset a key to its default
+
+KEYS:
+  gh_user                              self-review detection (empty = derive via gh)
+  schedule.enabled                     true|false: daemon dispatches reviews
+  schedule.interval                    idle poll, e.g. 30s (only when nothing is ready)
+  schedule.dispatch_cooldown           pause between dispatches, e.g. 5s (0s disables)
+  discovery.enabled                    true|false: daemon scrapes for candidates
+  discovery.interval                   scrape cadence, e.g. 5m (gh only, no LLM)
+  discovery.list_limit                 open PRs pulled per repo, most recently
+                                       updated first (default 300)
+  discovery.sweep_budget               wall-time cap on one sweep (default: the
+                                       discovery interval); the next sweep resumes
+                                       at the repo this one could not reach
+  schedule.max_parallel                1..32 concurrent reviews
+  <engine>.usage_floor.5h_percent      hold that engine's candidates when its 5 hourly
+                                       usage window has less than this % remaining
+                                       (default 10, 0 off); <engine> is codex or claude
+  <engine>.usage_floor.1w_percent      same for its weekly window (default 10, 0 off)
+  candidates.require_review_request    true|false: require an outstanding review
+                                       request to discover a PR (default false:
+                                       any open non-draft PR counts as ready)
+  candidates.new_max_age_days          New candidate window (default 14)
+  candidates.refreshed_max_age_days    Refreshed candidate window (default 21)
+  candidates.discussion_max_age_days   Discussion candidate window (default 14)
+  candidates.rereview_cooldown         hold after our own review before re-discovery
+                                       (default 90m, 0s disables)
+  candidates.quiet_period              PR must go untouched this long before discovery
+                                       accepts it (default 15m, 0s disables)
+  candidates.steering_hold             defer a PR while its author has the steering
+                                       editor open (default 5m, 0s disables)
+  candidates.error_backoff             wait this long after a failed engine attempt
+                                       before one retry (default 15m, 0s retires it)
+  review.engine                        codex (default) | claude
+  codex.bin | codex.model | codex.effort | codex.sandbox
+  claude.bin | claude.model | claude.effort | claude.permission_mode
+  claude.max_budget_usd                per-review ceiling at API rates (0 = uncapped;
+                                       set it from the Metrics page's median + peak)
+  dashboard.addr                       listen address (default 127.0.0.1:8330)
+  dashboard.tailscale.mode             "" | serve | funnel
+  dashboard.usage_poll_interval        engine usage refresh cadence (default 10m)
+  store.path                           DuckDB file location
+
+EXAMPLES:
+  agent-code-review config set schedule.interval 15m
+  agent-code-review config get schedule.interval
+  agent-code-review config list
+
+NOTES: repos, authors, and prompts have their own command groups (repos usage,
+authors usage, prompts usage); rules live under prompts (prompts rules usage).
+codex.args / claude.args / claude.allowed_tools are edited in the file directly
+(config path).
+
+ENGINES: both report through the same verdict contract and write the same review
+log, so switching review.engine is a one-key change; only that engine's settings
+block applies. Usage metering and per-review cost follow the selection too.
+  codex   sandboxed 'codex exec'; reports tokens, no cost
+  claude  'claude -p', defaults to Opus 5.5 at medium effort with the permission
+          classifier vetting each action; reports tokens AND API-rate cost

@@ -1,0 +1,47 @@
+queue: The review queue (stored in DuckDB)
+
+COMMANDS:
+  queue ls [--repo owner/name]
+    List pending candidates in review order: explicit queue positions first,
+    then FIFO by first discovery (New before Refreshed, then lowest PR number
+    as same-sweep tiebreaks). One NDJSON record per candidate. A row with
+    claimed_at set is being reviewed right now. A row carries a holds map of
+    name to expiry (cooldown = we reviewed it recently, settling = the PR was
+    pushed/edited too recently, editing = its author has the dashboard's
+    steering editor open); it is dispatched once every one of them is past,
+    keeping its queue position and being stepped over until then.
+
+  queue add <owner/repo> <number>
+    Add a PR by hand: live metadata (title/author/SHA) is fetched via gh, and
+    closed/merged PRs are rejected. An already-queued PR just refreshes its
+    metadata. Manual adds are ALWAYS reviewed: they bypass the pre-review
+    candidacy recheck that discovered candidates get (which skips PRs that
+    were approved/closed/merged while waiting in the queue), so explicit
+    re-review requests and draft reviews go through.
+
+  queue promote <owner/repo> <number>
+    "Review this now": float the PR to the very top, clear any eligibility
+    hold (cooldown/settling), and escalate it to a manual add (bypassing the
+    pre-review candidacy recheck). Reordering in the dashboard does NONE of
+    that; a drag changes only the position and respects holds.
+
+  queue skip <owner/repo> <number>
+    Record a SKIPPED outcome and drop the PR from the queue. It becomes
+    eligible again when new commits arrive, or re-add with queue add.
+
+  queue rm <owner/repo> <number>
+    Remove a PR from the queue entirely, recording nothing.
+
+  queue log <owner/repo> <number> [-f|--follow]
+    Stream the review agent's output. Live while the review runs (the engine
+    tees into <workdir>/agent.log); the log of the most recent finished
+    review otherwise. --follow keeps tailing until interrupted.
+
+EXAMPLES:
+  agent-code-review queue ls --repo example-org/example-repo
+  agent-code-review queue add example-org/example-repo 123
+  agent-code-review queue promote example-org/example-repo 123
+
+NOTES: the queue holds only pending work. Completed reviews (including
+skips and errors) live in the outcome history shown by the dashboard's
+Recent reviews. The dashboard offers the same add/reorder operations.

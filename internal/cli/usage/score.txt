@@ -1,0 +1,78 @@
+score: Author scores and the leaderboard (stored in DuckDB)
+
+Every completed review earns the PR's AUTHOR points. The score comes from
+four things: how big the diff is, what the review concluded, whether the
+codebase grew or shrank, and how many revisions it took to get there.
+
+  changed = additions + deletions, generated and vendored files excluded
+  score = decay^(revision-1) x [verdict x size + max(verdict,0) x removal]
+  removal = removal_points_per_100 x max(deletions-additions,0) / 100
+
+Size is a smooth curve, quadratic near zero and declining past its peak.
+scoring.piece_lines (50) sets the best size in points per LINE for a stack;
+scoring.size_points (100) sets the maximum size reward per PR, before verdict
+and decay. scoring.size_falloff (3) sets the decline and places the individual
+peak at piece_lines x (falloff-1) x 2 / (falloff-2), or 200 changed lines.
+scoring.removal_points_per_100 (20) separately rewards net codebase reduction.
+
+At the defaults, 2000 added lines earn 29 shipped whole, 2000 as forty
+50-line PRs, and 0 as two thousand one-line PRs. A balanced +100/-100 scores
+100 versus 29 for +1000/-1000. Mostly deleting (+100/-1000) scores 227
+versus 47 for mostly adding (+1000/-100).
+
+The removal component is split-neutral before rounding across net-deleting
+pieces with the same verdict and revision multiplier. Total deletion scores
+are nondecreasing at the defaults; tuning size and removal independently can
+change that. A first-pass approval beats comment rounds followed by approval
+at the defaults, because each revision decays.
+
+  agent-code-review score leaderboard                  # who is winning
+  agent-code-review score leaderboard --days 30        # this month
+  agent-code-review score show owner/repo 123          # one PR's history
+  agent-code-review score ls --missing                 # rows never scored
+
+  agent-code-review score refetch --missing --dry-run  # what could be repaired
+  agent-code-review score refetch --missing            # re-measure and rescore
+
+recompute and refetch differ in where the numbers come from. recompute is
+arithmetic plus a re-application of the exclusion policy to the measurement
+already stored with each row, so it is offline and cheap. refetch asks GitHub
+for the PR again, and is the only repair for a row whose size was never
+measured (a rate limit at review time, or a file list GitHub truncated).
+
+refetch needs the PR to still be at the head we reviewed. GitHub serves a pull
+request's file list only at its CURRENT head, so once the head moves there is
+no cheap way to measure what the review actually saw, and crediting the newer
+diff would invent a number. Those rows are reported and left alone.
+
+FROZEN, NOT DERIVED. A score is computed once, when the review completes,
+and stored with a hash of the rules that produced it. Retuning the
+multipliers in config therefore changes what FUTURE reviews earn; nobody
+loses points they already have.
+
+  agent-code-review score ls --stale                   # scored under old rules
+  agent-code-review score recompute --stale --dry-run  # what would change
+  agent-code-review score recompute --stale            # actually change it
+
+recompute moves points somebody already has, so it refuses to touch all of
+history without --all, and --dry-run prints every before/after without
+writing. A score set by hand is marked manual and recompute leaves it alone
+unless you pass --include-manual.
+
+  agent-code-review score set owner/repo 123 0 --note "duplicate of #120"
+
+WHAT COUNTS AS SIZE. Generated and vendored files are left out, read from
+the repo's OWN .gitattributes (linguist-generated / linguist-vendored) -
+the same declaration that collapses them in GitHub's diff view. A repo that
+has not marked its lockfiles will see them counted; scoring.exclude_paths
+is the per-repo escape hatch until it does.
+
+A second review at the same commit (somebody replying to the bot) scores 0:
+it is discussion, not new work.
+
+TUNING. Every dial is under scoring.* in config, and the doctor command
+reports a ruleset that cannot work (an inverted bucket ladder, a decay of 1)
+rather than scoring silently at defaults. A NEGATIVE value needs a -- first,
+or the flag parser claims it:
+
+  agent-code-review config set scoring.verdicts.requested_changes -- -0.25

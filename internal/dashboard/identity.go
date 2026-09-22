@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // tailscaleLoginHeader is what `tailscale serve` attaches to every proxied
@@ -109,4 +110,60 @@ func (s *Server) identify(ctx context.Context, r *http.Request) (viewer, error) 
 		v.IsGH = strings.EqualFold(v.Handle, s.reviewingAs(ctx))
 	}
 	return v, nil
+}
+
+// viewerResp tells the UI who it is talking to. Deliberately narrow: the chip
+// renders an identity, and whether a given PR is steerable is answered per row
+// by queueView.MaySteer, so nothing here describes permissions.
+//
+// State is the classification, named once here rather than re-derived by the
+// client from a combination of booleans. The English prose that used to ride
+// along was assembled by a switch in Go and consumed only as a tooltip;
+// wording belongs to the client.
+type viewerResp struct {
+	State  viewerState `json:"state"`
+	Login  string      `json:"login,omitempty"`
+	Handle string      `json:"handle,omitempty"`
+}
+
+// viewerState is the four ways the dashboard can know a caller.
+type viewerState string
+
+const (
+	// viewerAnonymous: nothing was proved. Either the request did not come
+	// through the tailscale proxy, or it is a tagged device or Funnel traffic,
+	// for which Tailscale attaches no identity at all.
+	viewerAnonymous viewerState = "anonymous"
+	// viewerUnmapped: authenticated, but no roster row claims that login.
+	viewerUnmapped viewerState = "unmapped"
+	// viewerAuthor: a rostered person, who may steer their own PRs.
+	viewerAuthor viewerState = "author"
+	// viewerOperator: the account reviews are posted as, which may steer any.
+	viewerOperator viewerState = "operator"
+)
+
+// state classifies a viewer. Pure, so the four cases are table-testable
+// without building a request.
+func (v viewer) state() viewerState {
+	switch {
+	case v.anonymous():
+		return viewerAnonymous
+	case v.Handle == "":
+		return viewerUnmapped
+	case v.IsGH:
+		return viewerOperator
+	default:
+		return viewerAuthor
+	}
+}
+
+func (s *Server) handleViewer(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := reqCtx(r, 5*time.Second)
+	defer cancel()
+	v, err := s.identify(ctx, r)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, viewerResp{State: v.state(), Login: v.Login, Handle: v.Handle})
 }

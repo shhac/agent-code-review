@@ -307,6 +307,21 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	httpError(w, http.StatusInternalServerError, err.Error())
 }
 
+// apiErr is a refusal with the status it should carry, so a check (the
+// steering authorisation ladder above all) can be one function that returns
+// "no, and here is the code" rather than a sequence of writes interleaved with
+// transport concerns. Every handler shares it through fail.
+type apiErr struct {
+	code int
+	msg  string
+}
+
+// Error makes a refusal usable as a plain error, which is what lets a handler
+// inside the serveGet frame return one. Without it the frame's only vocabulary
+// was 500, so a caller's own mistake (an unparseable cursor) was reported as
+// the server having broken.
+func (e *apiErr) Error() string { return e.msg }
+
 // httpError writes the JSON error envelope with an explicit status.
 func httpError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})

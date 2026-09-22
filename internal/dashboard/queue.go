@@ -163,36 +163,11 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		// Steering rides in on the same write. Two writes would leave a window
 		// where a free dispatcher slot claims the row before the instruction
 		// lands, which on an empty queue is the normal case.
-		//
-		// Authorisation is decided HERE, against the author gh just reported,
-		// not against anything the request claimed and not on the strength of
-		// the preflight. An unauthorised steering message is dropped and the add
-		// still happens: the caller asked for two things and is entitled to one.
-		var steeringRefused string
-		if msg := strings.TrimSpace(pr.Steering); msg != "" {
-			v, err := s.identify(ctx, r)
-			if err != nil {
-				return queueAddResp{}, err
-			}
-			// An add of a PR already queued is an upsert, so this path can write
-			// steering onto a row that is under review right now — the one thing
-			// /api/steering refuses. That is why the rungs are shared rather than
-			// restated: the claim rung was once missing here, and a message
-			// accepted then was discarded by the completion that retires the
-			// row, having reported success.
-			claimed, err := s.claimedNow(ctx, pr.Repo, pr.Number)
-			if err != nil {
-				return queueAddResp{}, err
-			}
-			if bad := steeringRefusal(v, c.Author, msg, claimed); bad != nil {
-				// Only the sentence, never the status: the add itself
-				// succeeded, and the caller is entitled to the half they may
-				// have.
-				steeringRefused = bad.msg
-			} else {
-				c.Steering = &store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}
-			}
+		st, refused, err := s.steeringForAdd(ctx, r, pr.Ref, c.Author, pr.Steering)
+		if err != nil {
+			return queueAddResp{}, err
 		}
+		c.Steering = st
 
 		// Completed/skipped PRs are absent from the queue, so a manual re-add
 		// is a plain enqueue; if it's already queued this just refreshes
@@ -202,9 +177,43 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 		}
 		return queueAddResp{
 			Queued: true, Title: c.Title, Author: c.Author,
-			Steered: c.Steering != nil, SteeringRefused: steeringRefused,
+			Steered: c.Steering != nil, SteeringRefused: refused,
 		}, nil
 	})
+}
+
+// steeringForAdd decides what steering, if any, a manual add may carry: the
+// steering to write, or the sentence explaining why the message was dropped.
+// Both are empty when no message was sent.
+//
+// Authorisation is decided HERE, against the author gh just reported, not
+// against anything the request claimed and not on the strength of the
+// preflight. A refusal is not an error: the add still happens, because the
+// caller asked for two things and is entitled to the one they may have.
+func (s *Server) steeringForAdd(ctx context.Context, r *http.Request, ref prref.Ref, author, msg string) (st *store.Steering, refused string, err error) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return nil, "", nil
+	}
+	v, err := s.identify(ctx, r)
+	if err != nil {
+		return nil, "", err
+	}
+	// An add of a PR already queued is an upsert, so this path can write
+	// steering onto a row that is under review right now — the one thing
+	// /api/steering refuses. That is why the rungs are shared rather than
+	// restated: the claim rung was once missing here, and a message accepted
+	// then was discarded by the completion that retires the row, having
+	// reported success.
+	claimed, err := s.claimedNow(ctx, ref.Repo, ref.Number)
+	if err != nil {
+		return nil, "", err
+	}
+	if bad := steeringRefusal(v, author, msg, claimed); bad != nil {
+		// Only the sentence, never the status: the add itself succeeds.
+		return nil, bad.msg, nil
+	}
+	return &store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}, "", nil
 }
 
 // decodePRRef decodes the queue-row wire shape shared by the remove and

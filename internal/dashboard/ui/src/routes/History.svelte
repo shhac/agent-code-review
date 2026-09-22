@@ -3,7 +3,7 @@
   import { errText } from '../lib/errors';
   import { getReviews, preflightPR } from '../lib/api';
   import { withFeed } from '../lib/feed';
-  import { ago, durSecs, prHref, tokens, when } from '../lib/format';
+  import { ago, durSecs, prHref, tokens, usd, when } from '../lib/format';
   import { navigate } from '../lib/nav';
   import Pager from '../lib/Pager.svelte';
   import { pagedSearch } from '../lib/pagedsearch';
@@ -166,7 +166,7 @@
                   {#if r.model}<div><dt>Model</dt><dd class="mono">{r.model}{#if r.effort}{' · ' + r.effort}{/if}</dd></div>{/if}
                   {#if r.tokens_used}<div><dt>Tokens</dt><dd>{tokens(r.tokens_used)}</dd></div>{/if}
                   {#if r.cost_usd}
-                    <div><dt>Cost</dt><dd>${r.cost_usd.toFixed(4)}{#if r.cost_estimated} <span class="tag-mute">estimated</span>{/if}</dd></div>
+                    <div><dt>Cost</dt><dd>{usd(r.cost_usd)}{#if r.cost_estimated} <span class="tag-mute">estimated</span>{/if}</dd></div>
                   {/if}
                 </dl>
                 {#if r.steering}

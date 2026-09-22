@@ -177,22 +177,30 @@ func candidateFromView(repo string, number int, pr ghPR) (store.Candidate, error
 	if pr.State != "OPEN" {
 		return store.Candidate{}, fmt.Errorf("PR %s#%d is %s: only open PRs can be queued", repo, number, pr.State)
 	}
+	return pr.candidate(repo, number, store.TypeNew, store.SourceManual, time.Now()), nil
+}
+
+// candidate shapes a PR as a queue row. The one mapping from the gh wire shape
+// to a candidate, shared by discovery and the manual add so a field added to
+// one cannot be missed by the other. number is a parameter because the manual
+// add's `gh pr view` does not ask for it: the caller already knows it.
+func (p ghPR) candidate(repo string, number int, typ, source string, now time.Time) store.Candidate {
 	return store.Candidate{
 		Repo:         repo,
 		Number:       number,
-		Type:         store.TypeNew,
-		Title:        pr.Title,
-		Author:       pr.Author.Login,
-		URL:          pr.URL,
-		HeadSHA:      pr.HeadRefOID,
-		CreatedAt:    pr.CreatedAt,
-		UpdatedAt:    pr.UpdatedAt,
-		DiscoveredAt: time.Now(),
-		Source:       store.SourceManual,
-		Additions:    pr.Additions,
-		Deletions:    pr.Deletions,
-		ChangedFiles: pr.ChangedFiles,
-	}, nil
+		Type:         typ,
+		Title:        p.Title,
+		Author:       p.Author.Login,
+		URL:          p.URL,
+		HeadSHA:      p.HeadRefOID,
+		CreatedAt:    p.CreatedAt,
+		UpdatedAt:    p.UpdatedAt,
+		DiscoveredAt: now,
+		Source:       source,
+		Additions:    p.Additions,
+		Deletions:    p.Deletions,
+		ChangedFiles: p.ChangedFiles,
+	}
 }
 
 // hasOpenReviewRequest reports whether any review is currently requested.

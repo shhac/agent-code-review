@@ -83,7 +83,7 @@ func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo strin
 		return store.Candidate{}, false, nil
 	}
 
-	c := d.toCandidate(repo, pr, typ, now)
+	c := pr.candidate(repo, pr.Number, typ, store.SourceDiscovered, now)
 	lastReviewedAt := time.Time{}
 	if reviewed {
 		lastReviewedAt = last.ReviewedAt
@@ -201,23 +201,4 @@ func holds(now time.Time, cfg config.Config, updatedAt, lastReviewedAt time.Time
 		return nil
 	}
 	return out
-}
-
-func (d *Discoverer) toCandidate(repo string, pr ghPR, typ string, now time.Time) store.Candidate {
-	return store.Candidate{
-		Repo:         repo,
-		Number:       pr.Number,
-		Type:         typ,
-		Title:        pr.Title,
-		Author:       pr.Author.Login,
-		URL:          pr.URL,
-		HeadSHA:      pr.HeadRefOID,
-		CreatedAt:    pr.CreatedAt,
-		UpdatedAt:    pr.UpdatedAt,
-		DiscoveredAt: now,
-		Source:       store.SourceDiscovered,
-		Additions:    pr.Additions,
-		Deletions:    pr.Deletions,
-		ChangedFiles: pr.ChangedFiles,
-	}
 }

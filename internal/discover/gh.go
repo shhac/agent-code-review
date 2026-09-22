@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,17 +85,54 @@ func sameLogin(a, b string) bool { return strings.EqualFold(a, b) }
 // prListFields is the JSON field set requested from `gh pr list`.
 const prListFields = "number,title,author,headRefOid,createdAt,updatedAt,isDraft,url,reviewRequests,reviews,reviewDecision,additions,deletions,changedFiles"
 
-// splitRepo parses "owner/name" into its halves.
-//
-// Three gh callers in this package need the pair and phrase the failure
-// identically; at two that was coincidence, at three it is the package's
-// convention and deserves a name.
+// splitRepo parses "owner/name" into its halves, which is how a GraphQL
+// query names a repository. Every GraphQL read goes through ghGraphQL, so this
+// is where a malformed repo is reported, in one phrasing.
 func splitRepo(repo string) (owner, name string, err error) {
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || owner == "" || name == "" {
 		return "", "", fmt.Errorf("bad repo %q, want owner/name", repo)
 	}
 	return owner, name, nil
+}
+
+// ghGraphQL runs one `gh api graphql` query against repo and decodes the
+// response into T. owner and repo are always bound; vars carries the rest as
+// gh flag pairs ("-F", "number=7"), so each caller still says which variables
+// are typed and which are strings. what names the read in a decode failure,
+// which is the only way a log line can say which call GitHub answered
+// strangely.
+func ghGraphQL[T any](ctx context.Context, repo, what, query string, vars ...string) (T, error) {
+	var resp T
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return resp, err
+	}
+	args := append([]string{"api", "graphql", "-f", "owner=" + owner, "-f", "repo=" + name}, vars...)
+	raw, err := runGH(ctx, append(args, "-f", "query="+query)...)
+	if err != nil {
+		return resp, err
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return resp, fmt.Errorf("decode %s: %w", what, err)
+	}
+	return resp, nil
+}
+
+// ghPRView runs `gh pr view` for one PR, asking for exactly fields. The raw
+// payload comes back so the pure halves that judge it (stillCandidateFromJSON)
+// stay testable from canned JSON; decodePRView is the one way to read it.
+func ghPRView(ctx context.Context, repo string, number int, fields string) ([]byte, error) {
+	return runGH(ctx, "pr", "view", strconv.Itoa(number), "--repo", repo, "--json", fields)
+}
+
+// decodePRView reads a `gh pr view` payload into the shared wire shape.
+func decodePRView(out []byte) (ghPR, error) {
+	var pr ghPR
+	if err := json.Unmarshal(out, &pr); err != nil {
+		return ghPR{}, fmt.Errorf("parse gh pr view: %w", err)
+	}
+	return pr, nil
 }
 
 // CurrentUser returns the authenticated gh login (`gh api user`).
@@ -120,9 +158,7 @@ func StillCandidate(ctx context.Context, repo string, number int, requireReviewR
 // exact head is no longer a candidate. Used on a re-claim, where the previous
 // attempt may have posted its review and then died before recording anything.
 func StillCandidateAt(ctx context.Context, repo string, number int, login, head string, requireReviewRequest bool) (bool, string, error) {
-	out, err := runGH(ctx, "pr", "view", fmt.Sprintf("%d", number),
-		"--repo", repo,
-		"--json", "number,isDraft,state,reviewRequests,reviewDecision,reviews,headRefOid")
+	out, err := ghPRView(ctx, repo, number, "number,isDraft,state,reviewRequests,reviewDecision,reviews,headRefOid")
 	if err != nil {
 		return false, "", err
 	}
@@ -133,9 +169,9 @@ func StillCandidateAt(ctx context.Context, repo string, number int, login, head 
 // candidacy gates to a `gh pr view` payload. Pure: the state and gate
 // branches are table-tested from canned JSON, mirroring candidateFromView.
 func stillCandidateFromJSON(out []byte, login, head string, requireReviewRequest bool) (bool, string, error) {
-	var pr ghPR
-	if err := json.Unmarshal(out, &pr); err != nil {
-		return false, "", fmt.Errorf("parse gh pr view: %w", err)
+	pr, err := decodePRView(out)
+	if err != nil {
+		return false, "", err
 	}
 	if pr.State != "OPEN" {
 		return false, strings.ToLower(pr.State), nil
@@ -155,16 +191,13 @@ func stillCandidateFromJSON(out []byte, login, head string, requireReviewRequest
 // exists so manual adds carry title/author/SHA immediately instead of
 // waiting on (and possibly never matching) discovery.
 func ManualCandidate(ctx context.Context, repo string, number int) (store.Candidate, error) {
-	out, err := runGH(ctx, "pr", "view", fmt.Sprintf("%d", number),
-		"--repo", repo,
-		"--json", "title,author,url,headRefOid,state,createdAt,updatedAt,additions,deletions,changedFiles",
-	)
+	out, err := ghPRView(ctx, repo, number, "title,author,url,headRefOid,state,createdAt,updatedAt,additions,deletions,changedFiles")
 	if err != nil {
 		return store.Candidate{}, err
 	}
-	var pr ghPR
-	if err := json.Unmarshal(out, &pr); err != nil {
-		return store.Candidate{}, fmt.Errorf("parse gh pr view: %w", err)
+	pr, err := decodePRView(out)
+	if err != nil {
+		return store.Candidate{}, err
 	}
 	return candidateFromView(repo, number, pr)
 }
@@ -285,21 +318,10 @@ type ghActivityResp struct {
 // typename, and selfLogin is excluded by login so our own posted review never
 // reads as somebody responding to it.
 func LastHumanActivity(ctx context.Context, repo string, number int, selfLogin string) (time.Time, error) {
-	owner, name, err := splitRepo(repo)
+	resp, err := ghGraphQL[ghActivityResp](ctx, repo, fmt.Sprintf("human activity for %s#%d", repo, number),
+		humanActivityQuery, "-F", fmt.Sprintf("number=%d", number))
 	if err != nil {
 		return time.Time{}, err
-	}
-	out, err := runGH(ctx, "api", "graphql",
-		"-f", "owner="+owner,
-		"-f", "repo="+name,
-		"-F", fmt.Sprintf("number=%d", number),
-		"-f", "query="+humanActivityQuery)
-	if err != nil {
-		return time.Time{}, err
-	}
-	var resp ghActivityResp
-	if err := json.Unmarshal(out, &resp); err != nil {
-		return time.Time{}, fmt.Errorf("decode human activity for %s#%d: %w", repo, number, err)
 	}
 	return latestHumanActivity(resp, selfLogin), nil
 }

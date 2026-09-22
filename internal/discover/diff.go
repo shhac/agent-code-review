@@ -11,7 +11,6 @@ package discover
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path"
 	"sort"
@@ -79,11 +78,6 @@ type PRDiff struct {
 
 // PRFiles fetches a PR's per-file line counts, paging the files connection.
 func PRFiles(ctx context.Context, repo string, number int) (PRDiff, error) {
-	owner, name, err := splitRepo(repo)
-	if err != nil {
-		return PRDiff{}, err
-	}
-
 	var out PRDiff
 	cursor := ""
 	for page := 0; ; page++ {
@@ -91,25 +85,16 @@ func PRFiles(ctx context.Context, repo string, number int) (PRDiff, error) {
 			out.Truncated = true
 			break
 		}
-		args := []string{"api", "graphql",
-			"-f", "owner=" + owner,
-			"-f", "repo=" + name,
-			"-F", fmt.Sprintf("number=%d", number),
-			"-f", "query=" + prFilesQuery,
-		}
+		vars := []string{"-F", fmt.Sprintf("number=%d", number)}
 		// gh has no spelling for a null String variable, so the first page
 		// omits the variable entirely rather than passing "null" (which would
 		// arrive as the four-character string).
 		if cursor != "" {
-			args = append(args, "-f", "cursor="+cursor)
+			vars = append(vars, "-f", "cursor="+cursor)
 		}
-		raw, err := runGH(ctx, args...)
+		resp, err := ghGraphQL[ghFilesResp](ctx, repo, fmt.Sprintf("pr files for %s#%d", repo, number), prFilesQuery, vars...)
 		if err != nil {
 			return PRDiff{}, err
-		}
-		var resp ghFilesResp
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			return PRDiff{}, fmt.Errorf("decode pr files for %s#%d: %w", repo, number, err)
 		}
 		pr := resp.Data.Repository.PullRequest
 		out.HeadSHA = pr.HeadRefOID
@@ -141,6 +126,16 @@ func attrsQuery(n int) string {
 	return b.String()
 }
 
+// ghAttrsResp is attrsQuery's answer: one alias per directory, null where
+// that directory has no .gitattributes.
+type ghAttrsResp struct {
+	Data struct {
+		Repository map[string]*struct {
+			Text string `json:"text"`
+		} `json:"repository"`
+	} `json:"data"`
+}
+
 // GitAttributes fetches the repo's .gitattributes declarations covering the
 // given changed files: the root one, plus one per directory those files live
 // in. Absent files come back null, which is the common case and not an error.
@@ -153,10 +148,6 @@ func attrsQuery(n int) string {
 // until it lands, which is the correct direction for a rule about what already
 // exists.
 func GitAttributes(ctx context.Context, repo, ref string, files []score.FileStat) (map[string]string, error) {
-	owner, name, err := splitRepo(repo)
-	if err != nil {
-		return nil, err
-	}
 	dirs := attrDirs(files)
 	if len(dirs) == 0 {
 		return nil, nil
@@ -165,26 +156,14 @@ func GitAttributes(ctx context.Context, repo, ref string, files []score.FileStat
 		ref = "HEAD"
 	}
 
-	args := []string{"api", "graphql", "-f", "owner=" + owner, "-f", "repo=" + name}
+	vars := make([]string, 0, 2*len(dirs))
 	for i, dir := range dirs {
 		expr := ref + ":" + path.Join(dir, ".gitattributes")
-		args = append(args, "-f", fmt.Sprintf("e%d=%s", i, expr))
+		vars = append(vars, "-f", fmt.Sprintf("e%d=%s", i, expr))
 	}
-	args = append(args, "-f", "query="+attrsQuery(len(dirs)))
-
-	raw, err := runGH(ctx, args...)
+	resp, err := ghGraphQL[ghAttrsResp](ctx, repo, "gitattributes for "+repo, attrsQuery(len(dirs)), vars...)
 	if err != nil {
 		return nil, err
-	}
-	var resp struct {
-		Data struct {
-			Repository map[string]*struct {
-				Text string `json:"text"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("decode gitattributes for %s: %w", repo, err)
 	}
 
 	out := map[string]string{}

@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -550,5 +551,123 @@ func TestLeaderboardRanksByEachMeasure(t *testing.T) {
 	}
 	if board[0].Median != 80 || board[1].Median != 30 {
 		t.Errorf("medians = %v / %v, want 80 and 30", board[0].Median, board[1].Median)
+	}
+}
+
+// SetReviewScoring is the only write behind `score recompute` and `score
+// refetch`, so its round trip is pinned against a real database: the counts,
+// the per-file detail and the score must all land on the one row together.
+func TestSetReviewScoringRewritesTheMeasurementAndScore(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	at := time.Now().Add(-time.Hour).Truncate(time.Second)
+
+	r := completeScored(t, s, "o/r", 1, "alice", VerdictApproved, at,
+		ScoreRecord{Score: ptr(10), Source: ScoreDerived, Rules: "old", Attempt: ptr(1)},
+		DiffStats{Additions: 1, Deletions: 1, ChangedFiles: 1, ScoredAdditions: 1, ScoredDeletions: 1, DiffSHA: "sha-old"})
+
+	diff := DiffStats{Additions: 8040, Deletions: 2010, ChangedFiles: 2, ScoredAdditions: 40, ScoredDeletions: 10, ExcludedFiles: 1, DiffSHA: "sha-new"}
+	files := []score.FileStat{
+		{Path: "main.go", Additions: 40, Deletions: 10},
+		{Path: "package-lock.json", Additions: 8000, Deletions: 2000, Generated: true},
+	}
+	rec := ScoreRecord{Score: ptr(115), Source: ScoreDerived, Rules: "new", Bucket: "small", Note: "refetched", Attempt: ptr(2), At: at}
+	if err := s.SetReviewScoring(ctx, r.Ref(), diff, files, rec); err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok, err := s.LastOutcome(ctx, "o/r", 1)
+	if err != nil || !ok {
+		t.Fatalf("LastOutcome: %v ok=%v", err, ok)
+	}
+	if got.Diff != diff {
+		t.Errorf("diff = %+v, want %+v", got.Diff, diff)
+	}
+	if got.Score.Points() != 115 || got.Score.Rules != "new" || got.Score.Bucket != "small" || got.Score.Note != "refetched" {
+		t.Errorf("score = %+v, want the new record", got.Score)
+	}
+	if got.Score.Attempt == nil || *got.Score.Attempt != 2 {
+		t.Errorf("attempt = %v, want 2", got.Score.Attempt)
+	}
+	stored, err := s.ReviewFiles(ctx, r.Ref())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 2 || stored[1] != files[1] {
+		t.Errorf("files = %+v, want %+v", stored, files)
+	}
+}
+
+// An empty or oversized list must CLEAR the stored detail, not leave the
+// previous measurement's files under counts that were not derived from them.
+func TestSetReviewScoringClearsFilesItCannotKeep(t *testing.T) {
+	oversized := make([]score.FileStat, maxStoredFiles+1)
+	for i := range oversized {
+		oversized[i] = score.FileStat{Path: fmt.Sprintf("f%d.go", i), Additions: 1}
+	}
+	for name, files := range map[string][]score.FileStat{"nil": nil, "oversized": oversized} {
+		t.Run(name, func(t *testing.T) {
+			s := newTestStore(t)
+			ctx := context.Background()
+			at := time.Now().Add(-time.Hour).Truncate(time.Second)
+			r := Review{
+				Repo: "o/r", Number: 1, Author: "alice", HeadSHA: "sha", Verdict: VerdictApproved,
+				Engine: "codex", ReviewedAt: at, Diff: DiffStats{ScoredAdditions: 1, DiffSHA: "sha"},
+				DiffFiles: []score.FileStat{{Path: "main.go", Additions: 1}},
+			}
+			if err := s.AppendHistory(ctx, r); err != nil {
+				t.Fatal(err)
+			}
+			if before, _ := s.ReviewFiles(ctx, r.Ref()); len(before) != 1 {
+				t.Fatalf("setup: stored files = %+v, want one", before)
+			}
+
+			if err := s.SetReviewScoring(ctx, r.Ref(), DiffStats{Additions: 9, DiffSHA: "sha"}, files,
+				ScoreRecord{Score: ptr(3), Source: ScoreDerived, Rules: "h", Attempt: ptr(1)}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := s.ReviewFiles(ctx, r.Ref())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != nil {
+				t.Errorf("files = %d entries, want the column cleared", len(got))
+			}
+		})
+	}
+}
+
+// The natural key is not enforced, so the write must refuse rather than
+// rewrite two rows that merely share an instant, or none at all.
+func TestSetReviewScoringRefusesAmbiguousOrMissingRows(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	at := time.Now().Add(-time.Hour).Truncate(time.Second)
+	rec := ScoreRecord{Score: ptr(1), Source: ScoreDerived, Rules: "h", Attempt: ptr(1)}
+
+	r := Review{Repo: "o/r", Number: 1, HeadSHA: "sha", Verdict: VerdictApproved, Engine: "codex", ReviewedAt: at}
+	for range 2 {
+		if err := s.AppendHistory(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := s.SetReviewScoring(ctx, r.Ref(), DiffStats{DiffSHA: "sha"}, nil, rec)
+	if err == nil || !strings.Contains(err.Error(), "2 history rows share the instant") {
+		t.Fatalf("err = %v, want a refusal naming the ambiguity", err)
+	}
+	all, err := s.ReviewsToScore(ctx, ScoreQuery{Repo: "o/r"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range all {
+		if row.Score.Scored() {
+			t.Errorf("a refused write still scored a row: %+v", row.Score)
+		}
+	}
+
+	missing := ReviewRef{Repo: "o/r", Number: 2, ReviewedAt: at}
+	if err := s.SetReviewScoring(ctx, missing, DiffStats{DiffSHA: "sha"}, nil, rec); err == nil ||
+		!strings.Contains(err.Error(), "no history row recorded") {
+		t.Fatalf("err = %v, want a refusal for a ref matching no row", err)
 	}
 }

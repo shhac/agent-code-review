@@ -147,8 +147,8 @@ func TestTailFile(t *testing.T) {
 	})
 }
 
-// fakeStore fakes the two reads handleReviewLog performs through
-// store.FindReviewWorkspace; everything else panics via the embedded nil interface.
+// handleReviewLog reads through store.FindReviewWorkspace, which fakeStore
+// serves from its queue (QueuedPR), byKey (ReviewByLogKey) and LastOutcome.
 
 func TestHandleReviewLog(t *testing.T) {
 	get := func(t *testing.T, s *Server, target string) (int, reviewLogResp) {

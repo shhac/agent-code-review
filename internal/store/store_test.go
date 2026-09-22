@@ -108,7 +108,7 @@ func TestReviewFromDuration(t *testing.T) {
 	}
 }
 
-// workspaceStore fakes the two reads FindReviewWorkspace performs; every other
+// workspaceStore fakes the reads FindReviewWorkspace performs; every other
 // Store method panics via the embedded nil interface.
 type workspaceStore struct {
 	Store
@@ -119,8 +119,15 @@ type workspaceStore struct {
 	byKey  map[string]Review
 }
 
-func (f *workspaceStore) ListQueue(context.Context, string) ([]Candidate, error) {
-	return f.queue, nil
+// QueuedPR matches repo exactly, as prWhere does, so a test cannot pass on a
+// row from the wrong repo.
+func (f *workspaceStore) QueuedPR(_ context.Context, repo string, number int) (Candidate, bool, error) {
+	for _, c := range f.queue {
+		if c.Repo == repo && c.Number == number {
+			return c, true, nil
+		}
+	}
+	return Candidate{}, false, nil
 }
 
 func (f *workspaceStore) LastOutcome(context.Context, string, int) (Review, bool, error) {
@@ -139,7 +146,7 @@ func TestFindReviewWorkspace(t *testing.T) {
 
 	t.Run("queued row wins over history", func(t *testing.T) {
 		s := &workspaceStore{
-			queue:  []Candidate{{Number: 4}, {Number: 5, WorkDir: "/live"}},
+			queue:  []Candidate{{Repo: "o/r", Number: 4}, {Repo: "x/y", Number: 5, WorkDir: "/elsewhere"}, {Repo: "o/r", Number: 5, WorkDir: "/live"}},
 			last:   Review{WorkDir: "/old"},
 			lastOK: true,
 		}
@@ -154,7 +161,7 @@ func TestFindReviewWorkspace(t *testing.T) {
 
 	t.Run("queued row without a workdir falls back to history", func(t *testing.T) {
 		s := &workspaceStore{
-			queue:  []Candidate{{Number: 5}},
+			queue:  []Candidate{{Repo: "o/r", Number: 5}},
 			last:   Review{WorkDir: "/old", Verdict: "APPROVED"},
 			lastOK: true,
 		}
@@ -181,7 +188,7 @@ func TestFindReviewWorkspaceByLogKey(t *testing.T) {
 	chosen := Review{Repo: "o/r", Number: 5, HeadSHA: "sha1", Verdict: "COMMENTED", ReviewedAt: reviewed, WorkDir: "/chosen"}
 	chosen.LogKey = ReviewLogKey(chosen)
 	s := &workspaceStore{
-		queue:  []Candidate{{Number: 5, WorkDir: "/live"}},
+		queue:  []Candidate{{Repo: "o/r", Number: 5, WorkDir: "/live"}},
 		last:   Review{WorkDir: "/latest"},
 		lastOK: true,
 	}

@@ -6,7 +6,7 @@ import "context"
 // review log. Both the CLI and dashboard use it without depending on unrelated
 // queue mutation or claim operations.
 type ReviewWorkspaceStore interface {
-	ListQueue(context.Context, string) ([]Candidate, error)
+	QueuedPR(context.Context, string, int) (Candidate, bool, error)
 	LastOutcome(context.Context, string, int) (Review, bool, error)
 	ReviewByLogKey(context.Context, string, int, string) (Review, bool, error)
 }
@@ -36,14 +36,12 @@ func FindReviewWorkspace(ctx context.Context, s ReviewWorkspaceStore, ref Review
 		}
 		return Workspace{Dir: r.WorkDir, Finished: &r}, true, nil
 	}
-	queue, err := s.ListQueue(ctx, ref.Repo)
+	c, ok, err := s.QueuedPR(ctx, ref.Repo, ref.Number)
 	if err != nil {
 		return Workspace{}, false, err
 	}
-	for _, c := range queue {
-		if c.Number == ref.Number && c.WorkDir != "" {
-			return Workspace{Dir: c.WorkDir, Queued: &c}, true, nil
-		}
+	if ok && c.WorkDir != "" {
+		return Workspace{Dir: c.WorkDir, Queued: &c}, true, nil
 	}
 	last, ok, err := s.LastOutcome(ctx, ref.Repo, ref.Number)
 	if err != nil {

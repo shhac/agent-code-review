@@ -135,7 +135,7 @@ func queueSkipCmd() *cobra.Command {
 				// The history row needs the queued head SHA, and a skip of a
 				// PR that isn't queued would leave a dangling outcome, so
 				// missing is an error rather than a silent no-op.
-				c, found, err := findQueued(cmd.Context(), s, repo, number)
+				c, found, err := s.QueuedPR(cmd.Context(), repo, number)
 				if err != nil {
 					return err
 				}
@@ -232,19 +232,4 @@ func streamFile(ctx context.Context, path string, follow bool, out io.Writer) er
 			}
 		}
 	}
-}
-
-// findQueued locates one queue row by number within an already repo-scoped
-// ListQueue result.
-func findQueued(ctx context.Context, s store.Store, repo string, number int) (store.Candidate, bool, error) {
-	cands, err := s.ListQueue(ctx, repo)
-	if err != nil {
-		return store.Candidate{}, false, err
-	}
-	for _, c := range cands {
-		if c.Number == number {
-			return c, true, nil
-		}
-	}
-	return store.Candidate{}, false, nil
 }

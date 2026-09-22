@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,6 +25,30 @@ func TestEngineConfigFollowsConfiguredEngine(t *testing.T) {
 	cfg.Review.Engine = "claude"
 	if got := engineConfigOf(cfg); got.Model != "claude-opus-5" || got.Effort != "medium" {
 		t.Errorf("claude engine = %+v, want claude's dials", got)
+	}
+}
+
+// The dials shown are the ones a review runs with and records, defaults
+// applied. An unset claude model used to read "engine default" here while
+// every review ran, and stored in its provenance, the pinned one.
+func TestEngineConfigShowsWhatTheEngineRecords(t *testing.T) {
+	for _, engine := range review.Engines {
+		t.Run(engine, func(t *testing.T) {
+			var cfg config.Config
+			cfg.Review.Engine = engine
+			// A binary that is not there keeps the version probe from running
+			// whatever CLI this machine has installed.
+			cfg.Review.EngineCommon(engine).Bin = filepath.Join(t.TempDir(), "absent")
+			e, err := review.NewEngine(cfg.Review)
+			if err != nil {
+				t.Fatal(err)
+			}
+			recorded := e.Provenance(context.Background())
+			if got := engineConfigOf(cfg); got.Model != recorded.Model || got.Effort != recorded.Effort {
+				t.Errorf("dashboard shows %q/%q, the review records %q/%q",
+					got.Model, got.Effort, recorded.Model, recorded.Effort)
+			}
+		})
 	}
 }
 

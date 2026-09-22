@@ -101,6 +101,30 @@ var Engines = config.EngineNames
 
 // NewEngine builds the configured engine.
 func NewEngine(cfg config.ReviewSettings) (Engine, error) {
+	e, err := buildEngine(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+// ResolvedDials is the model and effort the configured engine will actually
+// run with, our defaults applied: exactly what its Provenance records. Empty
+// means the CLI chooses and we pin nothing (codex); an unwired engine resolves
+// to nothing at all.
+//
+// Reading the raw config instead is how the dashboard came to show "engine
+// default" for an unset claude model while every review ran, and recorded, the
+// pinned one.
+func ResolvedDials(cfg config.ReviewSettings) (model, effort string) {
+	e, err := buildEngine(cfg)
+	if err != nil {
+		return "", ""
+	}
+	return e.cfg.Model, e.cfg.Effort
+}
+
+func buildEngine(cfg config.ReviewSettings) (*nativeEngine, error) {
 	engine := cfg.ResolvedEngine()
 	switch engine {
 	case "codex":

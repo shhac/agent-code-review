@@ -107,3 +107,12 @@ func TestProvenanceReportsTheResolvedDials(t *testing.T) {
 		})
 	}
 }
+
+// An unwired engine has no dials: it must not borrow the default engine's, the
+// way the raw config's fallback to codex's block would.
+func TestResolvedDialsOfAnUnwiredEngineAreEmpty(t *testing.T) {
+	cfg := config.ReviewSettings{Engine: "gemini", Codex: config.CodexSettings{EngineCommon: config.EngineCommon{Model: "m", Effort: "high"}}}
+	if model, effort := ResolvedDials(cfg); model != "" || effort != "" {
+		t.Errorf("dials = %q/%q, want none", model, effort)
+	}
+}

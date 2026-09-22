@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/score"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -212,9 +213,10 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// engineConfigOf reports the managed dials of whichever engine is configured,
-// so the dashboard shows what will actually run rather than always codex's.
-// Empty values mean "the engine picks"; the UI renders that as a default.
+// engineConfigOf reports the dials the configured engine will actually run
+// with, our defaults applied, which is also what each review records. Empty
+// means the CLI picks and we pin nothing; the UI renders that as a default.
 func engineConfigOf(cfg config.Config) configEngineResp {
-	return configEngineResp{Model: cfg.EngineModel(), Effort: cfg.EngineEffort()}
+	model, effort := review.ResolvedDials(cfg.Review)
+	return configEngineResp{Model: model, Effort: effort}
 }

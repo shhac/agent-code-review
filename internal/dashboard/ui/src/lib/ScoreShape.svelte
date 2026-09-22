@@ -1,5 +1,7 @@
 <script lang="ts">
   import { simulateScoring } from './api';
+  import { errText } from './errors';
+  import { latestWins } from './latest';
   import ScoreRewardCurve from './ScoreRewardCurve.svelte';
   import { changedFrom, heatColor, policyDoc, policyJSON, policyOf, probeTrend, rampCSS, tierRanges, type Policy } from './scoreshape';
   import type { ConfigResponse, ScoreSimulation } from './types';
@@ -20,34 +22,27 @@
   $: changed = changedFrom(policy, live);
   $: trend = sim ? probeTrend(sim.probes) : '';
 
-  // The token is taken the moment the policy changes, not when the request
-  // goes out, so an answer to the previous policy can never land under the new
-  // dials.
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let asked = 0;
-  $: ask(JSON.stringify(policy), range);
+  // Latest wins, so an answer to the previous policy can never land under the
+  // new dials.
+  const ask = latestWins(180);
+  $: policy, range, survey();
 
-  function ask(..._inputs: unknown[]) {
-    const mine = ++asked;
-    clearTimeout(timer);
-    timer = setTimeout(() => run(mine), 180);
-  }
-
-  async function run(mine: number) {
-    try {
-      const candidate = policy;
-      const got = await simulateScoring(policyDoc(candidate, config), range, CELLS);
-      if (mine !== asked) return;
-      sim = got;
-      surveyed = candidate;
-      error = '';
-    } catch (e) {
-      if (mine !== asked) return;
+  function survey() {
+    ask(
+      async () => {
+        const candidate = policy;
+        return { candidate, got: await simulateScoring(policyDoc(candidate, config), range, CELLS) };
+      },
+      ({ candidate, got }) => {
+        sim = got;
+        surveyed = candidate;
+        error = '';
+      },
       // The last good survey stays on screen, dimmed: half-typed numbers pass
       // through states the daemon will not resolve, and blanking the panel
       // takes away the picture being edited against.
-      error = e instanceof Error ? e.message : String(e);
-    }
+      (e) => (error = errText(e)),
+    );
   }
 
   // Painting is the only thing this panel does with the numbers. Every one of

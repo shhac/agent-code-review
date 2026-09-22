@@ -4,6 +4,7 @@
   import PromptBox from '../lib/PromptBox.svelte';
   import PillToggle from '../lib/PillToggle.svelte';
   import { withFeed } from '../lib/feed';
+  import { latestWins } from '../lib/latest';
   import type { PromptResponse, PromptPreviewResponse, RuleCondition } from '../lib/types';
 
   const EXAMPLE_REPO = 'example-org/example-repo';
@@ -40,21 +41,20 @@
   // slower earlier request could overwrite a newer one's preview and leave the
   // panel disagreeing with the switches above it. Only the latest request is
   // allowed to apply its result.
-  let previewRequest = 0;
-  async function loadPreview() {
-    const request = ++previewRequest;
-    try {
-      const next = await getPromptPreview({
-        author_is_gh_user: self,
-        candidate_type: candidateType,
-        repo,
-        author: author || undefined,
-        group: group || undefined,
-      });
-      if (request === previewRequest) preview = next;
-    } catch {
-      if (request === previewRequest) preview = null;
-    }
+  const ask = latestWins();
+  function loadPreview() {
+    ask(
+      () =>
+        getPromptPreview({
+          author_is_gh_user: self,
+          candidate_type: candidateType,
+          repo,
+          author: author || undefined,
+          group: group || undefined,
+        }),
+      (next) => (preview = next),
+      () => (preview = null),
+    );
   }
 
   // Re-assemble whenever any switch changes (also fires once on init).

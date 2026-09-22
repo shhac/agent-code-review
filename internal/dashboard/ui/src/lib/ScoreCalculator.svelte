@@ -1,5 +1,7 @@
 <script lang="ts">
   import { getScorePreview } from './api';
+  import { errText } from './errors';
+  import { latestWins } from './latest';
   import type { ScorePreview } from './types';
 
   // Every figure here comes back from /api/score/preview: the browser asks the
@@ -31,34 +33,20 @@
   $: verdicts = [...Array(Math.max(rounds - 1, 0)).fill(earlier), final];
 
   // Debounced, because these are number inputs and every keystroke is a new
-  // hypothesis.
-  //
-  // The token is taken the moment the inputs CHANGE, not when the request
-  // goes out. Bumping it at send time left a 150ms window where an in-flight
-  // answer to the previous question still counted as current, so it landed
-  // under the new inputs: the one thing a calculator must never do is show a
-  // number that does not go with what is on screen beside it.
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let asked = 0;
-  $: ask(additions, deletions, verdicts.join(','));
+  // hypothesis. Latest wins: a calculator must never show a number that does
+  // not go with what is on screen beside it.
+  const ask = latestWins(150);
+  $: additions, deletions, verdicts, price();
 
-  function ask(..._inputs: unknown[]) {
-    const mine = ++asked;
-    clearTimeout(timer);
-    timer = setTimeout(() => run(mine), 150);
-  }
-
-  async function run(mine: number) {
-    const seq = verdicts;
-    try {
-      const got = await getScorePreview({ additions, deletions, verdicts: seq });
-      if (mine !== asked) return;
-      preview = got;
-      error = '';
-    } catch (e) {
-      if (mine !== asked) return;
-      error = e instanceof Error ? e.message : String(e);
-    }
+  function price() {
+    ask(
+      () => getScorePreview({ additions, deletions, verdicts }),
+      (got) => {
+        preview = got;
+        error = '';
+      },
+      (e) => (error = errText(e)),
+    );
   }
 
   // A negative total is a real outcome (changes requested costs points), so

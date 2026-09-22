@@ -10,7 +10,7 @@ cmd/agent-code-review/main.go   # entry point; version injected via -ldflags
 internal/
 ├── cli/
 │   ├── root.go                 # lib-agent-cli NewRoot; registers subcommands
-│   ├── deps.go                 # buildScheduler (engine + sweeper + gh user); emit()
+│   ├── deps.go                 # buildScheduler (engine + sweeper + gh user); emit()/emitEach()
 │   ├── serve.go                # `serve` daemon: scheduler + dashboard + tailscale.Wire
 │   ├── shutdown.go             # the two-stage stop: graceful, then forced
 │   ├── pricing.go              # estimator + costRates: one valuation, two paths
@@ -21,9 +21,14 @@ internal/
 │   ├── repos.go                # `repos ls/add/rm`: the watched repos (config)
 │   ├── prompts.go              # `prompts show/set/unset/preview`: review prompts
 │   ├── configcmd.go            # `config init/path/show/list/get/set/unset`
-│   └── usage.go                # top-level LLM reference card
+│   ├── usage.go                # registers the LLM reference cards...
+│   └── usage/*.txt             # ...which live here as prose, go:embed'd
 ├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults
 ├── store/                      # Store interface + DuckDB subprocess driver + schema.sql
+│   ├── reviewquery.go          # history paging: query, sort, cursor contract
+│   ├── duckdb_scan.go          # reading rows back: the typed row getters and scanners
+│   ├── duckdb_sql.go           # writing SQL literals: the quoting and NULL rules
+│   └── duckdb_costs.go         # the API-rate valuation backfill
 ├── score/                      # author scoring: pure rules, gitattributes matcher, exclusions
 │   ├── score.go                # Compute: diff + verdict + revision -> points
 │   ├── size.go                 # the size curve, the removal reward, the tier labels
@@ -31,8 +36,17 @@ internal/
 │   ├── gitattributes.go        # linguist-generated/vendored matching, git's own semantics
 │   └── exclude.go              # what counts toward size, after exclusions
 ├── discover/                   # gh pr list → New/Refreshed/Discussion classification
+│   ├── discover.go             # the sweep: budget, backoff, rotation
+│   ├── classify.go             # per-PR candidacy + type rules (shared with the claim recheck)
+│   ├── gh.go                   # the gh read frame (ghGraphQL, ghPRView) and the recheck
 │   └── diff.go                 # per-file line counts + .gitattributes, GraphQL (never REST)
-├── review/                     # Engine interface + codex/claude drivers + prompt/rule assembly
+├── review/                     # Engine interface + the one driver + prompt/rule assembly
+│   ├── nativeengine.go         # the driver: one native.Config per engine into native.Run
+│   ├── codex.go / claude.go    # each engine's configuration and defaults, nothing more
+│   ├── driver.go               # verdict contract, agent log, bounded WORKING-resume policy
+│   ├── prompt.go               # Facts + prompt assembly
+│   ├── rules.go                # rule matching and its trace (ExplainRules)
+│   └── steering.go             # steering: untrusted operator text, nonce-framed
 ├── scheduler/                  # discovery loop, review dispatcher, parallelism cap, claim leases
 │   ├── scheduler.go            # Deps + New: the seam declarations and composition root
 │   ├── lifecycle.go            # StartGraceful (daemon) and RunOnce (`run`)
@@ -40,15 +54,19 @@ internal/
 │   ├── dispatchstate.go        # per-candidate in-flight/backoff bookkeeping
 │   ├── loop.go                 # the interval loop (discovery's only)
 │   ├── discover.go             # the sweep + its in-flight guard
-│   ├── review.go               # reviewOne: claim, recheck, engine, record
+│   ├── review.go               # reviewOne: claim, recheck, engine, record; settle: retry or complete
+│   ├── workspaces.go           # claimWorkspace (create + claim) and SweepWorkspaces (boot retention)
 │   ├── scoring.go              # fetch the diff at claim time, score after the verdict
 │   └── reconcile.go            # release a crashed daemon's claims on this host
 ├── usage/                      # per-engine subscription-headroom polling + usage-floor predicate
 ├── doctor/                     # preflight: gh/duckdb/engine binary, auth, and config sanity
 ├── logbuf/                     # in-memory ring for the daemon's own log tail
 └── dashboard/                  # embedded web UI + JSON API over the store
-    ├── dashboard.go            # server core + thin read handlers
+    ├── dashboard.go            # server core: serveGet/serveWrite frames, apiErr, fail
     ├── queue.go                # queue write surface (add/reorder/remove) + statuses
+    ├── identity.go             # who is viewing (tailnet login → roster) + /api/viewer
+    ├── steering.go             # steering set/clear: the authorisation ladder
+    ├── steeringhold.go         # the editing hold that parks a PR while steering is typed
     ├── reviewlog.go            # /api/review-log: live/postmortem agent-log tail
     ├── stats.go                # /api/stats: last-24h outcome buckets
     ├── leaderboard.go          # /api/leaderboard: author standings (SQL aggregate)
@@ -109,7 +127,10 @@ internal/
   `review.workspace_retention`. Owning the location means owning the lifetime,
   and nothing had: the same install held 8,168 directories with no history row
   at all. Rows written before the move keep their dead `/tmp` paths and degrade
-  exactly as they already did.
+  exactly as they already did. Because the location is the user's real state
+  dir, the scheduler's tests point every XDG variable at a temp root in their
+  `TestMain`: before that, each `go test` created directories there and ran
+  the real retention sweep over the user's transcripts.
 
 - **A score is two rewards, because there are two questions.** SIZE asks how
   manageable the change was to review; REMOVAL asks whether the codebase got
@@ -298,13 +319,18 @@ internal/
 
 - **Harness mechanics live in `lib-agent-harness`.** `review/driver.go` owns
   the verdict schema, reporting instruction, agent-log sink, and bounded
-  WORKING-resume policy. The two drivers map application configuration into
+  WORKING-resume policy. One driver (`nativeEngine`) maps each engine's
+  application configuration (a `native.Config` plus a request template) into
   `lib-agent-harness/native.Run`, which owns CLI arguments, invocation, resume
   transport, transcript rendering, and usage normalization. Do not reintroduce
   provider protocol parsers here. `lib-agent-harness/process` owns Unix process
   groups and Windows suspended-start job containment. Codex final output files
   are cleared before every invocation, including resume, so a failed turn cannot
-  reuse an old verdict. Both engines still render the SAME marker transcript,
+  reuse an old verdict. Codex's process keeps the daemon's working directory
+  (the workspace reaches it as `--cd`), while claude's working directory IS the
+  workspace, since it has no such flag. `review.ResolvedDials` is the one
+  answer to "which model and effort will run", read by both Provenance and the
+  dashboard. Both engines still render the SAME marker transcript,
   with fixtures in `review/testdata/{codex,claude}-transcript.golden` consumed by
   `ui/src/lib/agentlog.test.ts`; regenerate with
   `go test ./internal/review -update-golden`. Use published library versions,
@@ -314,8 +340,8 @@ internal/
   graceful.** A terminal delivers SIGINT to the whole FOREGROUND PROCESS
   GROUP, and a child inherits its parent's group, so the first Ctrl-C reached
   the engine directly and killed reviews that were minutes and over a million
-  tokens in. The context plumbing was never consulted: gracefulCtx/reviewCtx
-  are correct, the signal just arrived somewhere else first, and every
+  tokens in. The context plumbing was never consulted: the shutdown's
+  `scheduler.Stop` contexts (Graceful, Force) are correct, the signal just arrived somewhere else first, and every
   interrupted review recorded ERROR with its spend already gone. Engines are
   therefore started with `Setpgid`, and cancellation kills the negative pid so
   the whole group (engines spawn shells, toolchains, gh) goes with it. Only
@@ -371,9 +397,9 @@ internal/
   replaces. Summing codex (which the old prose-trailer parser did)
   double-counts every resumed run. codex's `input_tokens` also INCLUDES its
   cached reads, where claude reports them apart. These are engine facts, so
-  each driver states its own mapping onto `TokenUsage` and nothing downstream
-  branches on the engine. Both are pinned by tests carrying the live
-  measurements that established them.
+  the harness's transcoders state each engine's mapping onto `TokenUsage` and
+  nothing here branches on the engine. Both are pinned by tests carrying the
+  live measurements that established them.
 
 - **Model prices come from LiteLLM, cached, never vendored.** Only claude
   values its own runs; codex reports no cost anywhere, so its spend has to be
@@ -758,5 +784,7 @@ internal/
   same door production uses — rather than writing fields after construction;
   the engine arrives as `NewEngine`, the recheck as `StillCandidate`, the
   sweep as `Sweeper`, the clock as `Now`. Discovery fakes its four-method
-  `candidateStore`.
+  `candidateStore`. Review engines are faked through
+  `native.Config.RunCommand`, and argv is asserted on what `Review` actually
+  sends, never on a parallel builder only tests call.
 - Errors: `output.New(msg, output.FixableByAgent|Human|Retry)`.

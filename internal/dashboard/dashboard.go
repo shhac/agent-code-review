@@ -302,9 +302,40 @@ func serveGet[T any](s *Server, w http.ResponseWriter, r *http.Request, fetch fu
 		httpError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	ctx, cancel := reqCtx(r, 10*time.Second)
+	respond(s, w, r, 10*time.Second, fetch)
+}
+
+// serveWrite is serveGet's write-side twin: decode the body, then act under a
+// request-scoped timeout, with one exit through fail or writeJSON. A refusal
+// is an apiErr RETURNED rather than a status written mid-handler, which is
+// what the write handlers had drifted on: some wrote httpError with a status
+// fail would have unwrapped anyway, and only one bounded its body.
+//
+// decode should read through decodeBody and return an apiErr (usually a 400)
+// for a body it cannot use; it runs before the timeout starts, as the handlers
+// always did.
+//
+// The method check stays with each handler, because the write endpoints do not
+// share one: /api/queue sends two methods to two writers, and the steering
+// hold takes POST or DELETE on one.
+func serveWrite[Req, Resp any](s *Server, w http.ResponseWriter, r *http.Request, timeout time.Duration,
+	decode func(http.ResponseWriter, *http.Request) (Req, error),
+	act func(context.Context, Req) (Resp, error),
+) {
+	req, err := decode(w, r)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	respond(s, w, r, timeout, func(ctx context.Context) (Resp, error) { return act(ctx, req) })
+}
+
+// respond is the tail both frames share: the deadline, the error envelope, and
+// the JSON write.
+func respond[T any](s *Server, w http.ResponseWriter, r *http.Request, timeout time.Duration, fn func(context.Context) (T, error)) {
+	ctx, cancel := reqCtx(r, timeout)
 	defer cancel()
-	resp, err := fetch(ctx)
+	resp, err := fn(ctx)
 	if err != nil {
 		s.fail(w, err)
 		return

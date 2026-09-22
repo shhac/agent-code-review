@@ -86,18 +86,19 @@ func (s *Server) claimIsLive(c store.Candidate) bool {
 const reviewInFlightMsg = "a review of this PR is running; its instructions are already fixed. " +
 	"Steer it again once this review finishes."
 
-// parseSteeringReq decodes the body: which PR, and the message if there is
-// one. Pure over the reader, so the wire contract is table-testable without a
-// Server. It does not judge the message — the hold endpoint shares this parser
+// parseSteeringReq decodes the body: which PR, and the message (trimmed) if
+// there is one. It needs no Server, so the wire contract is table-testable on
+// its own. It does not judge the message — the hold endpoint shares this parser
 // and has no message to judge, and message rules belong with the other rungs
 // in steeringRefusal rather than split across two places.
-func parseSteeringReq(w http.ResponseWriter, r *http.Request) (steeringReq, string, *apiErr) {
+func parseSteeringReq(w http.ResponseWriter, r *http.Request) (steeringReq, error) {
 	req, err := decodeBody[steeringReq](w, r)
 	if err != nil || req.Repo == "" || req.Number <= 0 {
-		return req, "", &apiErr{http.StatusBadRequest,
+		return steeringReq{}, &apiErr{http.StatusBadRequest,
 			`need {"repo": "owner/name", "number": N, "message": "..."}`}
 	}
-	return req, strings.TrimSpace(req.Message), nil
+	req.Message = strings.TrimSpace(req.Message)
+	return req, nil
 }
 
 // steeringRefusal is the half of the ladder that both write paths share: the
@@ -132,44 +133,30 @@ func (s *Server) handleSteering(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	req, msg, bad := parseSteeringReq(w, r)
-	if bad != nil {
-		httpError(w, bad.code, bad.msg)
-		return
-	}
-
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-
-	_, v, bad := s.steerableRow(ctx, r, req.Repo, req.Number, msg)
-	if bad != nil {
-		httpError(w, bad.code, bad.msg)
-		return
-	}
-
-	if msg == "" {
-		if err := s.store.ClearSteering(ctx, req.Repo, req.Number); err != nil {
-			s.fail(w, err)
-			return
+	serveWrite(s, w, r, 10*time.Second, parseSteeringReq, func(ctx context.Context, req steeringReq) (steeringResp, error) {
+		_, v, bad := s.steerableRow(ctx, r, req.Repo, req.Number, req.Message)
+		if bad != nil {
+			return steeringResp{}, bad
 		}
+		if req.Message == "" {
+			if err := s.store.ClearSteering(ctx, req.Repo, req.Number); err != nil {
+				return steeringResp{}, err
+			}
+			if err := s.releaseEditing(ctx, req.Repo, req.Number); err != nil {
+				return steeringResp{}, err
+			}
+			return steeringResp{Cleared: true}, nil
+		}
+		st := store.Steering{Message: req.Message, SetBy: v.Handle, SetAt: time.Now()}
+		if err := s.store.SetSteering(ctx, req.Repo, req.Number, st); err != nil {
+			return steeringResp{}, err
+		}
+		// Saving IS being done editing, so the hold goes now rather than
+		// lingering for the rest of its window: the whole point was to protect
+		// the writing, and the writing is over.
 		if err := s.releaseEditing(ctx, req.Repo, req.Number); err != nil {
-			s.fail(w, err)
-			return
+			return steeringResp{}, err
 		}
-		writeJSON(w, http.StatusOK, steeringResp{Cleared: true})
-		return
-	}
-	st := store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}
-	if err := s.store.SetSteering(ctx, req.Repo, req.Number, st); err != nil {
-		s.fail(w, err)
-		return
-	}
-	// Saving IS being done editing, so the hold goes now rather than lingering
-	// for the rest of its window: the whole point was to protect the writing,
-	// and the writing is over.
-	if err := s.releaseEditing(ctx, req.Repo, req.Number); err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, steeringResp{Steering: &st})
+		return steeringResp{Steering: &st}, nil
+	})
 }

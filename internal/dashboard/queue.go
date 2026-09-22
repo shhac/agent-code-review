@@ -34,18 +34,12 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 
 // removeFromQueue drops a candidate entirely: the "changed our mind" path.
 func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
-	req, ok := decodePRRef(w, r)
-	if !ok {
-		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
-		return
-	}
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-	if err := s.store.Dequeue(ctx, req.Repo, req.Number); err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, queueRemoveResp{Removed: true})
+	serveWrite(s, w, r, 10*time.Second, decodePRRef, func(ctx context.Context, req prref.Ref) (queueRemoveResp, error) {
+		if err := s.store.Dequeue(ctx, req.Repo, req.Number); err != nil {
+			return queueRemoveResp{}, err
+		}
+		return queueRemoveResp{Removed: true}, nil
+	})
 }
 
 // handleQueuePreflight resolves a PR reference WITHOUT queueing it, so the UI
@@ -63,45 +57,37 @@ func (s *Server) handleQueuePreflight(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	_, ref, ok := s.decodeWatchedPR(w, r)
-	if !ok {
-		return
-	}
-	ctx, cancel := reqCtx(r, 30*time.Second)
-	defer cancel()
-
-	c, err := s.manualCandidate(ctx, ref.Repo, ref.Number)
-	if err != nil {
-		httpError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	v, err := s.identify(ctx, r)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	// Through steeringRefusal, the same ladder the add itself will run. Asking
-	// only maySteer here meant preflight answered a narrower question than the
-	// endpoint it previews: a PR already under review passed the permission
-	// rung, so the editor opened and offered to steer, and the add then
-	// refused with "a review of this PR is running". Advisory is not licence to
-	// promise something the next call will decline.
-	//
-	// The message is empty at this point, so the length rung cannot fire; that
-	// is the one rung preflight genuinely cannot answer in advance.
-	claimed, err := s.claimedNow(ctx, ref.Repo, ref.Number)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	resp := queuePreflightResp{
-		Repo: c.Repo, Number: c.Number, Title: c.Title, Author: c.Author,
-		MaySteer: true,
-	}
-	if bad := steeringRefusal(v, c.Author, "", claimed); bad != nil {
-		resp.MaySteer, resp.Refusal = false, bad.msg
-	}
-	writeJSON(w, http.StatusOK, resp)
+	serveWrite(s, w, r, 30*time.Second, s.decodeWatchedPR, func(ctx context.Context, pr watchedPR) (queuePreflightResp, error) {
+		c, err := s.fetchManual(ctx, pr.Ref)
+		if err != nil {
+			return queuePreflightResp{}, err
+		}
+		v, err := s.identify(ctx, r)
+		if err != nil {
+			return queuePreflightResp{}, err
+		}
+		// Through steeringRefusal, the same ladder the add itself will run.
+		// Asking only maySteer here meant preflight answered a narrower question
+		// than the endpoint it previews: a PR already under review passed the
+		// permission rung, so the editor opened and offered to steer, and the
+		// add then refused with "a review of this PR is running". Advisory is
+		// not licence to promise something the next call will decline.
+		//
+		// The message is empty at this point, so the length rung cannot fire;
+		// that is the one rung preflight genuinely cannot answer in advance.
+		claimed, err := s.claimedNow(ctx, pr.Repo, pr.Number)
+		if err != nil {
+			return queuePreflightResp{}, err
+		}
+		resp := queuePreflightResp{
+			Repo: c.Repo, Number: c.Number, Title: c.Title, Author: c.Author,
+			MaySteer: true,
+		}
+		if bad := steeringRefusal(v, c.Author, "", claimed); bad != nil {
+			resp.MaySteer, resp.Refusal = false, bad.msg
+		}
+		return resp, nil
+	})
 }
 
 // addReq is the add/preflight wire shape: a full GitHub PR URL or the bare
@@ -112,27 +98,44 @@ type addReq struct {
 	Steering string `json:"steering"`
 }
 
+// watchedPR is an add/preflight body that decodeWatchedPR accepted: the parsed
+// reference, and the steering message only add reads.
+type watchedPR struct {
+	prref.Ref
+	Steering string
+}
+
 // decodeWatchedPR is the shared front half of add and preflight: decode the
 // body, parse the reference, and refuse a repo this tool is not set up to
 // review. The dashboard is the surface other people use, so the watched-repo
 // check is not optional, and having one function do it means add and preflight
 // cannot come to different conclusions about what is acceptable.
-func (s *Server) decodeWatchedPR(w http.ResponseWriter, r *http.Request) (addReq, prref.Ref, bool) {
+func (s *Server) decodeWatchedPR(w http.ResponseWriter, r *http.Request) (watchedPR, error) {
 	req, err := decodeBody[addReq](w, r)
 	if err != nil || req.URL == "" {
-		httpError(w, http.StatusBadRequest, `need {"url": "https://github.com/owner/repo/pull/N" or "owner/repo/pull/N"}`)
-		return req, prref.Ref{}, false
+		return watchedPR{}, &apiErr{http.StatusBadRequest,
+			`need {"url": "https://github.com/owner/repo/pull/N" or "owner/repo/pull/N"}`}
 	}
 	ref, ok := prref.ParseGitHubPull(req.URL)
 	if !ok {
-		httpError(w, http.StatusBadRequest, "not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N")
-		return req, prref.Ref{}, false
+		return watchedPR{}, &apiErr{http.StatusBadRequest,
+			"not a PR reference: expected https://github.com/owner/repo/pull/N or owner/repo/pull/N"}
 	}
 	if !s.config().WatchesRepo(ref.Repo) {
-		httpError(w, http.StatusForbidden, ref.Repo+" is not a watched repo; see the Config page for the allowed list")
-		return req, prref.Ref{}, false
+		return watchedPR{}, &apiErr{http.StatusForbidden,
+			ref.Repo + " is not a watched repo; see the Config page for the allowed list"}
 	}
-	return req, ref, true
+	return watchedPR{Ref: ref, Steering: req.Steering}, nil
+}
+
+// fetchManual resolves a PR's live metadata for add and preflight. A failure
+// is GitHub's (or gh's), not ours and not the caller's, hence the 502.
+func (s *Server) fetchManual(ctx context.Context, ref prref.Ref) (store.Candidate, error) {
+	c, err := s.manualCandidate(ctx, ref.Repo, ref.Number)
+	if err != nil {
+		return store.Candidate{}, &apiErr{http.StatusBadGateway, err.Error()}
+	}
+	return c, nil
 }
 
 // claimedNow reports whether this PR is queued AND under a live claim. Not
@@ -148,77 +151,70 @@ func (s *Server) claimedNow(ctx context.Context, repo string, number int) (bool,
 
 // addToQueue queues a PR, optionally with a steering message.
 func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
-	req, ref, ok := s.decodeWatchedPR(w, r)
-	if !ok {
-		return
-	}
 	// Fetching metadata involves a gh round-trip; give it room.
-	ctx, cancel := reqCtx(r, 30*time.Second)
-	defer cancel()
-
-	// Fetch real metadata up front (title/author/SHA) and reject closed or
-	// merged PRs; discovery only backfills PRs that match the candidate
-	// rules, which a manual add may not.
-	c, err := s.manualCandidate(ctx, ref.Repo, ref.Number)
-	if err != nil {
-		httpError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	// Steering rides in on the same write. Two writes would leave a window
-	// where a free dispatcher slot claims the row before the instruction
-	// lands, which on an empty queue is the normal case.
-	//
-	// Authorisation is decided HERE, against the author gh just reported, not
-	// against anything the request claimed and not on the strength of the
-	// preflight. An unauthorised steering message is dropped and the add still
-	// happens: the caller asked for two things and is entitled to one.
-	var steeringRefused string
-	if msg := strings.TrimSpace(req.Steering); msg != "" {
-		v, idErr := s.identify(ctx, r)
-		if idErr != nil {
-			s.fail(w, idErr)
-			return
-		}
-		// An add of a PR already queued is an upsert, so this path can write
-		// steering onto a row that is under review right now — the one thing
-		// /api/steering refuses. That is why the rungs are shared rather than
-		// restated: the claim rung was once missing here, and a message
-		// accepted then was discarded by the completion that retires the row,
-		// having reported success.
-		claimed, err := s.claimedNow(ctx, ref.Repo, ref.Number)
+	serveWrite(s, w, r, 30*time.Second, s.decodeWatchedPR, func(ctx context.Context, pr watchedPR) (queueAddResp, error) {
+		// Fetch real metadata up front (title/author/SHA) and reject closed or
+		// merged PRs; discovery only backfills PRs that match the candidate
+		// rules, which a manual add may not.
+		c, err := s.fetchManual(ctx, pr.Ref)
 		if err != nil {
-			s.fail(w, err)
-			return
+			return queueAddResp{}, err
 		}
-		if bad := steeringRefusal(v, c.Author, msg, claimed); bad != nil {
-			// Only the sentence, never the status: the add itself succeeded,
-			// and the caller is entitled to the half they may have.
-			steeringRefused = bad.msg
-		} else {
-			c.Steering = &store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}
+		// Steering rides in on the same write. Two writes would leave a window
+		// where a free dispatcher slot claims the row before the instruction
+		// lands, which on an empty queue is the normal case.
+		//
+		// Authorisation is decided HERE, against the author gh just reported,
+		// not against anything the request claimed and not on the strength of
+		// the preflight. An unauthorised steering message is dropped and the add
+		// still happens: the caller asked for two things and is entitled to one.
+		var steeringRefused string
+		if msg := strings.TrimSpace(pr.Steering); msg != "" {
+			v, err := s.identify(ctx, r)
+			if err != nil {
+				return queueAddResp{}, err
+			}
+			// An add of a PR already queued is an upsert, so this path can write
+			// steering onto a row that is under review right now — the one thing
+			// /api/steering refuses. That is why the rungs are shared rather than
+			// restated: the claim rung was once missing here, and a message
+			// accepted then was discarded by the completion that retires the
+			// row, having reported success.
+			claimed, err := s.claimedNow(ctx, pr.Repo, pr.Number)
+			if err != nil {
+				return queueAddResp{}, err
+			}
+			if bad := steeringRefusal(v, c.Author, msg, claimed); bad != nil {
+				// Only the sentence, never the status: the add itself
+				// succeeded, and the caller is entitled to the half they may
+				// have.
+				steeringRefused = bad.msg
+			} else {
+				c.Steering = &store.Steering{Message: msg, SetBy: v.Handle, SetAt: time.Now()}
+			}
 		}
-	}
 
-	// Completed/skipped PRs are absent from the queue, so a manual re-add is
-	// a plain enqueue; if it's already queued this just refreshes metadata.
-	if err := s.store.Enqueue(ctx, c); err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, queueAddResp{
-		Queued: true, Title: c.Title, Author: c.Author,
-		Steered: c.Steering != nil, SteeringRefused: steeringRefused,
+		// Completed/skipped PRs are absent from the queue, so a manual re-add
+		// is a plain enqueue; if it's already queued this just refreshes
+		// metadata.
+		if err := s.store.Enqueue(ctx, c); err != nil {
+			return queueAddResp{}, err
+		}
+		return queueAddResp{
+			Queued: true, Title: c.Title, Author: c.Author,
+			Steered: c.Steering != nil, SteeringRefused: steeringRefused,
+		}, nil
 	})
 }
 
 // decodePRRef decodes the queue-row wire shape shared by the remove and
 // promote request bodies (add is url-only; reorder sends a list of them).
-func decodePRRef(w http.ResponseWriter, r *http.Request) (prref.Ref, bool) {
+func decodePRRef(w http.ResponseWriter, r *http.Request) (prref.Ref, error) {
 	req, err := decodeBody[prref.Ref](w, r)
-	if err != nil {
-		return prref.Ref{}, false
+	if err != nil || !req.Valid() {
+		return prref.Ref{}, &apiErr{http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`}
 	}
-	return req, req.Valid()
+	return req, nil
 }
 
 // handleQueuePromote is the explicit "review this now" action: float the row
@@ -231,23 +227,26 @@ func (s *Server) handleQueuePromote(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	req, ok := decodePRRef(w, r)
-	if !ok {
-		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
-		return
-	}
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-	if err := s.store.Promote(ctx, req.Repo, req.Number); err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, queuePromoteResp{Promoted: true})
+	serveWrite(s, w, r, 10*time.Second, decodePRRef, func(ctx context.Context, req prref.Ref) (queuePromoteResp, error) {
+		if err := s.store.Promote(ctx, req.Repo, req.Number); err != nil {
+			return queuePromoteResp{}, err
+		}
+		return queuePromoteResp{Promoted: true}, nil
+	})
 }
 
 // reorderReq is the complete new order of the reorderable rows.
 type reorderReq struct {
 	Order []prref.Ref `json:"order"`
+}
+
+func decodeReorder(w http.ResponseWriter, r *http.Request) (reorderReq, error) {
+	req, err := decodeBody[reorderReq](w, r)
+	if err != nil || len(req.Order) == 0 {
+		return reorderReq{}, &apiErr{http.StatusBadRequest,
+			`need {"order": [{"repo", "number"}, ...]} covering every queued PR`}
+	}
+	return req, nil
 }
 
 // handleQueueReorder replaces the queued ordering in one write: the drag-and-
@@ -259,32 +258,23 @@ func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	req, err := decodeBody[reorderReq](w, r)
-	if err != nil || len(req.Order) == 0 {
-		httpError(w, http.StatusBadRequest, `need {"order": [{"repo", "number"}, ...]} covering every queued PR`)
-		return
-	}
-	ctx, cancel := reqCtx(r, 30*time.Second)
-	defer cancel()
-
-	queue, err := s.store.ListQueue(ctx, "")
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	if err := validateReorder(queue, req.Order, time.Now(), s.config().LeaseWindow()); err != nil {
-		httpError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	positions := make([]store.QueuePosition, 0, len(req.Order))
-	for pos, ref := range req.Order {
-		positions = append(positions, store.QueuePosition{Repo: ref.Repo, Number: ref.Number, Position: pos + 1})
-	}
-	if err := s.store.Reorder(ctx, positions); err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, queueReorderResp{Reordered: true})
+	serveWrite(s, w, r, 30*time.Second, decodeReorder, func(ctx context.Context, req reorderReq) (queueReorderResp, error) {
+		queue, err := s.store.ListQueue(ctx, "")
+		if err != nil {
+			return queueReorderResp{}, err
+		}
+		if err := validateReorder(queue, req.Order, time.Now(), s.config().LeaseWindow()); err != nil {
+			return queueReorderResp{}, &apiErr{http.StatusBadRequest, err.Error()}
+		}
+		positions := make([]store.QueuePosition, 0, len(req.Order))
+		for pos, ref := range req.Order {
+			positions = append(positions, store.QueuePosition{Repo: ref.Repo, Number: ref.Number, Position: pos + 1})
+		}
+		if err := s.store.Reorder(ctx, positions); err != nil {
+			return queueReorderResp{}, err
+		}
+		return queueReorderResp{Reordered: true}, nil
+	})
 }
 
 // validateReorder checks that order is exactly the set of reorderable rows:

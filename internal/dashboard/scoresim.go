@@ -11,9 +11,11 @@ package dashboard
 // gets numbers and paints them.
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/score"
@@ -110,21 +112,25 @@ func (s *Server) handleScoreSimulate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	serveWrite(s, w, r, 10*time.Second, decodeScoreSim, func(_ context.Context, req scoreSimReq) (scoreSimResp, error) {
+		cfg := config.Config{Scoring: req.Scoring}
+		// Reported rather than swallowed. ResolveScoring falls back to the
+		// shipped defaults for an invalid ruleset, which is right at review time
+		// and exactly wrong here: the operator would be shown the defaults' map
+		// while editing something else.
+		if problems := cfg.ValidateScoring(); len(problems) > 0 {
+			return scoreSimResp{}, &apiErr{http.StatusBadRequest, strings.Join(problems, "; ")}
+		}
+		return simulate(cfg.ResolveScoring(""), req.Range, req.Cells), nil
+	})
+}
+
+func decodeScoreSim(w http.ResponseWriter, r *http.Request) (scoreSimReq, error) {
 	req, err := decodeBody[scoreSimReq](w, r)
 	if err != nil {
-		httpError(w, http.StatusBadRequest, "body must be a scoring document: "+err.Error())
-		return
+		return scoreSimReq{}, &apiErr{http.StatusBadRequest, "body must be a scoring document: " + err.Error()}
 	}
-	cfg := config.Config{Scoring: req.Scoring}
-	// Reported rather than swallowed. ResolveScoring falls back to the shipped
-	// defaults for an invalid ruleset, which is right at review time and
-	// exactly wrong here: the operator would be shown the defaults' map while
-	// editing something else.
-	if problems := cfg.ValidateScoring(); len(problems) > 0 {
-		httpError(w, http.StatusBadRequest, strings.Join(problems, "; "))
-		return
-	}
-	writeJSON(w, http.StatusOK, simulate(cfg.ResolveScoring(""), req.Range, req.Cells))
+	return req, nil
 }
 
 func simulate(rules score.Rules, lineRange, cells int) scoreSimResp {

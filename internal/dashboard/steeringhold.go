@@ -49,58 +49,45 @@ func (s *Server) handleSteeringHold(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST or DELETE only")
 		return
 	}
-	req, _, bad := parseSteeringReq(w, r)
-	if bad != nil {
-		httpError(w, bad.code, bad.msg)
-		return
-	}
-
-	ctx, cancel := reqCtx(r, 10*time.Second)
-	defer cancel()
-
-	cfg := s.config()
-	c, _, bad := s.steerableRow(ctx, r, req.Repo, req.Number, "")
-	if bad != nil {
-		httpError(w, bad.code, bad.msg)
-		return
-	}
-
-	if r.Method == http.MethodDelete {
-		if err := s.releaseEditing(ctx, req.Repo, req.Number); err != nil {
-			s.fail(w, err)
-			return
+	serveWrite(s, w, r, 10*time.Second, parseSteeringReq, func(ctx context.Context, req steeringReq) (steeringHoldResp, error) {
+		cfg := s.config()
+		c, _, bad := s.steerableRow(ctx, r, req.Repo, req.Number, "")
+		if bad != nil {
+			return steeringHoldResp{}, bad
 		}
-		writeJSON(w, http.StatusOK, steeringHoldResp{State: holdReleased})
-		return
-	}
 
-	window := cfg.SteeringHold()
-	if window <= 0 {
-		// Configured off: say so, rather than answering with the same empty
-		// body a release gets. A client that cannot tell those apart keeps
-		// renewing a hold this server is never going to take.
-		writeJSON(w, http.StatusOK, steeringHoldResp{State: holdDisabled})
-		return
-	}
-	now := time.Now()
-	since, capped := editingSession(c.Holds, now, cfg.SteeringHoldCap())
-	if capped {
-		// Past the cap. The standing hold is left to expire rather than
-		// cleared: the author is still typing, and yanking the hold out from
-		// under them early helps nobody.
-		writeJSON(w, http.StatusOK, steeringHoldResp{State: holdCapped})
-		return
-	}
-	until := now.Add(window)
-	patch := map[string]time.Time{store.HoldEditing: until}
-	if since.IsZero() {
-		patch[store.MarkEditingSince] = now
-	}
-	if err := s.store.SetHolds(ctx, req.Repo, req.Number, patch); err != nil {
-		s.fail(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, steeringHoldResp{State: holdHeld, Until: &until})
+		if r.Method == http.MethodDelete {
+			if err := s.releaseEditing(ctx, req.Repo, req.Number); err != nil {
+				return steeringHoldResp{}, err
+			}
+			return steeringHoldResp{State: holdReleased}, nil
+		}
+
+		window := cfg.SteeringHold()
+		if window <= 0 {
+			// Configured off: say so, rather than answering with the same empty
+			// body a release gets. A client that cannot tell those apart keeps
+			// renewing a hold this server is never going to take.
+			return steeringHoldResp{State: holdDisabled}, nil
+		}
+		now := time.Now()
+		since, capped := editingSession(c.Holds, now, cfg.SteeringHoldCap())
+		if capped {
+			// Past the cap. The standing hold is left to expire rather than
+			// cleared: the author is still typing, and yanking the hold out
+			// from under them early helps nobody.
+			return steeringHoldResp{State: holdCapped}, nil
+		}
+		until := now.Add(window)
+		patch := map[string]time.Time{store.HoldEditing: until}
+		if since.IsZero() {
+			patch[store.MarkEditingSince] = now
+		}
+		if err := s.store.SetHolds(ctx, req.Repo, req.Number, patch); err != nil {
+			return steeringHoldResp{}, err
+		}
+		return steeringHoldResp{State: holdHeld, Until: &until}, nil
+	})
 }
 
 // editingSession reads how long the current steering-editor session has been

@@ -117,23 +117,6 @@ func (c Config) ScheduleEnabled() bool { return boolOr(c.Schedule.Enabled, true)
 // DiscoveryEnabled reports whether the discovery loop runs (default true).
 func (c Config) DiscoveryEnabled() bool { return boolOr(c.Discovery.Enabled, true) }
 
-// defaultUsageFloor is the headroom every engine leaves for interactive work
-// unless its block says otherwise: pause at 90% used.
-const defaultUsageFloor = 10
-
-// UsageFloors are the remaining-percentage floors for one engine's two
-// windows, below which that engine's candidates are held (default 10 each; an
-// explicit 0 disables that window's floor).
-//
-// On ReviewSettings rather than Config so the policy cascade reaches it for
-// free: cfg.Review.UsageFloors(engine) is the base floor a panel reports, and
-// cfg.Review.WithPolicy(p).UsageFloors(engine) is the one a candidate is
-// actually held against.
-func (r ReviewSettings) UsageFloors(engine string) (fiveH, oneW int) {
-	f := r.EngineCommon(engine).UsageFloor
-	return intOr(f.FiveHourPercent, defaultUsageFloor), intOr(f.OneWeekPercent, defaultUsageFloor)
-}
-
 func intOr(v *int, def int) int {
 	if v == nil {
 		return def
@@ -164,68 +147,6 @@ func (c Config) LeaseWindow() time.Duration {
 		return w
 	}
 	return 2 * time.Hour
-}
-
-// EngineNames lists the wired review engines, default first. It lives here
-// rather than in the review package because config is the one package every
-// consumer already imports: review, the CLI, the dashboard, and doctor all
-// depend on config, and none of them can be depended on in return. Holding it
-// the other way round forced Engine() to restate the default as a literal and
-// needed a cross-package test to catch the two drifting.
-//
-// review re-exports this as review.Engines, so existing callers are unchanged.
-var EngineNames = []string{"codex", "claude"}
-
-// ResolvedEngine is the review engine id, defaulting to the first wired one.
-// On ReviewSettings rather than Config because that is the value the callers
-// which need it actually hold, and three of them were re-deriving the same
-// `if engine == "" { engine = EngineNames[0] }` on top of Config.Engine.
-func (r ReviewSettings) ResolvedEngine() string {
-	if r.Engine != "" {
-		return r.Engine
-	}
-	return EngineNames[0]
-}
-
-// Engine is the review engine id, defaulting to the first wired engine.
-func (c Config) Engine() string { return c.Review.ResolvedEngine() }
-
-// EngineCommon selects the named engine's shared dials. THE engine switch:
-// the one place that maps a name to its settings, so adding a fourth engine
-// is a case here rather than a hunt through five call sites that each
-// re-derived `if engine == "claude"`.
-//
-// An unknown name falls back to the default engine's block, which keeps
-// BinFor's long-standing behaviour for a name nothing recognises.
-func (r *ReviewSettings) EngineCommon(engine string) *EngineCommon {
-	if engine == "claude" {
-		return &r.Claude.EngineCommon
-	}
-	return &r.Codex.EngineCommon
-}
-
-// BinFor is the named engine's configured binary, whether or not it is the
-// engine currently selected. Callers that meter or diagnose EVERY engine need
-// this.
-func (c Config) BinFor(engine string) string {
-	return c.Review.EngineCommon(engine).Bin
-}
-
-// ResolveBin is BinFor with the engine's own name as the default, which is
-// what every caller that actually RUNS something needs. BinFor deliberately
-// reports the unresolved value, so six call sites across five packages each
-// re-applied `if bin == "" { bin = "codex" }`; this is that rule, once.
-func (c Config) ResolveBin(engine string) string {
-	return DefaultBin(engine, c.BinFor(engine))
-}
-
-// DefaultBin resolves a possibly-empty binary against an engine name, for the
-// callers that hold only those two strings and no Config.
-func DefaultBin(engine, bin string) string {
-	if bin != "" {
-		return bin
-	}
-	return engine
 }
 
 // TailscalePort is the Tailscale serve/funnel port (default 443).

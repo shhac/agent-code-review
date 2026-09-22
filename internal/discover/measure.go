@@ -94,17 +94,9 @@ func (m Measurer) Measure(ctx context.Context, rules score.Rules, repo string, n
 		return out, nil
 	}
 
-	var attrs score.Attrs
-	if rules.UseGitattributes {
-		byDir, err := m.attrs()(ctx, repo, "HEAD", diff.Files)
-		if err != nil {
-			// The repo's declarations are an enrichment on an enrichment. Not
-			// reading them means counting generated lines, which is a worse
-			// score rather than no score.
-			out.Notes = append(out.Notes, "could not read .gitattributes, counting every file: "+err.Error())
-		} else {
-			attrs = score.ParseAttrs(byDir)
-		}
+	attrs, note := m.repoAttrs(ctx, rules, repo, diff.Files)
+	if note != "" {
+		out.Notes = append(out.Notes, note)
 	}
 
 	// Apply marks each file with the repo's verdict as it totals them, so the
@@ -116,4 +108,19 @@ func (m Measurer) Measure(ctx context.Context, rules score.Rules, repo string, n
 	out.Stats.ExcludedFiles = totals.ExcludedFiles
 	out.Files = diff.Files
 	return out, nil
+}
+
+// repoAttrs reads the repo's generated-file declarations when the ruleset
+// honours them. A failed read comes back as a note rather than an error: the
+// declarations are an enrichment on an enrichment, and not reading them means
+// counting generated lines, which is a worse score rather than no score.
+func (m Measurer) repoAttrs(ctx context.Context, rules score.Rules, repo string, files []score.FileStat) (score.Attrs, string) {
+	if !rules.UseGitattributes {
+		return score.Attrs{}, ""
+	}
+	byDir, err := m.attrs()(ctx, repo, "HEAD", files)
+	if err != nil {
+		return score.Attrs{}, "could not read .gitattributes, counting every file: " + err.Error()
+	}
+	return score.ParseAttrs(byDir), ""
 }

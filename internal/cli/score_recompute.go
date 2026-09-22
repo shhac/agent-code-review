@@ -30,7 +30,7 @@ func scoreRecomputeCmd() *cobra.Command {
 			q.IncludeManual = includeManual
 			// Rescoring all of history is exactly the "everybody's points
 			// moved and nobody asked for it" case, so it takes a word.
-			if !all && q.Repo == "" && q.Author == "" && q.Since.IsZero() && !q.Missing && len(q.StaleRules) == 0 {
+			if !all && !narrowed(q) {
 				return output.New(
 					"Refusing to recompute every score ever recorded without --all; narrow it with --repo, --author, --days, --missing or --stale first",
 					output.FixableByAgent)
@@ -58,69 +58,65 @@ func recompute(ctx context.Context, s store.Store, cfg config.Config, q store.Sc
 	if err != nil {
 		return err
 	}
-	changed, skipped := 0, 0
+	var tally rescoreTally
 	for _, r := range rows {
-		sc, err := s.ScoreContext(ctx, r.Repo, r.Number, r.HeadSHA, r.ReviewedAt)
+		outcome, err := recomputeRow(ctx, s, cfg, r, dryRun)
 		if err != nil {
 			return err
 		}
-		rules := cfg.ResolveScoring(r.Repo)
-
-		// Re-apply the exclusion policy to the measurement taken at review
-		// time, offline. This is what makes a change to exclude_paths or
-		// use_gitattributes a recompute rather than a re-fetch.
-		//
-		// A row with no stored measurement is rescored from the counts it
-		// already has, which is right for an arithmetic tweak and WRONG for an
-		// exclusion change, and nothing here can tell the two apart. So it is
-		// reported rather than assumed: remeasured=false says "this row's
-		// counts are whatever they were", and `score refetch` is the repair.
-		files, err := s.ReviewFiles(ctx, r.Ref())
-		if err != nil {
-			return err
-		}
-		if len(files) > 0 {
-			totals := score.Recount(files, rules)
-			r.Diff.ScoredAdditions = totals.Additions
-			r.Diff.ScoredDeletions = totals.Deletions
-			r.Diff.ExcludedFiles = totals.ExcludedFiles
-		}
-
-		// The same derivation completion uses, so a recompute cannot produce a
-		// different answer than the review would have. It also declines rows
-		// whose diff describes another revision, which is why this loop needs
-		// no guard of its own: forgetting one here is precisely how the two
-		// paths came apart before.
-		rec, ok := store.DeriveScore(rules, sc, r, time.Now())
-		if !ok {
-			skipped++
-			continue
-		}
-		if !dryRun {
-			// The same files back, unchanged: recompute re-applies policy to
-			// the stored evidence rather than taking new evidence, so the
-			// detail a later recompute needs must survive this write.
-			if err := s.SetReviewScoring(ctx, r.Ref(), r.Diff, files, rec); err != nil {
-				return err
-			}
-		}
-		was := r.Score
-		r.Score = rec
-		row := scoreRow(r)
-		row.Was = was.Score
-		row.DryRun = dryRun
-		row.Remeasured = len(files) > 0
-		if was.Score == nil || *was.Score != rec.Points() {
-			changed++
-		}
-		if err := emit(row); err != nil {
-			return err
-		}
+		tally.add(outcome)
 	}
 	// skipped is reported rather than swallowed: a row left alone because its
 	// diff describes another revision is a thing the operator should see, not
 	// a silent difference between the count asked for and the count written.
 	return emit(map[string]any{
-		"recomputed": len(rows) - skipped, "changed": changed, "skipped": skipped, "dry_run": dryRun,
+		"recomputed": len(rows) - tally.skipped, "changed": tally.changed, "skipped": tally.skipped, "dry_run": dryRun,
 	})
+}
+
+func recomputeRow(ctx context.Context, s store.Store, cfg config.Config, r store.Review, dryRun bool) (rescoreOutcome, error) {
+	sc, err := s.ScoreContext(ctx, r.Repo, r.Number, r.HeadSHA, r.ReviewedAt)
+	if err != nil {
+		return rescoreUnchanged, err
+	}
+	rules := cfg.ResolveScoring(r.Repo)
+	files, err := s.ReviewFiles(ctx, r.Ref())
+	if err != nil {
+		return rescoreUnchanged, err
+	}
+	r.Diff = recountStored(r.Diff, files, rules)
+
+	// The same derivation completion uses, so a recompute cannot produce a
+	// different answer than the review would have. It also declines rows
+	// whose diff describes another revision, which is why this path needs
+	// no guard of its own: forgetting one here is precisely how the two
+	// paths came apart before.
+	rec, ok := store.DeriveScore(rules, sc, r, time.Now())
+	if !ok {
+		return rescoreSkipped, nil
+	}
+	// The same files back, unchanged: recompute re-applies policy to the
+	// stored evidence rather than taking new evidence, so the detail a later
+	// recompute needs must survive this write.
+	return rescore(ctx, s, r, files, rec, dryRun, len(files) > 0)
+}
+
+// recountStored re-applies the exclusion policy to the measurement taken at
+// review time, offline. This is what makes a change to exclude_paths or
+// use_gitattributes a recompute rather than a re-fetch.
+//
+// A row with no stored measurement keeps the counts it already has, which is
+// right for an arithmetic tweak and WRONG for an exclusion change, and nothing
+// here can tell the two apart. So it is reported rather than assumed:
+// remeasured=false says "this row's counts are whatever they were", and
+// `score refetch` is the repair.
+func recountStored(diff store.DiffStats, files []score.FileStat, rules score.Rules) store.DiffStats {
+	if len(files) == 0 {
+		return diff
+	}
+	totals := score.Recount(files, rules)
+	diff.ScoredAdditions = totals.Additions
+	diff.ScoredDeletions = totals.Deletions
+	diff.ExcludedFiles = totals.ExcludedFiles
+	return diff
 }

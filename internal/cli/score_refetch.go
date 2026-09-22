@@ -36,7 +36,7 @@ func scoreRefetchCmd() *cobra.Command {
 			q := f.query(cfg)
 			q.IncludeManual = includeManual
 			q.Limit = limit
-			if !all && q.Repo == "" && q.Author == "" && q.Since.IsZero() && !q.Missing && len(q.StaleRules) == 0 {
+			if !all && !narrowed(q) {
 				return output.New(
 					"Refusing to refetch every review ever recorded without --all; narrow it with --repo, --author, --days, --missing or --stale first",
 					output.FixableByAgent)
@@ -66,75 +66,57 @@ func refetch(ctx context.Context, s store.Store, cfg config.Config, m discover.M
 	if err != nil {
 		return err
 	}
-	changed, skipped := 0, 0
+	var tally rescoreTally
 	for _, r := range rows {
-		// Resolved once and used for both halves: measuring under one policy
-		// and recording another's hash is how a row comes to look current
-		// under rules it was never measured with.
-		rules := cfg.ResolveScoring(r.Repo)
-		measurement, err := m.Measure(ctx, rules, r.Repo, r.Number)
-		if err != nil {
-			// One unreachable PR (deleted repo, revoked access, a rate limit)
-			// must not abandon the rest of the sweep.
-			if emitErr := emit(refetchSkip(r, "could not measure: "+err.Error())); emitErr != nil {
-				return emitErr
-			}
-			skipped++
-			continue
-		}
-		if measurement.Stats.DiffSHA != r.HeadSHA {
-			if emitErr := emit(refetchSkip(r, fmt.Sprintf(
-				"PR has moved to %s since it was reviewed at %s; its diff at that revision is no longer cheaply measurable",
-				shortSHA(measurement.Stats.DiffSHA), shortSHA(r.HeadSHA)))); emitErr != nil {
-				return emitErr
-			}
-			skipped++
-			continue
-		}
-
-		sc, err := s.ScoreContext(ctx, r.Repo, r.Number, r.HeadSHA, r.ReviewedAt)
+		outcome, err := refetchRow(ctx, s, cfg, m, r, dryRun)
 		if err != nil {
 			return err
 		}
-		was := r.Score
-		r.Diff = measurement.Stats
-		rec, ok := store.DeriveScore(rules, sc, r, time.Now())
-		if !ok {
-			if emitErr := emit(refetchSkip(r, "measured, but still not scorable")); emitErr != nil {
-				return emitErr
-			}
-			skipped++
-			continue
-		}
-		if !dryRun {
-			if err := s.SetReviewScoring(ctx, r.Ref(), r.Diff, measurement.Files, rec); err != nil {
-				return err
-			}
-		}
-		r.Score = rec
-		row := scoreRow(r)
-		row.Was = was.Score
-		row.DryRun = dryRun
-		row.Remeasured = true
-		if was.Score == nil || *was.Score != rec.Points() {
-			changed++
-		}
-		if err := emit(row); err != nil {
-			return err
-		}
+		tally.add(outcome)
 	}
 	return emit(map[string]any{
-		"refetched": len(rows) - skipped, "changed": changed, "skipped": skipped, "dry_run": dryRun,
+		"refetched": len(rows) - tally.skipped, "changed": tally.changed, "skipped": tally.skipped, "dry_run": dryRun,
 	})
+}
+
+// refetchRow re-measures and rescores one row. Only a store failure is an
+// error: one unreachable PR (deleted repo, revoked access, a rate limit) must
+// not abandon the rest of the sweep, so anything it cannot repair is reported
+// as a skip instead.
+func refetchRow(ctx context.Context, s store.Store, cfg config.Config, m discover.Measurer, r store.Review, dryRun bool) (rescoreOutcome, error) {
+	// Resolved once and used for both halves: measuring under one policy
+	// and recording another's hash is how a row comes to look current
+	// under rules it was never measured with.
+	rules := cfg.ResolveScoring(r.Repo)
+	measurement, err := m.Measure(ctx, rules, r.Repo, r.Number)
+	if err != nil {
+		return refetchSkip(r, "could not measure: "+err.Error())
+	}
+	if measurement.Stats.DiffSHA != r.HeadSHA {
+		return refetchSkip(r, fmt.Sprintf(
+			"PR has moved to %s since it was reviewed at %s; its diff at that revision is no longer cheaply measurable",
+			shortSHA(measurement.Stats.DiffSHA), shortSHA(r.HeadSHA)))
+	}
+
+	sc, err := s.ScoreContext(ctx, r.Repo, r.Number, r.HeadSHA, r.ReviewedAt)
+	if err != nil {
+		return rescoreUnchanged, err
+	}
+	r.Diff = measurement.Stats
+	rec, ok := store.DeriveScore(rules, sc, r, time.Now())
+	if !ok {
+		return refetchSkip(r, "measured, but still not scorable")
+	}
+	return rescore(ctx, s, r, measurement.Files, rec, dryRun, true)
 }
 
 // refetchSkip reports a row this sweep declined, and why. Skips are emitted
 // rather than counted silently: the reason is the whole value of the run for
 // a row that cannot be repaired.
-func refetchSkip(r store.Review, reason string) scoreRowOut {
+func refetchSkip(r store.Review, reason string) (rescoreOutcome, error) {
 	row := scoreRow(r)
 	row.Skipped = reason
-	return row
+	return rescoreSkipped, emit(row)
 }
 
 func shortSHA(sha string) string {

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/score"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -68,6 +69,57 @@ func (f *scoreFilters) query(cfg config.Config) store.ScoreQuery {
 		q.StaleRules = cfg.CurrentRuleHashes()
 	}
 	return q
+}
+
+// narrowed says a selection is smaller than all of history. recompute and
+// refetch both refuse an unnarrowed sweep without --all, because that is the
+// "everybody's points moved and nobody asked for it" case.
+func narrowed(q store.ScoreQuery) bool {
+	return q.Repo != "" || q.Author != "" || !q.Since.IsZero() || q.Missing || len(q.StaleRules) > 0
+}
+
+// rescoreOutcome is what a sweep did with one row, for its closing tally.
+type rescoreOutcome int
+
+const (
+	rescoreUnchanged rescoreOutcome = iota
+	rescoreChanged
+	rescoreSkipped
+)
+
+// rescoreTally counts a sweep's outcomes for its summary record.
+type rescoreTally struct{ changed, skipped int }
+
+func (t *rescoreTally) add(o rescoreOutcome) {
+	switch o {
+	case rescoreChanged:
+		t.changed++
+	case rescoreSkipped:
+		t.skipped++
+	}
+}
+
+// rescore records one re-derived score, unless this is a dry run, and reports
+// the row next to the score it replaces. The diff and files are written with
+// the score in one statement, so a row never carries counts its score was not
+// derived from.
+func rescore(ctx context.Context, s store.Store, r store.Review, files []score.FileStat, rec store.ScoreRecord, dryRun, remeasured bool) (rescoreOutcome, error) {
+	if !dryRun {
+		if err := s.SetReviewScoring(ctx, r.Ref(), r.Diff, files, rec); err != nil {
+			return rescoreUnchanged, err
+		}
+	}
+	was := r.Score
+	r.Score = rec
+	row := scoreRow(r)
+	row.Was = was.Score
+	row.DryRun = dryRun
+	row.Remeasured = remeasured
+	outcome := rescoreUnchanged
+	if was.Score == nil || *was.Score != rec.Points() {
+		outcome = rescoreChanged
+	}
+	return outcome, emit(row)
 }
 
 func scoreLsCmd() *cobra.Command {

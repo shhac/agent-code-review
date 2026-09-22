@@ -199,6 +199,25 @@ func TestRecomputeRefusesAnUnnarrowedSweep(t *testing.T) {
 	}
 }
 
+// Every filter the refusal message names must count as narrowing, or a sweep
+// the operator did narrow is refused anyway.
+func TestNarrowedAcceptsEachFilterAlone(t *testing.T) {
+	if narrowed(store.ScoreQuery{}) {
+		t.Error("an empty query selects all of history")
+	}
+	for name, q := range map[string]store.ScoreQuery{
+		"repo":    {Repo: "o/r"},
+		"author":  {Author: "alice"},
+		"days":    {Since: time.Now()},
+		"missing": {Missing: true},
+		"stale":   {StaleRules: map[string]string{"": "h"}},
+	} {
+		if !narrowed(q) {
+			t.Errorf("--%s alone should narrow the sweep", name)
+		}
+	}
+}
+
 // Changing the exclusion policy must be re-appliable from the stored
 // measurement, with no network: that is the whole reason the per-file detail
 // is kept.

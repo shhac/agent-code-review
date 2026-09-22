@@ -82,10 +82,6 @@ func (d *duckDB) EstimateCosts(ctx context.Context, rates map[string]CostRates) 
 }
 
 func (d *duckDB) countUnpriced(ctx context.Context) (int64, error) {
-	rows, err := d.query(ctx, `SELECT count(*) AS n FROM history
-	  WHERE `+unpricedRows)
-	if err != nil || len(rows) == 0 {
-		return 0, err
-	}
-	return int64(getInt(rows[0], "n")), nil
+	n, _, err := queryOne(ctx, d, "SELECT count(*) AS n FROM history WHERE "+unpricedRows, scanCount)
+	return int64(n), err
 }

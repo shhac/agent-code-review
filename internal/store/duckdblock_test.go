@@ -101,7 +101,7 @@ func TestQueryRidesOutABriefLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a lock that clears on the third attempt must not surface: %v", err)
 	}
-	if len(rows) != 1 || getInt(rows[0], "n") != 1 {
+	if len(rows) != 1 || (&row{values: rows[0]}).int("n") != 1 {
 		t.Errorf("rows = %#v, want the successful attempt's result", rows)
 	}
 	if got := calls(); got != 3 {

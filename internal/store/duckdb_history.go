@@ -178,18 +178,12 @@ func (d *duckDB) ListReviewsSince(ctx context.Context, since time.Time) ([]Revie
 }
 
 func (d *duckDB) FreshTokens(ctx context.Context, since time.Time) (int64, error) {
-	sql := "SELECT COALESCE(SUM(fresh_tokens), 0) AS total FROM history"
+	sql := "SELECT COALESCE(SUM(fresh_tokens), 0) AS n FROM history"
 	if !since.IsZero() {
 		sql += fmt.Sprintf(" WHERE reviewed_at >= %s", ts(since))
 	}
-	rows, err := d.query(ctx, sql)
-	if err != nil {
-		return 0, err
-	}
-	if len(rows) == 0 {
-		return 0, nil
-	}
-	return int64(getInt(rows[0], "total")), nil
+	total, _, err := queryOne(ctx, d, sql, scanCount)
+	return int64(total), err
 }
 
 // AppendHistory records an outcome WITHOUT touching the queue, which is the

@@ -306,18 +306,14 @@ func parseStoredTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("no known timestamp layout matched %q", s)
 }
 
-// getString reads one column off an ad-hoc single-value query (a count, a
-// DISTINCT list), where there is no struct to scan and no drift to detect.
+// getString reads one column off an ad-hoc single-value query (a DISTINCT
+// list), where there is no struct to scan and no drift to detect.
 func getString(r map[string]any, key string) string {
 	return (&row{values: r}).str(key)
 }
 
-// getInt is getString for the count queries.
-func getInt(r map[string]any, key string) int {
-	return (&row{values: r}).int(key)
-}
-
-// scanCount reads a single-column count(*) result.
+// scanCount reads a single-column integer aggregate aliased n: a count(*), or
+// a SUM such as FreshTokens.
 func scanCount(m map[string]any) (int, error) {
 	r := &row{values: m}
 	return r.int("n"), r.err

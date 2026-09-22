@@ -23,7 +23,7 @@ func TestParseNDJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0]["repo"] != "o/r" || getInt(rows[1], "number") != 8 {
+	if len(rows) != 2 || rows[0]["repo"] != "o/r" || (&row{values: rows[1]}).int("number") != 8 {
 		t.Errorf("rows = %#v", rows)
 	}
 	if _, err := parseNDJSON("not json\n"); err == nil {

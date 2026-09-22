@@ -46,36 +46,53 @@ function emphasis(s: string): string {
     .replace(/(?<![\w\\])_([^_\n]+)_(?![\w])/g, '<em>$1</em>');
 }
 
-// inline handles links, bold, italic and inline code on already-escaped text.
-//
-// Code spans come out first (behind a NUL sentinel that can't occur in escaped
-// text) so ** and digits inside them stay literal. Links come out second, for
-// the same reason in reverse: a target like /a_b_/ or /x*y* would otherwise be
-// rewritten by the emphasis pass and quietly point somewhere else.
-function inline(s: string): string {
-  const codes: string[] = [];
-  let out = s.replace(/`([^`]+)`/g, (_m, c) => {
-    codes.push(c);
-    return `\x00${codes.length - 1}\x00`;
-  });
+// A construct withdrawn from the text: the text with each occurrence replaced
+// by an indexed placeholder, and what each placeholder stands for. The
+// placeholders are control characters that cannot occur in escaped text, so
+// the passes that run while something is withdrawn cannot see inside it.
+type Withdrawn<T> = { text: string; held: T[] };
+type Link = { text: string; url: string };
 
-  const links: { text: string; url: string }[] = [];
-  out = out.replace(LINK_RE, (m, text: string, url: string) => {
+function withdrawCode(s: string): Withdrawn<string> {
+  const held: string[] = [];
+  const text = s.replace(/`([^`]+)`/g, (_m, code: string) => `\x00${held.push(code) - 1}\x00`);
+  return { text, held };
+}
+
+function withdrawLinks(s: string): Withdrawn<Link> {
+  const held: Link[] = [];
+  const text = s.replace(LINK_RE, (m, label: string, url: string) => {
     if (!LINK_SCHEMES.test(url)) return m; // not a link we will offer; leave the source as written
-    links.push({ text, url });
-    return `\x01${links.length - 1}\x01`;
+    return `\x01${held.push({ text: label, url }) - 1}\x01`;
   });
+  return { text, held };
+}
 
-  out = emphasis(out);
-
-  out = out.replace(/\x01(\d+)\x01/g, (_m, n) => {
+function restoreLinks(s: string, links: Link[]): string {
+  return s.replace(/\x01(\d+)\x01/g, (_m, n: string) => {
     const { text, url } = links[Number(n)];
     // url is already HTML-escaped (the whole source was), so it is safe in an
     // attribute; the span is inert by design, see the header note.
     return `<span class="mdlink" role="link" tabindex="0" data-url="${url}" title="${url}">${emphasis(text)}</span>`;
   });
+}
 
-  return out.replace(/\x00(\d+)\x00/g, (_m, n) => `<code>${codes[Number(n)]}</code>`);
+function restoreCode(s: string, codes: string[]): string {
+  return s.replace(/\x00(\d+)\x00/g, (_m, n: string) => `<code>${codes[Number(n)]}</code>`);
+}
+
+// inline handles links, bold, italic and inline code on already-escaped text.
+//
+// Code spans are withdrawn first so ** and digits inside them stay literal.
+// Links are withdrawn second, for the same reason in reverse: a target like
+// /a_b_/ or /x*y* would otherwise be rewritten by the emphasis pass and quietly
+// point somewhere else. They come back in reverse order, so code quoted in a
+// link's text is restored inside the restored link.
+function inline(s: string): string {
+  const code = withdrawCode(s);
+  const links = withdrawLinks(code.text);
+  const emphasised = emphasis(links.text);
+  return restoreCode(restoreLinks(emphasised, links.held), code.held);
 }
 
 type ListItem = { indent: number; ordered: boolean; html: string };
@@ -87,22 +104,19 @@ type ListItem = { indent: number; ordered: boolean; html: string };
 // item flattens to the current level rather than vanishing (the previous
 // equality-based grouping silently dropped such items).
 function buildList(items: ListItem[]): string {
+  // One cursor shared by every level of the recursion: a sublist consumes its
+  // items, and its parent resumes after them.
   let idx = 0;
   function level(minIndent: number): string {
-    const ordered = items[idx].ordered;
-    let html = ordered ? '<ol>' : '<ul>';
+    const tag = items[idx].ordered ? 'ol' : 'ul';
+    const entries: string[] = [];
     while (idx < items.length && items[idx].indent >= minIndent) {
-      const itemIndent = items[idx].indent;
-      let li = '<li>' + items[idx].html;
+      const item = items[idx];
       idx++;
-      if (idx < items.length && items[idx].indent > itemIndent) {
-        li += level(items[idx].indent);
-      }
-      li += '</li>';
-      html += li;
+      const sublist = idx < items.length && items[idx].indent > item.indent ? level(items[idx].indent) : '';
+      entries.push(`<li>${item.html}${sublist}</li>`);
     }
-    html += ordered ? '</ol>' : '</ul>';
-    return html;
+    return `<${tag}>${entries.join('')}</${tag}>`;
   }
   return level(Math.min(...items.map((it) => it.indent)));
 }

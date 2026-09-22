@@ -132,6 +132,16 @@ describe('links', () => {
   it('formats the link text but not the target', () => {
     expect(mdToHtml('[**bold** link](https://e.com)')).toContain('<strong>bold</strong> link</span>');
   });
+
+  // Code spans are withdrawn before links, so link syntax quoted as code stays
+  // code, and code quoted in a link's text is still code inside the link.
+  it('leaves link syntax inside a code span as code', () => {
+    expect(mdToHtml('`[x](https://e.com)`')).toBe('<p><code>[x](https://e.com)</code></p>');
+  });
+
+  it('keeps a code span inside link text', () => {
+    expect(mdToHtml('[run `make`](https://e.com)')).toContain('>run <code>make</code></span>');
+  });
 });
 
 describe('emphasis', () => {

@@ -47,9 +47,11 @@ type scoreFilters struct {
 func (f *scoreFilters) bind(cmd *cobra.Command) {
 	fs := cmd.Flags()
 	fs.StringVar(&f.repo, "repo", "", `Only this repo ("owner/name")`)
-	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
-	_ = cmd.RegisterFlagCompletionFunc("author", completeAuthorHandles)
 	fs.StringVar(&f.author, "author", "", "Only this GitHub handle")
+	// After the flags exist: registering a completion for a flag not yet
+	// defined fails, and with the error discarded --author had none at all.
+	_ = cmd.RegisterFlagCompletionFunc("repo", completeRepos)
+	_ = cmd.RegisterFlagCompletionFunc("author", completeAnyAuthorHandle)
 	fs.IntVar(&f.days, "days", 0, "Only reviews from the last N days (0 = all history)")
 	fs.BoolVar(&f.missing, "missing", false, "Only rows that were never scored (a fetch failed at the time)")
 	fs.BoolVar(&f.stale, "stale", false, "Only rows scored under a ruleset that has since changed")

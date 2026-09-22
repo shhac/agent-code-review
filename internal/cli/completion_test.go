@@ -2,8 +2,14 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"os"
+	"os/exec"
 	"reflect"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/shhac/agent-code-review/internal/config"
 )
@@ -50,6 +56,34 @@ func TestPromptAndRepoCompletions(t *testing.T) {
 	if got, _ := rm.ValidArgsFunction(rm, nil, ""); !reflect.DeepEqual(got, []string{"alpha/web", "z/repo"}) {
 		t.Errorf("repo completion = %v", got)
 	}
+}
+
+// Completion runs on every tab press, possibly while the daemon holds the
+// store, so it must never write. The score commands' --author completion used
+// to open read-WRITE: every tab press applied the schema (creating a database
+// on a machine that had none) and contended with the daemon for the lock.
+func TestScoreAuthorCompletionNeverWritesTheStore(t *testing.T) {
+	if _, err := exec.LookPath("duckdb"); err != nil {
+		t.Skip("duckdb CLI not on PATH")
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	for _, cmd := range []*cobra.Command{scoreLsCmd(), scoreRecomputeCmd(), scoreRefetchCmd()} {
+		complete, ok := cmd.GetFlagCompletionFunc("author")
+		if !ok {
+			t.Fatalf("%s --author has no completion", cmd.Name())
+		}
+		cmd.SetContext(context.Background())
+		complete(cmd, nil, "")
+	}
+	if path := (config.Config{}).StorePath(); fileExists(path) {
+		t.Errorf("author completion created the store at %s", path)
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !errors.Is(err, fs.ErrNotExist)
 }
 
 func TestParseCodexModels(t *testing.T) {

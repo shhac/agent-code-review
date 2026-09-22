@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -104,33 +103,8 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engi
 		resumeSession = review.SessionFromLog(c.WorkDir)
 	}
 
-	// The workdir exists before the claim so the claim can record it: from
-	// that moment <work_dir>/agent.log is the candidate's live review log.
-	//
-	// Under the app's STATE dir rather than the system temp dir. MkdirTemp("")
-	// put these where macOS sweeps them, so the transcript a history row
-	// points at was usually gone by the time anyone looked: the log is the
-	// only record of what the agent actually did, and it was being kept
-	// somewhere designed to lose it.
-	base := cfg.ReviewWorkspaceDir()
-	if err := os.MkdirAll(base, 0o700); err != nil {
-		return err
-	}
-	workDir, err := os.MkdirTemp(base, fmt.Sprintf("%d-", c.Number))
+	workDir, claimedAt, claimed, err := s.claimWorkspace(ctx, cfg, c)
 	if err != nil {
-		return err
-	}
-	c.WorkDir = workDir
-	claimedAt := time.Now()
-	claimed, err := s.store.Claim(ctx, c.Repo, c.Number, store.Lease{
-		At: claimedAt, WorkDir: workDir, Host: hostname(), PID: os.Getpid(), StaleAfter: cfg.LeaseWindow(),
-	})
-	if err != nil {
-		// The directory only earns its keep once a claim records it: nothing
-		// points at this one, so nothing would ever read or remove it. The
-		// lost-the-claim path below cleans up for the same reason; this one
-		// used to return straight past it and leak a directory per failure.
-		_ = os.Remove(workDir)
 		return err
 	}
 	// Lost the compare-and-swap: another worker (possibly another daemon
@@ -138,9 +112,9 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engi
 	// now. Their review proceeds; nothing to record here.
 	if !claimed {
 		s.logf("review %s#%d: claimed by another worker, skipping", c.Repo, c.Number)
-		_ = os.Remove(workDir)
 		return nil
 	}
+	c.WorkDir = workDir
 	skipped, err := s.skipIfStale(ctx, cfg, c, claimedAt)
 	if err != nil {
 		// Release the claim rather than let it age out. The recheck is one gh

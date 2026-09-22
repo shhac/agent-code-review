@@ -280,25 +280,6 @@ func TestInitAndReadWrite(t *testing.T) {
 	}
 }
 
-// The engine getters are the single place that answers "which engine's dials
-// apply"; before them, doctor and the dashboard each branched on Engine() and
-// reached into Review.Codex/Review.Claude themselves.
-func TestEngineDialsFollowConfiguredEngine(t *testing.T) {
-	cfg := Config{Review: ReviewSettings{
-		Codex:  CodexSettings{EngineCommon: EngineCommon{Bin: "codex-dev", Model: "gpt-5.6", Effort: "high"}},
-		Claude: ClaudeSettings{EngineCommon: EngineCommon{Bin: "claude-dev", Model: "claude-opus-5", Effort: "medium"}},
-	}}
-
-	// Unset engine resolves to codex, matching Engine()'s own default.
-	if got := [3]string{cfg.EngineBin(), cfg.EngineModel(), cfg.EngineEffort()}; got != [3]string{"codex-dev", "gpt-5.6", "high"} {
-		t.Errorf("unset engine dials = %v, want codex's", got)
-	}
-	cfg.Review.Engine = "claude"
-	if got := [3]string{cfg.EngineBin(), cfg.EngineModel(), cfg.EngineEffort()}; got != [3]string{"claude-dev", "claude-opus-5", "medium"} {
-		t.Errorf("claude engine dials = %v, want claude's", got)
-	}
-}
-
 // Concurrent Updates must not lose each other's edits.
 //
 // Update used to be Read -> mutate -> Write with nothing serializing it, so two
@@ -382,14 +363,8 @@ func TestEngineCommonIsTheOnlyEngineSwitch(t *testing.T) {
 		Claude: ClaudeSettings{EngineCommon: EngineCommon{Bin: "claude-dev", Model: "opus", Effort: "high"}},
 	}}
 	// Every "which engine's dial" question routes through the one selector.
-	if got := c.EngineBin(); got != "claude-dev" {
-		t.Errorf("EngineBin = %q, want the selected engine's", got)
-	}
-	if got := c.EngineModel(); got != "opus" {
-		t.Errorf("EngineModel = %q", got)
-	}
-	if got := c.EngineEffort(); got != "high" {
-		t.Errorf("EngineEffort = %q", got)
+	if got := c.Review.EngineCommon(c.Engine()); got.Bin != "claude-dev" || got.Model != "opus" || got.Effort != "high" {
+		t.Errorf("EngineCommon(selected) = %+v, want the selected engine's block", *got)
 	}
 	if got := c.BinFor("codex"); got != "codex-dev" {
 		t.Errorf("BinFor names an engine regardless of selection, got %q", got)

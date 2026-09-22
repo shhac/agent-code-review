@@ -498,8 +498,10 @@ func TestReviewOnePrecheck(t *testing.T) {
 func TestReviewOneCleansUpWhenClaimErrors(t *testing.T) {
 	// Compared against a before-snapshot, because a successful review
 	// deliberately leaves its workdir behind for postmortem log access, so
-	// every other test in this package leaves some too.
-	pattern := filepath.Join(os.TempDir(), "agent-code-review-5-*")
+	// every other test in this package leaves some too. The pattern follows
+	// the workspaces to the state dir: it still named the system temp dir
+	// after they moved, so it matched nothing and could not fail.
+	pattern := filepath.Join(config.Config{}.ReviewWorkspaceDir(), "5-*")
 	before, _ := filepath.Glob(pattern)
 	existing := make(map[string]bool, len(before))
 	for _, dir := range before {

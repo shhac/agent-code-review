@@ -73,6 +73,7 @@ internal/
     ├── scorepreview.go         # /api/score/preview: prices a hypothetical PR through score.Compute
     ├── scoresim.go             # /api/score/simulate: surveys a whole candidate scoring policy
     ├── ui/                     # Svelte + Vite source (npm; not embedded)
+    │   └── src/styles/*.css    # global CSS partials; app.css's @import order IS the cascade
     └── assets/                 # BUILT bundle, committed + go:embed'd
 ```
 

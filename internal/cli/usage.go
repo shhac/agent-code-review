@@ -36,8 +36,9 @@ func registerUsage(root *cobra.Command) {
 		Use:   "usage",
 		Short: "Print concise documentation (LLM-optimized)",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(usageText))
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(usageText))
+			return err
 		},
 	})
 }
@@ -49,8 +50,9 @@ func registerGroupUsage(parent *cobra.Command, verb, text string) {
 		Use:   "usage",
 		Short: "Print " + verb + " command documentation (LLM-optimized)",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(text))
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(text))
+			return err
 		},
 	})
 }

@@ -24,7 +24,9 @@ func TestEveryUsageCardPrints(t *testing.T) {
 			}
 			var buf bytes.Buffer
 			child.SetOut(&buf)
-			child.Run(child, nil)
+			if err := child.RunE(child, nil); err != nil {
+				t.Errorf("%s: %v", child.CommandPath(), err)
+			}
 			group := strings.TrimSpace(strings.TrimPrefix(c.CommandPath(), root.Name()))
 			if strings.TrimSpace(buf.String()) == "" {
 				t.Errorf("%q usage printed nothing", group)

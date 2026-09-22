@@ -95,6 +95,32 @@ func seedPrices(t *testing.T) *pricing.Cache {
 	return pricing.Open(dir)
 }
 
+// The success path is the one every real review takes, and it must land on the
+// same figure the backfill SQL would compute for the row later, or a review's
+// cost depends on whether the table was reachable when it finished.
+func TestEstimatorPricesAListedModel(t *testing.T) {
+	prices := seedPrices(t)
+	usage := review.TokenUsage{Input: 1000, Output: 200, CacheWrite: 50000, CacheRead: 900000}
+
+	got, ok := estimator(prices)("listed-model", usage)
+	if !ok {
+		t.Fatal("a listed model with an input/output split must be estimated")
+	}
+	// By hand from seedPrices' table: 1000 x 2e-6 + 200 x 1e-5 +
+	// 50000 x 4e-6 + 900000 x 2e-7 = 0.002 + 0.002 + 0.2 + 0.18.
+	if want := 0.384; math.Abs(got-want) > 1e-12 {
+		t.Errorf("estimate = %v, want %v", got, want)
+	}
+
+	rates, _ := prices.Lookup("listed-model")
+	cr := costRates(rates)
+	backfilled := float64(usage.Input)*cr.Input + float64(usage.Output)*cr.Output +
+		float64(usage.CacheWrite)*cr.CacheWrite + float64(usage.CacheRead)*cr.CacheRead
+	if math.Abs(got-backfilled) > 1e-12 {
+		t.Errorf("estimate = %v, backfill = %v: completion and backfill must agree", got, backfilled)
+	}
+}
+
 // TestBackfillEstimates covers the valuation orchestration, which was at 0%
 // under both suites. It fails silently in the direction nobody would notice:
 // spend simply reads as $0 on the dashboard forever, which looks like a cheap

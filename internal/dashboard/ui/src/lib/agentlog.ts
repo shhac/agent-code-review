@@ -35,7 +35,7 @@ export const agentKinds = ['codex', 'claude'] as const;
 export type AgentKind = (typeof agentKinds)[number];
 
 export function isAgentKind(kind: string): kind is AgentKind {
-  return (agentKinds as readonly string[]).includes(kind);
+  return agentKinds.some((k) => k === kind);
 }
 
 export type LogEvent =
@@ -47,7 +47,20 @@ export type LogEvent =
   | { kind: 'tokens'; body: string }
   | ExecEvent;
 
-const markers = new Set(['user', 'thinking', ...agentKinds, 'exec', 'error', 'tokens used']);
+// The section a transcript is in: 'meta' until the first marker.
+type Section = 'meta' | 'user' | 'thinking' | AgentKind | 'exec' | 'error' | 'tokens';
+
+// Each marker line and the section it opens. One lookup both recognises a
+// marker and names its section; only the tokens trailer is spelled
+// differently from its kind.
+const markerKind = new Map<string, Exclude<Section, 'meta'>>([
+  ['user', 'user'],
+  ['thinking', 'thinking'],
+  ...agentKinds.map((k) => [k, k] as const),
+  ['exec', 'exec'],
+  ['error', 'error'],
+  ['tokens used', 'tokens'],
+]);
 const execResult = /^ (succeeded|exited|failed)\b.*?(?: in ([^\s:]+))?:?\s*$/;
 
 // parseAgentLog splits the raw stream into events, or returns null when the
@@ -55,12 +68,12 @@ const execResult = /^ (succeeded|exited|failed)\b.*?(?: in ([^\s:]+))?:?\s*$/;
 // can fall back to the raw view.
 export function parseAgentLog(raw: string): LogEvent[] | null {
   const lines = raw.split('\n');
-  if (!lines.some((l) => markers.has(l))) return null;
+  if (!lines.some((l) => markerKind.has(l))) return null;
 
   const events: LogEvent[] = [];
   // Prose blocks accumulate into `body`; exec blocks are event objects
   // mutated in place so interleaved results can attach to earlier commands.
-  let kind: 'meta' | 'user' | 'thinking' | AgentKind | 'exec' | 'error' | 'tokens' = 'meta';
+  let kind: Section = 'meta';
   let body: string[] = [];
   const pending: ExecEvent[] = []; // exec events awaiting a result line
   // Where a non-marker line lands while in an exec section: the one cursor.
@@ -75,10 +88,11 @@ export function parseAgentLog(raw: string): LogEvent[] | null {
   };
 
   for (const line of lines) {
-    if (markers.has(line)) {
+    const opens = markerKind.get(line);
+    if (opens) {
       if (kind !== 'exec') flushProse();
       sink = null;
-      kind = line === 'tokens used' ? 'tokens' : (line as 'user' | 'thinking' | AgentKind | 'exec' | 'error');
+      kind = opens;
       if (kind === 'exec') {
         const ev: ExecEvent = { kind: 'exec', command: '', output: '' };
         events.push(ev);

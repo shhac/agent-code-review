@@ -35,36 +35,36 @@ async function errorFrom(res: Response): Promise<Error> {
   }
 }
 
-export async function fetchJSON<T = any>(path: string): Promise<T> {
+export async function fetchJSON<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw await errorFrom(res);
-  return (await res.json()) as T;
+  return res.json();
 }
 
 // send is the one write-path frame: JSON body out, {error} envelope on
-// failure. post/del are thin partial applications.
-async function send(method: 'POST' | 'DELETE', path: string, body: unknown) {
+// failure. post/del are thin partial applications that discard the response.
+async function send(method: 'POST' | 'DELETE', path: string, body: unknown): Promise<Response> {
   const res = await fetch(path, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw await errorFrom(res);
+  return res;
 }
 
-export const post = (path: string, body: unknown) => send('POST', path, body);
+export const post = async (path: string, body: unknown): Promise<void> => {
+  await send('POST', path, body);
+};
 
 // postJSON is send for the few writes whose RESPONSE matters.
 export async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw await errorFrom(res);
-  return (await res.json()) as T;
+  const res = await send('POST', path, body);
+  return res.json();
 }
-export const del = (path: string, body: unknown) => send('DELETE', path, body);
+export const del = async (path: string, body: unknown): Promise<void> => {
+  await send('DELETE', path, body);
+};
 
 type PRRef = { repo: string; number: number };
 

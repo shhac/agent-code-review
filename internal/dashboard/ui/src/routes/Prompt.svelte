@@ -29,7 +29,7 @@
   let candidateType = 'new';
   let repo = EXAMPLE_REPO;
 
-  $: outcomes = Object.entries(promptData?.outcomes || {}).filter(([, v]) => v);
+  $: outcomes = Object.entries<string>(promptData?.outcomes || {}).filter(([, v]) => v);
   $: repoOptions = [EXAMPLE_REPO, ...(promptData?.repos || [])];
   $: groupOptions = promptData?.groups || [];
   // Flatten a rule's condition into [key, value] pill pairs.
@@ -90,7 +90,7 @@
       <div class="section-head"><h2>Post-outcome instructions</h2><span>what the agent does after landing on each outcome</span></div>
       {#if outcomes.length}
         {#each outcomes as [k, v]}
-          <div class="prompt-block"><h3>{k}</h3><PromptBox text={v as string} /></div>
+          <div class="prompt-block"><h3>{k}</h3><PromptBox text={v} /></div>
         {/each}
       {:else}
         <div class="empty">None configured.</div>

@@ -31,17 +31,22 @@
     copied = false;
   }
 
+  function mdlinkOf(e: Event): HTMLElement | null {
+    return e.target instanceof Element ? e.target.closest<HTMLElement>('.mdlink') : null;
+  }
+
   function onClick(e: MouseEvent) {
-    const el = (e.target as HTMLElement | null)?.closest?.('.mdlink');
-    if (el) reveal(el as HTMLElement);
+    const el = mdlinkOf(e);
+    if (!el) return;
+    reveal(el);
   }
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
-    const el = (e.target as HTMLElement | null)?.closest?.('.mdlink');
+    const el = mdlinkOf(e);
     if (!el) return;
     e.preventDefault();
-    reveal(el as HTMLElement);
+    reveal(el);
   }
 
   async function copy() {

@@ -25,6 +25,13 @@ describe('a draft says what it changed', () => {
     expect(changedFrom({ ...live, size_falloff: 4 }, live)).toEqual(['size_falloff']);
     expect(changedFrom({ ...live, piece_lines: 80, size_points: 50 }, live).sort()).toEqual(['piece_lines', 'size_points']);
   });
+
+  // changedFrom walks a fixed list of dials rather than the object's keys, so
+  // a dial missing from that list would never be reported as moved.
+  it('can name every dial', () => {
+    const moved = { piece_lines: 1, size_points: 1, size_falloff: 1, removal_points_per_100: 1 } satisfies Policy;
+    expect(changedFrom(moved, live).sort()).toEqual(Object.keys(live).sort());
+  });
 });
 
 describe('the reward curve is drawn on a log axis', () => {

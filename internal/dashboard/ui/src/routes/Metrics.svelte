@@ -24,7 +24,7 @@
   let range = '30d';
   let model = '';
   let effort = '';
-  let colour = 'verdict';
+  let colour: 'verdict' | 'model' = 'verdict';
   let data: MetricsResponse | null = null;
   let tip: { point: ScatterPoint; cls: string; style: string } | null = null;
 
@@ -81,7 +81,7 @@
     <section class="surface metric-panel scatter-panel"><div class="section-head"><div><h2>Duration vs. tokens</h2><span>Each point is one completed review. Tokens exclude cached re-reads, so engines compare.</span></div><label class="colour-control">Colour by <select bind:value={colour}><option value="verdict">verdict</option><option value="model">model</option></select></label></div><div class="scatter" aria-label="Duration versus tokens scatter plot">
       {#each xTicks as t}<span class="grid v" style={`left:${t.pct}%`}></span><span class="tick x" style={`left:${t.pct}%`}>{durSecs(t.value)}</span>{/each}
       {#each yTicks as t}<span class="grid h" style={`bottom:${t.pct}%`}></span><span class="tick y" style={`bottom:${t.pct}%`}>{tokens(t.value)}</span>{/each}
-      {#each data.scatter as point}{@const pointClass = scatterClass(point, colour as 'verdict' | 'model', slots)}{@const pos = scatterPos(point, scatterDuration, scatterTokens)}<i class={pointClass} style={`left:${pos.x}%; bottom:${pos.y}%`} role="img" aria-label={`${modelLabel(point.model)} / ${point.effort || 'model default'} · ${statusLabel(point.verdict)} · ${tokens(point.fresh_tokens) || 'unknown'} tokens · ${durSecs(point.duration_secs) || 'unknown duration'}`} on:mouseenter={() => (tip = { point, cls: pointClass, style: scatterTipStyle(pos.x, pos.y) })} on:mouseleave={() => (tip = null)}></i>{/each}
+      {#each data.scatter as point}{@const pointClass = scatterClass(point, colour, slots)}{@const pos = scatterPos(point, scatterDuration, scatterTokens)}<i class={pointClass} style={`left:${pos.x}%; bottom:${pos.y}%`} role="img" aria-label={`${modelLabel(point.model)} / ${point.effort || 'model default'} · ${statusLabel(point.verdict)} · ${tokens(point.fresh_tokens) || 'unknown'} tokens · ${durSecs(point.duration_secs) || 'unknown duration'}`} on:mouseenter={() => (tip = { point, cls: pointClass, style: scatterTipStyle(pos.x, pos.y) })} on:mouseleave={() => (tip = null)}></i>{/each}
       {#if tip}<div class="scatter-tip" style={tip.style}><p class="tip-head"><i class={tip.cls}></i>{modelLabel(tip.point.model)} · {tip.point.effort || 'model default'}</p><p class="tip-vals"><b>{tokens(tip.point.fresh_tokens) || '?'}</b> tokens · <b>{durSecs(tip.point.duration_secs) || '?'}</b> · {statusLabel(tip.point.verdict)}</p></div>{/if}
       <span class="axis x">duration →</span><span class="axis y">tokens →</span>
     </div>

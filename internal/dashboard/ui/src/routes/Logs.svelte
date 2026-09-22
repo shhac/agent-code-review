@@ -3,9 +3,10 @@
   import { withFeed } from '../lib/feed';
   import { when } from '../lib/format';
   import { poll } from '../lib/poll';
+  import type { LogEntry } from '../lib/types';
 
   let logsAvailable = true;
-  let logEntries: any[] = [];
+  let logEntries: LogEntry[] = [];
   let logPane: HTMLElement;
 
   async function refresh() {

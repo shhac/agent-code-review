@@ -80,7 +80,7 @@
       // ghost would be a screenshot of the tiny glyph. Point it at the whole
       // row instead: a semi-transparent copy of the ticket follows the
       // cursor while the in-list row becomes the placeholder slot.
-      const row = (e.target as HTMLElement).closest('article');
+      const row = e.target instanceof Element ? e.target.closest('article') : null;
       if (row) {
         const r = row.getBoundingClientRect();
         e.dataTransfer.setDragImage(row, e.clientX - r.left, e.clientY - r.top);

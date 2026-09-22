@@ -19,6 +19,10 @@ export type Policy = {
   removal_points_per_100: number;
 };
 
+// Every dial, in the order a panel names them. The test beside changedFrom
+// fails if one is added to Policy and not here.
+const DIALS = ['piece_lines', 'size_points', 'size_falloff', 'removal_points_per_100'] as const satisfies readonly (keyof Policy)[];
+
 // A single-hue luminance ramp in the dashboard's own green: brighter is worth
 // more. Negative scores take the warning ink instead, because "less green" and
 // "below zero" are different facts and must not look alike.
@@ -94,7 +98,7 @@ export function probeTrend(probes: ScoreSimulation['probes']): string {
 // changedFrom names the dials this policy moves, so a panel can say whether it
 // is showing the daemon's policy or a draft.
 export function changedFrom(draft: Policy, live: Policy): string[] {
-  return (Object.keys(draft) as (keyof Policy)[]).filter((k) => draft[k] !== live[k]);
+  return DIALS.filter((k) => draft[k] !== live[k]);
 }
 
 // The plot box, in the units of an SVG viewBox.

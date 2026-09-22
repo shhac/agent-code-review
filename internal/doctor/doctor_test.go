@@ -39,7 +39,7 @@ func TestBinaryCheckOnMissingBinary(t *testing.T) {
 }
 
 // fakeClaude writes a stand-in binary that echoes canned `auth status --json`
-// output, mirroring fakeCodex in internal/usage. exit lets a case simulate the
+// output. exit lets a case simulate the
 // CLI failing outright rather than reporting a logged-out state.
 func fakeClaude(t *testing.T, body string, exit int) string {
 	t.Helper()

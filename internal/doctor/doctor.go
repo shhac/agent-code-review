@@ -21,7 +21,6 @@ import (
 	"github.com/shhac/agent-code-review/internal/pricing"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
-	"github.com/shhac/agent-code-review/internal/usage"
 )
 
 // probeTimeout bounds each external command. Generous enough for a cold
@@ -265,10 +264,10 @@ func claudeAuthCheck(ctx context.Context, bin string) Check {
 	if _, err := exec.LookPath(bin); err != nil {
 		return Check{Name: "engine:claude-auth", Blocking: true, Detail: fmt.Sprintf("%q not on PATH", bin), Hint: hint}
 	}
-	status, err := usage.ReadClaudeAuthStatus(ctx, bin)
+	status, err := readClaudeAuthStatus(ctx, bin)
 	if err != nil {
 		detail := "auth status failed"
-		if errors.Is(err, usage.ErrClaudeAuthUnreadable) {
+		if errors.Is(err, errClaudeAuthUnreadable) {
 			detail = "auth status was not readable JSON"
 		}
 		return Check{Name: "engine:claude-auth", Blocking: true, Detail: detail, Hint: hint}

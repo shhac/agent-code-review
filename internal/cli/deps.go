@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -28,28 +29,76 @@ import (
 // output.SetColorMode), so routing through EmitItem picks it up too.
 var globals *libcli.Globals
 
+// stdout is where records go; a variable so tests can read what a command
+// printed.
+var stdout io.Writer = os.Stdout
+
+func format() string {
+	if globals == nil {
+		return ""
+	}
+	return globals.Format
+}
+
 // emit writes one record to stdout through the family output contract:
-// NDJSON by default, -f json|yaml envelopes, --color-aware. Only the yaml
-// path JSON-round-trips the value first, so its encoder uses the json-tag
-// key names (yaml.v3 marshals Go structs by field name otherwise); the
-// NDJSON/json paths marshal with the tags anyway and skip the extra encode.
+// NDJSON by default, -f json|yaml as the bare object, --color-aware.
 func emit(v any) error {
-	format := ""
-	if globals != nil {
-		format = globals.Format
+	v, err := yamlReady(output.Format(format()), v)
+	if err != nil {
+		return err
 	}
-	if output.Format(format) == output.FormatYAML {
-		b, err := json.Marshal(v)
-		if err != nil {
+	return libcli.EmitItem(stdout, format(), v)
+}
+
+// emitList writes a list through the family list contract: NDJSON is one
+// record per line, then one line per @-prefixed meta key; -f json|yaml is ONE
+// document, {"data": [...], <meta keys>}. Emitting each item as a record of
+// its own printed N concatenated documents under -f json, which no JSON
+// parser reads as one, and N unseparated mappings under yaml. record maps an
+// item (with its index) to the emitted shape; nil emits items as-is.
+func emitList[T any](items []T, record func(int, T) any, meta map[string]any) error {
+	f, err := output.ResolveFormat(format(), output.FormatNDJSON)
+	if err != nil {
+		return err
+	}
+	// Never nil, so an empty list still renders as "data": [] rather than null.
+	records := make([]any, 0, len(items))
+	for i, item := range items {
+		v := any(item)
+		if record != nil {
+			v = record(i, item)
+		}
+		if v, err = yamlReady(f, v); err != nil {
 			return err
 		}
-		var normalized any
-		if err := json.Unmarshal(b, &normalized); err != nil {
+		records = append(records, v)
+	}
+	trailer := make(map[string]any, len(meta))
+	for k, v := range meta {
+		if trailer[k], err = yamlReady(f, v); err != nil {
 			return err
 		}
-		v = normalized
 	}
-	return libcli.EmitItem(os.Stdout, format, v)
+	return output.WriteList(stdout, f, records, trailer, nil)
+}
+
+// yamlReady JSON-round-trips a value bound for the yaml encoder, so it uses
+// the json-tag key names (yaml.v3 marshals Go structs by field name
+// otherwise). The NDJSON/json paths marshal with the tags anyway and skip
+// the extra encode.
+func yamlReady(f output.Format, v any) (any, error) {
+	if f != output.FormatYAML {
+		return v, nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var normalized any
+	if err := json.Unmarshal(b, &normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
 }
 
 // logLine is one daemon log record. The timestamp is the point: a log full of
@@ -98,20 +147,10 @@ type logSinks struct {
 	warnf func(string, ...any)
 }
 
-// emitEach emits one record per item, stopping at the first write error:
-// the shared frame behind every ls-style command. record maps an item (with
-// its index) to the emitted shape; nil emits items as-is.
+// emitEach is emitList with no metadata: the shared frame behind every
+// ls-style command.
 func emitEach[T any](items []T, record func(int, T) any) error {
-	for i, item := range items {
-		v := any(item)
-		if record != nil {
-			v = record(i, item)
-		}
-		if err := emit(v); err != nil {
-			return err
-		}
-	}
-	return nil
+	return emitList(items, record, nil)
 }
 
 // filterFold removes every element whose name matches target

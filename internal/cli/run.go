@@ -22,7 +22,7 @@ func registerRun(root *cobra.Command) {
 		Long: "Perform one discovery sweep, review everything the queue makes ready,\n" +
 			"and exit. Intended for external schedulers (launchd/cron) or manual\n" +
 			"kicks. Progress logs to stderr; the outcomes recorded along the way are\n" +
-			"emitted as NDJSON records on stdout, followed by a summary record.\n\n" +
+			"emitted as NDJSON records on stdout, followed by an @summary line.\n\n" +
 			"There is no global run-lock: running this against a live daemon is safe\n" +
 			"(each PR is claimed by exactly one reviewer, store-wide) but the two do\n" +
 			"compete for the queue, and stdout may then carry the daemon's outcomes\n" +
@@ -63,10 +63,7 @@ func registerRun(root *cobra.Command) {
 			if err != nil {
 				return err
 			}
-			if err := emitEach(outcomes, nil); err != nil {
-				return err
-			}
-			return emit(runSummary(outcomes, time.Since(started)))
+			return emitRun(outcomes, time.Since(started))
 		},
 	}
 	// --once is accepted for CLI-surface stability but is a no-op: run always
@@ -90,7 +87,20 @@ func runUsageFn(ctx context.Context, cfg config.Config, ignoreFloor bool) schedu
 	return usage.NewCache().Lazy(fetchUsage(ctx, cfg))
 }
 
-// runSummary is the trailing record `run` prints after the outcome rows: how
+// runSummaryKey carries the summary as list metadata rather than as one more
+// record. As a bare trailing record it was indistinguishable from an outcome
+// to anything reading records, and under -f json it could not sit in the
+// data array without mixing two shapes there.
+const runSummaryKey = "@summary"
+
+// emitRun prints the outcomes as a list with the summary riding as metadata:
+// a trailing {"@summary": ...} line in NDJSON, a sibling of "data" in the
+// json/yaml envelope.
+func emitRun(outcomes []store.Review, elapsed time.Duration) error {
+	return emitList(outcomes, nil, map[string]any{runSummaryKey: runSummary(outcomes, elapsed)})
+}
+
+// runSummary is the trailing metadata `run` prints after the outcome rows: how
 // long the drain took and what it produced, bucketed by verdict. Pure, so the
 // shape stdout promises is testable without a store or a scheduler, matching
 // the rest of the repo's extract-the-core convention.

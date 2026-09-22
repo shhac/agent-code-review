@@ -20,7 +20,7 @@ COMMANDS:
                                                      Per-loop overrides for this boot; config
                                                      (discovery.enabled/schedule.enabled) sets defaults
   run  [--once] [--ignore-usage-floor]               Discover, drain the queue, then exit
-                                                     (stdout: outcome records + a summary;
+                                                     (stdout: outcome records + an @summary line;
                                                      stderr: progress logs)
 
   queue ls [--repo R]                                List pending candidates (NDJSON)

@@ -69,12 +69,17 @@ func (p ghPR) AlreadyReviewedBy(login, head string) bool {
 		return false
 	}
 	for _, r := range p.Reviews {
-		if r.Author.Login == login && r.Commit.OID == head {
+		if sameLogin(r.Author.Login, login) && r.Commit.OID == head {
 			return true
 		}
 	}
 	return false
 }
+
+// sameLogin compares GitHub logins the way GitHub does: case-insensitively.
+// Our own login can come from the hand-typed gh_user override, so "Review-Bot"
+// against GitHub's "review-bot" must still be recognised as us.
+func sameLogin(a, b string) bool { return strings.EqualFold(a, b) }
 
 // prListFields is the JSON field set requested from `gh pr list`.
 const prListFields = "number,title,author,headRefOid,createdAt,updatedAt,isDraft,url,reviewRequests,reviews,reviewDecision,additions,deletions,changedFiles"
@@ -300,7 +305,7 @@ func latestHumanActivity(resp ghActivityResp, selfLogin string) time.Time {
 	var latest time.Time
 	consider := func(nodes []ghActivityNode) {
 		for _, n := range nodes {
-			if n.Author.Typename != "User" || n.Author.Login == selfLogin {
+			if n.Author.Typename != "User" || sameLogin(n.Author.Login, selfLogin) {
 				continue
 			}
 			if n.CreatedAt.After(latest) {

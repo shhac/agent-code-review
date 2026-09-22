@@ -141,3 +141,28 @@ func TestStillCandidateSkipsWhatWeAlreadyReviewedAtThisHead(t *testing.T) {
 		t.Error("no login means the guard cannot apply, not that everything is already reviewed")
 	}
 }
+
+// GitHub logins are case-insensitive and gh_user is a hand-typed override, so
+// "Review-Bot" configured against GitHub's "review-bot" is the same account. A
+// case-sensitive match let a re-claim miss its own posted review and review
+// (and post) again.
+func TestAlreadyReviewedByIgnoresLoginCase(t *testing.T) {
+	cases := []struct {
+		name, ours, theirs string
+		want               bool
+	}{
+		{"same case", "review-bot", "review-bot", true},
+		{"configured with capitals", "Review-Bot", "review-bot", true},
+		{"GitHub reports capitals", "review-bot", "REVIEW-BOT", true},
+		{"a different account", "review-bot", "review-bot2", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pr := ghPR{Reviews: []ghReview{{State: "COMMENTED", Author: ghActor{Login: tc.theirs}}}}
+			pr.Reviews[0].Commit.OID = "headsha"
+			if got := pr.AlreadyReviewedBy(tc.ours, "headsha"); got != tc.want {
+				t.Errorf("AlreadyReviewedBy(%q) over a review by %q = %v, want %v", tc.ours, tc.theirs, got, tc.want)
+			}
+		})
+	}
+}

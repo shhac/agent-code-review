@@ -703,6 +703,20 @@ func TestLatestHumanActivity(t *testing.T) {
 	}
 }
 
+// Our own review is ours whatever case the configured gh_user was typed in;
+// counting it as human activity would re-queue a Discussion review of a PR
+// for nothing but our own post.
+func TestLatestHumanActivityExcludesUsInAnyCase(t *testing.T) {
+	base := fixedNow()
+	var resp ghActivityResp
+	resp.Data.Repository.PullRequest.Reviews.Nodes = []ghActivityNode{
+		{CreatedAt: base.Add(-time.Minute), Author: ghGraphQLActor{Login: "review-bot", Typename: "User"}},
+	}
+	if got := latestHumanActivity(resp, "Review-Bot"); !got.IsZero() {
+		t.Errorf("latestHumanActivity = %v, want our own review excluded despite the casing", got)
+	}
+}
+
 // TestLatestHumanActivityEmpty: nobody has said anything, which must read as
 // the zero time rather than "now".
 func TestLatestHumanActivityEmpty(t *testing.T) {

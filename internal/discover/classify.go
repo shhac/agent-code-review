@@ -1,0 +1,223 @@
+package discover
+
+import (
+	"context"
+	"time"
+
+	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/store"
+)
+
+// candidacyGate is the shared "is this PR reviewable work?" predicate: not a
+// draft, an outstanding review request, not currently approved. classify and
+// the scheduler's pre-review recheck (StillCandidate) both use it, so the two
+// decisions cannot drift. The returned reason names the failed gate.
+func candidacyGate(pr ghPR, requireReviewRequest bool) (bool, string) {
+	if pr.IsDraft {
+		return false, "draft"
+	}
+	if requireReviewRequest && !pr.hasOpenReviewRequest() {
+		return false, "no open review request"
+	}
+	// An approved PR is already unblocked: nothing for this tool to do.
+	if pr.isApproved() {
+		return false, "already approved"
+	}
+	return true, ""
+}
+
+// classify applies the New then Refreshed rules. New wins if both could match.
+// cfg is the sweep's snapshot, threaded from Discover so every PR in one
+// sweep is judged against one coherent config.
+func (d *Discoverer) classify(ctx context.Context, cfg config.Config, repo string, pr ghPR) (store.Candidate, bool, error) {
+	if ok, _ := candidacyGate(pr, cfg.RequireReviewRequest()); !ok {
+		return store.Candidate{}, false, nil
+	}
+	// The author's group decides whether their PRs are ours to look at. An
+	// "ignore" policy is a DISCOVERY filter, not a veto: a manual `queue add`
+	// still reviews them, the same bypass manual adds already have over the
+	// candidacy recheck and both eligibility holds.
+	membership, err := d.store.AuthorGroup(ctx, repo, pr.Author.Login)
+	if err != nil {
+		return store.Candidate{}, false, err
+	}
+	if !cfg.ResolvePolicy(repo, pr.Author.Login, membership).Reviewable() {
+		return store.Candidate{}, false, nil
+	}
+	now := d.now()
+
+	outcome, hasOutcome, err := d.store.LastOutcome(ctx, repo, pr.Number)
+	if err != nil {
+		return store.Candidate{}, false, err
+	}
+
+	// The last real verdict in our own history feeds Refreshed and Discussion
+	// detection and the cooldown hold, so it's fetched once ahead of the type
+	// decision.
+	last, reviewed, err := d.store.LastReview(ctx, repo, pr.Number)
+	if err != nil {
+		return store.Candidate{}, false, err
+	}
+
+	// Suppression: any recorded outcome (real review, skip, or error) at the
+	// PR's CURRENT head SHA means the code is what we already looked at;
+	// without this every sweep would re-enqueue skipped PRs (and re-enqueue
+	// reviewed ones whenever the engine's posted review hasn't landed on gh
+	// yet). New commits change the SHA and re-enqueue naturally.
+	//
+	// But an unchanged SHA is not the same as nothing to do. A reply arguing
+	// a finding is wrong, or a resolved thread, is new information about code
+	// we already judged, and suppressing on the SHA alone made every one of
+	// those invisible. So the same-SHA case falls through to a conversation
+	// check instead of returning flat.
+	discussion := false
+	if hasOutcome && outcome.HeadSHA == pr.HeadRefOID {
+		if !d.conversationMoved(ctx, cfg, repo, pr, outcome, reviewed, now) {
+			return store.Candidate{}, false, nil
+		}
+		discussion = true
+	}
+
+	typ, ok := classifyType(pr, cfg, now, last, reviewed, discussion)
+	if !ok {
+		return store.Candidate{}, false, nil
+	}
+
+	c := d.toCandidate(repo, pr, typ, now)
+	lastReviewedAt := time.Time{}
+	if reviewed {
+		lastReviewedAt = last.ReviewedAt
+	}
+	c.Holds = holds(now, cfg, pr.UpdatedAt, lastReviewedAt)
+	return c, true, nil
+}
+
+// conversationMoved reports whether a person has said something on this PR
+// since we last LOOKED at it. It is the same-SHA escape hatch: true means the
+// code is unchanged but the discussion around it is not.
+//
+// Since we last looked, not since our last real review. Those differ whenever
+// an outcome was a skip or an error, and the difference is a live loop: a skip
+// does not advance a real-review watermark, so one human comment made the
+// check true forever and the same PR was re-enqueued, rechecked and
+// re-skipped every sweep until its SHA changed. One stack of six PRs burned
+// ~300 cycles each over five days that way, and precheck skips grew to be half
+// of all recorded history.
+//
+// The spec said so first: "same SHA suppresses only when there has been no
+// human conversation activity since the recorded OUTCOME'S timestamp"
+// (design-docs/decisions/2026-08-conversation-triggered-rereview.md). The
+// implementation reached for the real-review watermark instead.
+//
+// Two stages, cheap first. gh's updatedAt is already in the list payload and is
+// a necessary condition for any new conversation, so a PR nobody has touched
+// since our review costs no extra API call. Only PRs that clear that gate (and
+// the age window) pay for the GraphQL probe.
+//
+// Timestamps, not content: whether the conversation is MATERIAL is the
+// reviewing skill's question, and it has content fingerprints to answer it.
+// Discovery only decides whether to look.
+//
+// Fails closed. A probe error suppresses, preserving the pre-existing same-SHA
+// behaviour, because discovery sweeps run on a short cadence and a probe that
+// errored every time would otherwise re-enqueue the same PR forever. The
+// skill's own fingerprints are the real guard against a wasted review; this is
+// only the trigger.
+func (d *Discoverer) conversationMoved(ctx context.Context, cfg config.Config, repo string, pr ghPR, outcome store.Review, reviewed bool, now time.Time) bool {
+	// A targeted re-review re-judges the findings of a previous one, so
+	// without a real review in our history there is nothing to revisit.
+	// Whether one EXISTS is still the real-review question; only the "since
+	// when" watermark comes from the latest outcome.
+	if !reviewed {
+		return false
+	}
+	if !pr.UpdatedAt.After(outcome.ReviewedAt) {
+		return false
+	}
+	if now.Sub(pr.CreatedAt) > cfg.DiscussionMaxAge() {
+		return false
+	}
+	latest, err := d.lastHumanActivity(ctx, repo, pr.Number)
+	if err != nil {
+		d.logf("discover: %s#%d conversation probe failed, suppressing: %v", repo, pr.Number, err)
+		return false
+	}
+	return latest.After(outcome.ReviewedAt)
+}
+
+// classifyType is the pure New-vs-Refreshed-vs-Discussion decision, extracted
+// (like hold) so the boundary rules table-test without fakes. last/reviewed are
+// our own most recent real verdict, per the store; discussion is classify's
+// verdict on whether a same-SHA PR has new conversation (conversationMoved).
+func classifyType(pr ghPR, cfg config.Config, now time.Time, last store.Review, reviewed bool, discussion bool) (string, bool) {
+	switch {
+	// DISCUSSION: same head SHA we already reviewed, but a human has said
+	// something since. classify has already confirmed the prior review, the
+	// age window, and the conversation itself, so there is nothing left to
+	// re-test here.
+	case discussion:
+		return store.TypeDiscussion, true
+	// NEW: never reviewed by anyone, within the New window.
+	case !pr.hasAnyReview() && now.Sub(pr.CreatedAt) <= cfg.NewMaxAge():
+		return store.TypeNew, true
+	// REFRESHED: we reviewed it before, at a different head SHA, within the
+	// Refreshed window. "Reviewed by us" means a real verdict in our own
+	// history (LastReview filters out SKIPPED/ERROR), not gh state. The SHA
+	// inequality is redundant while every real review also lands in history
+	// (classify's same-SHA suppression already returned for a current-SHA
+	// outcome), kept as cheap insurance so Refreshed stays correct even if
+	// that invariant ever breaks.
+	case reviewed && last.HeadSHA != pr.HeadRefOID && now.Sub(pr.CreatedAt) <= cfg.RefreshedMaxAge():
+		return store.TypeRefreshed, true
+	default:
+		return "", false
+	}
+}
+
+// holds computes the two eligibility holds discovery owns: the quiet-period
+// bound (the PR must sit untouched before we review it; a PR being actively
+// pushed to or edited isn't done) and the cooldown bound (we reviewed it
+// recently; give the author room to finish responding). Nil means neither
+// applies. Manual adds never pass through here, which is exactly the bypass:
+// an explicit request is reviewed regardless of holds.
+//
+// Both names are returned independently rather than as the later of the two.
+// Which one wins is Candidate.EffectiveReady's business, and keeping them
+// apart is what lets a sweep rewrite exactly these two keys and leave any
+// other hold on the row alone.
+func holds(now time.Time, cfg config.Config, updatedAt, lastReviewedAt time.Time) map[string]time.Time {
+	out := map[string]time.Time{}
+	if q := cfg.QuietPeriod(); q > 0 && !updatedAt.IsZero() {
+		if t := updatedAt.Add(q); t.After(now) {
+			out[store.HoldSettling] = t
+		}
+	}
+	if cd := cfg.RereviewCooldown(); cd > 0 && !lastReviewedAt.IsZero() {
+		if t := lastReviewedAt.Add(cd); t.After(now) {
+			out[store.HoldCooldown] = t
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (d *Discoverer) toCandidate(repo string, pr ghPR, typ string, now time.Time) store.Candidate {
+	return store.Candidate{
+		Repo:         repo,
+		Number:       pr.Number,
+		Type:         typ,
+		Title:        pr.Title,
+		Author:       pr.Author.Login,
+		URL:          pr.URL,
+		HeadSHA:      pr.HeadRefOID,
+		CreatedAt:    pr.CreatedAt,
+		UpdatedAt:    pr.UpdatedAt,
+		DiscoveredAt: now,
+		Source:       store.SourceDiscovered,
+		Additions:    pr.Additions,
+		Deletions:    pr.Deletions,
+		ChangedFiles: pr.ChangedFiles,
+	}
+}

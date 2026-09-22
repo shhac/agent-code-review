@@ -490,6 +490,36 @@ func TestSteeringRefusedWhileReviewing(t *testing.T) {
 	})
 }
 
+// TestSteeringValidatesTheRefLikeTheQueue pins that steering and the hold
+// accept exactly the PR references the queue writes do. They used to check
+// only "repo non-empty, number positive", so a repo string the queue refuses
+// reached the store. The fake has a row under each malformed name, so the
+// operator's request would have succeeded before; it must now be a 400 that
+// writes nothing.
+func TestSteeringValidatesTheRefLikeTheQueue(t *testing.T) {
+	for _, repo := range []string{"no-slash", "o/r/extra", "o/r s", "/r", "o/"} {
+		t.Run(repo, func(t *testing.T) {
+			fs := queuedPR()
+			fs.queue = append(fs.queue, store.Candidate{Repo: repo, Number: 1, Author: "octocat"})
+			s := steerServer(fs, true)
+			body, err := json.Marshal(map[string]any{"repo": repo, "number": 1, "message": "hi"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if w := post(t, s, "127.0.0.1:5000", "paul@example.com", string(body)); w.Code != http.StatusBadRequest {
+				t.Errorf("steering %q = %d %s, want 400", repo, w.Code, w.Body.String())
+			}
+			if w := hold(t, s, http.MethodPost, "paul@example.com", string(body)); w.Code != http.StatusBadRequest {
+				t.Errorf("hold %q = %d %s, want 400", repo, w.Code, w.Body.String())
+			}
+			if len(fs.steered)+len(fs.cleared)+len(fs.holdsSet)+len(fs.holdsGone) != 0 {
+				t.Errorf("a malformed ref must write nothing, got steered=%v holds=%v", fs.steered, fs.holdsSet)
+			}
+		})
+	}
+}
+
 // TestSteeringLadderOrder pins the ORDER of the authorisation ladder, which is
 // the security property steerableRow's comment names. Outcome-only tests miss
 // this entirely: each rung was previously asserted with the others held

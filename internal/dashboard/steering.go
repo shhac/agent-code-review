@@ -11,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shhac/agent-code-review/internal/prref"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
+// steeringReq names the PR the way every queue write does, so the two agree
+// on what a PR reference is.
 type steeringReq struct {
-	Repo    string `json:"repo"`
-	Number  int    `json:"number"`
+	prref.Ref
 	Message string `json:"message"`
 }
 
@@ -93,7 +95,7 @@ const reviewInFlightMsg = "a review of this PR is running; its instructions are 
 // in steeringRefusal rather than split across two places.
 func parseSteeringReq(w http.ResponseWriter, r *http.Request) (steeringReq, error) {
 	req, err := decodeBody[steeringReq](w, r)
-	if err != nil || req.Repo == "" || req.Number <= 0 {
+	if err != nil || !req.Valid() {
 		return steeringReq{}, &apiErr{http.StatusBadRequest,
 			`need {"repo": "owner/name", "number": N, "message": "..."}`}
 	}

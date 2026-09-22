@@ -1,12 +1,7 @@
 // Package usage reads the review engine's remaining subscription headroom, so
 // the scheduler can leave room for interactive work (see BelowFloor) and the
-// dashboard can show it. Every engine reports through the same Snapshot; only
-// the retrieval differs, because each vendor exposes it differently:
-//
-//	codex   spawn `codex app-server` and speak JSON-RPC over stdio, the way
-//	        the desktop app does (initialize → account/rateLimits/read); see
-//	        codex.go
-//	claude  read the account's OAuth usage endpoint; see claude.go
+// dashboard can show it. Every engine reports through the same Snapshot, read
+// through lib-agent-harness (see inspect.go), which asks each engine's own CLI.
 //
 // A Cache polls on an interval so the dashboard needs no round trip per
 // request.
@@ -19,15 +14,15 @@ import (
 	"time"
 )
 
-// Window is one rate-limit window (Codex reports a primary ~5h window and a
-// secondary weekly one).
+// Window is one rate-limit window: an engine's rolling ~5h window or its
+// weekly one, told apart by WindowMins.
 type Window struct {
 	UsedPercent float64 `json:"used_percent"`
 	WindowMins  int     `json:"window_mins"`
 	ResetsAt    int64   `json:"resets_at"` // unix seconds
 }
 
-// Snapshot is the dashboard-facing view of Codex usage.
+// Snapshot is one engine's headroom as the dashboard and the floor see it.
 type Snapshot struct {
 	Plan      string    `json:"plan,omitempty"`
 	Primary   *Window   `json:"primary,omitempty"`
@@ -79,15 +74,6 @@ type Source struct {
 	Bin    string // that engine's binary; empty means its own default name
 }
 
-// Fetch reads one snapshot from the source's engine. An unrecognised engine
-// falls back to codex, matching NewEngine's default.
-func Fetch(ctx context.Context, src Source) (Snapshot, error) {
-	if src.Engine == "claude" {
-		return fetchClaude(ctx, src.Bin)
-	}
-	return fetchCodex(ctx, src.Bin)
-}
-
 // OK reports whether the snapshot carries usable headroom. A poll that failed
 // still stamps FetchedAt, so "we tried" and "we have numbers" are different
 // questions and callers must ask this one before rendering meters.
@@ -104,9 +90,10 @@ func (s Snapshot) OK() bool {
 type Cache struct {
 	mu    sync.RWMutex
 	snaps map[string]Snapshot
+	fetch func(context.Context, Source) (Snapshot, error) // Fetch, unless a test says otherwise
 }
 
-func NewCache() *Cache { return &Cache{snaps: map[string]Snapshot{}} }
+func NewCache() *Cache { return &Cache{snaps: map[string]Snapshot{}, fetch: Fetch} }
 
 // Get returns one engine's latest snapshot (zero value until its first poll
 // lands, or if it is not polled at all).
@@ -162,7 +149,7 @@ func (c *Cache) Poll(ctx context.Context, interval time.Duration, src Source) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		snap, err := Fetch(ctx, src)
+		snap, err := c.fetch(ctx, src)
 		if err != nil {
 			snap = Snapshot{Error: err.Error(), FetchedAt: time.Now()}
 		}

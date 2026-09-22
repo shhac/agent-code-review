@@ -453,10 +453,14 @@ internal/
   classifier blocks abort the run rather than falling back.
 
 - **Usage metering and its floor are both per engine.** `usage.Source` picks the
-  reader: codex speaks JSON-RPC to `codex app-server`; claude reads the
-  account's OAuth usage endpoint, since Claude Code exposes no usage command
-  and reports no headroom in its run output. Both map onto the same
-  `Snapshot`, but each is judged against its OWN floor
+  engine, and `lib-agent-harness/session.Inspect` reads it through that
+  engine's own CLI (codex app-server's `account/rateLimits/read`, claude's
+  `get_usage` control request) with the login the CLI already holds, invoking
+  no model. `usage` maps only the account-wide windows onto `Snapshot`
+  (`five_hour`/`seven_day`, `codex/*` falling back to `default/*`): Inspect
+  also reports scoped windows (per-model weekly caps, other codex buckets) that
+  overlap them, and one of those near its limit must not park reviews that do
+  not spend from it. Each engine is judged against its OWN floor
   (`review.<engine>.usage_floor`, resolved by `ReviewSettings.UsageFloors`):
   headroom is a property of the account the engine bills against, so there is
   no engine-agnostic number to compare against. A cohort may override the
@@ -464,10 +468,11 @@ internal/
   engine the cohort names rather than only the resolved one -- deliberately
   unlike model and effort, so switching a cohort's engine does not silently
   change how much headroom it leaves. Every path fails open: an errored
-  snapshot never pauses reviews,
-  because review availability must not depend on the meter working. The
-  claude reader touches a stored credential; it must never log it, copy it
-  into a Snapshot, or include it in an error string.
+  snapshot never pauses reviews, because review availability must not depend
+  on the meter working. This tool never reads an engine credential: the
+  claude meter used to pull the OAuth token from the keychain to call an
+  undocumented endpoint, and moving to the harness removed that code rather
+  than hardening it.
 
   EVERY engine is polled, not just the configured one, so the dashboard can
   show both side by side and an operator can see the engine they are not using

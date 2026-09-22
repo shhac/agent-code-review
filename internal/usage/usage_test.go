@@ -2,21 +2,31 @@ package usage
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 )
 
+// cacheFetching is a Cache whose polls call fetch instead of a real CLI.
+func cacheFetching(fetch func(context.Context, Source) (Snapshot, error)) *Cache {
+	c := NewCache()
+	c.fetch = fetch
+	return c
+}
+
+func failingFetch(context.Context, Source) (Snapshot, error) {
+	return Snapshot{}, errors.New("engine unavailable")
+}
+
 func TestCachePollRecordsFetchFailures(t *testing.T) {
-	cache := NewCache()
+	cache := cacheFetching(failingFetch)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go cache.Poll(ctx, time.Hour, Source{Engine: "codex", Bin: fakeCodex(t, "exit 12")})
+	go cache.Poll(ctx, time.Hour, Source{Engine: "codex"})
 	// Poll has no completion signal, so this waits on the observable effect.
-	// The ceiling is generous because the first fetch spawns a subprocess:
-	// a one-second budget passed alone and missed under -race with the whole
-	// suite competing for the machine. The loop exits the moment the error
-	// lands, so a large ceiling costs nothing except when genuinely broken.
+	// The loop exits the moment the error lands, so a generous ceiling costs
+	// nothing except when genuinely broken.
 	deadline := time.Now().Add(10 * time.Second)
 	for cache.Get("codex").Error == "" && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
@@ -50,17 +60,20 @@ func TestSnapshotOK(t *testing.T) {
 // Each engine gets its own slot: one engine failing must not blank the other,
 // which is the whole point of showing them side by side.
 func TestCacheKeepsEnginesSeparate(t *testing.T) {
-	cache := NewCache()
+	// What is under test is slot separation, not retrieval: one engine's
+	// fetch works and the other's fails.
+	cache := cacheFetching(func(ctx context.Context, src Source) (Snapshot, error) {
+		if src.Engine == "broken" {
+			return failingFetch(ctx, src)
+		}
+		return Snapshot{Plan: "pro", Primary: &Window{UsedPercent: 25, WindowMins: 300, ResetsAt: 123}, FetchedAt: time.Now()}, nil
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go cache.Poll(ctx, time.Hour, Source{Engine: "codex"})
+	go cache.Poll(ctx, time.Hour, Source{Engine: "broken"})
 
-	// Both sources take the codex path (an unrecognised engine falls back to
-	// it), so the test stays offline: the claude reader would hit the real
-	// OAuth endpoint. What is under test is slot separation, not retrieval.
-	go cache.Poll(ctx, time.Hour, Source{Engine: "codex", Bin: fakeCodex(t, `printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"planType":"pro","primary":{"usedPercent":25,"windowDurationMins":300,"resetsAt":123}}}}'`)})
-	go cache.Poll(ctx, time.Hour, Source{Engine: "broken", Bin: fakeCodex(t, "exit 12")})
-
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if cache.Get("codex").OK() && cache.Get("broken").Error != "" {
 			break
@@ -84,7 +97,7 @@ func TestCacheKeepsEnginesSeparate(t *testing.T) {
 // -race target covered only scheduler and cli. Meaningful only under -race;
 // harmless without it.
 func TestCacheIsSafeForConcurrentUse(t *testing.T) {
-	c := NewCache()
+	c := cacheFetching(failingFetch)
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 
@@ -92,7 +105,7 @@ func TestCacheIsSafeForConcurrentUse(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		c.Poll(ctx, time.Millisecond, Source{Engine: "codex", Bin: "definitely-not-a-real-binary"})
+		c.Poll(ctx, time.Millisecond, Source{Engine: "codex"})
 	}()
 
 	// Concurrent dashboard requests, reading both shapes the handlers use.

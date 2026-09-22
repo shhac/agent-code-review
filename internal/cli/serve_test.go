@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/logbuf"
 	"github.com/shhac/agent-code-review/internal/review"
 )
 
@@ -63,6 +64,30 @@ func TestRunningLoopsPinsFlagsOverConfig(t *testing.T) {
 	cfg.Schedule.Enabled = config.Bool(false)
 	if got := runningLoops(serveOpts{}, cfg); got.Discovery || got.Review {
 		t.Errorf("disabled config loops = %+v", got)
+	}
+}
+
+// The steering auth rule rests on this: funnel is public traffic with no
+// identity attached, so a header arriving over it must never identify anyone.
+func TestTrustsProxyIdentityOnlyOffFunnel(t *testing.T) {
+	for mode, want := range map[string]bool{"serve": true, "": true, "funnel": false} {
+		if got := trustsProxyIdentity(mode); got != want {
+			t.Errorf("trustsProxyIdentity(%q) = %v, want %v", mode, got, want)
+		}
+	}
+}
+
+// Both severities reach the dashboard's ring, not just info: a warning that
+// only went to stderr would be missing from the Logs page it matters most on.
+func TestTeeSinksFillTheRingAtBothSeverities(t *testing.T) {
+	captureLog(t)
+	ring := logbuf.New(10)
+	sinks := teeSinks(ring)
+	sinks.infof("info %d", 1)
+	sinks.warnf("warn %d", 2)
+	tail := ring.Tail(10)
+	if len(tail) != 2 || tail[0].Line != "info 1" || tail[1].Line != "warn 2" {
+		t.Errorf("ring = %+v, want both lines in order", tail)
 	}
 }
 

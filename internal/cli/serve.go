@@ -78,17 +78,9 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	defer func() { _ = s.Close() }()
 
-	// Tee the daemon's log sink into a ring so the dashboard's Logs page can
-	// show a live tail; stderr remains the durable copy.
-	logs := logbuf.New(1000)
-	logf := func(format string, args ...any) {
-		stderrLogf(format, args...)
-		logs.Addf(format, args...)
-	}
-	warnLogf := func(format string, args ...any) {
-		stderrWarnf(format, args...)
-		logs.Addf(format, args...)
-	}
+	ring := logbuf.New(1000)
+	sinks := teeSinks(ring)
+	logf := sinks.infof
 	logf("serve: starting (pid %d)", os.Getpid())
 	if opts.readOnly {
 		logf("serve: read-only mode: store opened read-only, both loops disabled")
@@ -113,54 +105,19 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		defer func() { _ = tsDown() }()
 	}
 
-	// Diagnose before the loops start. Not fatal: the dashboard is still
-	// worth serving, a missing CLI may come back, and refusing to boot would
-	// be a worse failure than reviewing nothing. But the reason belongs in
-	// the log now rather than inferred later from a queue full of ERRORs.
-	for _, c := range doctor.Blocking(doctor.Run(shutdown.reviewCtx(), cfg)) {
-		logf("preflight: %s FAILED: %s (%s)", c.Name, c.Detail, c.Hint)
-	}
-	// Keys nothing reads, warned separately because they are not blocking:
-	// reviews run exactly as they would without them. Said at boot because a
-	// key that is not in effect is otherwise indistinguishable from one that
-	// is, and because the next config write drops it from the file -- this
-	// line may be the last record of what it held.
-	for _, problem := range config.UnknownKeyProblems() {
-		logf("config: %s", problem)
-	}
-
-	// Poll every engine's usage in the background so the dashboard can show
-	// remaining quota without a round trip per request, and so both engines
-	// can be compared when deciding which to run on. Bins resolve once at
-	// boot, like the loop switches.
-	usageCache := usage.NewCache()
-	for _, src := range usageSources(cfg) {
-		go usageCache.Poll(shutdown.gracefulCtx(), cfg.UsagePollInterval(), src)
-	}
-
-	// The model price table is the other background poll: refreshed on its own
-	// slow interval, read from disk so a boot never waits on it, and purely an
-	// enrichment (only claude values its own runs; codex reports no cost at
-	// all, so its spend has to be derived from the rates).
-	prices := pricing.Open(config.PricingCacheDir())
-	go prices.Poll(shutdown.gracefulCtx(), logf, func() {
-		backfillEstimates(shutdown.gracefulCtx(), prices, s, logf)
-	})
+	logBootDiagnostics(shutdown.reviewCtx(), cfg, logf)
+	usageCache := startPolls(shutdown.gracefulCtx(), cfg, s, logf)
 
 	running := runningLoops(opts, cfg)
-	// Funnel is public internet traffic that Tailscale attaches no identity
-	// to, so the dashboard must not read one from it. Serve (or no tunnel at
-	// all, which is loopback-only) is where the header means something.
-	trustIdentity := opts.tailscaleMode != "funnel"
 	dash := dashboard.NewServer(dashboard.Deps{
 		Store:              s,
 		Config:             config.Read,
 		Running:            running,
 		Usage:              usageCache,
 		GHUser:             discover.CurrentUser,
-		Logs:               logs,
+		Logs:               ring,
 		Version:            opts.version,
-		TrustProxyIdentity: trustIdentity,
+		TrustProxyIdentity: trustsProxyIdentity(opts.tailscaleMode),
 	})
 	// Bind BEFORE the scheduler starts: the port doubles as the "one daemon
 	// per address" guard, and the loops fire immediately on start; an
@@ -172,7 +129,7 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	}
 	// The cache was already keyed by engine so the dashboard could show both;
 	// the floor now reads it the same way, because either engine can run.
-	schedDone, err := startScheduler(ctx, running, config.Read, s, logSinks{infof: logf, warnf: warnLogf}, usageCache.Get, shutdown)
+	schedDone, err := startScheduler(ctx, running, config.Read, s, sinks, usageCache.Get, shutdown)
 	if err != nil {
 		return err
 	}
@@ -187,6 +144,70 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// teeSinks sends the daemon's log to stderr and into a ring, so the
+// dashboard's Logs page can show a live tail; stderr remains the durable copy.
+func teeSinks(ring *logbuf.Ring) logSinks {
+	return logSinks{
+		infof: func(format string, args ...any) {
+			stderrLogf(format, args...)
+			ring.Addf(format, args...)
+		},
+		warnf: func(format string, args ...any) {
+			stderrWarnf(format, args...)
+			ring.Addf(format, args...)
+		},
+	}
+}
+
+// logBootDiagnostics reports, before the loops start, what would otherwise
+// surface only later. Not fatal: the dashboard is still worth serving, a
+// missing CLI may come back, and refusing to boot would be a worse failure
+// than reviewing nothing. But the reason belongs in the log now rather than
+// inferred later from a queue full of ERRORs.
+func logBootDiagnostics(ctx context.Context, cfg config.Config, logf scheduler.Logf) {
+	for _, c := range doctor.Blocking(doctor.Run(ctx, cfg)) {
+		logf("preflight: %s FAILED: %s (%s)", c.Name, c.Detail, c.Hint)
+	}
+	// Keys nothing reads, warned separately because they are not blocking:
+	// reviews run exactly as they would without them. Said at boot because a
+	// key that is not in effect is otherwise indistinguishable from one that
+	// is, and because the next config write drops it from the file -- this
+	// line may be the last record of what it held.
+	for _, problem := range config.UnknownKeyProblems() {
+		logf("config: %s", problem)
+	}
+}
+
+// startPolls starts the daemon's background polls, which run until ctx ends.
+//
+// Every engine's usage is polled so the dashboard can show remaining quota
+// without a round trip per request, and so both engines can be compared when
+// deciding which to run on. Bins resolve once at boot, like the loop switches.
+//
+// The model price table is the other poll: refreshed on its own slow
+// interval, read from disk so a boot never waits on it, and purely an
+// enrichment (only claude values its own runs; codex reports no cost at all,
+// so its spend has to be derived from the rates).
+func startPolls(ctx context.Context, cfg config.Config, s store.Store, logf scheduler.Logf) *usage.Cache {
+	usageCache := usage.NewCache()
+	for _, src := range usageSources(cfg) {
+		go usageCache.Poll(ctx, cfg.UsagePollInterval(), src)
+	}
+	prices := pricing.Open(config.PricingCacheDir())
+	go prices.Poll(ctx, logf, func() {
+		backfillEstimates(ctx, prices, s, logf)
+	})
+	return usageCache
+}
+
+// trustsProxyIdentity says whether the dashboard may read the identity header
+// Tailscale asserts. Funnel is public internet traffic that Tailscale attaches
+// no identity to, so it must not. Serve (or no tunnel at all, which is
+// loopback-only) is where the header means something.
+func trustsProxyIdentity(tailscaleMode string) bool {
+	return tailscaleMode != "funnel"
 }
 
 // runningLoops resolves the per-boot switch state. Config supplies defaults;

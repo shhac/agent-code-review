@@ -126,7 +126,7 @@ test.describe('score shape', () => {
   });
 });
 
-// The tab strip is a label on a line, and the base button rule in app.css is
+// The tab strip is a label on a line, and the base button rule (controls.css) is
 // a filled pill. Inheriting it curled the active tab's underline into a smile
 // and lifted the tab off the rule on hover; both are geometry, so both are
 // checked as geometry.

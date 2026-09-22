@@ -1,0 +1,131 @@
+.overview { display: grid; grid-template-columns: minmax(0, 1fr) 370px; gap: 22px; margin-top: 22px; align-items: start; }
+.queue-board, .surface, .context section {
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.queue-board { border-radius: 12px; overflow: hidden; }
+.section-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 14px;
+  padding: 18px 20px; border-bottom: 1px solid var(--line); background: var(--surface-warm);
+}
+.section-head span { color: var(--dim); font-size: 13px; }
+.section-head.compact { padding: 0 0 12px; border: 0; background: transparent; }
+
+.queue-list { display: grid; }
+.ticket { display: grid; grid-template-columns: minmax(0, 1fr) auto; border-bottom: 1px solid var(--line); }
+.ticket:last-child { border-bottom: 0; }
+.ticket.open { background: #333a34; }
+.ticket-main {
+  min-width: 0; display: grid; grid-template-columns: 20px 20px max-content minmax(0, 1fr) auto auto; gap: 14px; align-items: center;
+  padding: 16px 18px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; box-shadow: none;
+  cursor: pointer;
+}
+/* "up next" divider between pinned reviewing rows and the reorderable rest,
+   a pseudo-element (not a sibling node) because animate:flip requires the
+   ticket to be the each-block's sole child. */
+.ticket.up-next::before {
+  grid-column: 1 / -1;
+  content: "up next";
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px 0;
+  color: var(--dim); font-size: 11px; font-weight: 800;
+  letter-spacing: .14em; text-transform: uppercase;
+}
+.grip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px;
+  background: transparent; box-shadow: none; color: var(--faint); font-size: 15px; line-height: 1; text-align: center;
+  cursor: grab; user-select: none; touch-action: none;
+}
+.grip:hover { transform: none; color: var(--ink); background: transparent; }
+.grip:active { cursor: grabbing; }
+.grip.pinned { cursor: default; }
+/* The dragged row's in-list slot: a dashed placeholder showing where it will
+   land, while the browser's semi-transparent drag image (the whole ticket,
+   see dragStart's setDragImage) floats with the cursor. */
+.ticket.dragging {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -3px;
+  border-radius: 6px;
+  background: transparent;
+}
+.ticket.dragging > * { opacity: .3; }
+/* Landing confirmation: one brief accent wash on the row that just moved. */
+.ticket.settled { animation: settle .7s ease-out; }
+@keyframes settle {
+  0% { background: rgba(158, 221, 82, .16); }
+  100% { background: transparent; }
+}
+.ticket-main:hover { transform: none; background: #31372f; }
+.ticket-pr { min-width: 64px; font-weight: 850; font-size: 18px; color: var(--accent); white-space: nowrap; }
+a.ticket-pr:hover { text-decoration: underline; }
+.ticket-copy { min-width: 0; }
+.ticket-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-copy small { display: block; margin-top: 3px; color: var(--dim); }
+.tag {
+  display: inline-flex; width: max-content; align-items: center; min-height: 22px; padding: 2px 8px;
+  border: 1px solid var(--line-strong); border-radius: 999px; color: var(--dim); background: #333934;
+  font-size: 12px; font-weight: 700;
+}
+
+.ticket-actions { display: flex; align-items: center; gap: 7px; padding: 0 16px 0 0; }
+.ticket-actions button {
+  min-width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 9px; border-color: var(--line-strong); background: transparent; color: var(--ink);
+}
+.ticket-actions .danger:hover { color: var(--red); border-color: var(--red); }
+.ticket-actions .go:hover { color: var(--ok-ink); border-color: var(--ok-ink); }
+.ticket-detail {
+  grid-column: 1 / -1; display: grid; grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr); gap: 20px;
+  padding: 0 18px 18px 100px;
+}
+
+.review-history p { margin: 0 0 8px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* minmax(0, 1fr), not the implicit auto track: an auto column takes its
+   minimum from its content, so ONE unwrappable child (a long status line, a
+   plan name, a SHA) widens the whole sidebar past the 370px column .overview
+   gave it. Bounding the track makes an oversized child that child's bug. */
+.context { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.context section { border-radius: 12px; padding: 18px; }
+.now-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 14px 0; }
+.now-grid div { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-warm); }
+.now-grid strong { display: block; font-size: 28px; line-height: 1; }
+.now-grid span, .muted { color: var(--dim); }
+.run-line { margin-bottom: 0; color: var(--dim); }
+.meter { display: grid; gap: 6px; margin-top: 12px; }
+.meter div { display: flex; justify-content: space-between; }
+.meter > i { display: block; height: 8px; border-radius: 999px; background: var(--green); }
+.meter.hot > i { background: var(--red); }
+.meter small { color: var(--dim); }
+.bars { display: grid; grid-template-columns: repeat(24, 1fr); gap: 4px; height: 138px; align-items: end; padding-top: 8px; }
+.bars div { display: flex; align-items: end; gap: 1px; height: 100%; border-bottom: 1px solid var(--line); }
+.bars i { display: block; flex: 1; min-height: 0; border-radius: 3px 3px 0 0; }
+.approved, .legend .approved { background: var(--green); }
+.commented, .legend .commented { background: var(--blue); }
+.changes, .legend .changes { background: var(--red); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; color: var(--dim); font-size: 12px; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+
+.show { width: max-content; margin: 14px 20px; }
+
+/* Engine usage: one block per engine, stacked so codex and claude can be
+   compared at a glance. The inactive engine is dimmed rather than hidden --
+   the whole point is seeing whether the OTHER engine has headroom. */
+.engine-usage { padding: 10px 0; border-top: 1px solid var(--line); }
+.engine-usage:first-of-type { border-top: 0; padding-top: 4px; }
+.engine-usage.inactive { opacity: .72; }
+.engine-head { margin: 0 0 6px; display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.engine-head span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+.engine-head b { font-weight: 500; }
+/* The per-engine pause note sits under that engine's head, reading as a
+   property of the engine rather than of the panel: same indent as the meters
+   it explains, and quieter than the uppercase head above it. */
+.engine-usage > .status { margin: 0 0 8px; font-size: 12px; }
+.active-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
+
+.tokens-line {
+  display: flex; justify-content: space-between; gap: 12px; margin-top: 12px;
+  padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px;
+}
+.tokens-line span { color: var(--faint); font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }

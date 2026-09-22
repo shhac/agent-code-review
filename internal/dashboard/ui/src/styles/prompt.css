@@ -1,0 +1,9 @@
+/* The Logs and review-log .terminal shares the prompt boxes' pre body;
+   logs.css adds only what makes it a scrolling pane. */
+.surface pre, .terminal {
+  margin: 0; padding: 18px 20px; white-space: pre-wrap; word-break: break-word;
+  font-size: 13px; line-height: 1.6; background: #1a1d1b; color: #eef1ee;
+  border-top: 1px solid var(--line);
+}
+.prompt-block { padding: 18px 20px; border-top: 1px solid var(--line); }
+.prompt-block:first-of-type { border-top: 0; }

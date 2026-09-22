@@ -1,0 +1,42 @@
+/* Review-log bubbles: one card per stream event (prompt, agent message,
+   exec, thinking), parsed from the agent output tee. */
+.log-view-toggle {
+  padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--accent); font: inherit; font-weight: 750;
+}
+.log-view-toggle:hover { text-decoration: underline; }
+.log-events { display: grid; gap: 10px; }
+.log-bubble {
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px;
+  padding: 10px 14px; background: rgba(255, 255, 255, 0.025);
+  font-size: 12px; line-height: 1.55;
+}
+.log-bubble header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.log-bubble header .status { font-size: 11px; }
+.log-bubble .kind {
+  color: var(--faint); font-size: 10px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.log-bubble .decision { color: var(--faint); font-size: 11px; }
+.log-bubble pre {
+  margin: 0; padding: 0; background: transparent; border: 0;
+  font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+}
+/* escape .terminal p's two-column grid; bubbles own their layout */
+.log-bubble p { display: block; margin: 0; white-space: pre-wrap; word-break: break-word; }
+/* A run that ended without a report says why here; styled like a failed exec
+   so it reads as the problem it is rather than as agent output. */
+.log-bubble.error { border-left-color: var(--bad-ink); }
+.log-bubble.error .kind { color: var(--bad-ink); }
+.log-bubble.agent { border-left-color: var(--accent); }
+.log-bubble.agent .kind { color: var(--accent); }
+.log-bubble.thinking { color: var(--dim); }
+.log-bubble.exec.failed { border-left-color: var(--bad-ink); }
+.log-bubble.exec .out, .log-bubble.exec details pre { color: var(--dim); margin-top: 6px; max-height: 320px; overflow-y: auto; }
+.log-bubble.user details pre, .log-bubble.meta details pre { color: var(--dim); margin-top: 8px; }
+.log-bubble details summary { cursor: pointer; color: var(--dim); font-size: 11px; }
+.log-bubble details summary:hover { color: var(--ink); }
+.log-bubble details summary .kind { margin-right: 4px; }
+.plain-link { color: var(--accent); }
+.plain-link:hover { text-decoration: underline; }
+.terminal time { color: var(--ok-ink); }

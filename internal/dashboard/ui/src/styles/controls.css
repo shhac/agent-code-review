@@ -1,0 +1,24 @@
+/* Input, then Queue, then Steer, on one row. Three columns rather than two:
+   with `1fr auto` the third control wrapped underneath. The error message
+   spans the row beneath them. */
+.add { min-width: min(560px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: start; }
+.add .err { grid-column: 1 / -1; }
+input {
+  min-width: 0; border: 1px solid var(--line-strong); border-radius: 8px; padding: 11px 12px;
+  background: var(--surface); color: var(--ink);
+}
+input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid rgba(132,203,45,.35); outline-offset: 2px; }
+button, .add button, .show {
+  border: 1px solid var(--ink); border-radius: 8px; padding: 10px 13px; background: var(--ink);
+  color: var(--surface); cursor: pointer; font-weight: 750;
+}
+button:hover, .show:hover { transform: translateY(-1px); }
+/* A disabled control has to LOOK disabled. Without this the base rule above
+   left it fully saturated with a pointer cursor, so clicking simply did
+   nothing and the only feedback was the absence of a result. */
+button:disabled, button:disabled:hover {
+  opacity: .4; cursor: not-allowed; transform: none; filter: grayscale(1);
+}
+.err { grid-column: 1 / -1; color: var(--red); font-size: 13px; }
+
+select { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px; background: var(--surface); color: var(--ink); font: inherit; text-transform: none; letter-spacing: normal; }

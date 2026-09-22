@@ -1,0 +1,87 @@
+/* History: one grid template shared by the header and every row, so the
+   columns cannot drift apart. Each row is its own grid (rows expand
+   independently), which is why the trailing columns are fixed rather than
+   auto: an auto column would size to "precheck" on one row and "codex" on the
+   next. */
+.review-table { display: grid; }
+.review-head, .review-row {
+  margin: 0; display: grid; gap: 14px; align-items: center;
+  grid-template-columns: minmax(220px, 1fr) 170px 110px 96px 92px 20px;
+}
+/* --row-gutter is shared by the header, the rows and the expanded detail, so
+   the three keep the same column origins: the header and rows are two grids
+   with one grid-template-columns between them, and insetting only one of them
+   is how a row stops lining up with the label above it. It exists because an
+   open row paints a background across the full width, and its content sat
+   flush against that edge with nothing between text and box. */
+.review-table { --row-gutter: 12px; }
+.review-head {
+  padding: 0 var(--row-gutter) 6px; font-size: 11px; font-weight: 750; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line);
+}
+.review-row { padding: 9px var(--row-gutter); cursor: pointer; }
+/* PrIdentity renders TWO elements (the #number link and the title/author
+   block). Wrapping them keeps this table's column count independent of that:
+   unwrapped they were two grid items, so every later column sat one place
+   left and the chevron wrapped onto a second line. */
+.pr-cell { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; align-items: baseline; min-width: 0; }
+.review-row-wrap { border-bottom: 1px solid var(--line); }
+.review-row-wrap:last-child { border-bottom: 0; }
+.review-row-wrap.open { background: var(--surface-warm); }
+.review-row:hover { background: var(--surface-warm); }
+/* DIRECT children of a row only. As descendant selectors these also reached
+   into the expanded detail below, where the 40-character head SHA inherited
+   white-space:nowrap and overflowed across its neighbours. The same trap is
+   documented on .authors > p in roster.css; a row's cells are children of the
+   row, and nothing nested deeper is one. */
+.review-row > .mono { white-space: nowrap; }
+.review-row > .num { color: var(--dim); text-align: right; white-space: nowrap; }
+.review-row > .num small { display: block; color: var(--faint); font-size: 10.5px; white-space: nowrap; }
+.review-row > .chev { color: var(--faint); text-align: center; }
+.review-detail { padding: 4px var(--row-gutter) 14px; display: grid; gap: 10px; }
+/* Wide enough for a 40-character SHA beside its label, so the value column is
+   not forced to break a word to fit ("esti / mated"). */
+.review-detail dl { margin: 0; display: grid; gap: 8px 24px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.review-detail dl div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.review-detail dt { color: var(--dim); font-size: 12px; }
+/* break-word, not anywhere: anywhere splits mid-word whenever it helps, which
+   turned "estimated" into "esti / mated". This breaks only what cannot fit,
+   which is the SHA. */
+.review-detail dd { margin: 0; overflow-wrap: break-word; }
+.review-detail dd.mono { overflow-wrap: anywhere; }
+/* Spacing via CSS, not a literal space in the markup: Svelte collapses
+   whitespace between an expression and an adjacent element, which rendered
+   "$0.8011estimated". */
+.review-detail .tag-mute { margin-left: 6px; }
+.log-link { color: var(--accent); font-size: 12px; font-weight: 750; }
+.log-link:hover { text-decoration: underline; }
+.review-table .ticket-pr { font-size: 15px; }
+.review-table .ticket-copy strong { font-size: 14px; }
+
+.review-table { padding: 0 20px; }
+.review-table a { color: var(--accent); font-weight: 850; }
+
+.head-tools { display: inline-flex; align-items: center; gap: 14px; }
+.head-tools input.filter {
+  width: 300px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-warm); color: var(--ink); font: inherit; font-size: 12.5px;
+}
+.head-tools input.filter::placeholder { color: var(--faint); }
+.head-tools input.filter:focus { outline: none; border-color: var(--accent); }
+
+/* The match count is the honest half of the search: it counts the whole
+   history, not the rows on screen. .pending dims it while the answer is still
+   provisional, so an optimistic page never reads as a settled one. */
+.head-tools .matches {
+  color: var(--faint); font-size: 11px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
+}
+.head-tools .matches.pending { opacity: .55; font-style: italic; }
+
+.pager { display: inline-flex; align-items: center; gap: 8px; color: var(--dim); font-size: 12px; }
+.pager button {
+  padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: none;
+  color: var(--ink); font-size: 14px; line-height: 1.5; cursor: pointer;
+}
+.pager button:disabled { color: var(--faint); cursor: default; }
+.pager button:not(:disabled):hover { border-color: var(--accent); }

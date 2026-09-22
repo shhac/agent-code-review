@@ -3,18 +3,40 @@
 // these read both as text — which is where the three bugs they guard actually
 // lived.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
-const css = read('../app.css');
+// app.css is only an ordered list of @imports; the rules live in the partials
+// it names, read here in that same (cascade) order.
+const entry = read('../app.css');
+const partials = [...entry.matchAll(/@import '\.\/(styles\/[\w-]+\.css)';/g)].map((m) => m[1]);
+const css = partials.map((p) => read(`../${p}`)).join('\n');
 
 // stripComments and stripAtRuleBodies leave only top-level rules, so a
 // declaration that lost its selector is visible rather than buried.
 const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
-describe('app.css is structurally sound', () => {
+describe('app.css imports every partial', () => {
+  // A partial nobody imports is a stylesheet that silently never ships.
+  it('names each file under styles/ exactly once', () => {
+    const onDisk = readdirSync(fileURLToPath(new URL('../styles', import.meta.url)))
+      .filter((f) => f.endsWith('.css'))
+      .map((f) => `styles/${f}`)
+      .sort();
+    expect([...partials].sort()).toEqual(onDisk);
+  });
+
+  // A rule written into app.css itself would land after every partial, so
+  // its place in the cascade would depend on where the imports happen to end.
+  it('holds nothing but the imports', () => {
+    const rest = entry.replace(/\/\*[\s\S]*?\*\//g, '').replace(/@import [^;]+;/g, '').trim();
+    expect(rest).toBe('');
+  });
+});
+
+describe('the global stylesheet is structurally sound', () => {
   it('has balanced braces', () => {
     const open = (bare.match(/\{/g) ?? []).length;
     const close = (bare.match(/\}/g) ?? []).length;
@@ -56,7 +78,7 @@ describe('disabled controls look disabled', () => {
   // nothing and the only feedback is the absence of a result.
   it('styles button:disabled', () => {
     const rule = bare.match(/button:disabled[^{]*\{([^}]*)\}/);
-    expect(rule, 'no button:disabled rule in app.css').toBeTruthy();
+    expect(rule, 'no button:disabled rule in the global stylesheet').toBeTruthy();
     expect(rule![1]).toMatch(/cursor:\s*not-allowed/);
     expect(rule![1]).toMatch(/opacity:/);
   });
@@ -82,7 +104,7 @@ describe('the history table lines up', () => {
 
   // The row's cell rules (nowrap, right-alignment) must not reach into the
   // detail panel below it, where a 40-character head SHA inherited nowrap and
-  // overflowed across its neighbours. app.css documents the same trap for
+  // overflowed across its neighbours. roster.css documents the same trap for
   // `.authors > p`; a row's cells are its CHILDREN.
   it('scopes row cell rules to direct children', () => {
     const leaky = [...bare.matchAll(/^\s*\.review-(?:table|row)\s+\.(mono|num|chev)\b[^{]*\{/gm)]

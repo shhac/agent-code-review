@@ -1,0 +1,74 @@
+/* Element defaults and the primitives more than one page renders. */
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; color: var(--ink); background: var(--paper); }
+button, input { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; text-decoration: none; }
+code, pre, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+/* .linkish is a shared primitive: a button that reads as a link. Used by the
+   steering box and anything else that needs an inline action without a
+   button's chrome. The component-local steering and chip styles live with
+   their components. */
+.linkish {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--accent);
+  cursor: pointer; text-decoration: underline;
+}
+
+/* The halo marking points as the viewer's OWN, shared by the history rows and
+   the leaderboard so the two cannot drift apart.
+   Pale rather than gold: a halo the same colour as the text eats its own glyph
+   edges and the number reads soft. It does not animate, and does not need to,
+   because it already appears on nothing but your own rows: scarcity is the
+   signal, so movement would be decoration on top of a distinction the reader
+   has already made. That also means there is nothing here to throttle on a
+   weak device and no reduced-motion case to handle.
+   --halo-inset lets each caller size it to its own text. */
+.score-halo { position: relative; }
+.score-halo::before {
+  content: '';
+  position: absolute;
+  inset: var(--halo-inset, -3px -7px);
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, rgba(255, 252, 240, .5), transparent 70%);
+  opacity: .28;
+  pointer-events: none;
+}
+
+.status { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--dim); font-size: 13px; font-weight: 750; }
+.status i { width: 8px; height: 8px; border-radius: 999px; background: currentColor; }
+.status.ok { color: var(--ok-ink); }
+.status.info { color: var(--info-ink); }
+.status.warn { color: var(--warn-ink); }
+.status.bad { color: var(--bad-ink); }
+.status.live i { animation: pulse 2s infinite; }
+/* A status used as a SENTENCE, not a badge. nowrap above keeps a badge's dot
+   beside its label in a table row; on the paused-reason line, whose text the
+   daemon writes and the layout cannot bound, it made the sentence's
+   min-content width the aside's -- blowing the sidebar past its column and
+   giving the whole page a horizontal scrollbar. The dot stays on the first
+   line rather than centring itself against a wrapped block. */
+.status.wraps { white-space: normal; align-items: baseline; }
+.status.wraps i { flex: none; align-self: flex-start; margin-top: 6px; }
+a.status-link { text-decoration: none; }
+a.status-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+dl, dt, dd { margin: 0; }
+dl { display: grid; gap: 8px; }
+dl div, .settings .cluster > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; }
+dt, .settings dt { color: var(--faint); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+dd, .settings dd { min-width: 0; overflow-wrap: anywhere; }
+
+/* The one .chev rule. A second bare .chev once sat among the queue-ticket
+   rules, earlier in the cascade than this one, asking for font-size: 24px; at
+   equal specificity the later rule won, so all three chevrons (queue ticket,
+   history row, roster row) have always rendered from this one and that
+   declaration never applied. Deleted rather than scoped: making it apply
+   would be a visual change, not a fix. */
+.chev { display: inline-block; width: 12px; color: var(--faint); font-size: 11px; }
+
+time { color: var(--dim); }
+
+.empty { padding: 30px 20px; color: var(--dim); text-align: center; }
+
+.surface { border-radius: 12px; overflow: hidden; }

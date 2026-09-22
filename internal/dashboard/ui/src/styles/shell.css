@@ -1,0 +1,66 @@
+.shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+.rail {
+  position: sticky; top: 0; height: 100vh; padding: 24px 18px;
+  display: flex; flex-direction: column; gap: 26px;
+  background: #171a18; color: #f0f0f0; border-right: 1px solid #0e100f;
+}
+.brand {
+  display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent;
+  color: inherit; text-align: left; cursor: pointer;
+}
+.brand img { border-radius: 18px; box-shadow: 0 10px 26px rgba(0,0,0,.3); }
+.brand strong { display: block; font-size: 22px; line-height: 1; letter-spacing: -.01em; }
+.brand em { display: block; margin-top: 4px; color: var(--accent); font-style: normal; font-size: 12px; }
+.rail nav { display: grid; gap: 6px; }
+.rail nav a {
+  padding: 10px 12px; border-radius: 8px; color: #c4c7c4; border: 1px solid transparent;
+}
+.rail nav a:hover, .rail nav a.active {
+  color: #f0f0f0; background: rgba(255,255,255,.06); border-color: rgba(132,203,45,.25);
+}
+
+/* The rail's footer stack: the identity chip takes the auto margin that used
+   to sit on .feed, so the two push to the bottom together. Kept here because
+   it is a statement about the rail's layout, not about either component. */
+.rail .viewer-chip { margin-top: auto; }
+
+.feed {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center;
+  color: var(--accent); font-size: 13px;
+}
+.feed small { grid-column: 2; color: var(--dim); }
+.feed.stale { color: var(--bad-ink); }
+.signal { width: 8px; height: 8px; border-radius: 999px; background: currentColor; animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .signal { animation: none; } }
+
+main { min-width: 0; padding: 30px clamp(18px, 4vw, 54px) 56px; }
+.hero, .page-head {
+  display: flex; justify-content: space-between; gap: 24px; align-items: end;
+  padding-bottom: 24px; border-bottom: 2px solid var(--ink);
+}
+.page-head { display: block; max-width: 900px; }
+.eyebrow { margin: 0 0 6px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { margin-bottom: 6px; font-size: clamp(34px, 5vw, 68px); line-height: .95; letter-spacing: -.03em; max-width: 900px; }
+h2 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+h3 { margin: 0 0 8px; font-size: 13px; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+.hero p, .page-head p { margin-bottom: 0; color: var(--dim); }
+.review-log-heading { display: grid; gap: 8px; }
+.review-log-heading span {
+  display: block; color: var(--ink); font-size: 20px; line-height: 1.25;
+  font-weight: 760; letter-spacing: 0;
+}
+
+.stack { display: grid; gap: 18px; margin-top: 22px; max-width: 1180px; }
+
+/* Inline code in page-head prose. Markdown backticks are not rendered here,
+   so command names use <code> and this is what makes them read as commands. */
+.page-head code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.07));
+  color: var(--text, inherit);
+}

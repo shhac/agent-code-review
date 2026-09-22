@@ -174,16 +174,11 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engi
 	// citing LastReview. That is true of Refreshed detection and false of the
 	// suppression gate, which reads LastOutcome.)
 	rec := reviewRecord(c, verdict, engine.Provenance(ctx), claimedAt, s.priceFn)
-	// The approval permission reaches the agent only as prompt text, and the
-	// agent posts to GitHub itself, so nothing has been enforcing it — an
-	// APPROVED for an author we said must not be approved was recorded as an
-	// approval like any other, and counted as one on the dashboard.
-	//
 	// Detection, not prevention: by the time the verdict comes back the review
 	// is already on GitHub, and rewriting the verdict would destroy the record
 	// of what actually happened there. Loud in the log, and a flag on the row
 	// so the question "has this ever happened" is a query rather than a guess.
-	if verdict.Decision == review.DecisionApproved && !review.CanApprove(facts) {
+	if policyViolation(verdict, facts) {
 		rec.PolicyViolation = true
 		s.logf("review %s#%d: POLICY VIOLATION: approved a PR by @%s, whose %q policy forbids approving",
 			c.Repo, c.Number, c.Author, p.policy.Group)
@@ -205,6 +200,15 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engi
 		return err
 	}
 	return reviewErr
+}
+
+// policyViolation reports an APPROVED the author's policy did not permit. The
+// approval permission reaches the agent only as prompt text, and the agent
+// posts to GitHub itself, so nothing has been enforcing it — an APPROVED for
+// an author we said must not be approved was recorded as an approval like any
+// other, and counted as one on the dashboard.
+func policyViolation(v review.Verdict, f review.Facts) bool {
+	return v.Decision == review.DecisionApproved && !review.CanApprove(f)
 }
 
 // retryAfterError keeps a failed attempt's PR in the queue instead of retiring

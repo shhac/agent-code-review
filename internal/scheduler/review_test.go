@@ -527,6 +527,36 @@ func TestReviewOneCleansUpWhenClaimErrors(t *testing.T) {
 	}
 }
 
+// TestPolicyViolation is the rule alone, without a review around it: only an
+// APPROVED can violate, and it does whenever CanApprove would have said no,
+// for either of its reasons.
+func TestPolicyViolation(t *testing.T) {
+	approve := config.Policy{Review: config.ReviewApprove}
+	comment := config.Policy{Review: config.ReviewComment}
+	ignore := config.Policy{Review: config.ReviewIgnore}
+	cases := []struct {
+		name     string
+		decision string
+		facts    review.Facts
+		want     bool
+	}{
+		{"approved under an approve policy", review.DecisionApproved, review.Facts{Policy: approve}, false},
+		{"approved under a comment policy", review.DecisionApproved, review.Facts{Policy: comment}, true},
+		{"approved for an ignored author (a manual add)", review.DecisionApproved, review.Facts{Policy: ignore}, true},
+		{"approved our own PR under an approve policy", review.DecisionApproved, review.Facts{Policy: approve, AuthorIsGHUser: true}, true},
+		{"commented under a comment policy", review.DecisionCommented, review.Facts{Policy: comment}, false},
+		{"requested changes on our own PR", review.DecisionRequestedChanges, review.Facts{Policy: comment, AuthorIsGHUser: true}, false},
+		{"an error is not a decision", review.DecisionError, review.Facts{Policy: comment}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := policyViolation(review.Verdict{Decision: tc.decision}, tc.facts); got != tc.want {
+				t.Errorf("policyViolation = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestTail pins the log-tail formatter: whitespace-trimmed, newline-flattened,
 // last-n-bytes with an ellipsis when truncated.
 func TestTail(t *testing.T) {

@@ -34,6 +34,7 @@ type fakeStore struct {
 	byKey     map[string]store.Review // review-log lookups, keyed by log key
 	logReview store.Review            // single-review fallback for ReviewByLogKey
 	byLogin   map[string]store.Author // tailnet login -> roster row
+	roster    []store.Author          // what ListAuthors returns
 	groups    map[string]string       // handle -> group
 	tokens    map[bool]int64          // keyed by since.IsZero()
 
@@ -56,6 +57,8 @@ type fakeStore struct {
 	// lastQuery is what the handler asked for, so a test can assert the
 	// endpoint forwarded q, sort and the cursor rather than dropping them.
 	lastQuery store.ReviewQuery
+	// rosterFilter is the repo and group ListAuthors was asked for.
+	rosterFilter [2]string
 }
 
 // steerCall records one SetSteering with the PR it named. The stored value
@@ -191,6 +194,11 @@ func (f *fakeStore) AuthorGroup(_ context.Context, _, handle string) (config.Mem
 		return config.Membership{}, nil
 	}
 	return config.Membership{Group: g, Repo: config.WildcardRepo}, nil
+}
+
+func (f *fakeStore) ListAuthors(_ context.Context, repo, group string) ([]store.Author, error) {
+	f.rosterFilter = [2]string{repo, group}
+	return f.roster, nil
 }
 
 func (f *fakeStore) AuthorByTailscaleLogin(_ context.Context, login string) (store.Author, bool, error) {

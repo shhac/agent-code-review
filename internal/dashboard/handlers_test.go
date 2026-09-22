@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -354,6 +355,75 @@ func TestHandleConfig(t *testing.T) {
 	want := []string{"alpha/admin", "Alpha/web", "zeta/api"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("repos = %v, want %v", got, want)
+	}
+}
+
+// TestHandleAuthors pins what /api/authors serves TODAY, including the contact
+// and identity fields: email, slack_id and tailscale_login ride along on every
+// row because the handler embeds store.Author whole. The endpoint has no
+// authorisation of its own, so this is what any caller that can reach the
+// dashboard receives. The test exists so that any change to that exposure is
+// a deliberate one, visible in review; it is not an endorsement of it.
+func TestHandleAuthors(t *testing.T) {
+	fs := &fakeStore{roster: []store.Author{
+		{
+			Repo: "o/r", GitHubHandle: "octocat", Group: config.GroupApprover,
+			Name: "Octo Cat", Email: "octo@example.com", SlackID: "U123",
+			TailscaleLogin: "octo@example.com",
+		},
+		{Repo: store.WildcardRepo, GitHubHandle: "hubot", Group: config.GroupCommenter},
+	}}
+	w := httptest.NewRecorder()
+	newTestServer(fs, config.Config{}).handleAuthors(w,
+		httptest.NewRequest(http.MethodGet, "/api/authors?repo=o/r&group=approver", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d %s", w.Code, w.Body.String())
+	}
+	if fs.rosterFilter != [2]string{"o/r", "approver"} {
+		t.Errorf("filters = %v, want the repo and group query params forwarded", fs.rosterFilter)
+	}
+
+	var got struct {
+		Authors []map[string]json.RawMessage `json:"authors"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %s: %v", w.Body.String(), err)
+	}
+	if len(got.Authors) != 2 {
+		t.Fatalf("authors = %d rows, want 2", len(got.Authors))
+	}
+	keys := func(row map[string]json.RawMessage) []string {
+		out := make([]string, 0, len(row))
+		for k := range row {
+			out = append(out, k)
+		}
+		slices.Sort(out)
+		return out
+	}
+	full := []string{"email", "github_handle", "group", "name", "policy", "repo", "slack_id", "tailscale_login"}
+	if k := keys(got.Authors[0]); !slices.Equal(k, full) {
+		t.Errorf("full row keys = %v, want %v", k, full)
+	}
+	// omitempty: a row with no contact details sends none of the keys.
+	sparse := []string{"github_handle", "group", "policy", "repo"}
+	if k := keys(got.Authors[1]); !slices.Equal(k, sparse) {
+		t.Errorf("sparse row keys = %v, want %v", k, sparse)
+	}
+	for field, want := range map[string]string{
+		"email": `"octo@example.com"`, "slack_id": `"U123"`, "tailscale_login": `"octo@example.com"`,
+		"name": `"Octo Cat"`, "github_handle": `"octocat"`,
+	} {
+		if g := string(got.Authors[0][field]); g != want {
+			t.Errorf("%s = %s, want %s", field, g, want)
+		}
+	}
+
+	var policy config.Policy
+	if err := json.Unmarshal(got.Authors[0]["policy"], &policy); err != nil {
+		t.Fatalf("decode policy: %v", err)
+	}
+	if policy.Group != config.GroupApprover || policy.Review != config.ReviewApprove {
+		t.Errorf("policy = %+v, want the resolved approver policy", policy)
 	}
 }
 

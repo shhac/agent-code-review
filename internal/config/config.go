@@ -7,10 +7,10 @@
 // The package is split by concern: schema.go (the on-disk structs), defaults.go
 // (resolved getters that fill in zero values), validate.go (value validators +
 // enums), authors.go (the group cascade), scoring.go (the points rules),
-// rawdoc.go (reading and editing the document as a raw map, for what the
-// structs cannot see), unknown.go (keys the schema has no field for), and this
-// file (locating and reading/writing the document). Preserving those keys
-// THROUGH a write is creds.Store{Overlay: true}, not ours.
+// unknown.go (keys the schema has no field for), and this file (locating and
+// reading/writing the document). Preserving those keys THROUGH a write is
+// creds.Store{Overlay: true}, and reaching them from `config get/unset` is
+// lib-agent-cli's WithDocument; neither is ours.
 package config
 
 import (

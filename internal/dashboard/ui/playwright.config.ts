@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { CONFIG_HOME, DAEMON_PORT, DATA_HOME, PROXY_PORT } from './e2e/fixture.mjs';
+import { DAEMON_PORT, PROXY_PORT, XDG_ENV } from './e2e/fixture.mjs';
 
 // The suite runs against the REAL daemon and a real DuckDB store, because the
 // bugs it exists to catch (a stylesheet rule reaching into the wrong subtree,
@@ -31,7 +31,7 @@ export default defineConfig({
       reuseExistingServer: false,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { XDG_CONFIG_HOME: CONFIG_HOME, XDG_DATA_HOME: DATA_HOME },
+      env: XDG_ENV,
     },
     {
       command: 'node e2e/proxy.mjs',

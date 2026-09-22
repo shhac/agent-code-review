@@ -1,7 +1,7 @@
 // Builds and starts the daemon against the seeded scratch store.
 import { execFileSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { CONFIG_HOME, DAEMON_PORT, DATA_HOME, seed } from './fixture.mjs';
+import { DAEMON_PORT, XDG_ENV, seed } from './fixture.mjs';
 
 const repo = join(import.meta.dirname, '..', '..', '..', '..');
 const bin = join(repo, 'agent-code-review');
@@ -15,7 +15,7 @@ execFileSync('make', ['dashboard', 'build'], { cwd: repo, stdio: 'inherit' });
 seed(bin);
 
 const child = spawn(bin, ['serve', '--http', `127.0.0.1:${DAEMON_PORT}`, '--no-discovery', '--no-reviews'], {
-  env: { ...process.env, XDG_CONFIG_HOME: CONFIG_HOME, XDG_DATA_HOME: DATA_HOME },
+  env: { ...process.env, ...XDG_ENV },
   stdio: 'inherit',
 });
 process.on('SIGTERM', () => child.kill('SIGTERM'));

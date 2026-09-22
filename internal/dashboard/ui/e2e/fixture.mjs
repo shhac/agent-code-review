@@ -14,6 +14,15 @@ export const PROXY_PORT = 18941;
 export const ROOT = join(tmpdir(), 'acr-e2e');
 export const CONFIG_HOME = join(ROOT, 'cfg');
 export const DATA_HOME = join(ROOT, 'data');
+// Every XDG root, not just the two the store and config live in: the daemon
+// also writes review workspaces under STATE and the price table under CACHE,
+// and an unset root falls back to the developer's real one.
+export const XDG_ENV = {
+  XDG_CONFIG_HOME: CONFIG_HOME,
+  XDG_DATA_HOME: DATA_HOME,
+  XDG_STATE_HOME: join(ROOT, 'state'),
+  XDG_CACHE_HOME: join(ROOT, 'cache'),
+};
 export const DB = join(DATA_HOME, 'agent-code-review', 'queue.duckdb');
 // The identity the proxy asserts. Matches the roster row seeded below.
 export const VIEWER_LOGIN = 'octo@example.com';
@@ -149,13 +158,18 @@ export function seed(bin) {
   rmSync(ROOT, { recursive: true, force: true });
   mkdirSync(CONFIG_HOME, { recursive: true });
   mkdirSync(DATA_HOME, { recursive: true });
-  const env = { ...process.env, XDG_CONFIG_HOME: CONFIG_HOME, XDG_DATA_HOME: DATA_HOME };
+  const env = { ...process.env, ...XDG_ENV };
   const run = (args) => execFileSync(bin, args, { env, stdio: 'pipe' });
 
   run(['config', 'init']);
   // gh_user is pinned so the operator rule is deterministic: without it the
   // daemon resolves the login through gh, which a test must not depend on.
   run(['config', 'set', 'gh_user', 'paul-gh']);
+  // The daemon polls each reachable engine's subscription headroom, which
+  // runs that CLI against the developer's real login. A binary that does not
+  // exist makes the meter fail open instead, which is all the UI needs.
+  run(['config', 'set', 'codex.bin', 'acr-e2e-no-codex']);
+  run(['config', 'set', 'claude.bin', 'acr-e2e-no-claude']);
   run(['repos', 'add', 'acme/widgets']);
   run(['authors', 'set', '*', 'octocat', 'approver', '--tailscale-login', VIEWER_LOGIN]);
   run(['authors', 'set', '*', 'paul-gh', 'approver', '--tailscale-login', 'paul@example.com']);

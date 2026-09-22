@@ -21,7 +21,7 @@ var (
 	// latest model of each tier, which is what a long-lived config wants;
 	// pinning a dated id stays possible, it just isn't offered.
 	claudeModelValues = []string{
-		"claude-opus-5", "claude-sonnet-5", "claude-fable-5", // pinned ids, as the default is
+		"claude-opus-5-5", "claude-sonnet-5", "claude-fable-5", // pinned ids, as the default is
 		"opus", "sonnet", "fable", "haiku", // aliases, which track the latest of each tier
 	}
 	claudeEffortValues = []string{"low", "medium", "high", "xhigh", "max"}
@@ -150,7 +150,7 @@ func configKeySpecs() []configKeySpec {
 		plain(usageFloorKey("codex", func(c *config.Config) *config.UsageFloorLimits { return &c.Review.Codex.UsageFloor })),
 		plain(stringKey("claude.bin", "Claude Code binary (default claude)",
 			func(c *config.Config) *string { return &c.Review.Claude.Bin }, nil)),
-		static(stringKey("claude.model", "Model passed to claude --model (alias or full id; default claude-opus-5)",
+		static(stringKey("claude.model", "Model passed to claude --model (alias or full id; default claude-opus-5-5)",
 			func(c *config.Config) *string { return &c.Review.Claude.Model }, nil), claudeModelValues),
 		static(stringKey("claude.effort", "Reasoning effort passed to claude --effort (default medium)",
 			func(c *config.Config) *string { return &c.Review.Claude.Effort }, validateOneOf("effort", claudeEffortValues)), claudeEffortValues),

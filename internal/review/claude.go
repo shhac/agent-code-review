@@ -65,18 +65,18 @@ const defaultPermissionMode = autoPermissionMode
 //
 // It must also stay a model auto mode supports (Opus 4.6+, Sonnet 4.6+, or
 // Fable 5), since auto is this engine's default permission mode.
-const defaultModel = "claude-opus-5"
+const defaultModel = "claude-opus-5-5"
 
 // defaultEffort is pinned for the same reason as the model, plus one specific
 // to this engine: the run reports no effort back, so an unpinned effort is
 // also an UNRECORDED one, and history could not tell you which effort
 // produced which cost.
 //
-// medium rather than the xhigh that general Opus 5 coding-and-agentic
-// guidance suggests, because review is the workload that guidance is least
-// true of: on this model code review holds both precision and recall at lower
-// effort, so the extra spend buys little here. If review quality slips, this
-// is the first dial to raise.
+// medium, which is also Opus 5.5's own default, rather than the xhigh that
+// general coding-and-agentic guidance suggests, because review is the workload
+// that guidance is least true of: code review holds both precision and recall
+// at lower effort, so the extra spend buys little here. If review quality
+// slips, this is the first dial to raise.
 const defaultEffort = "medium"
 
 // fallbackAllowedTools is the floor a review cannot run without in the

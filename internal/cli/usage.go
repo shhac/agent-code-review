@@ -421,7 +421,7 @@ ENGINES: both report through the same verdict contract and write the same review
 log, so switching review.engine is a one-key change; only that engine's settings
 block applies. Usage metering and per-review cost follow the selection too.
   codex   sandboxed 'codex exec'; reports tokens, no cost
-  claude  'claude -p', defaults to Opus 5 at medium effort with the permission
+  claude  'claude -p', defaults to Opus 5.5 at medium effort with the permission
           classifier vetting each action; reports tokens AND API-rate cost`
 
 func registerUsage(root *cobra.Command) {

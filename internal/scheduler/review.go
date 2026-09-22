@@ -55,8 +55,9 @@ func (s *Scheduler) runOne(ctx context.Context, p pending) error {
 // spend: PRs approved, merged, or closed while waiting in the queue complete
 // as a precheck SKIPPED instead of being reviewed. Manual adds bypass the
 // check; explicit re-review requests and draft reviews must always go
-// through. A recheck error propagates with nothing recorded; the claim stays,
-// and the stale lease retries next cycle.
+// through. A recheck error propagates with nothing recorded, and reviewOne
+// releases the claim so the dispatcher's backoff paces the retry rather than
+// the lease window.
 func (s *Scheduler) skipIfStale(ctx context.Context, cfg config.Config, c store.Candidate, started time.Time) (bool, error) {
 	if c.Source == store.SourceManual {
 		return false, nil

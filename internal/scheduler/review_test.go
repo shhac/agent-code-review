@@ -742,3 +742,118 @@ func TestApprovalAgainstPolicyIsRecorded(t *testing.T) {
 		}
 	})
 }
+
+// TestReviewOneResumesAnInterruptedSession pins the scheduler's half of crash
+// recovery. The driver's half (resuming when asked) and the log parser are
+// tested in internal/review; what nothing checked is the wiring between them:
+// that a work_dir left on the row by a dead daemon is read BEFORE the claim
+// replaces it, and that its session reaches the engine.
+func TestReviewOneResumesAnInterruptedSession(t *testing.T) {
+	capture := func() (*fakeEngine, *review.Request) {
+		var got review.Request
+		fe := &fakeEngine{fn: func(_ context.Context, req review.Request) (review.Verdict, error) {
+			got = req
+			return review.Verdict{Decision: review.DecisionCommented}, nil
+		}}
+		return fe, &got
+	}
+
+	t.Run("a previous attempt's session is handed to the engine", func(t *testing.T) {
+		prev := t.TempDir()
+		log := "session id: sess-from-the-dead-daemon\n[assistant] looking at the diff\n"
+		if err := os.WriteFile(review.LogPath(prev), []byte(log), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fs := &fakeSchedStore{}
+		fe, got := capture()
+		s := newTestScheduler(fs, fe)
+
+		c := store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1", WorkDir: prev}
+		if err := reviewOne(s, fe, c); err != nil {
+			t.Fatal(err)
+		}
+		if got.ResumeSession != "sess-from-the-dead-daemon" {
+			t.Errorf("ResumeSession = %q, want the session the interrupted attempt left in its log", got.ResumeSession)
+		}
+		// The resumed run still gets a workspace of its own: the claim records
+		// a fresh one, and the old transcript stays where history points at it.
+		if got.WorkDir == prev || len(fs.workDirs) != 1 || fs.workDirs[0] != got.WorkDir {
+			t.Errorf("engine workdir = %q, claimed = %v, want one new workspace distinct from %q", got.WorkDir, fs.workDirs, prev)
+		}
+	})
+
+	t.Run("a work_dir with no transcript is a fresh review", func(t *testing.T) {
+		fs := &fakeSchedStore{}
+		fe, got := capture()
+		s := newTestScheduler(fs, fe)
+
+		c := store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1", WorkDir: t.TempDir()}
+		if err := reviewOne(s, fe, c); err != nil {
+			t.Fatal(err)
+		}
+		if got.ResumeSession != "" {
+			t.Errorf("ResumeSession = %q, want none: nothing to resume degrades to a normal review", got.ResumeSession)
+		}
+	})
+}
+
+// TestReviewOneZeroErrorBackoffRetiresOnFirstError: "0s" is the documented
+// switch for "no retry", and it means the first engine error is final. It
+// completes like any other outcome, with none of the retry path's writes.
+func TestReviewOneZeroErrorBackoffRetiresOnFirstError(t *testing.T) {
+	cfg := config.Config{
+		Review:     config.ReviewSettings{MainPrompt: "MAIN"},
+		Candidates: config.CandidateSettings{ErrorBackoff: "0s"},
+	}
+	fs := &fakeSchedStore{}
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionError}, err: errors.New("boom")}
+	s := newReviewScheduler(fs, fe, Deps{Config: func() config.Config { return cfg }})
+
+	if err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"}); err == nil {
+		t.Fatal("the engine error must still propagate")
+	}
+	if len(fs.completed) != 1 || fs.completed[0].Verdict != review.DecisionError {
+		t.Errorf("a zero backoff must retire the row on the first error, got completed=%+v", fs.completed)
+	}
+	if len(fs.appended) != 0 || len(fs.holds) != 0 || len(fs.cleared) != 0 {
+		t.Errorf("no retry path writes expected: appended=%+v holds=%+v cleared=%v", fs.appended, fs.holds, fs.cleared)
+	}
+}
+
+// holdsFailStore is the review fake with SetHolds broken, the one write in
+// the retry path that lands between two others.
+type holdsFailStore struct {
+	*fakeSchedStore
+}
+
+func (holdsFailStore) SetHolds(context.Context, string, int, map[string]time.Time) error {
+	return errors.New("store unavailable")
+}
+
+// TestReviewOneRetryHoldFailure pins what a failed retry hold leaves behind.
+// The attempt is already in history, the row is neither retired nor released,
+// and the STORE error is what surfaces (the dispatcher backs off on it). Not
+// releasing is the safe half: a released claim with no hold would hand the PR
+// straight back to the dispatcher, the hot loop the hold exists to prevent.
+// The claim instead ages out over the lease window, and because the ERROR row
+// is recorded, a second failure at this head retires the PR rather than
+// retrying again.
+func TestReviewOneRetryHoldFailure(t *testing.T) {
+	fs := &fakeSchedStore{}
+	fe := &fakeEngine{verdict: review.Verdict{Decision: review.DecisionError}, err: errors.New("boom")}
+	s := newScheduler(Deps{Store: holdsFailStore{fs}, NewEngine: fixedEngine(fe)})
+
+	err := reviewOne(s, fe, store.Candidate{Repo: "o/r", Number: 5, HeadSHA: "sha1"})
+	if err == nil || err.Error() != "store unavailable" {
+		t.Fatalf("err = %v, want the SetHolds failure rather than the engine's", err)
+	}
+	if len(fs.appended) != 1 || fs.appended[0].Verdict != review.DecisionError {
+		t.Errorf("the attempt is recorded before the hold is attempted, got %+v", fs.appended)
+	}
+	if len(fs.completed) != 0 {
+		t.Errorf("the row must not be retired, got %+v", fs.completed)
+	}
+	if len(fs.cleared) != 0 {
+		t.Errorf("the claim must not be released without its hold, got cleared=%v", fs.cleared)
+	}
+}

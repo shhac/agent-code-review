@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
 
+	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/store"
 )
 
@@ -91,6 +93,16 @@ func TestListUnderNDJSONMatchesOneRecordPerLine(t *testing.T) {
 	}
 	if listedOut != buf.String() {
 		t.Errorf("NDJSON changed:\n got %q\nwant %q", listedOut, buf.String())
+	}
+}
+
+// A configured gh_user is the answer, not a hint: it must win without asking
+// gh, which may be logged in as somebody else or not at all.
+func TestResolveGHUserPrefersConfig(t *testing.T) {
+	warned := false
+	got := resolveGHUser(context.Background(), config.Config{GHUser: "reviewer-bot"}, func(string, string) { warned = true })
+	if got != "reviewer-bot" || warned {
+		t.Errorf("resolveGHUser = %q (warned %v), want the configured login and no warning", got, warned)
 	}
 }
 

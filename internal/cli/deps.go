@@ -243,6 +243,23 @@ func fetchUsage(ctx context.Context, cfg config.Config) func(string) (usage.Snap
 	}
 }
 
+// resolveGHUser is the account reviews are posted as: gh_user when set, else
+// whoever the gh CLI is logged in as. Failing to learn it is a warning rather
+// than an error, because reviews still run; only the self-review rule goes
+// quiet, so the warning has to say so.
+func resolveGHUser(ctx context.Context, cfg config.Config, warnf func(notice, hint string)) string {
+	if cfg.GHUser != "" {
+		return cfg.GHUser
+	}
+	u, err := discover.CurrentUser(ctx)
+	if err != nil {
+		warnf(fmt.Sprintf("could not resolve gh user (%v); self-review rule will not fire", err),
+			"set gh_user in config, or authenticate the gh CLI")
+		return ""
+	}
+	return u
+}
+
 // buildScheduler wires the discoverer and resolved gh user around an
 // already-open store. Config flows through the getter so cadence, dials, and
 // codex settings reload live (the engine itself is rebuilt per review); the
@@ -263,16 +280,7 @@ func buildScheduler(ctx context.Context, cfgFn func() config.Config, s store.Sto
 			return nil, err
 		}
 	}
-	ghUser := cfg.GHUser
-	if ghUser == "" {
-		if u, err := discover.CurrentUser(ctx); err == nil {
-			ghUser = u
-		} else {
-			warnf(fmt.Sprintf("could not resolve gh user (%v); self-review rule will not fire", err),
-				"set gh_user in config, or authenticate the gh CLI")
-		}
-	}
-
+	ghUser := resolveGHUser(ctx, cfg, warnf)
 	disc := discover.New(cfgFn, s, logs.infof).WithWarnf(logs.warnf).WithSelfLogin(ghUser)
 
 	// Pricing is read from the cache dir, never fetched here: `run`

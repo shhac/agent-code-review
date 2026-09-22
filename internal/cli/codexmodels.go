@@ -22,8 +22,7 @@ type codexModel struct {
 }
 
 func codexModels(ctx context.Context) ([]codexModel, error) {
-	bin := config.Read().Review.Codex.Bin
-	bin = config.DefaultBin("codex", bin)
+	bin := config.Read().ResolveBin("codex")
 	ctx, cancel := context.WithTimeout(ctx, completionTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "debug", "models").Output()

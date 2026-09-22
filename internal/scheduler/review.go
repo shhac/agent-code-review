@@ -164,15 +164,6 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engi
 		s.logf("review %s#%d: engine output tail: %s", c.Repo, c.Number, tail(verdict.Raw, 500))
 	}
 
-	// Every outcome goes to history, SKIPPED/ERROR included.
-	//
-	// Completing RETIRES the queue row, and that is the wrong answer for a
-	// failed attempt. Discovery's same-SHA suppression keys on ANY recorded
-	// outcome, so an ERROR row dropped the PR until somebody pushed a commit:
-	// one rate limit or dropped connection abandoned it silently. (The comment
-	// that used to sit here said errors do not block a future re-review,
-	// citing LastReview. That is true of Refreshed detection and false of the
-	// suppression gate, which reads LastOutcome.)
 	rec := reviewRecord(c, verdict, engine.Provenance(ctx), claimedAt, s.priceFn)
 	// Detection, not prevention: by the time the verdict comes back the review
 	// is already on GitHub, and rewriting the verdict would destroy the record
@@ -187,6 +178,30 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engi
 	// into the SAME atomic history insert Complete already performs: there is
 	// no second write, and no window in which the row exists unscored.
 	s.applyScore(ctx, cfg, &rec, diff)
+	return s.settle(ctx, cfg, c, rec, reviewErr)
+}
+
+// policyViolation reports an APPROVED the author's policy did not permit. The
+// approval permission reaches the agent only as prompt text, and the agent
+// posts to GitHub itself, so nothing has been enforcing it — an APPROVED for
+// an author we said must not be approved was recorded as an approval like any
+// other, and counted as one on the dashboard.
+func policyViolation(v review.Verdict, f review.Facts) bool {
+	return v.Decision == review.DecisionApproved && !review.CanApprove(f)
+}
+
+// settle records the attempt's outcome and hands back the engine's error, if
+// there was one, for the dispatcher's backoff. Every outcome goes to history,
+// SKIPPED/ERROR included.
+//
+// Completing RETIRES the queue row, and that is the wrong answer for a
+// failed attempt. Discovery's same-SHA suppression keys on ANY recorded
+// outcome, so an ERROR row dropped the PR until somebody pushed a commit:
+// one rate limit or dropped connection abandoned it silently. (The comment
+// that used to sit here said errors do not block a future re-review,
+// citing LastReview. That is true of Refreshed detection and false of the
+// suppression gate, which reads LastOutcome.)
+func (s *Scheduler) settle(ctx context.Context, cfg config.Config, c store.Candidate, rec store.Review, reviewErr error) error {
 	if reviewErr != nil {
 		retried, err := s.retryAfterError(ctx, c, rec, cfg)
 		if err != nil {
@@ -200,15 +215,6 @@ func (s *Scheduler) reviewOne(ctx context.Context, p pending, engine review.Engi
 		return err
 	}
 	return reviewErr
-}
-
-// policyViolation reports an APPROVED the author's policy did not permit. The
-// approval permission reaches the agent only as prompt text, and the agent
-// posts to GitHub itself, so nothing has been enforcing it — an APPROVED for
-// an author we said must not be approved was recorded as an approval like any
-// other, and counted as one on the dashboard.
-func policyViolation(v review.Verdict, f review.Facts) bool {
-	return v.Decision == review.DecisionApproved && !review.CanApprove(f)
 }
 
 // retryAfterError keeps a failed attempt's PR in the queue instead of retiring

@@ -17,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/shhac/lib-agent-harness/native"
 )
 
 // verdictSchema constrains the agent's report. codex applies the schema to
@@ -118,20 +120,21 @@ func resolveMaxResumes(configured *int) int {
 }
 
 // resumableRun is one review expressed as the parts the resume policy needs.
-// Every field is engine-specific; the policy that combines them is not, which
-// is the whole reason this lives here instead of in each driver.
+// The invocations and the report are engine-specific; the policy that combines
+// them is not, which is the whole reason this lives here instead of in each
+// driver. Session, spend, and usage are read off the one stream every
+// invocation of the review writes into, because the harness normalises them
+// there for both engines: an engine that reports no cost (codex) simply leaves
+// it 0.
 type resumableRun struct {
 	engine string // names the engine in error text
 	max    int    // resume attempts allowed
 
-	start    func() error                 // the initial invocation; error means the process failed
-	resume   func(sessionID string) error // one nudge against an existing session
-	report   func() (Verdict, error)      // latest report; errEndedOnWorking when the agent yielded early
-	session  func() string                // session id to resume, "" when the run didn't expose one
-	raw      func() string                // full transcript, for Verdict.Raw and error surfacing
-	cost     func() float64               // total API-rate valuation, nil when the engine reports none
-	usage    func() TokenUsage            // token spend across every invocation, nil when unknown
-	rawUsage func() string                // engine usage payloads verbatim, nil when the engine exposes none
+	start  func() error                 // the initial invocation; error means the process failed
+	resume func(sessionID string) error // one nudge against an existing session
+	report func() (Verdict, error)      // latest report; errEndedOnWorking when the agent yielded early
+	raw    func() string                // full transcript, for Verdict.Raw and error surfacing
+	stream *native.Stream               // spans every invocation: session id, usage, cost
 }
 
 // do drives the initial invocation and, when a clean exit's report is WORKING
@@ -144,7 +147,7 @@ func (r resumableRun) do() (Verdict, error) {
 	runErr := r.start()
 	verdict, parseErr := r.report()
 	for resumed := 0; resumed < r.max && runErr == nil && errors.Is(parseErr, errEndedOnWorking); resumed++ {
-		sessionID := r.session()
+		sessionID := r.stream.Snapshot().SessionID
 		if sessionID == "" {
 			break
 		}
@@ -162,46 +165,20 @@ func (r resumableRun) do() (Verdict, error) {
 // whether or not a report came back, and an ERROR that hides what it cost is
 // exactly the row you want to see when the budget looks wrong.
 func (r resumableRun) resolve(verdict Verdict, parseErr, runErr error) (Verdict, error) {
-	raw, cost, usage, rawUsage := r.raw(), r.costUSD(), r.tokenUsage(), r.usageRaw()
+	spent := r.stream.Snapshot()
+	raw := r.raw()
 	if parseErr == nil {
 		verdict.Raw = raw
-		verdict.CostUSD = cost
-		verdict.Tokens = usage
-		verdict.UsageRaw = rawUsage
+		verdict.CostUSD = spent.CostUSD
+		verdict.Tokens = spent.Usage
+		verdict.UsageRaw = spent.RawUsage
 		return verdict, nil
 	}
-	failed := Verdict{Decision: DecisionError, Raw: raw, CostUSD: cost, Tokens: usage, UsageRaw: rawUsage}
+	failed := Verdict{Decision: DecisionError, Raw: raw, CostUSD: spent.CostUSD, Tokens: spent.Usage, UsageRaw: spent.RawUsage}
 	if runErr != nil {
 		return failed, fmt.Errorf("%s: %w", r.engine, runErr)
 	}
 	return failed, fmt.Errorf("%s succeeded but no verdict report: %w", r.engine, parseErr)
-}
-
-// tokenUsage reads the run's token spend, treating an absent accessor as
-// "this engine reports none" rather than requiring a driver to supply a stub.
-func (r resumableRun) tokenUsage() TokenUsage {
-	if r.usage == nil {
-		return TokenUsage{}
-	}
-	return r.usage()
-}
-
-// usageRaw reads the engine's verbatim usage payloads, absent accessor meaning
-// the engine exposes none.
-func (r resumableRun) usageRaw() string {
-	if r.rawUsage == nil {
-		return ""
-	}
-	return r.rawUsage()
-}
-
-// costUSD does the same for the run's API-rate valuation, which only some
-// engines report at all.
-func (r resumableRun) costUSD() float64 {
-	if r.cost == nil {
-		return 0
-	}
-	return r.cost()
 }
 
 // prepareWorkspace resolves the review's workspace, creating a temp one when

@@ -110,11 +110,9 @@ func (e *codexEngine) Review(ctx context.Context, req Request) (Verdict, error) 
 		resume: func(id string) error {
 			return invoke(native.Request{ResumeSession: id, SchemaPath: schemaPath, OutputPath: lastMsgPath, Prompt: e.resumePrompt})
 		},
-		report:   func() (Verdict, error) { return parseVerdict(latest.Report) },
-		session:  func() string { return stream.Snapshot().SessionID },
-		raw:      buf.String,
-		usage:    func() TokenUsage { return stream.Snapshot().Usage },
-		rawUsage: func() string { return stream.Snapshot().RawUsage },
+		report: func() (Verdict, error) { return parseVerdict(latest.Report) },
+		raw:    buf.String,
+		stream: stream,
 	}.do()
 }
 

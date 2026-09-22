@@ -318,24 +318,6 @@ func TestClaudeReviewReportsCost(t *testing.T) {
 	}
 }
 
-// codex supplies no cost accessor at all; the shared resolver must treat that
-// as "unreported" rather than panicking on a nil func.
-func TestResumableRunToleratesMissingCostAccessor(t *testing.T) {
-	v, err := resumableRun{
-		engine: "test",
-		start:  func() error { return nil },
-		report: func() (Verdict, error) { return Verdict{Decision: DecisionApproved}, nil },
-		raw:    func() string { return "" },
-		usage:  func() TokenUsage { return TokenUsage{Input: 7} },
-	}.do()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v.CostUSD != 0 || v.Tokens.Total() != 7 {
-		t.Errorf("verdict = %+v", v)
-	}
-}
-
 // The 21212 shape end to end: the driver must surface the CLI's reason in the
 // error AND in the transcript the dashboard renders.
 func TestClaudeFailureSurfacesReason(t *testing.T) {

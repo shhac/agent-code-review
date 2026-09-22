@@ -198,11 +198,8 @@ func (e *claudeEngine) Review(ctx context.Context, req Request) (Verdict, error)
 			}
 			return parseVerdict(latest.Report)
 		},
-		session:  func() string { return stream.Snapshot().SessionID },
-		raw:      buf.String,
-		cost:     func() float64 { return stream.Snapshot().CostUSD },
-		usage:    func() TokenUsage { return stream.Snapshot().Usage },
-		rawUsage: func() string { return stream.Snapshot().RawUsage },
+		raw:    buf.String,
+		stream: stream,
 	}.do()
 }
 

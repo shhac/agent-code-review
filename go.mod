@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	github.com/shhac/lib-agent-cli v0.25.0
+	github.com/shhac/lib-agent-harness v0.1.0
 	github.com/shhac/lib-agent-mcp v0.23.1
 	github.com/shhac/lib-agent-output v0.12.0
 	github.com/spf13/cobra v1.10.2
@@ -14,7 +15,6 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
-	github.com/shhac/lib-agent-harness v0.1.0
 	github.com/shhac/lib-agent-keyring v0.1.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/zalando/go-keyring v0.2.8 // indirect

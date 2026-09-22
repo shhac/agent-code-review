@@ -2,10 +2,12 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -216,7 +218,18 @@ func newScheduler(d Deps) *Scheduler {
 	if d.StillCandidate == nil {
 		d.StillCandidate = stillACandidate
 	}
+	if d.Diff == nil {
+		d.Diff = unmeasurable
+	}
 	return New(d)
+}
+
+// unmeasurable is the default diff fetch: it fails, which is what the real
+// one did in every test that left the seam empty, since o/r is not a repo.
+// The difference is that it fails without running gh, which otherwise made a
+// real, authenticated GraphQL call to GitHub for each claim in the suite.
+func unmeasurable(context.Context, string, int) (discover.PRDiff, error) {
+	return discover.PRDiff{}, errors.New("no diff in this test")
 }
 
 // sweepFn adapts a function to the Sweeper interface.

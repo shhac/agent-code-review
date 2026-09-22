@@ -50,9 +50,12 @@ type fakeScoreStore struct {
 	measured    map[int]store.DiffStats  // what a re-measure wrote back
 	storedFiles map[int][]score.FileStat // the per-file detail a write persisted
 	failOn      int                      // SetReviewScore returns an error for this PR number
+	queries     []store.ScoreQuery       // every selection asked for
+	refs        []store.ReviewRef        // every row a score was written to
 }
 
-func (f *fakeScoreStore) ReviewsToScore(context.Context, store.ScoreQuery) ([]store.Review, error) {
+func (f *fakeScoreStore) ReviewsToScore(_ context.Context, q store.ScoreQuery) ([]store.Review, error) {
+	f.queries = append(f.queries, q)
 	return f.rows, nil
 }
 
@@ -87,6 +90,7 @@ func (f *fakeScoreStore) SetReviewScore(_ context.Context, ref store.ReviewRef, 
 		f.written = map[int]store.ScoreRecord{}
 	}
 	f.written[ref.Number] = rec
+	f.refs = append(f.refs, ref)
 	return nil
 }
 
@@ -236,5 +240,62 @@ func TestRecomputeReportsWhenItCouldNotRemeasure(t *testing.T) {
 	}
 	if got := fs.measured[1]; got.ScoredAdditions != 40 {
 		t.Errorf("stored counts should be kept as-is, got %+v", got)
+	}
+}
+
+func TestSetScoreRequiresANote(t *testing.T) {
+	fs := &fakeScoreStore{rows: []store.Review{scoredReview(1, store.VerdictApproved, 40, 10, "h", "h")}}
+	if err := setScore(context.Background(), fs, "o/r", 1, 80, ""); err == nil {
+		t.Fatal("a manual score with no note must be refused")
+	}
+	if len(fs.refs) != 0 {
+		t.Errorf("wrote %v without a note", fs.refs)
+	}
+}
+
+func TestSetScoreRefusesAPRWithNoCompletedReview(t *testing.T) {
+	fs := &fakeScoreStore{}
+	if err := setScore(context.Background(), fs, "o/r", 1, 80, "why"); err == nil {
+		t.Fatal("scoring a PR with no completed review must error")
+	}
+}
+
+// The correction has to land on the row the leaderboard counts. It keeps the
+// EARLIEST scored row per head, so a discussion re-review after the first
+// verdict at the same head is the wrong target even though it is the newest.
+func TestSetScoreTargetsTheFirstReviewOfTheLatestRevision(t *testing.T) {
+	base := time.Now().Add(-3 * time.Hour)
+	at := func(n int, head string) store.Review {
+		r := scoredReview(1, store.VerdictCommented, 40, 10, head, head)
+		r.ReviewedAt = base.Add(time.Duration(n) * time.Minute)
+		return r
+	}
+	for _, tc := range []struct {
+		name string
+		rows []store.Review
+		want int
+	}{
+		{"one review", []store.Review{at(0, "h1")}, 0},
+		{"a discussion re-review follows", []store.Review{at(0, "h1"), at(1, "h1")}, 0},
+		{"a new revision, then discussion", []store.Review{at(0, "h1"), at(1, "h2"), at(2, "h2")}, 1},
+		{"the newest is its own revision", []store.Review{at(0, "h1"), at(1, "h1"), at(2, "h2")}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := &fakeScoreStore{rows: tc.rows}
+			if err := setScore(context.Background(), fs, "o/r", 1, 80, "why"); err != nil {
+				t.Fatal(err)
+			}
+			if len(fs.refs) != 1 || !fs.refs[0].ReviewedAt.Equal(tc.rows[tc.want].ReviewedAt) {
+				t.Fatalf("wrote %v, want only the row at %v", fs.refs, tc.rows[tc.want].ReviewedAt)
+			}
+			if got := fs.written[1]; got.Points() != 80 || got.Source != store.ScoreManual || got.Note != "why" {
+				t.Errorf("record = %+v, want a manual 80 with its note", got)
+			}
+			// Correcting a correction must be possible, so the selection
+			// cannot leave manual rows out.
+			if q := fs.queries[0]; !q.IncludeManual || q.Repo != "o/r" || q.Number != 1 {
+				t.Errorf("selection = %+v, want this PR including manual rows", q)
+			}
+		})
 	}
 }

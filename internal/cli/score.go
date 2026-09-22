@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -126,11 +127,14 @@ func scoreSetCmd() *cobra.Command {
 	var note string
 	cmd := &cobra.Command{
 		Use:   "set <owner/repo> <number> <score>",
-		Short: "Set one PR's most recent score by hand",
-		Long: "Overrides the computed score on the PR's LATEST review and marks it\n" +
+		Short: "Set the score of one PR's latest revision by hand",
+		Long: "Overrides the computed score for the PR's LATEST revision and marks it\n" +
 			"manual, which makes it immune to `recompute` unless that is run with\n" +
 			"--include-manual. A correction a later retune silently undid would not\n" +
-			"be a correction.",
+			"be a correction.\n\n" +
+			"The row corrected is the FIRST review at the latest reviewed head,\n" +
+			"because that is the one the leaderboard counts: a later discussion\n" +
+			"re-review at the same head, or a skipped or errored run, earns nothing.",
 		Args:              cobra.ExactArgs(3),
 		ValidArgsFunction: completeRepoThenNumber(false),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -142,32 +146,58 @@ func scoreSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if note == "" {
-				return output.New("A manual score needs --note saying why; it is the only record of the reason",
-					output.FixableByAgent)
-			}
 			return withStore(func(s store.Store) error {
-				last, ok, err := s.LastOutcome(cmd.Context(), repo, number)
-				if err != nil {
-					return err
-				}
-				if !ok {
-					return output.New(fmt.Sprintf("No reviews recorded for %s#%d", repo, number), output.FixableByAgent)
-				}
-				rec := store.ScoreRecord{
-					Score: &points, Source: store.ScoreManual, Note: note,
-					Rules: last.Score.Rules, Bucket: last.Score.Bucket, Attempt: last.Score.Attempt, At: time.Now(),
-				}
-				if err := s.SetReviewScore(cmd.Context(), last.Ref(), rec); err != nil {
-					return err
-				}
-				last.Score = rec
-				return emit(scoreRow(last))
+				return setScore(cmd.Context(), s, repo, number, points, note)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&note, "note", "", "Why this score was set by hand (required)")
 	return cmd
+}
+
+// setScore freezes a manual score onto the row the leaderboard reads for the
+// PR's latest revision.
+//
+// Not simply the newest row. The newest can be a SKIPPED or ERROR outcome,
+// which the leaderboard would then count as a revision of its own, or a
+// discussion re-review at the same head, which the leaderboard drops in favour
+// of the earliest scored row there. Either way the correction landed where
+// nothing reads it. The earliest real review at the latest head is the row the
+// leaderboard keeps once it carries a score, so that is where it goes.
+func setScore(ctx context.Context, s store.Store, repo string, number, points int, note string) error {
+	if note == "" {
+		return output.New("A manual score needs --note saying why; it is the only record of the reason",
+			output.FixableByAgent)
+	}
+	rows, err := s.ReviewsToScore(ctx, store.ScoreQuery{Repo: repo, Number: number, IncludeManual: true})
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return output.New(fmt.Sprintf("No completed reviews recorded for %s#%d", repo, number), output.FixableByAgent)
+	}
+	target := latestRevision(rows)
+	rec := store.ScoreRecord{
+		Score: &points, Source: store.ScoreManual, Note: note,
+		Rules: target.Score.Rules, Bucket: target.Score.Bucket, Attempt: target.Score.Attempt, At: time.Now(),
+	}
+	if err := s.SetReviewScore(ctx, target.Ref(), rec); err != nil {
+		return err
+	}
+	target.Score = rec
+	return emit(scoreRow(target))
+}
+
+// latestRevision picks the first review at the newest review's head, from rows
+// ordered oldest first as ReviewsToScore returns them.
+func latestRevision(rows []store.Review) store.Review {
+	head := rows[len(rows)-1].HeadSHA
+	for _, r := range rows {
+		if r.HeadSHA == head {
+			return r
+		}
+	}
+	return rows[len(rows)-1]
 }
 
 func scoreLeaderboardCmd() *cobra.Command {

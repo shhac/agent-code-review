@@ -60,8 +60,7 @@ func (d *duckDB) ScoreContext(ctx context.Context, repo string, number int, head
 // enforces it, so every write through it counts what it matched and refuses
 // rather than scoring two rows on a coincidence.
 func (d *duckDB) refersToOneRow(ctx context.Context, ref ReviewRef) error {
-	where := fmt.Sprintf("%s AND reviewed_at = %s", prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt))
-	n, _, err := queryOne(ctx, d, "SELECT count(*) AS n FROM history WHERE "+where, scanCount)
+	n, _, err := queryOne(ctx, d, "SELECT count(*) AS n FROM history WHERE "+refWhere(ref), scanCount)
 	if err != nil {
 		return err
 	}
@@ -79,18 +78,10 @@ func (d *duckDB) refersToOneRow(ctx context.Context, ref ReviewRef) error {
 // SetReviewScore freezes a score onto one history row, leaving its measured
 // counts alone.
 func (d *duckDB) SetReviewScore(ctx context.Context, ref ReviewRef, s ScoreRecord) error {
-	where := fmt.Sprintf("%s AND reviewed_at = %s", prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt))
 	if err := d.refersToOneRow(ctx, ref); err != nil {
 		return err
 	}
-
-	at := s.At
-	if at.IsZero() {
-		at = time.Now()
-	}
-	return d.exec(ctx, fmt.Sprintf(
-		"UPDATE history SET score = %s, score_source = %s, score_rules = %s, score_bucket = %s, score_note = %s, score_attempt = %s, scored_at = %s WHERE %s",
-		intOrNull(s.Score), nullText(s.Source), nullText(s.Rules), nullText(s.Bucket), nullText(s.Note), intOrNull(s.Attempt), ts(at), where))
+	return d.exec(ctx, "UPDATE history SET "+scoreAssignments(s, time.Now())+" WHERE "+refWhere(ref))
 }
 
 // SetReviewScoring writes a re-measured diff, the per-file detail behind it,
@@ -112,16 +103,30 @@ func (d *duckDB) SetReviewScoring(ctx context.Context, ref ReviewRef, diff DiffS
 	if err := d.refersToOneRow(ctx, ref); err != nil {
 		return err
 	}
+	return d.exec(ctx, fmt.Sprintf(
+		"UPDATE history SET additions = %d, deletions = %d, changed_files = %d, scored_additions = %d, scored_deletions = %d, excluded_files = %d, diff_sha = %s, diff_files = %s, %s WHERE %s",
+		diff.Additions, diff.Deletions, diff.ChangedFiles, diff.ScoredAdditions, diff.ScoredDeletions, diff.ExcludedFiles, nullText(diff.DiffSHA), nullText(marshalFiles(files)),
+		scoreAssignments(s, time.Now()), refWhere(ref)))
+}
+
+// refWhere addresses one history row by its natural key, which is all history
+// has (see refersToOneRow). tsExact, not ts: rows keep sub-second precision,
+// and a truncated instant matches nothing.
+func refWhere(ref ReviewRef) string {
+	return prWhere(ref.Repo, ref.Number) + " AND reviewed_at = " + tsExact(ref.ReviewedAt)
+}
+
+// scoreAssignments is the SET list that freezes a score onto a row, shared by
+// the score-only write and the one that re-measures too, so the two cannot
+// disagree about which columns a score is. A record with no instant of its own
+// is stamped now.
+func scoreAssignments(s ScoreRecord, now time.Time) string {
 	at := s.At
 	if at.IsZero() {
-		at = time.Now()
+		at = now
 	}
-	return d.exec(ctx, fmt.Sprintf(
-		"UPDATE history SET additions = %d, deletions = %d, changed_files = %d, scored_additions = %d, scored_deletions = %d, excluded_files = %d, diff_sha = %s, diff_files = %s, "+
-			"score = %s, score_source = %s, score_rules = %s, score_bucket = %s, score_note = %s, score_attempt = %s, scored_at = %s WHERE %s AND reviewed_at = %s",
-		diff.Additions, diff.Deletions, diff.ChangedFiles, diff.ScoredAdditions, diff.ScoredDeletions, diff.ExcludedFiles, nullText(diff.DiffSHA), nullText(marshalFiles(files)),
-		intOrNull(s.Score), nullText(s.Source), nullText(s.Rules), nullText(s.Bucket), nullText(s.Note), intOrNull(s.Attempt), ts(at),
-		prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt)))
+	return fmt.Sprintf("score = %s, score_source = %s, score_rules = %s, score_bucket = %s, score_note = %s, score_attempt = %s, scored_at = %s",
+		intOrNull(s.Score), nullText(s.Source), nullText(s.Rules), nullText(s.Bucket), nullText(s.Note), intOrNull(s.Attempt), ts(at))
 }
 
 // ReviewsToScore selects history rows a scoring sweep should visit, oldest
@@ -330,9 +335,8 @@ func (d *duckDB) ReviewFiles(ctx context.Context, ref ReviewRef) ([]score.FileSt
 	// as an already-parsed value, which stringifies as Go map syntax rather
 	// than as JSON and then fails to decode. Asking for text keeps the
 	// round trip honest.
-	raw, ok, err := queryOne(ctx, d, fmt.Sprintf(
-		"SELECT CAST(diff_files AS VARCHAR) AS f FROM history WHERE %s AND reviewed_at = %s",
-		prWhere(ref.Repo, ref.Number), tsExact(ref.ReviewedAt)),
+	raw, ok, err := queryOne(ctx, d,
+		"SELECT CAST(diff_files AS VARCHAR) AS f FROM history WHERE "+refWhere(ref),
 		func(m map[string]any) (string, error) {
 			r := &row{values: m}
 			return r.str("f"), r.err

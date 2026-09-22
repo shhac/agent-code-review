@@ -115,6 +115,7 @@ func TestConfigCheckPassesWhenNothingConflicts(t *testing.T) {
 
 // Whatever Run returns, no two checks may share a name.
 func TestRunEmitsUniqueCheckNames(t *testing.T) {
+	isolateFromInstalledTools(t)
 	seen := map[string]int{}
 	for _, c := range Run(t.Context(), config.Config{}) {
 		seen[c.Name]++
@@ -155,6 +156,7 @@ func TestAuthCheck(t *testing.T) {
 // engine would be the opposite mistake, failing a deploy over an engine
 // nothing references.
 func TestRunProbesTheReachableEngineSet(t *testing.T) {
+	isolateFromInstalledTools(t)
 	engineChecksIn := func(cfg config.Config) map[string]bool {
 		found := map[string]bool{}
 		for _, c := range Run(t.Context(), cfg) {
@@ -238,4 +240,13 @@ func TestEngineChecksRefusesToGuessAnUnknownEngine(t *testing.T) {
 	if !strings.Contains(c.Hint, "codex") || !strings.Contains(c.Hint, "claude") {
 		t.Errorf("the hint must list the engines that do exist, got %q", c.Hint)
 	}
+}
+
+// isolateFromInstalledTools empties PATH for tests that drive Run for its
+// SHAPE (which checks it emits), not its verdicts. Otherwise Run probes the
+// developer's real gh, codex, claude and duckdb, including their auth status
+// against real logins, and the test's outcome quietly depends on the machine.
+func isolateFromInstalledTools(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
 }

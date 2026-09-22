@@ -7,7 +7,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -92,9 +91,9 @@ const reviewInFlightMsg = "a review of this PR is running; its instructions are 
 // Server. It does not judge the message — the hold endpoint shares this parser
 // and has no message to judge, and message rules belong with the other rungs
 // in steeringRefusal rather than split across two places.
-func parseSteeringReq(r *http.Request) (steeringReq, string, *apiErr) {
-	var req steeringReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Repo == "" || req.Number <= 0 {
+func parseSteeringReq(w http.ResponseWriter, r *http.Request) (steeringReq, string, *apiErr) {
+	req, err := decodeBody[steeringReq](w, r)
+	if err != nil || req.Repo == "" || req.Number <= 0 {
 		return req, "", &apiErr{http.StatusBadRequest,
 			`need {"repo": "owner/name", "number": N, "message": "..."}`}
 	}
@@ -133,7 +132,7 @@ func (s *Server) handleSteering(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	req, msg, bad := parseSteeringReq(r)
+	req, msg, bad := parseSteeringReq(w, r)
 	if bad != nil {
 		httpError(w, bad.code, bad.msg)
 		return

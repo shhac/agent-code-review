@@ -249,6 +249,59 @@ func TestHandleQueueReorder(t *testing.T) {
 	}
 }
 
+// TestWriteEndpointsBoundTheBody pins the one body cap every write endpoint
+// shares. Only the score simulator used to have one, so every other endpoint
+// buffered whatever it was sent; under --tailscale funnel that is anyone.
+//
+// The oversized body is the SAME request padded with leading whitespace, which
+// JSON ignores: the control shows the request is otherwise one the endpoint
+// accepts (or refuses for a reason other than its body), so a 400 can only be
+// the cap. Steering and the hold answer the control with 401 because the test
+// caller is anonymous; that is still not the 400 the cap produces.
+func TestWriteEndpointsBoundTheBody(t *testing.T) {
+	cases := []struct {
+		name    string
+		handler func(*Server) http.HandlerFunc
+		method  string
+		body    string
+		control int
+	}{
+		{"add", func(s *Server) http.HandlerFunc { return s.handleQueue }, http.MethodPost, `{"url":"o/r/pull/7"}`, http.StatusOK},
+		{"remove", func(s *Server) http.HandlerFunc { return s.handleQueue }, http.MethodDelete, `{"repo":"o/r","number":1}`, http.StatusOK},
+		{"preflight", func(s *Server) http.HandlerFunc { return s.handleQueuePreflight }, http.MethodPost, `{"url":"o/r/pull/7"}`, http.StatusOK},
+		{"promote", func(s *Server) http.HandlerFunc { return s.handleQueuePromote }, http.MethodPost, `{"repo":"o/r","number":1}`, http.StatusOK},
+		{"reorder", func(s *Server) http.HandlerFunc { return s.handleQueueReorder }, http.MethodPost, `{"order":[{"repo":"o/r","number":1}]}`, http.StatusOK},
+		{"steering", func(s *Server) http.HandlerFunc { return s.handleSteering }, http.MethodPost, `{"repo":"o/r","number":1,"message":"hi"}`, http.StatusUnauthorized},
+		{"hold", func(s *Server) http.HandlerFunc { return s.handleSteeringHold }, http.MethodPost, `{"repo":"o/r","number":1}`, http.StatusUnauthorized},
+		{"simulate", func(s *Server) http.HandlerFunc { return s.handleScoreSimulate }, http.MethodPost, `{"scoring":{},"cells":1}`, http.StatusOK},
+	}
+	padding := strings.Repeat(" ", maxBodyBytes)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			build := func() (*Server, *fakeStore) {
+				fs := &fakeStore{queue: []store.Candidate{{Repo: "o/r", Number: 1, Author: "a"}}}
+				return newTestServer(fs, config.Config{Repos: []string{"o/r"}}), fs
+			}
+			s, _ := build()
+			if code, resp := doJSON(t, tc.handler(s), tc.method, "/", tc.body); code != tc.control {
+				t.Fatalf("control = %d %v, want %d: the unpadded request must not already be refused for its body", code, resp, tc.control)
+			}
+			s, fs := build()
+			code, resp := doJSON(t, tc.handler(s), tc.method, "/", padding+tc.body)
+			if code != http.StatusBadRequest {
+				t.Fatalf("oversized body = %d %v, want 400", code, resp)
+			}
+			if resp["error"] == "" || resp["error"] == nil {
+				t.Errorf("oversized body must carry the error envelope, got %v", resp)
+			}
+			if n := len(fs.enqueued) + len(fs.dequeued) + len(fs.promoted) + len(fs.positions) +
+				len(fs.steered) + len(fs.cleared) + len(fs.holdsSet) + len(fs.holdsGone); n != 0 {
+				t.Errorf("an oversized body wrote %d times; it must write nothing", n)
+			}
+		})
+	}
+}
+
 // TestHandleUsage pins the no-cache branch: token sums come from the store
 // even when the daemon isn't polling codex usage.
 func TestHandleUsage(t *testing.T) {

@@ -49,7 +49,7 @@ func (s *Server) handleSteeringHold(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST or DELETE only")
 		return
 	}
-	req, _, bad := parseSteeringReq(r)
+	req, _, bad := parseSteeringReq(w, r)
 	if bad != nil {
 		httpError(w, bad.code, bad.msg)
 		return

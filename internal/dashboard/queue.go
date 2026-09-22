@@ -7,7 +7,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -35,7 +34,7 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 
 // removeFromQueue drops a candidate entirely: the "changed our mind" path.
 func (s *Server) removeFromQueue(w http.ResponseWriter, r *http.Request) {
-	req, ok := decodePRRef(r)
+	req, ok := decodePRRef(w, r)
 	if !ok {
 		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
 		return
@@ -119,8 +118,8 @@ type addReq struct {
 // check is not optional, and having one function do it means add and preflight
 // cannot come to different conclusions about what is acceptable.
 func (s *Server) decodeWatchedPR(w http.ResponseWriter, r *http.Request) (addReq, prref.Ref, bool) {
-	var req addReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+	req, err := decodeBody[addReq](w, r)
+	if err != nil || req.URL == "" {
 		httpError(w, http.StatusBadRequest, `need {"url": "https://github.com/owner/repo/pull/N" or "owner/repo/pull/N"}`)
 		return req, prref.Ref{}, false
 	}
@@ -213,10 +212,10 @@ func (s *Server) addToQueue(w http.ResponseWriter, r *http.Request) {
 }
 
 // decodePRRef decodes the queue-row wire shape shared by the remove and
-// promote request bodies (add is url-only; reorder decodes its list inline).
-func decodePRRef(r *http.Request) (prref.Ref, bool) {
-	var req prref.Ref
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// promote request bodies (add is url-only; reorder sends a list of them).
+func decodePRRef(w http.ResponseWriter, r *http.Request) (prref.Ref, bool) {
+	req, err := decodeBody[prref.Ref](w, r)
+	if err != nil {
 		return prref.Ref{}, false
 	}
 	return req, req.Valid()
@@ -232,7 +231,7 @@ func (s *Server) handleQueuePromote(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	req, ok := decodePRRef(r)
+	req, ok := decodePRRef(w, r)
 	if !ok {
 		httpError(w, http.StatusBadRequest, `need {"repo": "owner/name", "number": N}`)
 		return
@@ -246,6 +245,11 @@ func (s *Server) handleQueuePromote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, queuePromoteResp{Promoted: true})
 }
 
+// reorderReq is the complete new order of the reorderable rows.
+type reorderReq struct {
+	Order []prref.Ref `json:"order"`
+}
+
 // handleQueueReorder replaces the queued ordering in one write: the drag-and-
 // drop UI sends the complete new order of the reorderable (unclaimed) rows.
 // Rows under a live review claim are pinned: they cannot be reordered, and
@@ -255,10 +259,8 @@ func (s *Server) handleQueueReorder(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "POST only")
 		return
 	}
-	var req struct {
-		Order []prref.Ref `json:"order"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Order) == 0 {
+	req, err := decodeBody[reorderReq](w, r)
+	if err != nil || len(req.Order) == 0 {
 		httpError(w, http.StatusBadRequest, `need {"order": [{"repo", "number"}, ...]} covering every queued PR`)
 		return
 	}

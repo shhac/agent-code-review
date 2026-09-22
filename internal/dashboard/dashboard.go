@@ -271,6 +271,23 @@ func reqCtx(r *http.Request, d time.Duration) (context.Context, context.CancelFu
 	return context.WithTimeout(r.Context(), d)
 }
 
+// maxBodyBytes bounds every request body the dashboard decodes. The largest
+// legitimate one is a scoring document for /api/score/simulate, a few KB, so a
+// megabyte is generous; unbounded, a single request could make the daemon
+// buffer whatever it was sent, and under --tailscale funnel the sender is the
+// public internet.
+const maxBodyBytes = 1 << 20
+
+// decodeBody reads a JSON request body into T, refusing one over
+// maxBodyBytes. The bound lives here rather than at each endpoint because it
+// used to live at one of them: every other write endpoint read its body
+// unbounded.
+func decodeBody[T any](w http.ResponseWriter, r *http.Request) (T, error) {
+	var v T
+	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes)).Decode(&v)
+	return v, err
+}
+
 // serveGet is the one single-fetch GET transport frame: request-scoped
 // timeout, the standard error envelope, and the JSON write, so a new
 // endpoint cannot silently omit any of the three. Handlers keep only

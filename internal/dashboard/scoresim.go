@@ -11,7 +11,6 @@ package dashboard
 // gets numbers and paints them.
 
 import (
-	"encoding/json"
 	"math"
 	"net/http"
 	"strings"
@@ -111,8 +110,8 @@ func (s *Server) handleScoreSimulate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	var req scoreSimReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+	req, err := decodeBody[scoreSimReq](w, r)
+	if err != nil {
 		httpError(w, http.StatusBadRequest, "body must be a scoring document: "+err.Error())
 		return
 	}

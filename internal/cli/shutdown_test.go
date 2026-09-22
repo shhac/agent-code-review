@@ -14,11 +14,11 @@ func TestShutdownController(t *testing.T) {
 		signals := make(chan os.Signal, 2)
 		logs := &testLogs{}
 		shutdown := newShutdownController(context.Background(), signals, logs.logf)
-		defer shutdown.stop()
+		defer shutdown.cancelAll()
 
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.gracefulCtx(), "graceful context")
-		assertNotDone(t, shutdown.reviewCtx(), "review context")
+		waitDone(t, shutdown.Graceful, "graceful context")
+		assertNotDone(t, shutdown.Force, "force context")
 		if !logs.contains("stopping discovery and review scheduling") {
 			t.Fatalf("missing graceful shutdown log: %#v", logs.lines)
 		}
@@ -28,12 +28,12 @@ func TestShutdownController(t *testing.T) {
 		signals := make(chan os.Signal, 2)
 		logs := &testLogs{}
 		shutdown := newShutdownController(context.Background(), signals, logs.logf)
-		defer shutdown.stop()
+		defer shutdown.cancelAll()
 
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.gracefulCtx(), "graceful context")
+		waitDone(t, shutdown.Graceful, "graceful context")
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.reviewCtx(), "review context")
+		waitDone(t, shutdown.Force, "force context")
 		if !logs.contains("again") || !logs.contains("force shutdown") {
 			t.Fatalf("missing force shutdown log: %#v", logs.lines)
 		}
@@ -48,11 +48,11 @@ func TestShutdownController(t *testing.T) {
 		signals := make(chan os.Signal, 2)
 		logs := &testLogs{}
 		shutdown := newShutdownController(context.Background(), signals, logs.logf)
-		defer shutdown.stop()
+		defer shutdown.cancelAll()
 
 		signals <- syscall.SIGTERM
-		waitDone(t, shutdown.gracefulCtx(), "graceful context")
-		assertNotDone(t, shutdown.reviewCtx(), "review context")
+		waitDone(t, shutdown.Graceful, "graceful context")
+		assertNotDone(t, shutdown.Force, "force context")
 		// The log has to name the signal: "why did the daemon stop" is the
 		// first question after an unexplained restart.
 		if !logs.contains("terminated") {
@@ -67,12 +67,12 @@ func TestShutdownController(t *testing.T) {
 		signals := make(chan os.Signal, 2)
 		logs := &testLogs{}
 		shutdown := newShutdownController(context.Background(), signals, logs.logf)
-		defer shutdown.stop()
+		defer shutdown.cancelAll()
 
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.gracefulCtx(), "graceful context")
+		waitDone(t, shutdown.Graceful, "graceful context")
 		signals <- syscall.SIGTERM
-		waitDone(t, shutdown.reviewCtx(), "review context")
+		waitDone(t, shutdown.Force, "force context")
 		if !logs.contains("force shutdown") {
 			t.Fatalf("missing force shutdown log: %#v", logs.lines)
 		}
@@ -88,10 +88,10 @@ func TestShutdownController(t *testing.T) {
 		shutdown := newShutdownController(context.Background(), signals, logs.logf)
 
 		signals <- syscall.SIGINT
-		waitDone(t, shutdown.gracefulCtx(), "graceful context")
+		waitDone(t, shutdown.Graceful, "graceful context")
 
-		shutdown.stop() // what serve's deferred cleanup does once draining is done
-		waitDone(t, shutdown.reviewCtx(), "review context")
+		shutdown.cancelAll() // what serve's deferred cleanup does once draining is done
+		waitDone(t, shutdown.Force, "force context")
 		if logs.contains("force shutdown") {
 			t.Fatalf("a clean drain must not log a forced shutdown: %#v", logs.lines)
 		}
@@ -100,11 +100,11 @@ func TestShutdownController(t *testing.T) {
 	t.Run("parent cancellation stops both contexts", func(t *testing.T) {
 		parent, cancel := context.WithCancel(context.Background())
 		shutdown := newShutdownController(parent, make(chan os.Signal), func(string, ...any) {})
-		defer shutdown.stop()
+		defer shutdown.cancelAll()
 
 		cancel()
-		waitDone(t, shutdown.gracefulCtx(), "graceful context")
-		waitDone(t, shutdown.reviewCtx(), "review context")
+		waitDone(t, shutdown.Graceful, "graceful context")
+		waitDone(t, shutdown.Force, "force context")
 	})
 }
 

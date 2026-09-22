@@ -90,10 +90,10 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	signal.Notify(sigCh, shutdownSignals...)
 	defer signal.Stop(sigCh)
 	shutdown := newShutdownController(ctx, sigCh, logf)
-	defer shutdown.stop()
+	defer shutdown.cancelAll()
 
 	// Bring up the Tailscale tunnel (if requested) and derive the public URL.
-	publicURL, tsDown, err := tailscale.Wire(shutdown.reviewCtx(), opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
+	publicURL, tsDown, err := tailscale.Wire(shutdown.Force, opts.tailscaleMode, opts.tailscalePort, opts.addr, opts.publicURL)
 	if err != nil {
 		return err
 	}
@@ -105,8 +105,8 @@ func runServe(ctx context.Context, opts serveOpts) error {
 		defer func() { _ = tsDown() }()
 	}
 
-	logBootDiagnostics(shutdown.reviewCtx(), cfg, logf)
-	usageCache := startPolls(shutdown.gracefulCtx(), cfg, s, logf)
+	logBootDiagnostics(shutdown.Force, cfg, logf)
+	usageCache := startPolls(shutdown.Graceful, cfg, s, logf)
 
 	running := runningLoops(opts, cfg)
 	dash := dashboard.NewServer(dashboard.Deps{
@@ -123,19 +123,19 @@ func runServe(ctx context.Context, opts serveOpts) error {
 	// per address" guard, and the loops fire immediately on start; an
 	// accidental second instance must die here, not after it has already
 	// claimed a PR and spent an engine invocation.
-	srv, err := startDashboard(opts.addr, dash, logf, shutdown.graceful)
+	srv, err := startDashboard(opts.addr, dash, logf, shutdown.beginGraceful)
 	if err != nil {
 		return err
 	}
 	// The cache was already keyed by engine so the dashboard could show both;
 	// the floor now reads it the same way, because either engine can run.
-	schedDone, err := startScheduler(ctx, running, config.Read, s, sinks, usageCache.Get, shutdown)
+	schedDone, err := startScheduler(ctx, running, config.Read, s, sinks, usageCache.Get, shutdown.Stop)
 	if err != nil {
 		return err
 	}
 
-	<-shutdown.gracefulCtx().Done()
-	forced := waitForScheduler(schedDone, shutdown.reviewCtx(), logf)
+	<-shutdown.Graceful.Done()
+	forced := waitForScheduler(schedDone, shutdown.Force, logf)
 	if forced {
 		_ = srv.Close()
 		return nil
@@ -253,7 +253,7 @@ func startDashboard(addr string, dash *dashboard.Server, logf scheduler.Logf, st
 	return srv, nil
 }
 
-func startScheduler(ctx context.Context, running dashboard.Running, cfg func() config.Config, s store.Store, sinks logSinks, usageFn scheduler.UsageFn, shutdown shutdownController) (<-chan error, error) {
+func startScheduler(ctx context.Context, running dashboard.Running, cfg func() config.Config, s store.Store, sinks logSinks, usageFn scheduler.UsageFn, stop scheduler.Stop) (<-chan error, error) {
 	if !running.Discovery && !running.Review {
 		sinks.infof("scheduler: both loops disabled (config discovery.enabled/schedule.enabled, or --no-schedule/--no-discovery/--no-reviews)")
 		return nil, nil
@@ -267,7 +267,7 @@ func startScheduler(ctx context.Context, running dashboard.Running, cfg func() c
 	}
 	done := make(chan error, 1)
 	go func() {
-		err := sched.StartGraceful(shutdown.stopCtxs, running.Discovery, running.Review)
+		err := sched.StartGraceful(stop, running.Discovery, running.Review)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			sinks.warnf("scheduler stopped: %v", err)
 		}

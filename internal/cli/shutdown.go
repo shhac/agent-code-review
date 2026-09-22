@@ -14,20 +14,18 @@ import (
 )
 
 type shutdownController struct {
-	// stopCtxs is the pair the scheduler takes whole, so the two contexts
-	// cannot be handed over the wrong way round.
-	stopCtxs scheduler.Stop
-	graceful func()
-	stop     func()
+	// Graceful stops NEW work; Force ends work already running, and with it
+	// anything that must last until the daemon actually exits. Embedded as
+	// the pair the scheduler takes whole, so the two contexts cannot be
+	// handed over the wrong way round.
+	scheduler.Stop
+	beginGraceful func()
+	cancelAll     func()
 }
-
-// gracefulCtx stops NEW work; reviewCtx ends work already running.
-func (c shutdownController) gracefulCtx() context.Context { return c.stopCtxs.Graceful }
-func (c shutdownController) reviewCtx() context.Context   { return c.stopCtxs.Force }
 
 func newShutdownController(ctx context.Context, signals <-chan os.Signal, logf scheduler.Logf) shutdownController {
 	gracefulCtx, gracefulStop := context.WithCancel(ctx)
-	reviewCtx, forceStop := context.WithCancel(ctx)
+	forceCtx, forceStop := context.WithCancel(ctx)
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -42,14 +40,14 @@ func newShutdownController(ctx context.Context, signals <-chan os.Signal, logf s
 			case sig := <-signals:
 				logf("shutdown: received %s again: force shutdown", sig)
 				forceStop()
-			case <-reviewCtx.Done():
+			case <-forceCtx.Done():
 			}
 		}
 	}()
 	return shutdownController{
-		stopCtxs: scheduler.Stop{Graceful: gracefulCtx, Force: reviewCtx},
-		graceful: gracefulStop,
-		stop: func() {
+		Stop:          scheduler.Stop{Graceful: gracefulCtx, Force: forceCtx},
+		beginGraceful: gracefulStop,
+		cancelAll: func() {
 			gracefulStop()
 			forceStop()
 		},

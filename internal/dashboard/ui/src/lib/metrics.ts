@@ -1,3 +1,4 @@
+import { durSecs, modelLabel, statusLabel, tokens } from './format';
 import type { MetricsResponse } from './types';
 
 export type ColourMode = 'verdict' | 'model';
@@ -57,6 +58,36 @@ export function scatterPos(point: ScatterPoint, maxDuration: number, maxTokens: 
 		x: SCATTER_INSET + (point.duration_secs / maxDuration) * SCATTER_SPAN_X,
 		y: SCATTER_INSET + (point.fresh_tokens / maxTokens) * SCATTER_SPAN_Y,
 	};
+}
+
+// One scatter dot, placed and described: the plot draws these rather than
+// working each one out in its markup.
+export type ScatterDot = { point: ScatterPoint; cls: string; x: number; y: number; label: string };
+
+export function scatterDots(
+  scatter: ScatterPoint[],
+  mode: ColourMode,
+  slots: Map<string, number>,
+  maxDuration: number,
+  maxTokens: number,
+): ScatterDot[] {
+  return scatter.map((point) => {
+    const { x, y } = scatterPos(point, maxDuration, maxTokens);
+    return { point, cls: scatterClass(point, mode, slots), x, y, label: scatterLabel(point) };
+  });
+}
+
+// The accessible name of a dot: everything its hover tip says, in one line.
+export function scatterLabel(point: ScatterPoint): string {
+  const model = `${modelLabel(point.model)} / ${point.effort || 'model default'}`;
+  const volume = `${tokens(point.fresh_tokens) || 'unknown'} tokens`;
+  return `${model} · ${statusLabel(point.verdict)} · ${volume} · ${durSecs(point.duration_secs) || 'unknown duration'}`;
+}
+
+// A day's review bar as a percentage of the plot height. Floored at 3% so a
+// day with any reviews at all never renders as nothing.
+export function barHeight(reviews: number, maxReviews: number): number {
+  return Math.max(3, (reviews / maxReviews) * 100);
 }
 
 // Round tick values for a 0..max axis, sized to land about three ticks, each

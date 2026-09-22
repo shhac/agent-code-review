@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cacheShare, costTitle, estimatedShare, metricFacets, modelKey, modelSlots, scatterClass, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing, versionSummary } from './metrics';
+import { barHeight, cacheShare, costTitle, estimatedShare, metricFacets, modelKey, modelSlots, scatterClass, scatterDots, scatterLabel, scatterPos, scatterTicksX, scatterTicksY, scatterTipStyle, trendPoints, verdictRing, versionSummary } from './metrics';
 
 const scatter = (...models: string[]) => models.map((model) => ({ model }) as any);
 
@@ -181,5 +181,31 @@ describe('versionSummary', () => {
   it('invites expansion when several versions are behind the row', () => {
     expect(versionSummary(row([{ engine_version: 'v1' }, { engine_version: 'v2' }], 9)))
       .toBe('9 reviews across 2 CLI versions, expand for the breakdown');
+  });
+});
+
+describe('scatterDots', () => {
+  const point = { model: 'gpt-5.6-terra', effort: 'high', verdict: 'APPROVED', fresh_tokens: 50, duration_secs: 100 };
+
+  it('places, colours and names each dot the way the helpers do', () => {
+    const slots = modelSlots([point]);
+    expect(scatterDots([point], 'verdict', slots, 100, 100)).toEqual([
+      { point, cls: 'approved', ...scatterPos(point, 100, 100), label: scatterLabel(point) },
+    ]);
+    expect(scatterDots([point], 'model', slots, 100, 100)[0].cls).toBe('model-0');
+  });
+
+  it('names a dot by model, effort, outcome, tokens and time', () => {
+    expect(scatterLabel({ ...point, verdict: 'REQUESTED_CHANGES', fresh_tokens: 0, duration_secs: 0, effort: '', model: '' })).toBe(
+      'engine default / model default · REQUESTED CHANGES · unknown tokens · unknown duration',
+    );
+  });
+});
+
+describe('barHeight', () => {
+  it('scales to the busiest day and keeps a quiet day visible', () => {
+    expect(barHeight(10, 10)).toBe(100);
+    expect(barHeight(5, 10)).toBe(50);
+    expect(barHeight(0, 10)).toBe(3);
   });
 });

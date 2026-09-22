@@ -48,7 +48,7 @@ func Preflight(cfg config.ReviewSettings) []string {
 	// The same resolution newClaude runs, so this judges the configuration
 	// that will actually be built rather than an approximation of it.
 	r := resolveClaude(cfg.Claude)
-	mode, model := r.permissionMode, r.model
+	mode, model := r.PermissionMode, r.Model
 	if mode == autoPermissionMode && !claudeAutoModeSupports(model) {
 		problems = append(problems, fmt.Sprintf(
 			"claude.model %q is not supported in %q permission mode (needs Opus 4.6+, Sonnet 4.6+, or Fable 5), so every review would fail; pin a supported model or switch claude.permission_mode to a static one",

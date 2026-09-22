@@ -1,9 +1,10 @@
 // Package review runs the actual PR review. The engine is pluggable behind the
-// Engine interface: the default "codex" driver shells out to `codex exec`; a
-// "claude" driver can be added later. The Go side only assembles the prompt
-// (main prompt + rule-derived fragments) and hands over tool access; the
-// engine owns everything fuzzy: the review itself, the comment-only enforcement,
-// and any post-approve Slack steps, all expressed in the prompt.
+// Engine interface: "codex" (the default) drives `codex exec` and "claude"
+// drives `claude -p`, both through lib-agent-harness. The Go side only
+// assembles the prompt (main prompt + rule-derived fragments) and hands over
+// tool access; the engine owns everything fuzzy: the review itself, the
+// comment-only enforcement, and any post-approve Slack steps, all expressed in
+// the prompt.
 package review
 
 import (

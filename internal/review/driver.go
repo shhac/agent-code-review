@@ -4,9 +4,10 @@ package review
 // reports through the same verdict contract (the output schema and the
 // reporting instruction appended to the prompt), tees its transcript into the
 // same workdir log, and yields to the same bounded resume policy when a run
-// ends before reporting a real outcome. codex.go and claude.go supply only
-// their application configuration. lib-agent-harness/native owns invocation,
-// stream decoding, session identifiers and token accounting.
+// ends before reporting a real outcome. nativeengine.go is the one driver;
+// codex.go and claude.go supply only its application configuration.
+// lib-agent-harness/native owns invocation, stream decoding, session
+// identifiers and token accounting.
 
 import (
 	"bytes"
@@ -182,8 +183,7 @@ func (r resumableRun) resolve(verdict Verdict, parseErr, runErr error) (Verdict,
 }
 
 // prepareWorkspace resolves the review's workspace, creating a temp one when
-// the caller supplied none, and writes the shared verdict schema into it.
-// Both drivers hand the schema to their CLI as a file path.
+// the caller supplied none.
 func prepareWorkspace(workDir string) (string, error) {
 	if workDir != "" {
 		return workDir, nil

@@ -73,7 +73,7 @@ func TestReviewResumesTheGivenSessionInsteadOfStartingFresh(t *testing.T) {
 		e := newCodex(config.CodexSettings{}, "keep going")
 		var argv [][]string
 		workDir := t.TempDir()
-		e.runCmd = func(_ context.Context, args []string, sink io.Writer) error {
+		e.cfg.RunCommand = func(_ context.Context, args []string, _ string, sink, _ io.Writer) error {
 			argv = append(argv, args)
 			_, _ = io.WriteString(sink, `{"type":"turn.completed","usage":{"input_tokens":10}}`+"\n")
 			return os.WriteFile(filepath.Join(workDir, "verdict.json"), []byte(`{"decision":"APPROVED","summary":"finished after the interruption"}`), 0600)
@@ -98,7 +98,7 @@ func TestReviewResumesTheGivenSessionInsteadOfStartingFresh(t *testing.T) {
 	t.Run("claude", func(t *testing.T) {
 		e := newClaude(config.ClaudeSettings{}, "keep going")
 		var argv [][]string
-		e.runCmd = func(_ context.Context, args []string, _ string, stream io.Writer, _ io.Writer) error {
+		e.cfg.RunCommand = func(_ context.Context, args []string, _ string, stream, _ io.Writer) error {
 			argv = append(argv, args)
 			_, _ = io.WriteString(stream, `{"type":"result","subtype":"success","structured_output":`+
 				`{"decision":"APPROVED","summary":"finished after the interruption"},"usage":{"input_tokens":10}}`+"\n")
@@ -140,7 +140,7 @@ func TestDriverCancellationRecordsErrorWithSpendSoFar(t *testing.T) {
 			name: "codex",
 			run: func(t *testing.T, ctx context.Context, workDir string) (Verdict, error) {
 				e := newCodex(config.CodexSettings{}, "nudge")
-				e.runCmd = func(ctx context.Context, _ []string, sink io.Writer) error {
+				e.cfg.RunCommand = func(ctx context.Context, _ []string, _ string, sink, _ io.Writer) error {
 					_, _ = sink.Write([]byte(`{"type":"turn.completed","usage":{"input_tokens":4242,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0}}` + "\n"))
 					<-ctx.Done()
 					return ctx.Err()
@@ -152,7 +152,7 @@ func TestDriverCancellationRecordsErrorWithSpendSoFar(t *testing.T) {
 			name: "claude",
 			run: func(t *testing.T, ctx context.Context, workDir string) (Verdict, error) {
 				e := newClaude(config.ClaudeSettings{}, "nudge")
-				e.runCmd = func(ctx context.Context, _ []string, _ string, stream, _ io.Writer) error {
+				e.cfg.RunCommand = func(ctx context.Context, _ []string, _ string, stream, _ io.Writer) error {
 					_, _ = stream.Write([]byte(resultLine(t, "sess-1", DecisionWorking, 4242) + "\n"))
 					<-ctx.Done()
 					return ctx.Err()

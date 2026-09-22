@@ -1,0 +1,109 @@
+package review
+
+import (
+	"context"
+	"io"
+	"os"
+	"testing"
+
+	"github.com/shhac/agent-code-review/internal/config"
+)
+
+// invocation is one engine subprocess as the harness asked for it: the argv
+// and the directory the process would have started in.
+type invocation struct {
+	args []string
+	dir  string
+}
+
+// sent runs one review through e with the harness's process seam replaced,
+// and returns every invocation it made. Each one finishes the review with an
+// APPROVED report the way its engine delivers one, so a test asserts exactly
+// what Review sends rather than a request rebuilt beside it.
+func sent(t *testing.T, e *nativeEngine, req Request) []invocation {
+	t.Helper()
+	var calls []invocation
+	e.cfg.RunCommand = func(_ context.Context, args []string, dir string, stdout, _ io.Writer) error {
+		calls = append(calls, invocation{args: args, dir: dir})
+		return approve(t, e.cfg.Engine, args, stdout)
+	}
+	if req.WorkDir == "" {
+		req.WorkDir = t.TempDir()
+	}
+	if _, err := e.Review(context.Background(), req); err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	return calls
+}
+
+// approve answers one invocation with an APPROVED report: claude's arrives in
+// the result event, codex's in the file named by --output-last-message.
+func approve(t *testing.T, engine string, args []string, stdout io.Writer) error {
+	t.Helper()
+	if engine == "claude" {
+		_, err := io.WriteString(stdout, resultLine(t, "s1", DecisionApproved, 1))
+		return err
+	}
+	_, _ = io.WriteString(stdout, `{"type":"turn.completed","usage":{"input_tokens":1}}`+"\n")
+	path, ok := argValue(args, "--output-last-message")
+	if !ok {
+		t.Fatalf("codex invocation names no report file: %v", args)
+	}
+	return os.WriteFile(path, []byte(`{"decision":"APPROVED","summary":"ok"}`), 0o600)
+}
+
+// codex is handed its workspace as --cd and its process has always run in the
+// daemon's own directory; claude has no such flag, so the workspace IS its
+// process directory. Unifying the drivers must not move either, on a fresh
+// run or a resumed one.
+func TestEachEngineRunsInItsOwnDirectory(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		engine  *nativeEngine
+		wantDir func(workDir string) string
+	}{
+		{"codex", newCodex(config.CodexSettings{}, "nudge"), func(string) string { return "" }},
+		{"claude", newClaude(config.ClaudeSettings{}, "nudge"), func(wd string) string { return wd }},
+	} {
+		for _, session := range []string{"", "prev-session"} {
+			t.Run(tc.name+"/resume="+session, func(t *testing.T) {
+				workDir := t.TempDir()
+				calls := sent(t, tc.engine, Request{Prompt: "p", WorkDir: workDir, ResumeSession: session})
+				if len(calls) != 1 {
+					t.Fatalf("invocations = %d, want 1", len(calls))
+				}
+				if got, want := calls[0].dir, tc.wantDir(workDir); got != want {
+					t.Errorf("process dir = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+}
+
+// Provenance reports the dials the engine was BUILT with, defaults applied,
+// because that is what ran: the claude run reports no effort back, so an
+// unresolved figure here would be an unrecorded one in history.
+func TestProvenanceReportsTheResolvedDials(t *testing.T) {
+	missing := t.TempDir() + "/no-such-cli"
+	for _, tc := range []struct {
+		name                  string
+		engine                *nativeEngine
+		wantModel, wantEffort string
+	}{
+		{"codex unset", newCodex(config.CodexSettings{}, "n"), "", ""},
+		{"codex pinned", newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Model: "m", Effort: "high"}}, "n"), "m", "high"},
+		{"claude unset", newClaude(config.ClaudeSettings{}, "n"), defaultModel, defaultEffort},
+		{"claude pinned", newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "sonnet", Effort: "xhigh"}}, "n"), "sonnet", "xhigh"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.engine.cfg.Binary = missing
+			p := tc.engine.Provenance(context.Background())
+			if p.Engine != tc.engine.cfg.Engine || p.Model != tc.wantModel || p.Effort != tc.wantEffort {
+				t.Errorf("provenance = %+v, want %s/%q/%q", p, tc.engine.cfg.Engine, tc.wantModel, tc.wantEffort)
+			}
+			if p.EngineVersion != "" {
+				t.Errorf("a failed version probe must record no version, got %q", p.EngineVersion)
+			}
+		})
+	}
+}

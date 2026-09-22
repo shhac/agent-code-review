@@ -29,12 +29,12 @@ func hasArg(args []string, flag string) bool {
 	return false
 }
 
-// TestClaudeBuildArgs pins the CLI contract without a live claude run, the
-// way TestCodexBuildArgs does for codex.
-func TestClaudeBuildArgs(t *testing.T) {
+// TestClaudeSendsItsConfiguration pins what a review actually hands claude,
+// without a live run, the way TestCodexSendsItsConfiguration does for codex.
+func TestClaudeSendsItsConfiguration(t *testing.T) {
 	budget := 2.5
 	e := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "opus", Effort: "high", Args: []string{"--strict-mcp-config"}}, PermissionMode: "dontAsk", AllowedTools: []string{"Bash", "Read"}, MaxBudgetUSD: budget}, "keep going")
-	args := e.buildArgs("REVIEW THIS")
+	args := sent(t, e, Request{Prompt: "REVIEW THIS"})[0].args
 
 	if !hasArg(args, "-p") || !hasArg(args, "--verbose") {
 		t.Errorf("print + verbose are required for a parseable stream: %v", args)
@@ -74,8 +74,8 @@ func TestClaudeBuildArgs(t *testing.T) {
 	}
 }
 
-func TestClaudeBuildArgsOmitsUnsetOptionals(t *testing.T) {
-	args := newClaude(config.ClaudeSettings{}, "nudge").buildArgs("p")
+func TestClaudeOmitsUnsetOptionals(t *testing.T) {
+	args := sent(t, newClaude(config.ClaudeSettings{}, "nudge"), Request{Prompt: "p"})[0].args
 	if hasArg(args, "--max-budget-usd") {
 		t.Errorf("--max-budget-usd must be omitted when unset: %v", args)
 	}
@@ -90,17 +90,6 @@ func TestClaudeBuildArgsOmitsUnsetOptionals(t *testing.T) {
 		if got, _ := argValue(args, tc.flag); got != tc.want {
 			t.Errorf("%s = %q, want the %q default", tc.flag, got, tc.want)
 		}
-	}
-}
-
-// An unpinned effort would also be an unrecorded one: the run reports no
-// effort back, so Provenance is the only place it can come from.
-func TestClaudeProvenanceCarriesPinnedEffort(t *testing.T) {
-	if got := newClaude(config.ClaudeSettings{}, "n").effort; got != defaultEffort {
-		t.Errorf("effort = %q, want %q so history can correlate cost with effort", got, defaultEffort)
-	}
-	if got := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Effort: "xhigh"}}, "n").effort; got != "xhigh" {
-		t.Errorf("an explicit effort must win, got %q", got)
 	}
 }
 
@@ -119,7 +108,7 @@ func TestClaudeDefaultModelSupportsAutoMode(t *testing.T) {
 // cannot use: that pairing is the user's to make (and to pair with a static
 // permission mode).
 func TestClaudeExplicitModelWins(t *testing.T) {
-	args := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "haiku"}}, "nudge").buildArgs("p")
+	args := sent(t, newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "haiku"}}, "nudge"), Request{Prompt: "p"})[0].args
 	if got, _ := argValue(args, "--model"); got != "haiku" {
 		t.Errorf("--model = %q, want the configured value", got)
 	}
@@ -129,7 +118,7 @@ func TestClaudeExplicitModelWins(t *testing.T) {
 // route commands around it. Allow rules resolve BEFORE the classifier, so
 // `Bash(gh *)` there would exempt the one command that can merge and close.
 func TestClaudeAutoModeShipsNoAllowList(t *testing.T) {
-	args := newClaude(config.ClaudeSettings{}, "nudge").buildArgs("p")
+	args := sent(t, newClaude(config.ClaudeSettings{}, "nudge"), Request{Prompt: "p"})[0].args
 	if got, _ := argValue(args, "--permission-mode"); got != autoPermissionMode {
 		t.Errorf("--permission-mode = %q, want %q by default", got, autoPermissionMode)
 	}
@@ -142,7 +131,7 @@ func TestClaudeAutoModeShipsNoAllowList(t *testing.T) {
 // without it the very first `gh pr view` aborts the run.
 func TestClaudeStaticModesFallBackToGHAllowList(t *testing.T) {
 	for _, mode := range []string{"acceptEdits", "dontAsk"} {
-		args := newClaude(config.ClaudeSettings{PermissionMode: mode}, "nudge").buildArgs("p")
+		args := sent(t, newClaude(config.ClaudeSettings{PermissionMode: mode}, "nudge"), Request{Prompt: "p"})[0].args
 		tools, ok := argValue(args, "--allowedTools")
 		if !ok {
 			t.Errorf("%s: --allowedTools must ship: %v", mode, args)
@@ -159,16 +148,16 @@ func TestClaudeStaticModesFallBackToGHAllowList(t *testing.T) {
 // (an opt-in fast path is the user's call to make).
 func TestClaudeExplicitAllowedToolsWin(t *testing.T) {
 	for _, mode := range []string{"", "acceptEdits", autoPermissionMode} {
-		args := newClaude(config.ClaudeSettings{PermissionMode: mode, AllowedTools: []string{"Read"}}, "nudge").buildArgs("p")
+		args := sent(t, newClaude(config.ClaudeSettings{PermissionMode: mode, AllowedTools: []string{"Read"}}, "nudge"), Request{Prompt: "p"})[0].args
 		if got, _ := argValue(args, "--allowedTools"); got != "Read" {
 			t.Errorf("mode %q: --allowedTools = %q, want only the configured list", mode, got)
 		}
 	}
 }
 
-func TestClaudeBuildResumeArgsCarriesSessionAndNudge(t *testing.T) {
+func TestClaudeResumeCarriesSessionAndNudge(t *testing.T) {
 	e := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{Model: "sonnet"}}, "finish up")
-	args := e.buildResumeArgs("sess-123")
+	args := sent(t, e, Request{Prompt: "THE PROMPT", ResumeSession: "sess-123"})[0].args
 	if got, _ := argValue(args, "--resume"); got != "sess-123" {
 		t.Errorf("--resume = %q, want sess-123", got)
 	}
@@ -198,9 +187,9 @@ func resultLine(t *testing.T, sessionID, decision string, tokens int) string {
 // fakeClaude drives the engine off canned streams: one per invocation, in
 // order. It records the args it was called with so the resume path is
 // observable.
-func fakeClaude(e *claudeEngine, streams ...string) *[][]string {
+func fakeClaude(e *nativeEngine, streams ...string) *[][]string {
 	calls := &[][]string{}
-	e.runCmd = func(_ context.Context, args []string, _ string, stream, _ io.Writer) error {
+	e.cfg.RunCommand = func(_ context.Context, args []string, _ string, stream, _ io.Writer) error {
 		i := len(*calls)
 		*calls = append(*calls, args)
 		if i < len(streams) {
@@ -291,7 +280,7 @@ func TestClaudeReviewWithoutResultEventErrors(t *testing.T) {
 // exactly the row you want when the budget looks wrong.
 func TestClaudeReviewReportsCost(t *testing.T) {
 	e := newClaude(config.ClaudeSettings{}, "nudge")
-	e.runCmd = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
+	e.cfg.RunCommand = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
 		_, _ = io.WriteString(stream, `{"type":"result","subtype":"success","structured_output":{"decision":"APPROVED","summary":"ok"},"usage":{"input_tokens":100},"total_cost_usd":0.4242}`+"\n")
 		return nil
 	}
@@ -305,7 +294,7 @@ func TestClaudeReviewReportsCost(t *testing.T) {
 
 	zero := 0
 	failing := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{MaxResumes: &zero}}, "nudge")
-	failing.runCmd = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
+	failing.cfg.RunCommand = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
 		_, _ = io.WriteString(stream, `{"type":"result","subtype":"success","usage":{"input_tokens":100},"total_cost_usd":0.99}`+"\n")
 		return nil
 	}
@@ -323,7 +312,7 @@ func TestClaudeReviewReportsCost(t *testing.T) {
 func TestClaudeFailureSurfacesReason(t *testing.T) {
 	zero := 0
 	e := newClaude(config.ClaudeSettings{EngineCommon: config.EngineCommon{MaxResumes: &zero}}, "nudge")
-	e.runCmd = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
+	e.cfg.RunCommand = func(_ context.Context, _ []string, _ string, stream, _ io.Writer) error {
 		_, _ = io.WriteString(stream, `{"type":"system","subtype":"init","session_id":"s1"}`+"\n"+
 			`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"credit balance too low","usage":{"input_tokens":0}}`+"\n")
 		return nil
@@ -361,8 +350,8 @@ func TestClaudeArgsTerminatePromptWithSeparator(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"initial", e.buildArgs("REVIEW THIS"), "REVIEW THIS"},
-		{"resume", e.buildResumeArgs("sess-1"), "finish up"},
+		{"initial", sent(t, e, Request{Prompt: "REVIEW THIS"})[0].args, "REVIEW THIS"},
+		{"resume", sent(t, e, Request{Prompt: "REVIEW THIS", ResumeSession: "sess-1"})[0].args, "finish up"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if !hasArg(tc.args, "--allowedTools") {

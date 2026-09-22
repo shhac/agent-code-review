@@ -114,14 +114,14 @@ func TestClaudeAutoModeSmoke(t *testing.T) {
 	// and the point is that the shipped default model and permission mode
 	// actually work together against the live classifier.
 	engine := newClaude(config.ClaudeSettings{}, "NUDGE")
-	if engine.permissionMode != autoPermissionMode {
-		t.Fatalf("permission mode = %q, want the %q default", engine.permissionMode, autoPermissionMode)
+	if engine.cfg.PermissionMode != autoPermissionMode {
+		t.Fatalf("permission mode = %q, want the %q default", engine.cfg.PermissionMode, autoPermissionMode)
 	}
-	if engine.model != defaultModel {
-		t.Fatalf("model = %q, want the %q default", engine.model, defaultModel)
+	if engine.cfg.Model != defaultModel {
+		t.Fatalf("model = %q, want the %q default", engine.cfg.Model, defaultModel)
 	}
-	if len(engine.allowedTools) != 0 {
-		t.Fatalf("auto mode must ship no allow-list, got %v", engine.allowedTools)
+	if len(engine.cfg.AllowedTools) != 0 {
+		t.Fatalf("auto mode must ship no allow-list, got %v", engine.cfg.AllowedTools)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

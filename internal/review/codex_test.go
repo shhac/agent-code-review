@@ -13,9 +13,13 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 )
 
-func TestBuildArgs(t *testing.T) {
+// TestCodexSendsItsConfiguration pins what a fresh review actually hands
+// codex: the configured dials, the workspace, and the two files the verdict
+// contract runs through.
+func TestCodexSendsItsConfiguration(t *testing.T) {
 	full := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Model: "some-model", Effort: "high", Args: []string{"-c", "k=v"}}, Sandbox: "read-only"}, "NUDGE")
-	args := full.buildArgs("/wd", "/wd/schema.json", "/wd/last.json", "PROMPT")
+	wd := t.TempDir()
+	args := sent(t, full, Request{WorkDir: wd, Prompt: "PROMPT"})[0].args
 
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
@@ -24,10 +28,10 @@ func TestBuildArgs(t *testing.T) {
 		`-c model_reasoning_effort="high"`,
 		"--json",
 		"--sandbox read-only",
-		"--cd /wd",
+		"--cd " + wd,
 		"--skip-git-repo-check",
-		"--output-schema /wd/schema.json",
-		"--output-last-message /wd/last.json",
+		"--output-schema " + filepath.Join(wd, "verdict.schema.json"),
+		"--output-last-message " + filepath.Join(wd, "verdict.json"),
 		"-c k=v",
 	} {
 		if !strings.Contains(joined, want) {
@@ -43,7 +47,7 @@ func TestBuildArgs(t *testing.T) {
 
 	// No model configured → no --model flag; defaults still applied.
 	bare := newCodex(config.CodexSettings{}, "NUDGE")
-	joined = strings.Join(bare.buildArgs("/wd", "s", "l", "P"), " ")
+	joined = strings.Join(sent(t, bare, Request{Prompt: "P"})[0].args, " ")
 	if strings.Contains(joined, "--model") {
 		t.Error("--model must be omitted when unset")
 	}
@@ -55,9 +59,13 @@ func TestBuildArgs(t *testing.T) {
 	}
 }
 
-func TestBuildResumeArgs(t *testing.T) {
+// TestCodexResumeArgs pins a review that opens on a recovered session: it
+// resumes that session with the nudge, keeps every dial, and still runs
+// through the verdict files.
+func TestCodexResumeArgs(t *testing.T) {
 	e := newCodex(config.CodexSettings{EngineCommon: config.EngineCommon{Model: "some-model", Effort: "high", Args: []string{"-c", "k=v"}}, Sandbox: "read-only"}, "NUDGE")
-	args := e.buildResumeArgs("SESSION-ID", "/wd/schema.json", "/wd/last.json")
+	wd := t.TempDir()
+	args := sent(t, e, Request{WorkDir: wd, Prompt: "PROMPT", ResumeSession: "SESSION-ID"})[0].args
 
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
@@ -66,8 +74,8 @@ func TestBuildResumeArgs(t *testing.T) {
 		"--json",
 		"--skip-git-repo-check",
 		`-c sandbox_mode="read-only"`, // resume has no --sandbox flag; the mode travels as a config override
-		"--output-schema /wd/schema.json",
-		"--output-last-message /wd/last.json",
+		"--output-schema " + filepath.Join(wd, "verdict.schema.json"),
+		"--output-last-message " + filepath.Join(wd, "verdict.json"),
 		"-c k=v",
 		`-c model_reasoning_effort="high"`,
 	} {
@@ -239,17 +247,17 @@ exit 0
 }
 
 // TestCodexResumeExitBranches completes the resume loop's exit matrix using
-// the in-process runCmd seam: a resume invocation that dies mid-run. The
+// the harness's RunCommand seam: a resume invocation that dies mid-run. The
 // loop must stop on the process failure (no further resumes), and the
 // "report file wins" precedence must apply to resumed runs exactly as to
 // initial ones, with the resume's cumulative usage recorded.
 func TestCodexResumeExitBranches(t *testing.T) {
-	setup := func(t *testing.T, resumeReport string) (*codexEngine, string, *int) {
+	setup := func(t *testing.T, resumeReport string) (*nativeEngine, string, *int) {
 		t.Helper()
 		workDir := t.TempDir()
 		e := newCodex(config.CodexSettings{}, "NUDGE")
 		calls := 0
-		e.runCmd = func(_ context.Context, args []string, sink io.Writer) error {
+		e.cfg.RunCommand = func(_ context.Context, args []string, _ string, sink, _ io.Writer) error {
 			calls++
 			report := resumeReport
 			if calls == 1 {
@@ -375,7 +383,7 @@ func TestCodexDoesNotAcceptStaleReport(t *testing.T) {
 			}
 			e := newCodex(config.CodexSettings{}, "continue")
 			calls := 0
-			e.runCmd = func(_ context.Context, _ []string, w io.Writer) error {
+			e.cfg.RunCommand = func(_ context.Context, _ []string, _ string, w, _ io.Writer) error {
 				calls++
 				io.WriteString(w, `{"type":"turn.completed","usage":{"input_tokens":10}}`+"\n")
 				return nil

@@ -144,19 +144,16 @@ func CurrentUser(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// StillCandidate re-fetches one PR and reports whether it would still pass
+// StillCandidateAt re-fetches one PR and reports whether it would still pass
 // the candidacy gates (open, not draft, review requested, not approved). The
 // scheduler calls this just before spending an engine invocation on a
 // DISCOVERED candidate; the window between discovery and review is long
 // enough for someone else to have approved, merged, or closed the PR.
-func StillCandidate(ctx context.Context, repo string, number int, requireReviewRequest bool) (bool, string, error) {
-	return StillCandidateAt(ctx, repo, number, "", "", requireReviewRequest)
-}
-
-// StillCandidateAt is StillCandidate plus the already-reviewed guard: when
-// login and head are supplied, a PR this login has already reviewed at that
-// exact head is no longer a candidate. Used on a re-claim, where the previous
-// attempt may have posted its review and then died before recording anything.
+//
+// When login and head are supplied it also applies the already-reviewed
+// guard: a PR this login has already reviewed at that exact head is no longer
+// a candidate. That matters on a re-claim, where the previous attempt may have
+// posted its review and then died before recording anything.
 func StillCandidateAt(ctx context.Context, repo string, number int, login, head string, requireReviewRequest bool) (bool, string, error) {
 	out, err := ghPRView(ctx, repo, number, "number,isDraft,state,reviewRequests,reviewDecision,reviews,headRefOid")
 	if err != nil {

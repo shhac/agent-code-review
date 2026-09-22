@@ -10,7 +10,7 @@ import (
 
 // candidacyGate is the shared "is this PR reviewable work?" predicate: not a
 // draft, an outstanding review request, not currently approved. classify and
-// the scheduler's pre-review recheck (StillCandidate) both use it, so the two
+// the scheduler's pre-review recheck (StillCandidateAt) both use it, so the two
 // decisions cannot drift. The returned reason names the failed gate.
 func candidacyGate(pr ghPR, requireReviewRequest bool) (bool, string) {
 	if pr.IsDraft {

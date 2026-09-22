@@ -1,9 +1,14 @@
 package discover
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/shhac/agent-code-review/internal/store"
 )
 
 // TestCandidateFromView pins the manual-add path: `gh pr view` JSON
@@ -164,5 +169,147 @@ func TestAlreadyReviewedByIgnoresLoginCase(t *testing.T) {
 				t.Errorf("AlreadyReviewedBy(%q) over a review by %q = %v, want %v", tc.ours, tc.theirs, got, tc.want)
 			}
 		})
+	}
+}
+
+// ghCalls reads back the argv of every fake gh invocation, one slice per call.
+// The fake appends each argument on its own line and a "--end--" after them.
+func ghCalls(t *testing.T) [][]string {
+	t.Helper()
+	raw, err := os.ReadFile(ghDir + "/args")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls [][]string
+	var cur []string
+	for _, line := range strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n") {
+		if line == "--end--" {
+			calls = append(calls, cur)
+			cur = nil
+			continue
+		}
+		cur = append(cur, line)
+	}
+	return calls
+}
+
+const recordArgs = `for a in "$@"; do printf '%s\n' "$a" | head -1 >> "$(dirname "$STATE")/args"; done; echo --end-- >> "$(dirname "$STATE")/args"`
+
+// PRFiles walks the files connection page by page. The first page must OMIT
+// the cursor variable (gh has no spelling for a null String), and every page's
+// files must land in one list.
+func TestPRFilesPagesThroughTheCursor(t *testing.T) {
+	restore := fakeGH(t, recordArgs+`
+case "$*" in
+*cursor=c1*) echo '{"data":{"repository":{"pullRequest":{"headRefOid":"sha","additions":3,"deletions":1,"changedFiles":2,
+  "files":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[{"path":"b.go","additions":1,"deletions":1}]}}}}}' ;;
+*) echo '{"data":{"repository":{"pullRequest":{"headRefOid":"sha","additions":3,"deletions":1,"changedFiles":2,
+  "files":{"pageInfo":{"hasNextPage":true,"endCursor":"c1"},"nodes":[{"path":"a.go","additions":2}]}}}}}' ;;
+esac`)
+	defer restore()
+
+	got, err := PRFiles(context.Background(), "o/r", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HeadSHA != "sha" || got.Additions != 3 || got.Deletions != 1 || got.ChangedFiles != 2 || got.Truncated {
+		t.Errorf("totals = %+v", got)
+	}
+	if len(got.Files) != 2 || got.Files[0].Path != "a.go" || got.Files[1].Path != "b.go" {
+		t.Errorf("files = %+v, want a.go then b.go", got.Files)
+	}
+	calls := ghCalls(t)
+	if len(calls) != 2 {
+		t.Fatalf("gh called %d times, want 2", len(calls))
+	}
+	for _, arg := range calls[0] {
+		if strings.HasPrefix(arg, "cursor=") {
+			t.Errorf("the first page passed %q; it must omit the cursor entirely", arg)
+		}
+	}
+	if !slices.Contains(calls[0], "owner=o") || !slices.Contains(calls[0], "repo=r") || !slices.Contains(calls[0], "number=7") {
+		t.Errorf("first call argv = %q, want owner, repo and number variables", calls[0])
+	}
+	if !slices.Contains(calls[1], "cursor=c1") {
+		t.Errorf("second call argv = %q, want the first page's end cursor", calls[1])
+	}
+}
+
+// GitAttributes asks for one alias per candidate directory and keeps only the
+// blobs that exist.
+func TestGitAttributesMapsAliasesBackToDirectories(t *testing.T) {
+	restore := fakeGH(t, recordArgs+`
+echo '{"data":{"repository":{"a0":{"text":"*.pb.go linguist-generated"},"a1":null}}}'`)
+	defer restore()
+
+	got, err := GitAttributes(context.Background(), "o/r", "", files("gen/x.pb.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[""] != "*.pb.go linguist-generated" {
+		t.Errorf("attrs = %q, want only the root file", got)
+	}
+	calls := ghCalls(t)
+	if len(calls) != 1 || !slices.Contains(calls[0], "e0=HEAD:.gitattributes") || !slices.Contains(calls[0], "e1=HEAD:gen/.gitattributes") {
+		t.Errorf("argv = %q, want one expression per directory at HEAD", calls)
+	}
+}
+
+// Every gh read names what it failed to decode, so a log line says which
+// call GitHub answered strangely rather than just "invalid character".
+func TestGHReadsNameWhatFailedToDecode(t *testing.T) {
+	restore := fakeGH(t, `echo 'not json'`)
+	defer restore()
+	ctx := context.Background()
+
+	_, prFilesErr := PRFiles(ctx, "o/r", 7)
+	_, attrsErr := GitAttributes(ctx, "o/r", "HEAD", files("a.go"))
+	_, activityErr := LastHumanActivity(ctx, "o/r", 7, "us")
+	_, manualErr := ManualCandidate(ctx, "o/r", 7)
+	_, _, recheckErr := StillCandidateAt(ctx, "o/r", 7, "", "", false)
+
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{prFilesErr, "decode pr files for o/r#7: "},
+		{attrsErr, "decode gitattributes for o/r: "},
+		{activityErr, "decode human activity for o/r#7: "},
+		{manualErr, "parse gh pr view: "},
+		{recheckErr, "parse gh pr view: "},
+	} {
+		if tc.err == nil || !strings.HasPrefix(tc.err.Error(), tc.want) {
+			t.Errorf("err = %v, want it to start %q", tc.err, tc.want)
+		}
+	}
+}
+
+// Both `gh pr view` reads name the PR and the fields they need, and the
+// manual add maps what comes back.
+func TestPRViewReadsAskForTheirFields(t *testing.T) {
+	restore := fakeGH(t, recordArgs+`
+echo '{"number":7,"title":"t","author":{"login":"alice"},"headRefOid":"sha","state":"OPEN","isDraft":false}'`)
+	defer restore()
+	ctx := context.Background()
+
+	c, err := ManualCandidate(ctx, "o/r", 7)
+	if err != nil || c.HeadSHA != "sha" || c.Author != "alice" || c.Source != store.SourceManual {
+		t.Fatalf("ManualCandidate = %+v, %v", c, err)
+	}
+	if ok, _, err := StillCandidateAt(ctx, "o/r", 7, "", "", false); err != nil || !ok {
+		t.Fatalf("StillCandidateAt = %v, %v", ok, err)
+	}
+	calls := ghCalls(t)
+	if len(calls) != 2 {
+		t.Fatalf("gh called %d times, want 2", len(calls))
+	}
+	for i, fields := range []string{
+		"title,author,url,headRefOid,state,createdAt,updatedAt,additions,deletions,changedFiles",
+		"number,isDraft,state,reviewRequests,reviewDecision,reviews,headRefOid",
+	} {
+		want := []string{"pr", "view", "7", "--repo", "o/r", "--json", fields}
+		if !slices.Equal(calls[i], want) {
+			t.Errorf("call %d argv = %q, want %q", i, calls[i], want)
+		}
 	}
 }

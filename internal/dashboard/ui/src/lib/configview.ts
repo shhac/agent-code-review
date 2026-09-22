@@ -3,7 +3,7 @@
 // rather than only reachable by rendering the page — which is how the rest of
 // this project's route logic is already organised (lib/metrics.ts, poll.ts).
 
-import type { ConfigResponse, ScoringMode } from './types';
+import type { AllowedAuthor, ConfigResponse, ScoringMode } from './types';
 
 export type SettingsGroup = [string, [string, string][]];
 
@@ -116,4 +116,32 @@ export function settingsGroups(c: ConfigResponse | null): SettingsGroup[] {
     ['Scoring', scoringRows(c)],
   
   ];
+}
+
+// A filter option and how many roster rows it would show.
+export type RosterOption = [name: string, rows: number];
+
+export type RosterView = { repoOptions: RosterOption[]; groupOptions: RosterOption[]; visible: AllowedAuthor[] };
+
+const tally = (rows: AllowedAuthor[], of: (a: AllowedAuthor) => string): RosterOption[] => {
+  const counts = new Map<string, number>();
+  for (const a of rows) counts.set(of(a), (counts.get(of(a)) || 0) + 1);
+  return [...counts.entries()].sort((x, y) => x[0].toLowerCase().localeCompare(y[0].toLowerCase()));
+};
+
+// rosterView filters the author roster by repo and group ('' is no filter).
+//
+// Options are derived from the ROWS, not from config, so every option on
+// offer yields at least one result: a filter that can select nothing is
+// noise. And each filter's options are tallied over what the OTHER filter
+// leaves, so a combination that would show nothing is never offered. The
+// counts say how big each cohort is.
+export function rosterView(authors: AllowedAuthor[], repoFilter: string, groupFilter: string): RosterView {
+  const inRepo = (a: AllowedAuthor) => !repoFilter || a.repo === repoFilter;
+  const inGroup = (a: AllowedAuthor) => !groupFilter || a.group === groupFilter;
+  return {
+    repoOptions: tally(authors.filter(inGroup), (a) => a.repo),
+    groupOptions: tally(authors.filter(inRepo), (a) => a.group),
+    visible: authors.filter((a) => inRepo(a) && inGroup(a)),
+  };
 }

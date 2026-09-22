@@ -12,6 +12,19 @@ test.describe('the tabs split the page by who is asking', () => {
     await expect(page.locator('.shape')).toHaveCount(0);
   });
 
+  // The roster unmounts with its tab, so its filters and open rows are held by
+  // the page. Losing them on a glance at Settings would make every round trip
+  // start the search again.
+  test('keeps the roster as it was left across a tab switch', async ({ page }) => {
+    await page.goto('/config');
+    await page.locator('.roster-select').first().selectOption('*');
+    await page.locator('.author-row').first().click();
+    await page.getByRole('tab', { name: 'Settings' }).click();
+    await page.getByRole('tab', { name: 'Repos & authors' }).click();
+    await expect(page.locator('.roster-select').first()).toHaveValue('*');
+    await expect(page.locator('.author-row').first()).toHaveAttribute('aria-expanded', 'true');
+  });
+
   test('shows what the reviewer is set to do, and then the tools for it', async ({ page }) => {
     await page.goto('/config');
     await page.getByRole('tab', { name: 'Settings' }).click();

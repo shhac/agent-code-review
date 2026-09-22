@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { codeSpans, loopState, scoringDialsShown, settingsGroups } from './configview';
-import type { ConfigResponse } from './types';
+import { codeSpans, loopState, rosterView, scoringDialsShown, settingsGroups } from './configview';
+import type { AllowedAuthor, ConfigResponse } from './types';
 
 const cfg = (over: Partial<ConfigResponse> = {}) =>
   ({
@@ -208,5 +208,51 @@ describe('the settings panel states the questions, not the dials', () => {
     const off = cells(settingsGroups(cfg({ scoring: { ...cfg().scoring, removal_points_per_100: 0 } })));
     expect(off['Removing code']).toBe('earns nothing beyond the size reward');
     expect(cells(settingsGroups(cfg()))['Removing code']).toContain('`0.2`');
+  });
+});
+
+describe('rosterView', () => {
+  const row = (repo: string, github_handle: string, group: string): AllowedAuthor => ({ repo, github_handle, group });
+  const roster = [
+    row('acme/widgets', 'ada', 'core'),
+    row('acme/widgets', 'grace', 'core'),
+    row('acme/widgets', 'linus', 'contractors'),
+    row('Acme/gadgets', 'ada', 'core'),
+    row('*', 'octocat', 'approvers'),
+  ];
+
+  it('shows every row and offers every value when nothing is filtered', () => {
+    const v = rosterView(roster, '', '');
+    expect(v.visible).toEqual(roster);
+    expect(v.repoOptions).toEqual([['*', 1], ['Acme/gadgets', 1], ['acme/widgets', 3]]);
+    expect(v.groupOptions).toEqual([['approvers', 1], ['contractors', 1], ['core', 3]]);
+  });
+
+  it('narrows the rows to both filters at once', () => {
+    const v = rosterView(roster, 'acme/widgets', 'core');
+    expect(v.visible.map((a) => a.github_handle)).toEqual(['ada', 'grace']);
+  });
+
+  // Each filter is tallied over what the other leaves, so picking a repo
+  // offers only its groups, with counts for that repo alone.
+  it('offers each filter only what the other one leaves', () => {
+    const byRepo = rosterView(roster, 'acme/widgets', '');
+    expect(byRepo.groupOptions).toEqual([['contractors', 1], ['core', 2]]);
+    expect(byRepo.repoOptions).toEqual(rosterView(roster, '', '').repoOptions);
+
+    const byGroup = rosterView(roster, '', 'contractors');
+    expect(byGroup.repoOptions).toEqual([['acme/widgets', 1]]);
+  });
+
+  it('never offers a combination that would show nothing', () => {
+    const repos = ['', ...new Set(roster.map((a) => a.repo))];
+    const groups = ['', ...new Set(roster.map((a) => a.group))];
+    for (const repo of repos) {
+      for (const group of groups) {
+        const v = rosterView(roster, repo, group);
+        for (const [offered, n] of v.repoOptions) expect(rosterView(roster, offered, group).visible).toHaveLength(n);
+        for (const [offered, n] of v.groupOptions) expect(rosterView(roster, repo, offered).visible).toHaveLength(n);
+      }
+    }
   });
 });

@@ -52,18 +52,19 @@ func approve(t *testing.T, engine string, args []string, stdout io.Writer) error
 	return os.WriteFile(path, []byte(`{"decision":"APPROVED","summary":"ok"}`), 0o600)
 }
 
-// codex is handed its workspace as --cd and its process has always run in the
-// daemon's own directory; claude has no such flag, so the workspace IS its
-// process directory. Unifying the drivers must not move either, on a fresh
-// run or a resumed one.
-func TestEachEngineRunsInItsOwnDirectory(t *testing.T) {
+// Both engines run IN the review's workspace, fresh or resumed. claude has no
+// directory flag, so its process directory is the only way to say where to
+// work. codex has --cd, but `codex exec resume` does not accept it, so a
+// resumed codex took whatever directory the daemon happened to be started in,
+// and its workspace-write sandbox was scoped there rather than to the PR's
+// workspace.
+func TestEachEngineRunsInItsWorkspace(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		engine  *nativeEngine
-		wantDir func(workDir string) string
+		name   string
+		engine *nativeEngine
 	}{
-		{"codex", newCodex(config.CodexSettings{}, "nudge"), func(string) string { return "" }},
-		{"claude", newClaude(config.ClaudeSettings{}, "nudge"), func(wd string) string { return wd }},
+		{"codex", newCodex(config.CodexSettings{}, "nudge")},
+		{"claude", newClaude(config.ClaudeSettings{}, "nudge")},
 	} {
 		for _, session := range []string{"", "prev-session"} {
 			t.Run(tc.name+"/resume="+session, func(t *testing.T) {
@@ -72,8 +73,8 @@ func TestEachEngineRunsInItsOwnDirectory(t *testing.T) {
 				if len(calls) != 1 {
 					t.Fatalf("invocations = %d, want 1", len(calls))
 				}
-				if got, want := calls[0].dir, tc.wantDir(workDir); got != want {
-					t.Errorf("process dir = %q, want %q", got, want)
+				if got := calls[0].dir; got != workDir {
+					t.Errorf("process dir = %q, want the workspace %q", got, workDir)
 				}
 			})
 		}

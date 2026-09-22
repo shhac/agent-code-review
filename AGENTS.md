@@ -327,9 +327,10 @@ internal/
   provider protocol parsers here. `lib-agent-harness/process` owns Unix process
   groups and Windows suspended-start job containment. Codex final output files
   are cleared before every invocation, including resume, so a failed turn cannot
-  reuse an old verdict. Codex's process keeps the daemon's working directory
-  (the workspace reaches it as `--cd`), while claude's working directory IS the
-  workspace, since it has no such flag. `review.ResolvedDials` is the one
+  reuse an old verdict. Both engines' processes run IN the review workspace:
+  claude has no directory flag, and `codex exec resume` does not take the
+  `--cd` a fresh codex run gets, so a resumed codex used to inherit the
+  daemon's directory and scope its workspace-write sandbox there. `review.ResolvedDials` is the one
   answer to "which model and effort will run", read by both Provenance and the
   dashboard. Both engines still render the SAME marker transcript,
   with fixtures in `review/testdata/{codex,claude}-transcript.golden` consumed by

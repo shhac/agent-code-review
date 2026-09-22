@@ -20,7 +20,6 @@ func newCodex(c config.CodexSettings, resumePrompt string) *nativeEngine {
 		maxResumes:   resolveMaxResumes(c.MaxResumes),
 		resumePrompt: resumePrompt,
 		template:     codexTemplate,
-		inheritCwd:   true,
 	}
 }
 

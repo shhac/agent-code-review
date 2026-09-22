@@ -2,7 +2,6 @@ package review
 
 import (
 	"context"
-	"io"
 
 	"github.com/shhac/lib-agent-harness/native"
 )
@@ -26,12 +25,6 @@ type nativeEngine struct {
 	// template builds what every invocation of one review shares, from its
 	// workspace. It may write into the workspace, so it runs once per review.
 	template func(workDir string) (native.Request, error)
-
-	// inheritCwd runs the CLI in the daemon's own working directory rather than
-	// the workspace. codex is told its workspace with --cd and its process has
-	// always run where the daemon does; claude has no such flag, so the
-	// workspace is its process directory.
-	inheritCwd bool
 }
 
 func (e *nativeEngine) Provenance(ctx context.Context) Provenance {
@@ -65,7 +58,7 @@ func (e *nativeEngine) Review(ctx context.Context, req Request) (Verdict, error)
 	// appending to the same transcript and its usage accumulates by the
 	// engine's own rule.
 	stream, _ := native.NewStream(e.cfg.Engine, sink, native.StreamOptions{Structured: true})
-	cfg := e.runConfig()
+	cfg := e.cfg
 	var latest native.Result
 	invoke := func(session, prompt string) (err error) {
 		r := template
@@ -90,26 +83,4 @@ func (e *nativeEngine) Review(ctx context.Context, req Request) (Verdict, error)
 		raw:    buf.String,
 		stream: stream,
 	}.do()
-}
-
-// runConfig is cfg as a review invokes it. For an engine that inherits the
-// daemon's directory, the request's WorkDir is dropped on the way to the
-// process (whether that is native.Execute or an injected RunCommand), so it
-// reaches the CLI only as the flag the harness builds from it.
-func (e *nativeEngine) runConfig() native.Config {
-	cfg := e.cfg
-	if !e.inheritCwd {
-		return cfg
-	}
-	run := cfg.RunCommand
-	if run == nil {
-		base := e.cfg
-		run = func(ctx context.Context, args []string, dir string, stdout, stderr io.Writer) error {
-			return native.Execute(ctx, base, args, dir, stdout, stderr)
-		}
-	}
-	cfg.RunCommand = func(ctx context.Context, args []string, _ string, stdout, stderr io.Writer) error {
-		return run(ctx, args, "", stdout, stderr)
-	}
-	return cfg
 }

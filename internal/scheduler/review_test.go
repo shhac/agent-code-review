@@ -382,7 +382,8 @@ func TestReviewOneAuthorLookupError(t *testing.T) {
 // TestReviewOnePrecheck pins the pre-review revalidation: stale discovered
 // candidates are skipped without touching the engine; manual adds bypass the
 // check entirely; a recheck error propagates without recording an outcome
-// (the stale lease retries it once it ages out).
+// (reviewOne releases the claim, and the dispatcher's backoff paces the
+// retry).
 func TestReviewOnePrecheck(t *testing.T) {
 	t.Run("stale discovered candidate records a precheck skip", func(t *testing.T) {
 		fs := &fakeSchedStore{}

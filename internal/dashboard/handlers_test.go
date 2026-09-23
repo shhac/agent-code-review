@@ -572,3 +572,28 @@ func TestReviewsEndpointRefusesABadCursor(t *testing.T) {
 		})
 	}
 }
+
+// Every read endpoint refuses a write method the same way, through the mux
+// the daemon actually serves. Those outside serveGet used to answer POST and
+// DELETE exactly as they answered GET.
+func TestReadEndpointsRefuseWriteMethods(t *testing.T) {
+	h := testServer(withStore(&fakeStore{})).Handler()
+	for _, path := range []string{
+		"/api/viewer", "/api/reviews", "/api/config", "/api/usage", "/api/stats", "/api/metrics",
+		"/api/leaderboard", "/api/authors", "/api/prompt", "/api/prompt/preview", "/api/logs",
+		"/api/review-log", "/api/healthz",
+	} {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader("{}")))
+			if w.Code != http.StatusMethodNotAllowed || !strings.Contains(w.Body.String(), `"error"`) {
+				t.Errorf("%s %s = %d %s, want a JSON 405", method, path, w.Code, w.Body.String())
+			}
+		}
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/healthz", nil))
+	if w.Code != http.StatusOK {
+		t.Errorf("GET /api/healthz = %d, want 200", w.Code)
+	}
+}

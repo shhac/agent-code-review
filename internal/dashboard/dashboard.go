@@ -183,21 +183,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/queue/preflight", s.handleQueuePreflight)
 	mux.HandleFunc("/api/steering", s.handleSteering)
 	mux.HandleFunc("/api/steering/hold", s.handleSteeringHold)
-	mux.HandleFunc("/api/viewer", s.handleViewer)
+	mux.HandleFunc("/api/viewer", readOnly(s.handleViewer))
 	mux.HandleFunc("/api/reviews", s.handleReviews)
-	mux.HandleFunc("/api/config", s.handleConfig)
-	mux.HandleFunc("/api/usage", s.handleUsage)
+	mux.HandleFunc("/api/config", readOnly(s.handleConfig))
+	mux.HandleFunc("/api/usage", readOnly(s.handleUsage))
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/metrics", s.handleMetrics)
 	mux.HandleFunc("/api/leaderboard", s.handleLeaderboard)
 	mux.HandleFunc("/api/score/preview", s.handleScorePreview)
 	mux.HandleFunc("/api/score/simulate", s.handleScoreSimulate)
 	mux.HandleFunc("/api/authors", s.handleAuthors)
-	mux.HandleFunc("/api/prompt", s.handlePrompt)
-	mux.HandleFunc("/api/prompt/preview", s.handlePromptPreview)
-	mux.HandleFunc("/api/logs", s.handleLogs)
-	mux.HandleFunc("/api/review-log", s.handleReviewLog)
-	mux.HandleFunc("/api/healthz", s.handleHealth)
+	mux.HandleFunc("/api/prompt", readOnly(s.handlePrompt))
+	mux.HandleFunc("/api/prompt/preview", readOnly(s.handlePromptPreview))
+	mux.HandleFunc("/api/logs", readOnly(s.handleLogs))
+	mux.HandleFunc("/api/review-log", readOnly(s.handleReviewLog))
+	mux.HandleFunc("/api/healthz", readOnly(s.handleHealth))
 	mux.Handle("/", spaHandler(mustSub()))
 	return mux
 }
@@ -298,11 +298,33 @@ func serveGet[T any](s *Server, w http.ResponseWriter, r *http.Request, fetch fu
 	// than in each handler: without it every endpoint routed through it
 	// answered POST and DELETE as cheerfully as GET, while the handlers that
 	// check for themselves (the queue writes) did not.
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		httpError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if !isRead(r) {
+		refuseMethod(w)
 		return
 	}
 	respond(s, w, r, 10*time.Second, fetch)
+}
+
+// readOnly gives a read handler that does not go through serveGet (it streams,
+// or builds its response by hand) the same refusal of anything but GET and
+// HEAD. Applied at the route rather than in each handler, so a new read
+// endpoint gets it by being registered the way its neighbours are.
+func readOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isRead(r) {
+			refuseMethod(w)
+			return
+		}
+		h(w, r)
+	}
+}
+
+func isRead(r *http.Request) bool {
+	return r.Method == http.MethodGet || r.Method == http.MethodHead
+}
+
+func refuseMethod(w http.ResponseWriter) {
+	httpError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 // serveWrite is serveGet's write-side twin: decode the body, then act under a

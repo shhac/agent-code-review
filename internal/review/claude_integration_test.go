@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // TestClaudeSmoke drives the real claude CLI end-to-end through the driver:

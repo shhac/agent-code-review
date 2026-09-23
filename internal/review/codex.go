@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"path/filepath"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 	"github.com/shhac/lib-agent-harness/native"
 )
 

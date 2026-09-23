@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // steeringHoldResp tells the editor what the server did, as one named state

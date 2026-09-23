@@ -6,7 +6,7 @@ import (
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // rulesCmd builds the `prompts rules` group. Rules are conditional fragments
@@ -205,7 +205,7 @@ func rulesRmCmd() *cobra.Command {
 				kept, removed = filterFold(cfg.Review.Rules, func(r config.Rule) string { return r.Name }, name)
 				if removed == 0 {
 					return output.New("No rule named "+name, output.FixableByAgent).
-						WithHint("run 'agent-code-review rules ls' to see the configured rules")
+						WithHint("run 'crew-code-review rules ls' to see the configured rules")
 				}
 				cfg.Review.Rules = kept
 				return nil

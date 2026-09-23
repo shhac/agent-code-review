@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/review"
 )
 
 type promptOutcomesResp struct {

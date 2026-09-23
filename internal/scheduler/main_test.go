@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // TestMain moves every XDG base directory into a throwaway root for the whole
@@ -17,7 +17,7 @@ import (
 // transcripts. Overridden even when the caller already set the variables: a
 // guard that trusts the environment is the one that fails on a plain `go test`.
 func TestMain(m *testing.M) {
-	root, err := os.MkdirTemp("", "acr-scheduler-test-")
+	root, err := os.MkdirTemp("", "ccr-scheduler-test-")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "scheduler tests: isolating XDG dirs: %v\n", err)
 		os.Exit(1)

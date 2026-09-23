@@ -5,12 +5,12 @@ argument-hint: <patch|minor|major>
 
 # Release
 
-Releasing `agent-code-review` is automated. Pushing a `v*` tag triggers
+Releasing `crew-code-review` is automated. Pushing a `v*` tag triggers
 `.github/workflows/release.yml`, which calls the shared `go-release` workflow in
 `shhac/homebrew-tap` to cross-build every platform, publish the GitHub Release,
-and regenerate + push `Formula/agent-code-review.rb` (with shell completions) to the tap.
+and regenerate + push `Formula/crew-code-review.rb` (with shell completions) to the tap.
 The tag also triggers `.github/workflows/publish-skill.yml`, which publishes
-`skills/agent-code-review` to `shhac/agent-skills`. **No manual build, and no manual
+`skills/crew-code-review` to `shhac/agent-skills`. **No manual build, and no manual
 formula bump.**
 
 ## Steps
@@ -41,32 +41,32 @@ formula bump.**
    ```
 5. Verify CI and the outputs:
    ```bash
-   gh run watch --repo shhac/agent-code-review          # release + Publish skill runs green
-   gh release view "v${new_version}" --repo shhac/agent-code-review   # 6 assets
+   gh run watch --repo shhac/crew-code-review          # release + Publish skill runs green
+   gh release view "v${new_version}" --repo shhac/crew-code-review   # 6 assets
    ```
-   Install / upgrade: `brew install shhac/tap/agent-code-review` · `brew upgrade shhac/tap/agent-code-review`
+   Install / upgrade: `brew install shhac/tap/crew-code-review` · `brew upgrade shhac/tap/crew-code-review`
 
 ## Manual fallback (only if the workflow itself is broken)
 
-Re-run a failed release with `gh run rerun <id> --repo shhac/agent-code-review`. To bypass
+Re-run a failed release with `gh run rerun <id> --repo shhac/crew-code-review`. To bypass
 the workflow entirely, build the `GOOS/GOARCH` binaries with
 `-ldflags "-s -w -X main.version=<v>"`, `gh release create` the tarballs, and edit
-`Formula/agent-code-review.rb` by hand (see this file's git history for the old full flow).
+`Formula/crew-code-review.rb` by hand (see this file's git history for the old full flow).
 
 ## Secrets
 
 The formula push authenticates via the `TAP_DEPLOY_KEY` secret in this repo's
 `homebrew-tap` GitHub environment, paired with a read-write deploy key on
 `shhac/homebrew-tap` (the shared "go cli family release automation" key, or a
-repo-specific "agent-code-review release automation (env-scoped)" one). The skill
+repo-specific "agent-code-review release automation (env-scoped)" one, titled before the rename). The skill
 publish uses the repo-level `SKILLS_DEPLOY_KEY`. If the workflow logs
 "TAP_DEPLOY_KEY not set — skipping tap update", rotate with a repo-specific
 pair — pipe the private key, never echo it:
 
 ```bash
-ssh-keygen -t ed25519 -N "" -C "agent-code-review release automation" -f tap_key
+ssh-keygen -t ed25519 -N "" -C "crew-code-review release automation" -f tap_key
 gh repo deploy-key add tap_key.pub -R shhac/homebrew-tap --allow-write \
-  --title "agent-code-review release automation (env-scoped)"
-gh secret set TAP_DEPLOY_KEY --repo shhac/agent-code-review --env homebrew-tap < tap_key
+  --title "crew-code-review release automation (env-scoped)"
+gh secret set TAP_DEPLOY_KEY --repo shhac/crew-code-review --env homebrew-tap < tap_key
 rm tap_key tap_key.pub
 ```

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/score"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // fmt.Sscanf("%d") stops at the end of its format and ignores the rest, so

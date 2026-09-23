@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 // ScoreContext is what a scorer needs to know about a PR's history before it

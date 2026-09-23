@@ -18,8 +18,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shhac/agent-code-review/internal/score"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // Bounds on a hypothetical. Generous enough for any real PR and small enough

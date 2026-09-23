@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // row is one result row plus the first decode failure it produced.

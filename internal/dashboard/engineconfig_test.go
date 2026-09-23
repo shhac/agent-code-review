@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/usage"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/usage"
 )
 
 // The dashboard must report the dials of whichever engine is configured;

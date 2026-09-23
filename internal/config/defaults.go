@@ -246,19 +246,19 @@ func (c Config) UsagePollInterval() time.Duration {
 	return durationOr(c.Dashboard.UsagePollInterval, 10*time.Minute)
 }
 
-// StorePath is the DuckDB file location (default <XDG_DATA>/agent-code-review/queue.duckdb).
+// StorePath is the DuckDB file location (default <XDG_DATA>/app.paulie.crew-code-review/queue.duckdb).
 func (c Config) StorePath() string {
 	if c.Store.Path != "" {
 		return c.Store.Path
 	}
-	return filepath.Join(xdg.DataDir(appName), "queue.duckdb")
+	return filepath.Join(xdg.DataDir(appID), "queue.duckdb")
 }
 
 // PricingCacheDir is where the model price table is kept. Cache rather than
 // data: it is re-fetchable, so losing it costs a download rather than a
 // record, and it must never be backed up as if it were ours.
 func PricingCacheDir() string {
-	return xdg.CacheDir(appName)
+	return xdg.CacheDir(appID)
 }
 
 // ReviewWorkspaceDir is where a review's scratch workspace, and so its agent
@@ -273,7 +273,7 @@ func PricingCacheDir() string {
 // would be wrong (nothing can re-fetch an agent transcript) and data would
 // overstate it (losing one costs a postmortem, not a record).
 func (c Config) ReviewWorkspaceDir() string {
-	return filepath.Join(xdg.StateDir(appName), "reviews")
+	return filepath.Join(xdg.StateDir(appID), "reviews")
 }
 
 // WorkspaceRetention is how long a review's workspace is kept before the boot

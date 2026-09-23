@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/prref"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/prref"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // fakeStore is the dashboard's one store fake.

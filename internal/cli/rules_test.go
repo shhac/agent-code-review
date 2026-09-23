@@ -6,7 +6,7 @@ import (
 
 	"github.com/shhac/lib-agent-cli/xdg"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // runRulesCmd runs `prompts rules ...` (rules are nested under prompts).

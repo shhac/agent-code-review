@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 // DeriveScore turns a review and its history context into the frozen score

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { DAEMON_PORT, XDG_ENV, seed } from './fixture.mjs';
 
 const repo = join(import.meta.dirname, '..', '..', '..', '..');
-const bin = join(repo, 'agent-code-review');
+const bin = join(repo, 'crew-code-review');
 // Always rebuild BOTH halves. `make build` is go build alone: the UI is a
 // separate `make dashboard` target that writes internal/dashboard/assets,
 // which dashboard.go go:embeds. Building only the Go half serves whatever CSS

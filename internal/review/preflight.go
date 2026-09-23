@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // autoModeUnsupportedModels are model identifiers Claude Code's permission

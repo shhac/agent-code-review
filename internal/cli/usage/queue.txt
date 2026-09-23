@@ -49,10 +49,10 @@ COMMANDS:
     review otherwise. --follow keeps tailing until interrupted.
 
 EXAMPLES:
-  agent-code-review queue ls --repo example-org/example-repo
-  agent-code-review queue add example-org/example-repo 123
-  agent-code-review queue promote example-org/example-repo 123
-  agent-code-review queue prune --dry-run
+  crew-code-review queue ls --repo example-org/example-repo
+  crew-code-review queue add example-org/example-repo 123
+  crew-code-review queue promote example-org/example-repo 123
+  crew-code-review queue prune --dry-run
 
 NOTES: the queue holds only pending work. Completed reviews (including
 skips and errors) live in the outcome history shown by the dashboard's

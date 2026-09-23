@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // promptServer builds a config-only Server (the prompt handlers never touch the

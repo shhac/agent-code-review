@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 func TestMetricsForFiltersAndGroupsReviewProvenance(t *testing.T) {

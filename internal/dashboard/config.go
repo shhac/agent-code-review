@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 // configScoringResp is the global scoring switch, as the UI needs it.

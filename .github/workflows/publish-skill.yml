@@ -8,7 +8,7 @@ jobs:
   publish-skill:
     uses: shhac/agent-skills/.github/workflows/sync-skill.yml@main
     with:
-      skill_name: agent-code-review
+      skill_name: crew-code-review
       # House budget: well under Codex's 1024 cap, so descriptions
       # cannot creep back up and crowd out every other installed skill.
       max_description_chars: 650

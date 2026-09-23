@@ -7,7 +7,7 @@ import (
 
 	"github.com/shhac/lib-agent-cli/xdg"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // TestAuthorsCommands drives the real cobra wiring against an isolated config

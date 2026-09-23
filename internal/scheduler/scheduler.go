@@ -14,11 +14,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/discover"
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/store"
-	"github.com/shhac/agent-code-review/internal/usage"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/discover"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/usage"
 )
 
 // Logf is a minimal logging sink (fmt.Printf-shaped).

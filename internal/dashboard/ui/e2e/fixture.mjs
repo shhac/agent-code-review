@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 
 export const DAEMON_PORT = 18940;
 export const PROXY_PORT = 18941;
-export const ROOT = join(tmpdir(), 'acr-e2e');
+export const ROOT = join(tmpdir(), 'ccr-e2e');
 export const CONFIG_HOME = join(ROOT, 'cfg');
 export const DATA_HOME = join(ROOT, 'data');
 // Every XDG root, not just the two the store and config live in: the daemon
@@ -23,7 +23,7 @@ export const XDG_ENV = {
   XDG_STATE_HOME: join(ROOT, 'state'),
   XDG_CACHE_HOME: join(ROOT, 'cache'),
 };
-export const DB = join(DATA_HOME, 'agent-code-review', 'queue.duckdb');
+export const DB = join(DATA_HOME, 'app.paulie.crew-code-review', 'queue.duckdb');
 // The identity the proxy asserts. Matches the roster row seeded below.
 export const VIEWER_LOGIN = 'octo@example.com';
 
@@ -168,8 +168,8 @@ export function seed(bin) {
   // The daemon polls each reachable engine's subscription headroom, which
   // runs that CLI against the developer's real login. A binary that does not
   // exist makes the meter fail open instead, which is all the UI needs.
-  run(['config', 'set', 'codex.bin', 'acr-e2e-no-codex']);
-  run(['config', 'set', 'claude.bin', 'acr-e2e-no-claude']);
+  run(['config', 'set', 'codex.bin', 'ccr-e2e-no-codex']);
+  run(['config', 'set', 'claude.bin', 'ccr-e2e-no-claude']);
   run(['repos', 'add', 'acme/widgets']);
   run(['authors', 'set', '*', 'octocat', 'approver', '--tailscale-login', VIEWER_LOGIN]);
   run(['authors', 'set', '*', 'paul-gh', 'approver', '--tailscale-login', 'paul@example.com']);

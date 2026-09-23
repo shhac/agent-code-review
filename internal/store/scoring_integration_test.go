@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 func ptr(i int) *int { return &i }

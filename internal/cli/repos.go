@@ -4,7 +4,7 @@ import (
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 func registerRepos(root *cobra.Command) {
@@ -132,7 +132,7 @@ func reposRmCmd() *cobra.Command {
 				kept, removed := filterFold(cfg.Repos, self, repo)
 				if removed == 0 {
 					return output.New("Not a watched repo: "+repo, output.FixableByAgent).
-						WithHint("run 'agent-code-review repos ls' to see the watch list")
+						WithHint("run 'crew-code-review repos ls' to see the watch list")
 				}
 				cfg.Repos = kept
 				cfg.AllowedAuthorsOnlyRepos, _ = filterFold(cfg.AllowedAuthorsOnlyRepos, self, repo)

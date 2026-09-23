@@ -199,7 +199,7 @@ func parseNDJSON(stdout string) ([]map[string]any, error) {
 // override env var. Exported so a preflight check probes the same binary the
 // store will actually use, rather than duplicating the lookup.
 func DuckDBBin() string {
-	if custom := os.Getenv("AGENT_CODE_REVIEW_DUCKDB_PATH"); custom != "" {
+	if custom := os.Getenv("CREW_CODE_REVIEW_DUCKDB_PATH"); custom != "" {
 		return custom
 	}
 	return "duckdb"

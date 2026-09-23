@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/pricing"
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/pricing"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // probeTimeout bounds each external command. Generous enough for a cold
@@ -44,7 +44,7 @@ func Run(ctx context.Context, cfg config.Config) []Check {
 	checks := []Check{
 		binaryCheck(ctx, "gh", "gh", "--version", "install the GitHub CLI (brew install gh)"),
 		authCheck(ctx, "gh-auth", "gh", []string{"auth", "status"}, "run `gh auth login`"),
-		binaryCheck(ctx, "duckdb", store.DuckDBBin(), "--version", "install duckdb (brew install duckdb), or set AGENT_CODE_REVIEW_DUCKDB_PATH"),
+		binaryCheck(ctx, "duckdb", store.DuckDBBin(), "--version", "install duckdb (brew install duckdb), or set CREW_CODE_REVIEW_DUCKDB_PATH"),
 	}
 	// Every engine any author group can route to, not just the configured
 	// one: a typo in a rarely-used group would otherwise surface at 3am as an
@@ -133,7 +133,7 @@ func pricingCheck(dir string) Check {
 	if st.Models == 0 {
 		return Check{Name: "pricing", OK: false, Blocking: false,
 			Detail: "no model price table cached",
-			Hint:   "run `agent-code-review serve` once; it fetches and refreshes it every " + pricing.RefreshInterval.String()}
+			Hint:   "run `crew-code-review serve` once; it fetches and refreshes it every " + pricing.RefreshInterval.String()}
 	}
 	age := time.Since(st.FetchedAt).Truncate(time.Minute)
 	return Check{Name: "pricing", OK: true, Blocking: false,
@@ -153,7 +153,7 @@ func configCheck(problems []string) Check {
 	return Check{
 		Name: "engine-config", OK: false, Blocking: true,
 		Detail: strings.Join(problems, "; "),
-		Hint:   "agent-code-review config set ...",
+		Hint:   "crew-code-review config set ...",
 	}
 }
 
@@ -169,7 +169,7 @@ func configKeysCheck(problems []string) Check {
 	return Check{
 		Name: "config-keys", OK: false,
 		Detail: strings.Join(problems, "; "),
-		Hint:   "agent-code-review config unset ... (the next write drops them anyway)",
+		Hint:   "crew-code-review config unset ... (the next write drops them anyway)",
 	}
 }
 

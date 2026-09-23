@@ -3,8 +3,8 @@ package dashboard
 import (
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 // The Config page explains a score in terms of the policy's landmarks, and

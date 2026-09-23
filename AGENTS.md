@@ -1,4 +1,4 @@
-# agent-code-review
+# crew-code-review
 
 PR review queue + scheduler for AI agents. Go + cobra on the `lib-agent-*`
 family libraries, compiled to a standalone (CGO-free) binary.
@@ -6,7 +6,7 @@ family libraries, compiled to a standalone (CGO-free) binary.
 ## Architecture
 
 ```
-cmd/agent-code-review/main.go   # entry point; version injected via -ldflags
+cmd/crew-code-review/main.go   # entry point; version injected via -ldflags
 internal/
 ├── cli/
 │   ├── root.go                 # lib-agent-cli NewRoot; registers subcommands
@@ -23,7 +23,7 @@ internal/
 │   ├── configcmd.go            # `config init/path/show/list/get/set/unset`
 │   ├── usage.go                # registers the LLM reference cards...
 │   └── usage/*.txt             # ...which live here as prose, go:embed'd
-├── config/                     # ~/.config/agent-code-review/config.json + resolved defaults
+├── config/                     # ~/.config/app.paulie.crew-code-review/config.json + resolved defaults
 ├── store/                      # Store interface + DuckDB subprocess driver + schema.sql
 │   ├── reviewquery.go          # history paging: query, sort, cursor contract
 │   ├── duckdb_scan.go          # reading rows back: the typed row getters and scanners
@@ -778,7 +778,7 @@ internal/
   - **Iterate on the frontend** (hot reload, no rebuild): `cd
     internal/dashboard/ui && npm run dev`. Vite serves `ui/src` and proxies
     `/api` to a running daemon (default `127.0.0.1:8330`; target another with
-    the `ACR_API` env var, e.g. `ACR_API=http://127.0.0.1:9000 npm run dev`).
+    the `CCR_API` env var, e.g. `CCR_API=http://127.0.0.1:9000 npm run dev`).
     Best loop for UI work: real data, instant reload.
   - **Exercise a loop**: `serve --no-schedule` (dashboard only), then opt into
     `--no-reviews` (discovery only) or a scratch store (`XDG_CONFIG_HOME`/

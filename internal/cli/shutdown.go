@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/scheduler"
+	"github.com/shhac/crew-code-review/internal/scheduler"
 )
 
 type shutdownController struct {

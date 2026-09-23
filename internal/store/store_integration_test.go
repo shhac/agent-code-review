@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // newTestStore opens a fresh DuckDB store in a temp dir. Skips when the

@@ -51,9 +51,9 @@ KEYS:
   store.path                           DuckDB file location
 
 EXAMPLES:
-  agent-code-review config set schedule.interval 15m
-  agent-code-review config get schedule.interval
-  agent-code-review config list
+  crew-code-review config set schedule.interval 15m
+  crew-code-review config get schedule.interval
+  crew-code-review config list
 
 NOTES: repos, authors, and prompts have their own command groups (repos usage,
 authors usage, prompts usage); rules live under prompts (prompts rules usage).

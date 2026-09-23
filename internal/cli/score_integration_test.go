@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 func newIntegrationStore(t *testing.T) store.Store {

@@ -1,4 +1,4 @@
--- Persistent work queue + outcome history for agent-code-review.
+-- Persistent work queue + outcome history for crew-code-review.
 -- Applied idempotently on every Store.Init.
 
 -- The work queue: a row exists if and only if the PR has pending review work.
@@ -156,7 +156,7 @@ ALTER TABLE history DROP COLUMN IF EXISTS cache_creation_tokens;
 -- lives here, because membership is what churns and varies per repo. A row for
 -- the PR's repo wins over a row for the wildcard repo '*'; an author with no
 -- row resolves through config's unlisted fallback. Managed via
--- `agent-code-review authors set|rm|ls`.
+-- `crew-code-review authors set|rm|ls`.
 --
 -- The table keeps its original name. Renaming it would gain nothing a comment
 -- cannot, and would cost every existing store a data move.
@@ -356,3 +356,14 @@ ALTER TABLE history ADD COLUMN IF NOT EXISTS score_bucket TEXT;
 -- list GitHub truncated (a partial list must not be stored as though it were
 -- complete). Such a row can only be repaired by `score refetch`.
 ALTER TABLE history ADD COLUMN IF NOT EXISTS diff_files JSON;
+
+-- The tool was agent-code-review, with plain-named XDG dirs, before it became
+-- crew-code-review under app.paulie.crew-code-review. Review workspaces moved
+-- with the state dir, so rows recorded before the move are re-pointed at it or
+-- `queue log` and the dashboard's postmortem view would lose every transcript
+-- they could still reach. Matches on the path segment only, so a custom
+-- XDG_STATE_HOME moves the same way; a no-op once no old paths remain.
+UPDATE history SET work_dir = replace(work_dir, '/agent-code-review/reviews/', '/app.paulie.crew-code-review/reviews/')
+  WHERE work_dir LIKE '%/agent-code-review/reviews/%';
+UPDATE queue SET work_dir = replace(work_dir, '/agent-code-review/reviews/', '/app.paulie.crew-code-review/reviews/')
+  WHERE work_dir LIKE '%/agent-code-review/reviews/%';

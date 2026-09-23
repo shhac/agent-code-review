@@ -17,6 +17,6 @@ COMMANDS:
   repos rm <owner/repo>    Stop watching a repo (clears its unlisted setting)
 
 EXAMPLES:
-  agent-code-review repos add example-org/example-repo
-  agent-code-review repos add example-org/example-repo --unlisted ignored
-  agent-code-review repos ls
+  crew-code-review repos add example-org/example-repo
+  crew-code-review repos add example-org/example-repo --unlisted ignored
+  crew-code-review repos ls

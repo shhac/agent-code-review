@@ -3,8 +3,8 @@ package review
 import (
 	"errors"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // Preview validation sentinels. The two preview surfaces (CLI and dashboard)

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // TestReviewRecordEstimate pins the rule the comments insist on and nothing

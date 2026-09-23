@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // Blocking is what the exit code and the boot warning both key off, so it

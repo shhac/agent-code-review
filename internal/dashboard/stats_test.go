@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 func TestBucketReviews(t *testing.T) {

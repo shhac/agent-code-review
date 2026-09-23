@@ -28,9 +28,9 @@ COMMANDS:
     traces: how the policy resolved, and each rule's fate.
 
 EXAMPLES:
-  agent-code-review prompts set main "Review this PR thoroughly via the gh CLI and leave one review."
-  agent-code-review prompts set on-approve "Notify the team channel per our conventions."
-  agent-code-review prompts preview --author example-handle --repo example-org/example-repo --explain
+  crew-code-review prompts set main "Review this PR thoroughly via the gh CLI and leave one review."
+  crew-code-review prompts set on-approve "Notify the team channel per our conventions."
+  crew-code-review prompts preview --author example-handle --repo example-org/example-repo --explain
 
 NOTES: put workspace-specific conventions (channels, emoji, extra CLIs) in
 these slots; the tool itself assumes only the gh and codex CLIs. An

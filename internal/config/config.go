@@ -1,4 +1,4 @@
-// Package config owns ~/.config/agent-code-review/config.json: the repos to
+// Package config owns ~/.config/app.paulie.crew-code-review/config.json: the repos to
 // watch, the approval allow-list, candidate age thresholds, schedule cadence,
 // the review engine + prompt/rules, the DuckDB store location, and the
 // dashboard/Tailscale settings. Everything the CLI treats as tunable lives
@@ -23,7 +23,10 @@ import (
 	"github.com/shhac/lib-agent-cli/xdg"
 )
 
-const appName = "agent-code-review"
+// appID names every XDG directory. Reverse-DNS rather than the plain tool name
+// the lib-agent-cli family defaults to, so the crew-* family's state is
+// unambiguous beside the agent-* tools that share those directories.
+const appID = "app.paulie.crew-code-review"
 
 // starterJSON is the annotated starter config written by `config init`. It is
 // the same content as the repo's config.example.json (a test keeps them in
@@ -32,8 +35,8 @@ const appName = "agent-code-review"
 //go:embed starter.json
 var starterJSON []byte
 
-// Dir is ~/.config/agent-code-review (respects XDG_CONFIG_HOME).
-func Dir() string { return xdg.ConfigDir(appName) }
+// Dir is ~/.config/app.paulie.crew-code-review (respects XDG_CONFIG_HOME).
+func Dir() string { return xdg.ConfigDir(appID) }
 
 func filePath() string { return filepath.Join(Dir(), "config.json") }
 

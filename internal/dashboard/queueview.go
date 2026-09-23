@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // queueView is a Candidate plus the display status the frontend keys its

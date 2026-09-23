@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // historyReview is the review shape /api/reviews serves. Deliberately its own

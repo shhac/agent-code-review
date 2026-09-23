@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/prref"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/prref"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // handleQueue lists on GET, adds a PR on POST, and removes one on DELETE,

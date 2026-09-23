@@ -41,10 +41,10 @@ COMMANDS:
     field. This is the answer to "why did that PR get approved / ignored".
 
 EXAMPLES:
-  agent-code-review authors set example-org/example-repo example-handle core --name "Example Engineer"
-  agent-code-review authors set '*' example-handle contractor   # that group on every repo
-  agent-code-review authors who example-handle --repo example-org/example-repo
-  agent-code-review authors rm '*' example-handle
+  crew-code-review authors set example-org/example-repo example-handle core --name "Example Engineer"
+  crew-code-review authors set '*' example-handle contractor   # that group on every repo
+  crew-code-review authors who example-handle --repo example-org/example-repo
+  crew-code-review authors rm '*' example-handle
 
 NOTES: handles and repos match case-insensitively, as GitHub treats them; group
 names match exactly, since they are yours and are validated when you set them.

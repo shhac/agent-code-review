@@ -10,7 +10,7 @@ import (
 	libcli "github.com/shhac/lib-agent-cli/cli"
 	output "github.com/shhac/lib-agent-output"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // configKeyOf is the one Get/Set/Unset scaffold behind every key kind: parse

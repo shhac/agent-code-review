@@ -5,7 +5,7 @@ import (
 
 	"github.com/shhac/lib-agent-cli/xdg"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 func TestRemoveFold(t *testing.T) {

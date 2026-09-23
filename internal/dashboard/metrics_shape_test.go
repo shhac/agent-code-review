@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // The embedded usageMetric must INLINE into the same JSON object. A tag on the

@@ -1,4 +1,4 @@
-agent-code-review: PR review queue + scheduler for AI agents
+crew-code-review: PR review queue + scheduler for AI agents
 
 WHAT IT DOES:
   Discovers candidate PRs across configured repos (via gh), keeps a DuckDB-backed
@@ -48,7 +48,7 @@ COMMANDS:
   doctor                                            Check this machine can run a review
   usage                                              This help
 
-CONFIG: ~/.config/agent-code-review/config.json (respects XDG_CONFIG_HOME).
+CONFIG: ~/.config/app.paulie.crew-code-review/config.json (respects XDG_CONFIG_HOME).
   Most settings reload live (within ~30s): cadence, parallelism, usage floors,
   repos, prompts, codex settings. Restart only for the loop on/off switches,
   dashboard address, and Tailscale mode.
@@ -117,7 +117,7 @@ DOCTOR: every external dependency fails LATE and quietly -- a missing or
   checks at boot and logs failures rather than refusing to start.
 
 STORE: DuckDB via the duckdb CLI (subprocess, CGO-free). Requires the duckdb
-  binary on PATH (brew install duckdb); override with AGENT_CODE_REVIEW_DUCKDB_PATH.
+  binary on PATH (brew install duckdb); override with CREW_CODE_REVIEW_DUCKDB_PATH.
 
 OUTPUT: NDJSON to stdout; errors {error, fixable_by, hint} to stderr, exit 1.
 

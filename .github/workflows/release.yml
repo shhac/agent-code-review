@@ -16,9 +16,9 @@ jobs:
       contents: write
     secrets: inherit
     with:
-      name: agent-code-review
+      name: crew-code-review
       desc: "PR review queue + scheduler for AI agents"
-      formula_class: AgentCodeReview
+      formula_class: CrewCodeReview
       help_match: "PR review queue"
       # license: deliberately not pinned; the shared workflow detects
       # LicenseRef-PolyForm-Perimeter-1.0.0 from this repo's LICENSE file.

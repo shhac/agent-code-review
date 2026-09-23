@@ -1,6 +1,6 @@
 package store
 
-import "github.com/shhac/agent-code-review/internal/config"
+import "github.com/shhac/crew-code-review/internal/config"
 
 // Author is one row of the roster: which group an author belongs to for a
 // given repo, plus the contact details a review prompt might need. The group

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // What a sweep COSTS when GitHub is misbehaving, measured in calls we did

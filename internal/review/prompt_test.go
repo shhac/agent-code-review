@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // approvable and commentOnly shape the two resolved policies most of these

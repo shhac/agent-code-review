@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/logbuf"
-	"github.com/shhac/agent-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/logbuf"
+	"github.com/shhac/crew-code-review/internal/review"
 )
 
 type testLogs struct {

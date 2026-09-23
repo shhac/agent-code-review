@@ -188,7 +188,7 @@ func prepareWorkspace(workDir string) (string, error) {
 	if workDir != "" {
 		return workDir, nil
 	}
-	return os.MkdirTemp("", "agent-code-review-")
+	return os.MkdirTemp("", "crew-code-review-")
 }
 
 // writeVerdictSchema puts the output schema on disk for the engine that takes

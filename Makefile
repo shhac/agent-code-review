@@ -1,11 +1,11 @@
-BINARY := agent-code-review
+BINARY := crew-code-review
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 .PHONY: build dashboard dashboard-dev test test-race test-integration lint dev tidy release release-check
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/agent-code-review
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/crew-code-review
 
 dashboard:
 	npm --prefix internal/dashboard/ui run build
@@ -25,7 +25,7 @@ test-race:
 	go test ./internal/scheduler/ ./internal/cli/ ./internal/usage/ ./internal/pricing/ ./internal/dashboard/ -count=1 -race
 
 # Drives the real codex CLI (needs codex on PATH + auth; spends quota) and, if
-# AGENT_CODE_REVIEW_TEST_REPO is set, live gh discovery against that repo.
+# CREW_CODE_REVIEW_TEST_REPO is set, live gh discovery against that repo.
 test-integration:
 	go test ./internal/review/ ./internal/discover/ ./internal/store/ ./internal/usage/ -count=1 -tags=integration -v -timeout 10m
 
@@ -33,7 +33,7 @@ lint:
 	golangci-lint run ./...
 
 dev:
-	go run ./cmd/agent-code-review $(ARGS)
+	go run ./cmd/crew-code-review $(ARGS)
 
 tidy:
 	go mod tidy

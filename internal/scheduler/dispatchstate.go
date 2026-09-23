@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // dispatchBackoffBase and dispatchBackoffCap bound the per-candidate hold

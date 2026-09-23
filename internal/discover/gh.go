@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // ghPR is the subset of `gh pr list --json ...` we consume.

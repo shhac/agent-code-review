@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // invocation is one engine subprocess as the harness asked for it: the argv

@@ -10,9 +10,9 @@ import (
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/discover"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/discover"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 func queuePruneCmd() *cobra.Command {
@@ -107,7 +107,7 @@ func (p pruner) sweep(ctx context.Context, queue []store.Candidate, warnf func(n
 	}
 	if n := tally[pruneWarned]; n > 0 {
 		warnf(fmt.Sprintf("%d manual add(s) are merged or closed and were left queued", n),
-			"agent-code-review queue rm <owner/repo> <number>")
+			"crew-code-review queue rm <owner/repo> <number>")
 	}
 	if n := tally[pruneFailed]; n > 0 {
 		warnf(fmt.Sprintf("%d row(s) could not be rechecked and were left queued", n),
@@ -168,7 +168,7 @@ func (p pruner) manualRow(ctx context.Context, c store.Candidate, row pruneRow) 
 		row.Action = pruneKept
 	default:
 		row.Action, row.Reason = pruneWarned, state
-		row.Hint = "manual add, left queued: agent-code-review queue rm " + c.Repo + " " + strconv.Itoa(c.Number)
+		row.Hint = "manual add, left queued: crew-code-review queue rm " + c.Repo + " " + strconv.Itoa(c.Number)
 	}
 	return row
 }

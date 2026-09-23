@@ -12,8 +12,8 @@ package discover
 import (
 	"context"
 
-	"github.com/shhac/agent-code-review/internal/score"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // DiffFn fetches a PR's per-file line counts. A seam so callers' tests never

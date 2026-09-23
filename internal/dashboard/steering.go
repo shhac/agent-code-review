@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/prref"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/prref"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // steeringReq names the PR the way every queue write does, so the two agree

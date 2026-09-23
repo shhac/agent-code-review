@@ -1,4 +1,4 @@
-// Package cli assembles the agent-code-review root command on lib-agent-cli's
+// Package cli assembles the crew-code-review root command on lib-agent-cli's
 // shared scaffolding. The CLI is a queue manager + scheduler + dashboard for
 // PR reviews: `serve` runs the daemon (scheduler + web UI + optional Tailscale),
 // `run` drains the queue once, and `queue` manages candidates by hand.
@@ -12,20 +12,20 @@ import (
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 func newRootCmd(version string) *cobra.Command {
 	g := &libcli.Globals{}
 	globals = g // emit() resolves -f/--format from here
 	root := libcli.NewRoot(libcli.Options{
-		Use:           "agent-code-review",
+		Use:           "crew-code-review",
 		Short:         "PR review queue + scheduler for AI agents",
 		Version:       version,
 		Globals:       g,
 		DefaultFormat: output.FormatNDJSON,
-		UnknownHint:   "run 'agent-code-review usage' to see the available commands",
+		UnknownHint:   "run 'crew-code-review usage' to see the available commands",
 	})
 
 	registerServe(root)

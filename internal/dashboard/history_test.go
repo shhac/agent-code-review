@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // The whole point of Score being a *int is that "never scored" and "scored,

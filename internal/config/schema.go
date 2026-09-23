@@ -255,7 +255,7 @@ type ReviewSettings struct {
 // StoreSettings locates the persistent DuckDB file.
 type StoreSettings struct {
 	Engine string `json:"engine,omitempty"` // "duckdb" (default)
-	Path   string `json:"path,omitempty"`   // default: <XDG_DATA>/agent-code-review/queue.duckdb
+	Path   string `json:"path,omitempty"`   // default: <XDG_DATA>/app.paulie.crew-code-review/queue.duckdb
 }
 
 // TailscaleSettings mirrors lib-agent-mcp/tailscale: mode "" (off), "serve"
@@ -287,7 +287,7 @@ type Config struct {
 	GHUser                  string   `json:"gh_user,omitempty"` // optional; else derived via `gh api user`
 	// Authors is the group system: cohort definitions, the unlisted fallback,
 	// and per-handle overrides. Which authors are IN each group lives in the
-	// store, per repo; manage it with `agent-code-review authors`.
+	// store, per repo; manage it with `crew-code-review authors`.
 	Authors    AuthorSettings    `json:"authors,omitempty"`
 	Candidates CandidateSettings `json:"candidates,omitempty"`
 	Schedule   ScheduleSettings  `json:"schedule,omitempty"`

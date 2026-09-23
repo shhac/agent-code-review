@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // statsBucket is one hour of review outcomes in the /api/stats response.

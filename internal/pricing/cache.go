@@ -166,7 +166,7 @@ func (c *Cache) Refresh(ctx context.Context, now time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	req.Header.Set("User-Agent", "agent-code-review")
+	req.Header.Set("User-Agent", "crew-code-review")
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}

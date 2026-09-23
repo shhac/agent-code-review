@@ -8,10 +8,10 @@ package cli
 import (
 	"context"
 
-	"github.com/shhac/agent-code-review/internal/pricing"
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/scheduler"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/pricing"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/scheduler"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // costRates maps a model's prices onto the flat per-class figures the store's

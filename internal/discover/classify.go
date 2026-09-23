@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // candidacyGate is the shared "is this PR reviewable work?" predicate: not a

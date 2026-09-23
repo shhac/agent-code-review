@@ -1,5 +1,5 @@
 ---
-name: agent-code-review
+name: crew-code-review
 description: |
   PR review queue and scheduler CLI. Use when inspecting or managing the
   queue of pull requests awaiting automated review, adding, removing,
@@ -9,12 +9,12 @@ description: |
   SCORING: the points a reviewed PR earns its author, the leaderboard
   standings, and correcting or re-deriving a score. Triggers: unblock PRs,
   leaderboard, who is winning, why did this PR score that.
-allowed-tools: Bash(agent-code-review *) Read Grep Glob
+allowed-tools: Bash(crew-code-review *) Read Grep Glob
 ---
 
-# PR review queue with `agent-code-review`
+# PR review queue with `crew-code-review`
 
-`agent-code-review` is a CLI binary on `$PATH`. Default output is **NDJSON**:
+`crew-code-review` is a CLI binary on `$PATH`. Default output is **NDJSON**:
 one JSON record per line on stdout (`-f json|yaml` wrap a list as one
 `{"data": [...]}` document; `run` and `score recompute|refetch` end with an `{"@summary": {...}}` line).
 Errors go to stderr as one JSON line
@@ -23,14 +23,14 @@ non-zero exit.
 
 It maintains a DuckDB-backed queue of candidate PRs and reviews them with a
 pluggable engine (Codex or Claude Code; default: Codex). Configuration lives at
-`~/.config/agent-code-review/config.json`: repos, the author groups, age
+`~/.config/app.paulie.crew-code-review/config.json`: repos, the author groups, age
 thresholds, schedule, and the review prompt + rules.
 
 ## Inspect the queue
 
 ```bash
-agent-code-review queue ls                   # all pending candidates, NDJSON
-agent-code-review queue ls --repo owner/name
+crew-code-review queue ls                   # all pending candidates, NDJSON
+crew-code-review queue ls --repo owner/name
 ```
 
 The queue holds only pending work, FIFO by first discovery; a row with
@@ -46,23 +46,23 @@ outcomes live in history (see the dashboard's History page).
 ## Manage candidates
 
 ```bash
-agent-code-review queue add     owner/name 1234   # add a PR (fetches live metadata; rejects closed/merged; no holds)
-agent-code-review queue promote owner/name 1234   # review NOW: top of queue, clears any hold, treated as manual
-agent-code-review queue skip    owner/name 1234   # record SKIPPED and drop (re-eligible on new commits)
-agent-code-review queue rm      owner/name 1234   # remove, recording nothing
-agent-code-review queue prune --dry-run            # recheck the whole queue now: skip stale discovered PRs, warn about merged/closed manual adds
-agent-code-review queue log     owner/name 1234 -f # stream the review agent's log (live or postmortem)
+crew-code-review queue add     owner/name 1234   # add a PR (fetches live metadata; rejects closed/merged; no holds)
+crew-code-review queue promote owner/name 1234   # review NOW: top of queue, clears any hold, treated as manual
+crew-code-review queue skip    owner/name 1234   # record SKIPPED and drop (re-eligible on new commits)
+crew-code-review queue rm      owner/name 1234   # remove, recording nothing
+crew-code-review queue prune --dry-run            # recheck the whole queue now: skip stale discovered PRs, warn about merged/closed manual adds
+crew-code-review queue log     owner/name 1234 -f # stream the review agent's log (live or postmortem)
 ```
 
 ## Manage the author roster (which group each author is in, per repo, in DuckDB)
 
 ```bash
-agent-code-review authors set owner/name alice core --name "Alice" --slack-id U01
-agent-code-review authors set '*' bob outsider     # that group on every repo
-agent-code-review authors ls --repo owner/name     # rows + the policy each resolves to
-agent-code-review authors groups                   # the cohorts and what each grants
-agent-code-review authors who alice --repo owner/name
-agent-code-review authors rm owner/name alice
+crew-code-review authors set owner/name alice core --name "Alice" --slack-id U01
+crew-code-review authors set '*' bob outsider     # that group on every repo
+crew-code-review authors ls --repo owner/name     # rows + the policy each resolves to
+crew-code-review authors groups                   # the cohorts and what each grants
+crew-code-review authors who alice --repo owner/name
+crew-code-review authors rm owner/name alice
 ```
 
 We are the reviewer. An author belongs to ONE group per repo, and the group
@@ -86,10 +86,10 @@ took. Generated and vendored files are excluded, read from the repo's own
 `.gitattributes`.
 
 ```bash
-agent-code-review score leaderboard                  # standings, highest first
-agent-code-review score leaderboard --days 30        # a window
-agent-code-review score show owner/repo 123          # every scored review of one PR
-agent-code-review score ls --missing                 # rows that were never scored
+crew-code-review score leaderboard                  # standings, highest first
+crew-code-review score leaderboard --days 30        # a window
+crew-code-review score show owner/repo 123          # every scored review of one PR
+crew-code-review score ls --missing                 # rows that were never scored
 ```
 
 A score has two parts. SIZE is a curve over added-plus-removed lines, peaking
@@ -111,11 +111,11 @@ that produced them, so retuning config changes what FUTURE reviews earn and
 nobody loses points they already have.
 
 ```bash
-agent-code-review score ls --stale                   # scored under older rules
-agent-code-review score recompute --stale --dry-run  # what would change
-agent-code-review score recompute --stale            # apply it
-agent-code-review score refetch --missing            # re-measure from GitHub
-agent-code-review score set owner/repo 123 0 --note "duplicate of #120"
+crew-code-review score ls --stale                   # scored under older rules
+crew-code-review score recompute --stale --dry-run  # what would change
+crew-code-review score recompute --stale            # apply it
+crew-code-review score refetch --missing            # re-measure from GitHub
+crew-code-review score set owner/repo 123 0 --note "duplicate of #120"
 ```
 
 `recompute` is offline: it re-derives from each row's stored measurement, so
@@ -130,16 +130,16 @@ unless `--include-manual` is passed.
 ## Run reviews
 
 ```bash
-agent-code-review run                                # drain the queue, then exit
-agent-code-review serve --http :8330                 # daemon + dashboard
-agent-code-review serve --http :8330 --tailscale serve   # + expose on tailnet
+crew-code-review run                                # drain the queue, then exit
+crew-code-review serve --http :8330                 # daemon + dashboard
+crew-code-review serve --http :8330 --tailscale serve   # + expose on tailnet
 ```
 
 ## Configuration
 
 ```bash
-agent-code-review config path      # where the config lives
-agent-code-review config show      # current config (NDJSON)
+crew-code-review config path      # where the config lives
+crew-code-review config show      # current config (NDJSON)
 ```
 
 See `config.example.json` in the repo for the full shape. The CLI never

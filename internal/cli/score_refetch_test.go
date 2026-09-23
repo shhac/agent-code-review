@@ -6,10 +6,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/discover"
-	"github.com/shhac/agent-code-review/internal/score"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/discover"
+	"github.com/shhac/crew-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 func refetchMeasurer(diff discover.DiffFn) discover.Measurer {

@@ -6,7 +6,7 @@
 dist
 node_modules
 release
-/agent-code-review
+/crew-code-review
 
 # local
 .cache

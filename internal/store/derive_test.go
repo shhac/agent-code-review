@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 func reviewAt(head, diffSHA, verdict string, adds, dels int) Review {

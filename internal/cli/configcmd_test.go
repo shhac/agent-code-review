@@ -8,8 +8,8 @@ import (
 
 	libcli "github.com/shhac/lib-agent-cli/cli"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/review"
 )
 
 // TestConfigKeyValidators pins the shared validation each `config set`

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // argValue returns the value following flag, and whether it was present.

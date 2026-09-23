@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/usage"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/usage"
 )
 
 // usageView is pure, so the rules it encodes are testable without a poller or

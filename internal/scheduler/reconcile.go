@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // Reconcile cleans up after crashed processes on THIS host: queue claims

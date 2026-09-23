@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 // Store is the persistence contract.

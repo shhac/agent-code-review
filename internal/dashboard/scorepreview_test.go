@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/score"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 func previewServer() *Server { return testServer(withConfig(config.Config{})) }

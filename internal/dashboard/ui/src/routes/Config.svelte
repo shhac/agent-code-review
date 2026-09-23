@@ -74,7 +74,7 @@
           {/each}
         </ul>
       {:else}
-        <div class="empty">No repos. Add with: agent-code-review repos add owner/name</div>
+        <div class="empty">No repos. Add with: crew-code-review repos add owner/name</div>
       {/if}
     </section>
     {/if}

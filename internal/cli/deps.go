@@ -13,15 +13,15 @@ import (
 	libcli "github.com/shhac/lib-agent-cli/cli"
 	output "github.com/shhac/lib-agent-output"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/discover"
-	"github.com/shhac/agent-code-review/internal/doctor"
-	"github.com/shhac/agent-code-review/internal/pricing"
-	"github.com/shhac/agent-code-review/internal/prref"
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/scheduler"
-	"github.com/shhac/agent-code-review/internal/store"
-	"github.com/shhac/agent-code-review/internal/usage"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/discover"
+	"github.com/shhac/crew-code-review/internal/doctor"
+	"github.com/shhac/crew-code-review/internal/pricing"
+	"github.com/shhac/crew-code-review/internal/prref"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/scheduler"
+	"github.com/shhac/crew-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/usage"
 )
 
 // globals is the live flag snapshot, set once by newRootCmd so emit can honor
@@ -269,7 +269,7 @@ func prKey(repo string, number int) string {
 // twice: once here and once through its own doctor.Run at boot.
 func reportConfigProblems(cfg config.Config, warnf func(notice, hint string)) {
 	for _, problem := range doctor.ConfigProblems(cfg) {
-		warnf(problem, "agent-code-review doctor")
+		warnf(problem, "crew-code-review doctor")
 	}
 }
 

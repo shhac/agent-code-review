@@ -26,13 +26,13 @@ are nondecreasing at the defaults; tuning size and removal independently can
 change that. A first-pass approval beats comment rounds followed by approval
 at the defaults, because each revision decays.
 
-  agent-code-review score leaderboard                  # who is winning
-  agent-code-review score leaderboard --days 30        # this month
-  agent-code-review score show owner/repo 123          # one PR's history
-  agent-code-review score ls --missing                 # rows never scored
+  crew-code-review score leaderboard                  # who is winning
+  crew-code-review score leaderboard --days 30        # this month
+  crew-code-review score show owner/repo 123          # one PR's history
+  crew-code-review score ls --missing                 # rows never scored
 
-  agent-code-review score refetch --missing --dry-run  # what could be repaired
-  agent-code-review score refetch --missing            # re-measure and rescore
+  crew-code-review score refetch --missing --dry-run  # what could be repaired
+  crew-code-review score refetch --missing            # re-measure and rescore
 
 recompute and refetch differ in where the numbers come from. recompute is
 arithmetic plus a re-application of the exclusion policy to the measurement
@@ -50,16 +50,16 @@ and stored with a hash of the rules that produced it. Retuning the
 multipliers in config therefore changes what FUTURE reviews earn; nobody
 loses points they already have.
 
-  agent-code-review score ls --stale                   # scored under old rules
-  agent-code-review score recompute --stale --dry-run  # what would change
-  agent-code-review score recompute --stale            # actually change it
+  crew-code-review score ls --stale                   # scored under old rules
+  crew-code-review score recompute --stale --dry-run  # what would change
+  crew-code-review score recompute --stale            # actually change it
 
 recompute moves points somebody already has, so it refuses to touch all of
 history without --all, and --dry-run prints every before/after without
 writing. A score set by hand is marked manual and recompute leaves it alone
 unless you pass --include-manual.
 
-  agent-code-review score set owner/repo 123 0 --note "duplicate of #120"
+  crew-code-review score set owner/repo 123 0 --note "duplicate of #120"
 
 WHAT COUNTS AS SIZE. Generated and vendored files are left out, read from
 the repo's OWN .gitattributes (linguist-generated / linguist-vendored) -
@@ -75,4 +75,4 @@ reports a ruleset that cannot work (an inverted bucket ladder, a decay of 1)
 rather than scoring silently at defaults. A NEGATIVE value needs a -- first,
 or the flag parser claims it:
 
-  agent-code-review config set scoring.verdicts.requested_changes -- -0.25
+  crew-code-review config set scoring.verdicts.requested_changes -- -0.25

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 func f(v float64) *float64 { return &v }

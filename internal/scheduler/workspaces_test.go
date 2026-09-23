@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // sweepFixture gives one test its own state dir and a scheduler whose clock

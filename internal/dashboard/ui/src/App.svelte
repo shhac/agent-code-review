@@ -84,13 +84,13 @@
 </script>
 
 <svelte:head>
-  <title>agent-code-review · {route === 'review' ? `review #${reviewRef.number}` : allNav.find((n) => n.route === route)?.label}</title>
+  <title>crew-code-review · {route === 'review' ? `review #${reviewRef.number}` : allNav.find((n) => n.route === route)?.label}</title>
 </svelte:head>
 
 <div class="shell">
   <aside class="rail">
     <button class="brand" type="button" on:click={() => navigate('/')}>
-      <img src="/mascot.webp" alt="agent-code-review mascot" width="64" height="64" />
+      <img src="/mascot.webp" alt="crew-code-review mascot" width="64" height="64" />
       <span>
         <strong>agent</strong>
         <em>code review</em>

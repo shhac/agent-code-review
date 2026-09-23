@@ -1,7 +1,7 @@
 # Conversation-triggered re-review: splitting the dedup fingerprint
 
 **Date**: 2026-08-27
-**Pins**: designed against `agent-code-review` v0.30.2 (`5dcc241`) and the
+**Pins**: designed against `crew-code-review` v0.30.2 (`5dcc241`) and the
 `pr-issue-review` skill at `affd6a1`. External surface pinned: `gh` 2.98.0.
 **Status**: designed, not yet built. Extends the deduplication model in
 `references/diff-equivalence.md` (skill side) and the New/Refreshed

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // TestCandidateFromView pins the manual-add path: `gh pr view` JSON

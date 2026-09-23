@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // TestReviewLogView pins the state resolution the ReviewLog page keys on:

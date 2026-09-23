@@ -13,16 +13,16 @@ import (
 	"github.com/shhac/lib-agent-mcp/tailscale"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/dashboard"
-	"github.com/shhac/agent-code-review/internal/discover"
-	"github.com/shhac/agent-code-review/internal/doctor"
-	"github.com/shhac/agent-code-review/internal/logbuf"
-	"github.com/shhac/agent-code-review/internal/pricing"
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/scheduler"
-	"github.com/shhac/agent-code-review/internal/store"
-	"github.com/shhac/agent-code-review/internal/usage"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/dashboard"
+	"github.com/shhac/crew-code-review/internal/discover"
+	"github.com/shhac/crew-code-review/internal/doctor"
+	"github.com/shhac/crew-code-review/internal/logbuf"
+	"github.com/shhac/crew-code-review/internal/pricing"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/scheduler"
+	"github.com/shhac/crew-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/usage"
 )
 
 type serveOpts struct {

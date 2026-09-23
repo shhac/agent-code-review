@@ -7,16 +7,16 @@ import (
 	"os"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/config"
 )
 
 // TestLiveDiscovery runs the real `gh pr list` path against a repo named in
-// AGENT_CODE_REVIEW_TEST_REPO (never hardcoded) and classifies the results.
+// CREW_CODE_REVIEW_TEST_REPO (never hardcoded) and classifies the results.
 // Validates that the JSON fields we request unmarshal against live data.
 func TestLiveDiscovery(t *testing.T) {
-	repo := os.Getenv("AGENT_CODE_REVIEW_TEST_REPO")
+	repo := os.Getenv("CREW_CODE_REVIEW_TEST_REPO")
 	if repo == "" {
-		t.Skip("AGENT_CODE_REVIEW_TEST_REPO not set")
+		t.Skip("CREW_CODE_REVIEW_TEST_REPO not set")
 	}
 
 	d := New(staticConfig(config.Config{Repos: []string{repo}}), &fakeStore{}, t.Logf)

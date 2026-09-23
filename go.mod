@@ -1,4 +1,4 @@
-module github.com/shhac/agent-code-review
+module github.com/shhac/crew-code-review
 
 go 1.26.4
 

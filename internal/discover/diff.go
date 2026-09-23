@@ -16,7 +16,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 // maxFilePages bounds the walk. The query asks for GitHub's maximum of 100

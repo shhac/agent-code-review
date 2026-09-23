@@ -1,4 +1,4 @@
-# agent-code-review
+# crew-code-review
 
 PR review queue + scheduler for AI agents. Discovers candidate pull requests
 across your repos, keeps a DuckDB-backed queue, and reviews each one by handing
@@ -52,16 +52,23 @@ you can expose over Tailscale.
 ## Installation
 
 ```bash
-brew install shhac/tap/agent-code-review
+brew install shhac/tap/crew-code-review
 ```
+
+Formerly `agent-code-review`: the `agent-*` prefix marks a tool an agent uses,
+and this one runs agents. Upgrading from it means `brew uninstall
+agent-code-review`, then moving each XDG dir (`~/.config`, `~/.local/share`,
+`~/.local/state`, `~/.cache`) from `agent-code-review` to
+`app.paulie.crew-code-review`. The store re-points recorded review workspaces
+at the new state dir on its next boot.
 
 ### Claude Code / AI agent skill
 
 ```bash
-npx skills add shhac/agent-skills --skill agent-code-review --global
+npx skills add shhac/agent-skills --skill crew-code-review --global
 ```
 
-Installs the `agent-code-review` skill globally so Claude Code (and other AI
+Installs the `crew-code-review` skill globally so Claude Code (and other AI
 agents) can discover and use it automatically. It ships from
 [`shhac/agent-skills`](https://github.com/shhac/agent-skills) — the whole
 family's skills in one repo, so `npx skills update` checks a single source no
@@ -73,19 +80,19 @@ shhac/agent-skills --global` and pick from the list.
 Requires Go 1.26+.
 
 ```bash
-make build      # -> ./agent-code-review
+make build      # -> ./crew-code-review
 ```
 
 ### Runtime dependencies
 
 - **`gh`** (GitHub CLI), authenticated. Used for candidate discovery.
 - **`duckdb`** CLI: the queue store (`brew install duckdb`; override the binary
-  with `AGENT_CODE_REVIEW_DUCKDB_PATH`).
+  with `CREW_CODE_REVIEW_DUCKDB_PATH`).
 - **`codex`** or **`claude`**: the review engine, whichever `review.engine`
   selects (default `codex`). Only the selected one is needed, and it must
   already be authenticated: this tool never handles engine credentials.
 
-Run `agent-code-review doctor` to check all of the above at once. Each of
+Run `crew-code-review doctor` to check all of the above at once. Each of
 these otherwise fails only at review time, as an `ERROR` history row whose
 cause is buried in the engine transcript; `doctor` exits non-zero on a
 blocking failure, and `serve` runs the same checks at boot and logs them.
@@ -113,20 +120,20 @@ tool neither requires nor mentions it.
 1. Write the starter config:
 
    ```bash
-   agent-code-review config init
+   crew-code-review config init
    ```
 2. Add the repos to watch and put people in groups:
 
    ```bash
-   agent-code-review repos add your-org/your-repo
-   agent-code-review authors set '*' some-handle approver --name "Some Engineer"
+   crew-code-review repos add your-org/your-repo
+   crew-code-review authors set '*' some-handle approver --name "Some Engineer"
    ```
 3. Set your prompts and dials, then kick a one-shot run:
 
    ```bash
-   agent-code-review prompts set on-approve "Notify the team per your conventions."
-   agent-code-review config set candidates.rereview_cooldown 2h
-   agent-code-review run --once
+   crew-code-review prompts set on-approve "Notify the team per your conventions."
+   crew-code-review config set candidates.rereview_cooldown 2h
+   crew-code-review run --once
    ```
 
    Every command group has a `usage` subcommand with full docs and examples
@@ -134,7 +141,7 @@ tool neither requires nor mentions it.
 4. Or run the daemon with the dashboard on your tailnet:
 
    ```bash
-   agent-code-review serve --http :8330 --tailscale serve
+   crew-code-review serve --http :8330 --tailscale serve
    ```
 
 ## Command map
@@ -281,12 +288,12 @@ Who is in each group is roster data: it churns and varies per repo, so it
 lives in DuckDB rather than config.
 
 ```bash
-agent-code-review authors set owner/name alice core --name "Alice" --slack-id U01
-agent-code-review authors set '*' bob outsider     # that group on every repo
-agent-code-review authors ls --repo owner/name     # rows + the policy each resolves to
-agent-code-review authors groups                   # the cohorts and what each grants
-agent-code-review authors who alice --repo owner/name
-agent-code-review authors rm owner/name alice      # back to authors.unlisted
+crew-code-review authors set owner/name alice core --name "Alice" --slack-id U01
+crew-code-review authors set '*' bob outsider     # that group on every repo
+crew-code-review authors ls --repo owner/name     # rows + the policy each resolves to
+crew-code-review authors groups                   # the cohorts and what each grants
+crew-code-review authors who alice --repo owner/name
+crew-code-review authors rm owner/name alice      # back to authors.unlisted
 ```
 
 Resolution is two steps. First the group: the roster row for this repo, else
@@ -444,7 +451,7 @@ viewer and asserts their identity in a header, and the roster maps that to a
 GitHub handle:
 
 ```
-agent-code-review authors set '*' octocat approver --tailscale-login octo@example.com
+crew-code-review authors set '*' octocat approver --tailscale-login octo@example.com
 ```
 
 Without a `tailscale_login` a person can browse and steer nothing. The
@@ -457,7 +464,7 @@ add rather than after it.
 
 ## Configuration
 
-`~/.config/agent-code-review/config.json` (respects `XDG_CONFIG_HOME`). See
+`~/.config/app.paulie.crew-code-review/config.json` (respects `XDG_CONFIG_HOME`). See
 `config.example.json` for the full shape: `repos`, `gh_user`, `candidates`,
 `schedule`, `review` (engine + prompt + rules + codex/claude), `authors`
 (groups + unlisted + overrides), `store`, and `dashboard` (addr + tailscale).

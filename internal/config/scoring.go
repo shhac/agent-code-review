@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/shhac/agent-code-review/internal/score"
+	"github.com/shhac/crew-code-review/internal/score"
 )
 
 // VerdictMultipliers scales a score by what the review concluded.

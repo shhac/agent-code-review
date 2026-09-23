@@ -7,9 +7,9 @@ import (
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/review"
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/review"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // promptSlots maps slot names to accessors on ReviewSettings. "main" is the

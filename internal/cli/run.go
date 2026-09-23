@@ -8,10 +8,10 @@ import (
 	output "github.com/shhac/lib-agent-output"
 	"github.com/spf13/cobra"
 
-	"github.com/shhac/agent-code-review/internal/config"
-	"github.com/shhac/agent-code-review/internal/scheduler"
-	"github.com/shhac/agent-code-review/internal/store"
-	"github.com/shhac/agent-code-review/internal/usage"
+	"github.com/shhac/crew-code-review/internal/config"
+	"github.com/shhac/crew-code-review/internal/scheduler"
+	"github.com/shhac/crew-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/usage"
 )
 
 func registerRun(root *cobra.Command) {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shhac/agent-code-review/internal/store"
+	"github.com/shhac/crew-code-review/internal/store"
 )
 
 // TestDiscoverSkipsWhileASweepIsInFlight pins the in-flight guard. It exists

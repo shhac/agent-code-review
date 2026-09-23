@@ -5,7 +5,7 @@ v0.23.1 (for the `tailscale` subpackage); lib-agent-output v0.10.0.
 
 ## What this is
 
-`agent-code-review` turns a Codex scheduled prompt ("act as a friendly PR
+`crew-code-review` turns a Codex scheduled prompt ("act as a friendly PR
 unblocker across our repos") into a CLI in the `agent-*` family. It discovers
 candidate PRs, keeps a DuckDB-backed review queue, reviews each candidate by
 handing an assembled prompt to a pluggable engine, and serves a dashboard that
@@ -69,7 +69,7 @@ Considered:
    parse NDJSON). Stays CGO-free, releases cleanly, keeps DuckDB.
 
 Consequences: the `duckdb` binary is a runtime dependency (`brew install duckdb`;
-override with `AGENT_CODE_REVIEW_DUCKDB_PATH`). DuckDB is single-writer per file,
+override with `CREW_CODE_REVIEW_DUCKDB_PATH`). DuckDB is single-writer per file,
 so the driver serializes access with a mutex, fine at the daemon's scale (a
 handful of reviews per cycle). The store stays behind the `store.Store`
 interface so a pure-Go driver could be added if the runtime dep becomes painful.
@@ -85,7 +85,7 @@ external schedulers (launchd/cron) or manual kicks, honouring the same run-lock.
 
 Every environment-specific thing (watched repos, age windows, cadence,
 parallelism, the prompt + rules, the store path, dashboard and Tailscale
-settings) lives in `~/.config/agent-code-review/config.json`. The approver
+settings) lives in `~/.config/app.paulie.crew-code-review/config.json`. The approver
 allow-list is the one exception: it's runtime data in the store, managed via
 `approvers`. No GitHub handles or repos appear in code, docs, or the shipped
 example config.
@@ -112,7 +112,7 @@ example config.
   only for APPROVED/COMMENTED so skips/failures never masked Refreshed
   detection.
 - **Live validation happened**: a codex smoke test drove the full driver path
-  (passed, ~11s), and env-gated live discovery (`AGENT_CODE_REVIEW_TEST_REPO`)
+  (passed, ~11s), and env-gated live discovery (`CREW_CODE_REVIEW_TEST_REPO`)
   classified real `gh pr list` output correctly: team review requests carried
   `name` rather than `login`, as the structs assumed.
 - **Discovery became per-repo resilient**: one failing repo was logged and

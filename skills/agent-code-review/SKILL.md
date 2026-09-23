@@ -50,6 +50,7 @@ agent-code-review queue add     owner/name 1234   # add a PR (fetches live metad
 agent-code-review queue promote owner/name 1234   # review NOW: top of queue, clears any hold, treated as manual
 agent-code-review queue skip    owner/name 1234   # record SKIPPED and drop (re-eligible on new commits)
 agent-code-review queue rm      owner/name 1234   # remove, recording nothing
+agent-code-review queue prune --dry-run            # recheck the whole queue now: skip stale discovered PRs, warn about merged/closed manual adds
 agent-code-review queue log     owner/name 1234 -f # stream the review agent's log (live or postmortem)
 ```
 

@@ -20,7 +20,7 @@ func registerQueue(root *cobra.Command) {
 		Short: "Inspect and manage the review queue",
 		Args:  cobra.NoArgs,
 	}
-	cmd.AddCommand(queueLsCmd(), queueAddCmd(), queueRmCmd(), queuePromoteCmd(), queueSkipCmd(), queueLogCmd())
+	cmd.AddCommand(queueLsCmd(), queueAddCmd(), queueRmCmd(), queuePromoteCmd(), queueSkipCmd(), queuePruneCmd(), queueLogCmd())
 	registerGroupUsage(cmd, "queue", queueUsageText)
 	root.AddCommand(cmd)
 }

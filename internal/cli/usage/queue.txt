@@ -32,6 +32,17 @@ COMMANDS:
   queue rm <owner/repo> <number>
     Remove a PR from the queue entirely, recording nothing.
 
+  queue prune [--repo owner/name] [--dry-run]
+    Run the pre-review candidacy recheck over the whole queue now, instead
+    of waiting for each PR to be claimed (which never happens while an
+    engine is at its usage floor). Discovered PRs that were merged, closed,
+    approved, drafted, lost their review request, or were already reviewed
+    at this head are recorded as a precheck SKIPPED and dropped. Manual adds
+    are only checked for merged/closed and are reported as "warned", never
+    dropped: queue rm them if they should go. Rows being reviewed right now
+    are left alone. One NDJSON record per row (action: skipped, warned,
+    kept, in-flight, failed), then an @summary line. One gh call per row.
+
   queue log <owner/repo> <number> [-f|--follow]
     Stream the review agent's output. Live while the review runs (the engine
     tees into <workdir>/agent.log); the log of the most recent finished
@@ -41,6 +52,7 @@ EXAMPLES:
   agent-code-review queue ls --repo example-org/example-repo
   agent-code-review queue add example-org/example-repo 123
   agent-code-review queue promote example-org/example-repo 123
+  agent-code-review queue prune --dry-run
 
 NOTES: the queue holds only pending work. Completed reviews (including
 skips and errors) live in the outcome history shown by the dashboard's

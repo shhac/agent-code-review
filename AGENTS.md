@@ -15,7 +15,7 @@ internal/
 │   ├── shutdown.go             # the two-stage stop: graceful, then forced
 │   ├── pricing.go              # estimator + costRates: one valuation, two paths
 │   ├── run.go                  # `run`: discover, drain the queue, exit
-│   ├── queue.go                # `queue ls/add/rm/promote/skip/log`
+│   ├── queue.go                # `queue ls/add/rm/promote/skip/prune/log`
 │   ├── authors.go              # `authors set/rm/ls/groups/who`: the author roster
 │   ├── score.go                # `score ls/show/set/recompute/leaderboard`
 │   ├── repos.go                # `repos ls/add/rm`: the watched repos (config)

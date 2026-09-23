@@ -149,6 +149,7 @@ queue add     <owner/repo> <number>
 queue rm      <owner/repo> <number>
 queue promote <owner/repo> <number>
 queue skip    <owner/repo> <number>
+queue prune   [--repo <owner/repo>] [--dry-run]
 queue log     <owner/repo> <number> [-f|--follow]
 
 repos ls | add <owner/repo> [--unlisted <group>] | rm <owner/repo>

@@ -16,7 +16,7 @@ allowed-tools: Bash(agent-code-review *) Read Grep Glob
 
 `agent-code-review` is a CLI binary on `$PATH`. Default output is **NDJSON**:
 one JSON record per line on stdout (`-f json|yaml` wrap a list as one
-`{"data": [...]}` document; `run` ends with an `{"@summary": {...}}` line).
+`{"data": [...]}` document; `run` and `score recompute|refetch` end with an `{"@summary": {...}}` line).
 Errors go to stderr as one JSON line
 `{"error": "...", "fixable_by": "agent"|"human"|"retry", "hint": "..."}` with a
 non-zero exit.

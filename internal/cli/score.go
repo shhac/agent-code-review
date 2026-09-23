@@ -89,7 +89,7 @@ const (
 	rescoreSkipped
 )
 
-// rescoreTally counts a sweep's outcomes for its summary record.
+// rescoreTally counts a sweep's outcomes for its @summary.
 type rescoreTally struct{ changed, skipped int }
 
 func (t *rescoreTally) add(o rescoreOutcome) {
@@ -101,14 +101,14 @@ func (t *rescoreTally) add(o rescoreOutcome) {
 	}
 }
 
-// rescore records one re-derived score, unless this is a dry run, and reports
-// the row next to the score it replaces. The diff and files are written with
-// the score in one statement, so a row never carries counts its score was not
-// derived from.
-func rescore(ctx context.Context, s store.Store, r store.Review, files []score.FileStat, rec store.ScoreRecord, dryRun, remeasured bool) (rescoreOutcome, error) {
+// rescore records one re-derived score, unless this is a dry run, and returns
+// the row to report next to the score it replaces. The diff and files are
+// written with the score in one statement, so a row never carries counts its
+// score was not derived from.
+func rescore(ctx context.Context, s store.Store, r store.Review, files []score.FileStat, rec store.ScoreRecord, dryRun, remeasured bool) (rescoreOutcome, *scoreRowOut, error) {
 	if !dryRun {
 		if err := s.SetReviewScoring(ctx, r.Ref(), r.Diff, files, rec); err != nil {
-			return rescoreUnchanged, err
+			return rescoreUnchanged, nil, err
 		}
 	}
 	was := r.Score
@@ -121,7 +121,37 @@ func rescore(ctx context.Context, s store.Store, r store.Review, files []score.F
 	if was.Score == nil || *was.Score != rec.Points() {
 		outcome = rescoreChanged
 	}
-	return outcome, emit(row)
+	return outcome, &row, nil
+}
+
+// rescoreSweep runs one row function over every row, streaming each reported
+// row and closing with the tally as the list's @summary. countKey names what
+// the sweep did to the rows it did not skip ("recomputed", "refetched").
+func rescoreSweep(rows []store.Review, countKey string, dryRun bool, each func(store.Review) (rescoreOutcome, *scoreRowOut, error)) error {
+	out, err := newListStream()
+	if err != nil {
+		return err
+	}
+	var tally rescoreTally
+	for _, r := range rows {
+		outcome, row, err := each(r)
+		if err != nil {
+			return err
+		}
+		tally.add(outcome)
+		if row == nil {
+			continue
+		}
+		if err := out.add(*row); err != nil {
+			return err
+		}
+	}
+	// skipped is reported rather than swallowed: a row left alone because its
+	// diff describes another revision is a thing the operator should see, not
+	// a silent difference between the count asked for and the count written.
+	return out.close(map[string]any{summaryKey: map[string]any{
+		countKey: len(rows) - tally.skipped, "changed": tally.changed, "skipped": tally.skipped, "dry_run": dryRun,
+	}})
 }
 
 func scoreLsCmd() *cobra.Command {

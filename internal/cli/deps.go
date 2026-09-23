@@ -82,6 +82,43 @@ func emitList[T any](items []T, record func(int, T) any, meta map[string]any) er
 	return output.WriteList(stdout, f, records, trailer, nil)
 }
 
+// summaryKey carries a command's closing summary as list metadata rather
+// than as one more record. As a bare trailing record it was indistinguishable
+// from an item to anything reading records, and under -f json it could not
+// sit in the data array without mixing two shapes there.
+const summaryKey = "@summary"
+
+// listStream is emitList for a list produced one item at a time. NDJSON
+// writes each record as it arrives, so a slow sweep shows its progress; a
+// json or yaml document cannot be written until the list is complete, so
+// those formats buffer and write the one document at close.
+type listStream struct {
+	f       output.Format
+	pending []any
+}
+
+func newListStream() (*listStream, error) {
+	f, err := output.ResolveFormat(format(), output.FormatNDJSON)
+	if err != nil {
+		return nil, err
+	}
+	return &listStream{f: f}, nil
+}
+
+func (l *listStream) add(v any) error {
+	if l.f == output.FormatNDJSON {
+		return emit(v)
+	}
+	l.pending = append(l.pending, v)
+	return nil
+}
+
+// close writes the metadata: the trailing lines under NDJSON, the whole
+// {"data": [...], <meta>} document otherwise.
+func (l *listStream) close(meta map[string]any) error {
+	return emitList(l.pending, nil, meta)
+}
+
 // yamlReady JSON-round-trips a value bound for the yaml encoder, so it uses
 // the json-tag key names (yaml.v3 marshals Go structs by field name
 // otherwise). The NDJSON/json paths marshal with the tags anyway and skip

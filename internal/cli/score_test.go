@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -316,5 +318,42 @@ func TestSetScoreTargetsTheFirstReviewOfTheLatestRevision(t *testing.T) {
 				t.Errorf("selection = %+v, want this PR including manual rows", q)
 			}
 		})
+	}
+}
+
+// A rescoring sweep streams under NDJSON, one line per reported row as it is
+// done, then an @summary line; -f json is ONE document with the rows under
+// data and the summary beside it. It used to print a document per row plus a
+// bare summary record, which no JSON parser reads as a whole.
+func TestRecomputeOutputFollowsTheListContract(t *testing.T) {
+	rows := func() *fakeScoreStore {
+		return &fakeScoreStore{rows: []store.Review{
+			scoredReview(1, store.VerdictApproved, 40, 10, "sha", "sha"),
+			scoredReview(2, store.VerdictApproved, 40, 10, "sha", "sha"),
+		}}
+	}
+
+	buf := captureStdout(t, "")
+	runRecompute(t, rows(), true)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("ndjson lines = %d, want 2 rows and a summary:\n%s", len(lines), buf)
+	}
+	var last map[string]map[string]any
+	if err := json.Unmarshal([]byte(lines[2]), &last); err != nil || last["@summary"]["recomputed"] != float64(2) {
+		t.Errorf("last line = %s (%v), want an @summary of 2 recomputed", lines[2], err)
+	}
+
+	buf = captureStdout(t, "json")
+	runRecompute(t, rows(), true)
+	var doc struct {
+		Data    []scoreRowOut  `json:"data"`
+		Summary map[string]any `json:"@summary"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("-f json sweep is not one JSON document (%v):\n%s", err, buf)
+	}
+	if len(doc.Data) != 2 || doc.Summary["recomputed"] != float64(2) || doc.Summary["dry_run"] != true {
+		t.Errorf("document = %+v", doc)
 	}
 }

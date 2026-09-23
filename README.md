@@ -507,9 +507,10 @@ Queue add/reorder/promote are also available as JSON endpoints
 ## Output
 
 NDJSON on stdout, one JSON record per line. `-f json` and `-f yaml` print a
-list as one document, `{"data": [...]}`. `run` ends with a trailing
-`{"@summary": {...}}` line (a sibling of `data` under json/yaml). Errors go to
-stderr as `{"error", "fixable_by", "hint"}` with a non-zero exit.
+list as one document, `{"data": [...]}`. `run`, `score recompute` and `score
+refetch` end with a trailing `{"@summary": {...}}` line (a sibling of `data`
+under json/yaml). Errors go to stderr as `{"error", "fixable_by", "hint"}`
+with a non-zero exit.
 
 ## Development
 

@@ -66,16 +66,8 @@ func refetch(ctx context.Context, s store.Store, cfg config.Config, m discover.M
 	if err != nil {
 		return err
 	}
-	var tally rescoreTally
-	for _, r := range rows {
-		outcome, err := refetchRow(ctx, s, cfg, m, r, dryRun)
-		if err != nil {
-			return err
-		}
-		tally.add(outcome)
-	}
-	return emit(map[string]any{
-		"refetched": len(rows) - tally.skipped, "changed": tally.changed, "skipped": tally.skipped, "dry_run": dryRun,
+	return rescoreSweep(rows, "refetched", dryRun, func(r store.Review) (rescoreOutcome, *scoreRowOut, error) {
+		return refetchRow(ctx, s, cfg, m, r, dryRun)
 	})
 }
 
@@ -83,7 +75,7 @@ func refetch(ctx context.Context, s store.Store, cfg config.Config, m discover.M
 // error: one unreachable PR (deleted repo, revoked access, a rate limit) must
 // not abandon the rest of the sweep, so anything it cannot repair is reported
 // as a skip instead.
-func refetchRow(ctx context.Context, s store.Store, cfg config.Config, m discover.Measurer, r store.Review, dryRun bool) (rescoreOutcome, error) {
+func refetchRow(ctx context.Context, s store.Store, cfg config.Config, m discover.Measurer, r store.Review, dryRun bool) (rescoreOutcome, *scoreRowOut, error) {
 	// Resolved once and used for both halves: measuring under one policy
 	// and recording another's hash is how a row comes to look current
 	// under rules it was never measured with.
@@ -100,7 +92,7 @@ func refetchRow(ctx context.Context, s store.Store, cfg config.Config, m discove
 
 	sc, err := s.ScoreContext(ctx, r.Repo, r.Number, r.HeadSHA, r.ReviewedAt)
 	if err != nil {
-		return rescoreUnchanged, err
+		return rescoreUnchanged, nil, err
 	}
 	r.Diff = measurement.Stats
 	rec, ok := store.DeriveScore(rules, sc, r, time.Now())
@@ -110,13 +102,13 @@ func refetchRow(ctx context.Context, s store.Store, cfg config.Config, m discove
 	return rescore(ctx, s, r, measurement.Files, rec, dryRun, true)
 }
 
-// refetchSkip reports a row this sweep declined, and why. Skips are emitted
+// refetchSkip reports a row this sweep declined, and why. Skips are reported
 // rather than counted silently: the reason is the whole value of the run for
 // a row that cannot be repaired.
-func refetchSkip(r store.Review, reason string) (rescoreOutcome, error) {
+func refetchSkip(r store.Review, reason string) (rescoreOutcome, *scoreRowOut, error) {
 	row := scoreRow(r)
 	row.Skipped = reason
-	return rescoreSkipped, emit(row)
+	return rescoreSkipped, &row, nil
 }
 
 func shortSHA(sha string) string {

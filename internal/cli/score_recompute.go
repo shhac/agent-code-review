@@ -58,31 +58,20 @@ func recompute(ctx context.Context, s store.Store, cfg config.Config, q store.Sc
 	if err != nil {
 		return err
 	}
-	var tally rescoreTally
-	for _, r := range rows {
-		outcome, err := recomputeRow(ctx, s, cfg, r, dryRun)
-		if err != nil {
-			return err
-		}
-		tally.add(outcome)
-	}
-	// skipped is reported rather than swallowed: a row left alone because its
-	// diff describes another revision is a thing the operator should see, not
-	// a silent difference between the count asked for and the count written.
-	return emit(map[string]any{
-		"recomputed": len(rows) - tally.skipped, "changed": tally.changed, "skipped": tally.skipped, "dry_run": dryRun,
+	return rescoreSweep(rows, "recomputed", dryRun, func(r store.Review) (rescoreOutcome, *scoreRowOut, error) {
+		return recomputeRow(ctx, s, cfg, r, dryRun)
 	})
 }
 
-func recomputeRow(ctx context.Context, s store.Store, cfg config.Config, r store.Review, dryRun bool) (rescoreOutcome, error) {
+func recomputeRow(ctx context.Context, s store.Store, cfg config.Config, r store.Review, dryRun bool) (rescoreOutcome, *scoreRowOut, error) {
 	sc, err := s.ScoreContext(ctx, r.Repo, r.Number, r.HeadSHA, r.ReviewedAt)
 	if err != nil {
-		return rescoreUnchanged, err
+		return rescoreUnchanged, nil, err
 	}
 	rules := cfg.ResolveScoring(r.Repo)
 	files, err := s.ReviewFiles(ctx, r.Ref())
 	if err != nil {
-		return rescoreUnchanged, err
+		return rescoreUnchanged, nil, err
 	}
 	r.Diff = recountStored(r.Diff, files, rules)
 
@@ -93,7 +82,7 @@ func recomputeRow(ctx context.Context, s store.Store, cfg config.Config, r store
 	// paths came apart before.
 	rec, ok := store.DeriveScore(rules, sc, r, time.Now())
 	if !ok {
-		return rescoreSkipped, nil
+		return rescoreSkipped, nil, nil
 	}
 	// The same files back, unchanged: recompute re-applies policy to the
 	// stored evidence rather than taking new evidence, so the detail a later

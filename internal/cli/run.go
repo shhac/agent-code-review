@@ -87,17 +87,11 @@ func runUsageFn(ctx context.Context, cfg config.Config, ignoreFloor bool) schedu
 	return usage.NewCache().Lazy(fetchUsage(ctx, cfg))
 }
 
-// runSummaryKey carries the summary as list metadata rather than as one more
-// record. As a bare trailing record it was indistinguishable from an outcome
-// to anything reading records, and under -f json it could not sit in the
-// data array without mixing two shapes there.
-const runSummaryKey = "@summary"
-
 // emitRun prints the outcomes as a list with the summary riding as metadata:
 // a trailing {"@summary": ...} line in NDJSON, a sibling of "data" in the
 // json/yaml envelope.
 func emitRun(outcomes []store.Review, elapsed time.Duration) error {
-	return emitList(outcomes, nil, map[string]any{runSummaryKey: runSummary(outcomes, elapsed)})
+	return emitList(outcomes, nil, map[string]any{summaryKey: runSummary(outcomes, elapsed)})
 }
 
 // runSummary is the trailing metadata `run` prints after the outcome rows: how

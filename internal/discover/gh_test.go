@@ -299,17 +299,40 @@ echo '{"number":7,"title":"t","author":{"login":"alice"},"headRefOid":"sha","sta
 	if ok, _, err := StillCandidateAt(ctx, "o/r", 7, "", "", false); err != nil || !ok {
 		t.Fatalf("StillCandidateAt = %v, %v", ok, err)
 	}
+	// Lowercased because prune compares it to "open": gh's OPEN passed through
+	// as-is would report every open manual add as merged or closed.
+	if state, err := PRState(ctx, "o/r", 7); err != nil || state != "open" {
+		t.Fatalf("PRState = %q, %v; want open", state, err)
+	}
 	calls := ghCalls(t)
-	if len(calls) != 2 {
-		t.Fatalf("gh called %d times, want 2", len(calls))
+	if len(calls) != 3 {
+		t.Fatalf("gh called %d times, want 3", len(calls))
 	}
 	for i, fields := range []string{
 		"title,author,url,headRefOid,state,createdAt,updatedAt,additions,deletions,changedFiles",
 		"number,isDraft,state,reviewRequests,reviewDecision,reviews,headRefOid",
+		"state",
 	} {
 		want := []string{"pr", "view", "7", "--repo", "o/r", "--json", fields}
 		if !slices.Equal(calls[i], want) {
 			t.Errorf("call %d argv = %q, want %q", i, calls[i], want)
+		}
+	}
+}
+
+// A discussion candidate is a re-review of a head we already reviewed, so
+// passing that head would make the already-reviewed guard reject every one.
+func TestRecheckHead(t *testing.T) {
+	for _, tc := range []struct {
+		typ  string
+		want string
+	}{
+		{store.TypeNew, "sha1"},
+		{store.TypeRefreshed, "sha1"},
+		{store.TypeDiscussion, ""},
+	} {
+		if got := RecheckHead(store.Candidate{Type: tc.typ, HeadSHA: "sha1"}); got != tc.want {
+			t.Errorf("RecheckHead(%s) = %q, want %q", tc.typ, got, tc.want)
 		}
 	}
 }

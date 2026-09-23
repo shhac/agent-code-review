@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shhac/agent-code-review/internal/config"
+	"github.com/shhac/agent-code-review/internal/discover"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/store"
 )
@@ -62,22 +63,7 @@ func (s *Scheduler) skipIfStale(ctx context.Context, cfg config.Config, c store.
 	if c.Source == store.SourceManual {
 		return false, nil
 	}
-	// The head is passed so the recheck can also answer "have we already
-	// reviewed THIS revision": an attempt interrupted after it posted recorded
-	// nothing, so without this the work would be done twice.
-	//
-	// Except for a discussion candidate, which IS by construction a re-review
-	// of a revision we already reviewed: somebody replied to the findings. With
-	// the head passed, that guard rejected every single one, so the feature
-	// could never once run — it only ever discovered work, claimed it, and
-	// skipped it. Passing an empty head drops exactly that guard and keeps the
-	// merged, closed, draft and approved gates, which are what this recheck is
-	// actually for.
-	head := c.HeadSHA
-	if c.Type == store.TypeDiscussion {
-		head = ""
-	}
-	ok, reason, err := s.stillCandidate(ctx, c.Repo, c.Number, s.ghUser, head, cfg.RequireReviewRequest())
+	ok, reason, err := s.stillCandidate(ctx, c.Repo, c.Number, s.ghUser, discover.RecheckHead(c), cfg.RequireReviewRequest())
 	if err != nil {
 		return false, fmt.Errorf("candidacy recheck: %w", err)
 	}

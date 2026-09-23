@@ -162,6 +162,39 @@ func StillCandidateAt(ctx context.Context, repo string, number int, login, head 
 	return stillCandidateFromJSON(out, login, head, requireReviewRequest)
 }
 
+// RecheckHead is the head StillCandidateAt is given for a queued candidate.
+// Passing it lets the recheck also answer "have we already reviewed THIS
+// revision": an attempt interrupted after it posted recorded nothing, so
+// without it the work would be done twice.
+//
+// Except for a discussion candidate, which IS by construction a re-review of a
+// revision we already reviewed: somebody replied to the findings. With the head
+// passed, that guard rejected every single one, so the feature could never once
+// run — it only ever discovered work, claimed it, and skipped it. An empty head
+// drops exactly that guard and keeps the merged, closed, draft and approved
+// gates, which are what the recheck is actually for.
+func RecheckHead(c store.Candidate) string {
+	if c.Type == store.TypeDiscussion {
+		return ""
+	}
+	return c.HeadSHA
+}
+
+// PRState is a PR's live state, lowercased: open, closed or merged. It is the
+// only question worth asking of a manual add, which bypasses the candidacy
+// gates on purpose.
+func PRState(ctx context.Context, repo string, number int) (string, error) {
+	out, err := ghPRView(ctx, repo, number, "state")
+	if err != nil {
+		return "", err
+	}
+	pr, err := decodePRView(out)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToLower(pr.State), nil
+}
+
 // stillCandidateFromJSON applies the live-state gate plus the shared
 // candidacy gates to a `gh pr view` payload. Pure: the state and gate
 // branches are table-tested from canned JSON, mirroring candidateFromView.

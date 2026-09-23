@@ -3,9 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	output "github.com/shhac/lib-agent-output"
+
+	"github.com/shhac/agent-code-review/internal/store"
 )
 
 func TestParseRepoNumber(t *testing.T) {
@@ -62,4 +67,46 @@ func TestStreamFile(t *testing.T) {
 			t.Error("missing log must error, not stream nothing")
 		}
 	})
+}
+
+// skipStore is the queue as `queue skip` sees it: one queued row to find, and
+// the completion it records. Any other store call panics through the nil
+// embedded interface.
+type skipStore struct {
+	store.Store
+	queued    store.Candidate
+	completed []store.Review
+}
+
+func (s *skipStore) QueuedPR(_ context.Context, repo string, number int) (store.Candidate, bool, error) {
+	if repo == s.queued.Repo && number == s.queued.Number {
+		return s.queued, true, nil
+	}
+	return store.Candidate{}, false, nil
+}
+
+func (s *skipStore) Complete(_ context.Context, r store.Review) error {
+	s.completed = append(s.completed, r)
+	return nil
+}
+
+func TestSkipQueued(t *testing.T) {
+	captureStdout(t, "")
+	s := &skipStore{queued: store.Candidate{Repo: "o/r", Number: 7, HeadSHA: "abc123"}}
+
+	err := skipQueued(context.Background(), s, "o/r", 8)
+	var fail *output.Error
+	if !errors.As(err, &fail) || fail.FixableBy != output.FixableByAgent || len(s.completed) != 0 {
+		t.Fatalf("skip of an unqueued PR = %v, recorded %+v; want an agent-fixable error and nothing recorded", err, s.completed)
+	}
+
+	if err := skipQueued(context.Background(), s, "o/r", 7); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.completed) != 1 {
+		t.Fatalf("recorded %d outcomes, want 1", len(s.completed))
+	}
+	if got := s.completed[0]; got.Verdict != store.VerdictSkipped || got.Engine != store.EngineManual || got.HeadSHA != "abc123" {
+		t.Errorf("recorded %+v, want a manual SKIPPED at the queued head", got)
+	}
 }

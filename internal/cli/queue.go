@@ -132,25 +132,29 @@ func queueSkipCmd() *cobra.Command {
 				return err
 			}
 			return withStore(func(s store.Store) error {
-				// The history row needs the queued head SHA, and a skip of a
-				// PR that isn't queued would leave a dangling outcome, so
-				// missing is an error rather than a silent no-op.
-				c, found, err := s.QueuedPR(cmd.Context(), repo, number)
-				if err != nil {
-					return err
-				}
-				if !found {
-					return output.New(prKey(repo, number)+" is not in the queue", output.FixableByAgent)
-				}
-				if err := s.Complete(cmd.Context(), store.ReviewFrom(c, "SKIPPED", store.EngineManual, time.Time{})); err != nil {
-					return err
-				}
-				return emit(map[string]any{"skipped": prKey(repo, number)})
+				return skipQueued(cmd.Context(), s, repo, number)
 			})
 		},
 	}
 	cmd.ValidArgsFunction = completeRepoThenNumber(true)
 	return cmd
+}
+
+// skipQueued records a hand-skip of one queued PR. The history row needs the
+// queued head SHA, and a skip of a PR that isn't queued would leave a
+// dangling outcome, so missing is an error rather than a silent no-op.
+func skipQueued(ctx context.Context, s store.Store, repo string, number int) error {
+	c, found, err := s.QueuedPR(ctx, repo, number)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return output.New(prKey(repo, number)+" is not in the queue", output.FixableByAgent)
+	}
+	if err := s.Complete(ctx, store.ReviewFrom(c, store.VerdictSkipped, store.EngineManual, time.Time{})); err != nil {
+		return err
+	}
+	return emit(map[string]any{"skipped": prKey(repo, number)})
 }
 
 func queueLogCmd() *cobra.Command {

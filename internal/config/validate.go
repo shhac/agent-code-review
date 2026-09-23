@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // repoNamePattern is the one definition of the accepted "owner/name" shape;
@@ -154,4 +155,57 @@ func sortedKeys[T any](m map[string]T) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// durationDial is one Go-duration setting as ValidateDurations judges it.
+type durationDial struct {
+	key       string
+	value     string
+	zeroMeans string // what an explicit "0s" does; "" when zero is not allowed
+}
+
+// ValidateDurations reports duration settings that will not be read as
+// written. The getters fall back to the default for anything unparseable or
+// out of range, which is the right behaviour for a running daemon and the
+// wrong one as the only signal: `"workspace_retention": "-1h"` reads as
+// "keep forever" to a person and as 30 days to the sweep. `config set`
+// already refuses these; this catches a hand-edited file.
+func (c Config) ValidateDurations() []string {
+	dials := []durationDial{
+		{"schedule.interval", c.Schedule.Interval, ""},
+		{"schedule.dispatch_cooldown", c.Schedule.DispatchCooldown, "disables it"},
+		{"discovery.interval", c.Discovery.Interval, ""},
+		{"discovery.sweep_budget", c.Discovery.SweepBudget, ""},
+		{"candidates.rereview_cooldown", c.Candidates.RereviewCooldown, "disables it"},
+		{"candidates.quiet_period", c.Candidates.QuietPeriod, "disables it"},
+		{"candidates.steering_hold", c.Candidates.SteeringHold, "disables it"},
+		{"candidates.error_backoff", c.Candidates.ErrorBackoff, "retires a PR on its first error"},
+		{"review.workspace_retention", c.Review.WorkspaceRetention, "turns the sweep off"},
+		{"dashboard.usage_poll_interval", c.Dashboard.UsagePollInterval, ""},
+	}
+	var problems []string
+	for _, d := range dials {
+		if p := d.problem(); p != "" {
+			problems = append(problems, p)
+		}
+	}
+	return problems
+}
+
+func (d durationDial) problem() string {
+	if d.value == "" {
+		return ""
+	}
+	parsed, err := time.ParseDuration(d.value)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("%s is %q, not a Go duration (e.g. 30m, 1h); the default is used instead", d.key, d.value)
+	case parsed < 0, parsed == 0 && d.zeroMeans == "":
+		allowed := "positive"
+		if d.zeroMeans != "" {
+			allowed = "zero or positive (0s " + d.zeroMeans + ")"
+		}
+		return fmt.Sprintf("%s is %q; it must be %s, so the default is used instead", d.key, d.value, allowed)
+	}
+	return ""
 }

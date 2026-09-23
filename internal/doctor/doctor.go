@@ -77,6 +77,7 @@ func ConfigProblems(cfg config.Config) []string {
 	// signal: an inverted bucket ladder would otherwise score every PR at
 	// defaults forever and say nothing. This is where it says something.
 	problems = append(problems, cfg.ValidateScoring()...)
+	problems = append(problems, cfg.ValidateDurations()...)
 	for _, rs := range reachableSettings(cfg) {
 		for _, p := range review.Preflight(rs.settings) {
 			problems = append(problems, rs.where+p)

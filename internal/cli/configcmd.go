@@ -133,6 +133,8 @@ func configKeySpecs() []configKeySpec {
 			func(c *config.Config) *string { return &c.Candidates.ErrorBackoff }, validateHoldDuration)),
 		static(stringKey("review.engine", "Review engine (default codex)",
 			func(c *config.Config) *string { return &c.Review.Engine }, validateOneOf("engine", engineValues)), engineValues),
+		plain(stringKey("review.workspace_retention", "How long a review's workspace (and its agent transcript) is kept before the boot sweep removes it, as a Go duration (default 720h, 0s keeps everything)",
+			func(c *config.Config) *string { return &c.Review.WorkspaceRetention }, validateHoldDuration)),
 		plain(stringKey("codex.bin", "Codex binary (default codex)",
 			func(c *config.Config) *string { return &c.Review.Codex.Bin }, nil)),
 		configKeySpec{key: stringKey("codex.model", "Model passed to codex exec --model",

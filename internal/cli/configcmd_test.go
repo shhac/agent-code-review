@@ -61,6 +61,7 @@ func TestConfigKeysRoundTrip(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	samples := map[string]string{
+		"review.workspace_retention":         "168h",
 		"gh_user":                            "example-handle",
 		"schedule.enabled":                   "true",
 		"schedule.interval":                  "45m",

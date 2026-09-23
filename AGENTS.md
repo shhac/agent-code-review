@@ -619,6 +619,14 @@ internal/
   in the client, so the rule exists in one language. The author is always read
   from the store; naming a different one in a request grants nothing.
 
+  The roster the dashboard serves (`/api/authors`) follows from the same
+  distinction. It never carries `tailscale_login`, the value this whole
+  check rests on, which nothing on the page displays; and over Funnel it
+  drops email and Slack ID too, since a caller there is anyone on the
+  internet. Its rows are an explicit field list, not an embedded
+  `store.Author`, so a new store column is private until someone decides
+  otherwise.
+
 - **Steering is a queue-row field, not a table.** Same key, same lifetime, one
   per row: as a separate table the 1:1 had to be maintained by hand at every
   site that retires a row, and `Complete` needed an `EXISTS` subquery purely

@@ -8,7 +8,6 @@ import (
 	"github.com/shhac/agent-code-review/internal/config"
 	"github.com/shhac/agent-code-review/internal/review"
 	"github.com/shhac/agent-code-review/internal/score"
-	"github.com/shhac/agent-code-review/internal/store"
 )
 
 // configScoringResp is the global scoring switch, as the UI needs it.
@@ -133,9 +132,19 @@ type configResp struct {
 // resolution is included rather than left to the reader because a row can name
 // a group that config no longer defines, and the resolved view is the only
 // place that shows.
+// authorRow is one roster entry as the dashboard may show it, listed field by
+// field rather than embedding store.Author, so a column added to the store
+// does not reach the page (or, under Funnel, the internet) by default. The
+// tailscale login is deliberately absent: it is the identity steering
+// authorisation rests on, and nothing on the page displays it.
 type authorRow struct {
-	store.Author
-	Policy config.Policy `json:"policy"`
+	Repo         string        `json:"repo"`
+	GitHubHandle string        `json:"github_handle"`
+	Group        string        `json:"group"`
+	Name         string        `json:"name,omitempty"`
+	Email        string        `json:"email,omitempty"`
+	SlackID      string        `json:"slack_id,omitempty"`
+	Policy       config.Policy `json:"policy"`
 }
 
 type authorsResp struct {
@@ -204,10 +213,17 @@ func (s *Server) handleAuthors(w http.ResponseWriter, r *http.Request) {
 		cfg := s.config()
 		rows := make([]authorRow, 0, len(authors))
 		for _, a := range authors {
-			rows = append(rows, authorRow{
-				Author: a,
+			row := authorRow{
+				Repo: a.Repo, GitHubHandle: a.GitHubHandle, Group: a.Group, Name: a.Name,
 				Policy: cfg.ResolvePolicy(a.Repo, a.GitHubHandle, a.Membership()),
-			})
+			}
+			// Contact details are for the team, and the tailnet is the team.
+			// Over Funnel the caller is anyone on the internet, and there is
+			// no identity to tell a teammate from a stranger.
+			if s.trustProxyIdentity {
+				row.Email, row.SlackID = a.Email, a.SlackID
+			}
+			rows = append(rows, row)
 		}
 		return authorsResp{Authors: rows}, nil
 	})

@@ -364,6 +364,10 @@ func TestHandleConfig(t *testing.T) {
 // authorisation of its own, so this is what any caller that can reach the
 // dashboard receives. The test exists so that any change to that exposure is
 // a deliberate one, visible in review; it is not an endorsement of it.
+// /api/authors is readable by whoever can reach the dashboard. On a tailnet
+// that is the team, who see contact details; over Funnel it is the internet,
+// who see none. Nobody is ever sent a tailscale login: it is what steering
+// authorisation trusts, and the page never displays it.
 func TestHandleAuthors(t *testing.T) {
 	fs := &fakeStore{roster: []store.Author{
 		{
@@ -374,7 +378,7 @@ func TestHandleAuthors(t *testing.T) {
 		{Repo: store.WildcardRepo, GitHubHandle: "hubot", Group: config.GroupCommenter},
 	}}
 	w := httptest.NewRecorder()
-	newTestServer(fs, config.Config{}).handleAuthors(w,
+	testServer(withStore(fs), withTrustedProxy()).handleAuthors(w,
 		httptest.NewRequest(http.MethodGet, "/api/authors?repo=o/r&group=approver", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("code = %d %s", w.Code, w.Body.String())
@@ -400,7 +404,7 @@ func TestHandleAuthors(t *testing.T) {
 		slices.Sort(out)
 		return out
 	}
-	full := []string{"email", "github_handle", "group", "name", "policy", "repo", "slack_id", "tailscale_login"}
+	full := []string{"email", "github_handle", "group", "name", "policy", "repo", "slack_id"}
 	if k := keys(got.Authors[0]); !slices.Equal(k, full) {
 		t.Errorf("full row keys = %v, want %v", k, full)
 	}
@@ -410,7 +414,7 @@ func TestHandleAuthors(t *testing.T) {
 		t.Errorf("sparse row keys = %v, want %v", k, sparse)
 	}
 	for field, want := range map[string]string{
-		"email": `"octo@example.com"`, "slack_id": `"U123"`, "tailscale_login": `"octo@example.com"`,
+		"email": `"octo@example.com"`, "slack_id": `"U123"`,
 		"name": `"Octo Cat"`, "github_handle": `"octocat"`,
 	} {
 		if g := string(got.Authors[0][field]); g != want {
@@ -424,6 +428,18 @@ func TestHandleAuthors(t *testing.T) {
 	}
 	if policy.Group != config.GroupApprover || policy.Review != config.ReviewApprove {
 		t.Errorf("policy = %+v, want the resolved approver policy", policy)
+	}
+
+	// Funnel: the same roster, with no contact detail at all.
+	w = httptest.NewRecorder()
+	testServer(withStore(fs)).handleAuthors(w, httptest.NewRequest(http.MethodGet, "/api/authors", nil))
+	for _, leak := range []string{"octo@example.com", "U123", "email", "slack_id", "tailscale_login"} {
+		if strings.Contains(w.Body.String(), leak) {
+			t.Errorf("funnel response carries %q: %s", leak, w.Body.String())
+		}
+	}
+	if !strings.Contains(w.Body.String(), `"github_handle":"octocat"`) {
+		t.Errorf("funnel response lost the roster itself: %s", w.Body.String())
 	}
 }
 
